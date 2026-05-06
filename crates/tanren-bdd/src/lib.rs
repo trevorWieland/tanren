@@ -16,6 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_identity_policy::OrgId;
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -28,6 +29,8 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Most recently created organization id (for cross-step references).
+    pub last_org_id: Option<OrgId>,
 }
 
 impl TanrenWorld {
@@ -128,6 +131,7 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedUp(_) => "SignedUp",
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
+        HarnessOutcome::OrganizationCreated(_) => "OrganizationCreated",
         HarnessOutcome::Failure(_) => "Failure",
         HarnessOutcome::Other(_) => "Other",
     }
@@ -167,6 +171,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            last_org_id: None,
         };
         assert_eq!(world.seed.value(), 42);
     }

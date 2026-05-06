@@ -44,6 +44,7 @@
 
 mod api;
 mod cli;
+mod common;
 mod in_process;
 mod mcp;
 mod tui;
@@ -57,9 +58,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, CreateOrganizationRequest,
+    OrganizationAdminOperation, OrganizationFailureReason, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId, OrgPermission};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -146,26 +148,43 @@ pub struct HarnessAcceptance {
     pub joined_org: OrgId,
 }
 
+/// Successful organization-creation result.
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HarnessOrganization {
+    pub org_id: OrgId,
+    pub name: String,
+    pub granted_permissions: Vec<OrgPermission>,
+    pub project_count: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct HarnessOrgSummary {
+    pub id: OrgId,
+    pub name: String,
+}
+
 /// Failure surface — every harness collapses transport-specific
-/// failures down to a [`AccountFailureReason`] (matched on the wire
-/// `code`) plus an opaque message used for diagnostic output.
+/// failures down to a taxonomy reason (matched on the wire `code`)
+/// plus an opaque message used for diagnostic output.
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {
-    /// A taxonomy failure with a known `code`.
+    /// An account-flow taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// An organization-flow taxonomy failure with a known `code`.
+    #[error("{0:?}: {1}")]
+    Organization(OrganizationFailureReason, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
 }
 
 impl HarnessError {
-    /// Project the wire `code` for a [`HarnessError`]. Mirrors the
-    /// shape every interface returns under the shared error taxonomy.
     #[must_use]
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::Organization(reason, _) => reason.code().to_owned(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -238,6 +257,25 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    async fn create_organization(
+        &mut self,
+        req: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrganization>;
+
+    async fn list_available_organizations(&mut self) -> HarnessResult<Vec<HarnessOrgSummary>>;
+
+    async fn authorize_admin_operation(
+        &mut self,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> HarnessResult<()>;
+
+    async fn probe_last_admin_protection(
+        &mut self,
+        org_id: OrgId,
+        permission: OrgPermission,
+    ) -> HarnessResult<()>;
 }
 
 /// Default short-window timeout used by the wire harnesses.
@@ -265,8 +303,8 @@ pub struct ActorState {
     pub sign_in: Option<HarnessSession>,
     /// Last successful invitation acceptance.
     pub accept_invitation: Option<HarnessAcceptance>,
-    /// Last failure (taxonomy code), if any.
-    pub last_failure: Option<AccountFailureReason>,
+    /// Last failure code, if any.
+    pub last_failure: Option<String>,
 }
 
 /// Outcome of the most recent action.
@@ -278,23 +316,23 @@ pub enum HarnessOutcome {
     SignedIn(HarnessSession),
     /// Successful invitation acceptance.
     AcceptedInvitation(HarnessAcceptance),
-    /// Account-flow taxonomy failure (with the wire `code`).
-    Failure(AccountFailureReason),
+    /// Successful organization creation.
+    OrganizationCreated(HarnessOrganization),
+    /// Taxonomy failure (with the wire `code`).
+    Failure(String),
     /// Non-taxonomy infrastructure failure.
     Other(String),
 }
 
 impl HarnessOutcome {
-    /// Project the failure code for this outcome. Mirrors the shape
-    /// the existing `Then the request fails with code "<code>"` step
-    /// asserts on.
     #[must_use]
     pub fn failure_code(&self) -> Option<String> {
         match self {
-            Self::Failure(reason) => Some(reason.code().to_owned()),
+            Self::Failure(code) => Some(code.clone()),
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
+            | Self::OrganizationCreated(_)
             | Self::Other(_) => None,
         }
     }
@@ -306,8 +344,12 @@ impl HarnessOutcome {
 pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutcome {
     match err {
         HarnessError::Account(reason, _) => {
-            entry.last_failure = Some(reason);
-            HarnessOutcome::Failure(reason)
+            entry.last_failure = Some(reason.code().to_owned());
+            HarnessOutcome::Failure(reason.code().to_owned())
+        }
+        HarnessError::Organization(reason, _) => {
+            entry.last_failure = Some(reason.code().to_owned());
+            HarnessOutcome::Failure(reason.code().to_owned())
         }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
@@ -329,6 +371,45 @@ pub fn event_kinds(events: &[EventEnvelope]) -> Vec<String> {
         .collect()
 }
 
+pub(crate) async fn probe_last_admin_via_store<S>(
+    store: &S,
+    org_id: OrgId,
+    account_id: AccountId,
+    permission: OrgPermission,
+) -> HarnessResult<()>
+where
+    S: tanren_store::OrganizationStore + ?Sized,
+{
+    let count = store
+        .count_permission_holders(org_id, permission)
+        .await
+        .map_err(|e| HarnessError::Transport(format!("count_permission_holders: {e}")))?;
+    if count <= 1 {
+        let has = store
+            .has_organization_permission(org_id, account_id, permission)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("has_permission: {e}")))?;
+        if has {
+            return Err(HarnessError::Organization(
+                OrganizationFailureReason::LastAdminHolder,
+                OrganizationFailureReason::LastAdminHolder
+                    .summary()
+                    .to_owned(),
+            ));
+        }
+    }
+    Ok(())
+}
+
+pub(crate) fn require_account_id(id: Option<AccountId>) -> HarnessResult<AccountId> {
+    id.ok_or_else(|| {
+        HarnessError::Organization(
+            OrganizationFailureReason::AuthRequired,
+            "no signed-in account".to_owned(),
+        )
+    })
+}
+
 /// Track concurrent invitation-acceptance outcomes for the falsification
 /// race scenario (`When 20 actors concurrently accept invitation ...`).
 #[derive(Debug, Default)]
@@ -347,6 +428,10 @@ impl ConcurrentAcceptanceTally {
         match outcome {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
+                let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::Organization(reason, _)) => {
                 let code = reason.code().to_owned();
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }

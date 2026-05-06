@@ -9,13 +9,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, CreateOrganizationRequest, OrganizationAdminOperation,
+    OrganizationFailureReason, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId, OrgPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgSummary, HarnessOrganization, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -26,6 +29,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    current_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -63,6 +67,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            current_account_id: None,
         })
     }
 
@@ -84,24 +89,30 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.current_account_id = Some(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.current_account_id = Some(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -141,12 +152,95 @@ impl AccountHarness for InProcessHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn create_organization(
+        &mut self,
+        req: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrganization> {
+        let account_id = self.current_account_id.ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::AuthRequired,
+                "no signed-in account".to_owned(),
+            )
+        })?;
+        match self
+            .handlers
+            .create_organization_for_account(&self.store, account_id, req)
+            .await
+        {
+            Ok(out) => Ok(HarnessOrganization {
+                org_id: out.organization.id,
+                name: out.organization.canonical_name,
+                granted_permissions: out.granted_permissions,
+                project_count: out.project_count,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_available_organizations(&mut self) -> HarnessResult<Vec<HarnessOrgSummary>> {
+        let account_id = self.current_account_id.ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::AuthRequired,
+                "no signed-in account".to_owned(),
+            )
+        })?;
+        let orgs = self
+            .handlers
+            .list_account_organizations(&self.store, account_id)
+            .await
+            .map_err(translate_app_error)?;
+        Ok(orgs
+            .into_iter()
+            .map(|r| HarnessOrgSummary {
+                id: r.id,
+                name: r.canonical_name,
+            })
+            .collect())
+    }
+
+    async fn authorize_admin_operation(
+        &mut self,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> HarnessResult<()> {
+        let account_id = self.current_account_id.ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::AuthRequired,
+                "no signed-in account".to_owned(),
+            )
+        })?;
+        self.handlers
+            .authorize_org_admin_operation(&self.store, account_id, org_id, operation)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn probe_last_admin_protection(
+        &mut self,
+        org_id: OrgId,
+        permission: OrgPermission,
+    ) -> HarnessResult<()> {
+        let account_id = self.current_account_id.ok_or_else(|| {
+            HarnessError::Organization(
+                OrganizationFailureReason::AuthRequired,
+                "no signed-in account".to_owned(),
+            )
+        })?;
+        self.handlers
+            .assert_not_last_admin_holder(&self.store, org_id, account_id, permission)
+            .await
+            .map_err(translate_app_error)
+    }
 }
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Organization(reason) => {
+            HarnessError::Organization(reason, reason.code().to_owned())
+        }
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }

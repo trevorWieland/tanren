@@ -15,15 +15,19 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, OrganizationAdminOperation,
+    SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, OrgId, OrgPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::common::{code_to_org_reason, code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgSummary, HarnessOrganization, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -34,6 +38,8 @@ pub struct McpHarness {
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    current_session_token: Option<String>,
+    current_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -96,6 +102,8 @@ impl McpHarness {
             db_path,
             client: Some(client),
             server: Some(server),
+            current_session_token: None,
+            current_account_id: None,
         })
     }
 
@@ -153,7 +161,10 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.current_session_token = payload["session"]["token"].as_str().map(String::from);
+        self.current_account_id = Some(session.account_id);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +173,10 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.current_session_token = payload["session"]["token"].as_str().map(String::from);
+        self.current_account_id = Some(session.account_id);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -201,6 +215,86 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn create_organization(
+        &mut self,
+        req: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrganization> {
+        let token = self
+            .current_session_token
+            .clone()
+            .ok_or_else(|| HarnessError::Transport("no session token".to_owned()))?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "name": req.name.as_str(),
+        });
+        let payload = self.call_tool("organization.create", body).await?;
+        let org_id: OrgId = serde_json::from_value(payload["organization"]["id"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode org id: {e}")))?;
+        let name = payload["organization"]["name"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        let granted_permissions: Vec<OrgPermission> =
+            serde_json::from_value(payload["membership"]["permissions"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode permissions: {e}")))?;
+        Ok(HarnessOrganization {
+            org_id,
+            name,
+            granted_permissions,
+            project_count: 0,
+        })
+    }
+
+    async fn list_available_organizations(&mut self) -> HarnessResult<Vec<HarnessOrgSummary>> {
+        let token = self
+            .current_session_token
+            .clone()
+            .ok_or_else(|| HarnessError::Transport("no session token".to_owned()))?;
+        let body = serde_json::json!({ "session_token": token });
+        let payload = self.call_tool("organization.list", body).await?;
+        let orgs = payload
+            .as_array()
+            .map(|a| {
+                a.iter()
+                    .filter_map(|v| {
+                        let id: Option<OrgId> = serde_json::from_value(v["id"].clone()).ok();
+                        let name = v["name"].as_str().unwrap_or("").to_owned();
+                        id.map(|id| HarnessOrgSummary { id, name })
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(orgs)
+    }
+
+    async fn authorize_admin_operation(
+        &mut self,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> HarnessResult<()> {
+        let token = self
+            .current_session_token
+            .clone()
+            .ok_or_else(|| HarnessError::Transport("no session token".to_owned()))?;
+        let body = serde_json::json!({
+            "session_token": token,
+            "org_id": org_id,
+            "operation": operation,
+        });
+        self.call_tool("organization.authorize_admin_operation", body)
+            .await?;
+        Ok(())
+    }
+
+    async fn probe_last_admin_protection(
+        &mut self,
+        org_id: OrgId,
+        permission: OrgPermission,
+    ) -> HarnessResult<()> {
+        let account_id = super::require_account_id(self.current_account_id)?;
+        super::probe_last_admin_via_store(self.store.as_ref(), org_id, account_id, permission).await
     }
 }
 
@@ -245,6 +339,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = code_to_org_reason(&code) {
+        HarnessError::Organization(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

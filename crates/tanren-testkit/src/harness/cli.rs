@@ -16,24 +16,27 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateOrganizationRequest, OrganizationAdminOperation,
+    SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Identifier, OrgId, OrgPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::common::{code_to_org_reason, code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOrgSummary, HarnessOrganization, HarnessResult, HarnessSession,
 };
 
-/// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    current_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -46,14 +49,6 @@ impl std::fmt::Debug for CliHarness {
 }
 
 impl CliHarness {
-    /// Construct a fresh CLI harness. Connects + migrates a per-
-    /// scenario `SQLite` database and locates the `tanren-cli` binary
-    /// alongside the running BDD executable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be initialized or the
-    /// binary is missing from the expected target directory.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("cli");
         let db_url = sqlite_url(&db_path);
@@ -73,6 +68,7 @@ impl CliHarness {
             db_path,
             db_url,
             binary,
+            current_account_id: None,
         })
     }
 }
@@ -114,6 +110,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
+            self.current_account_id = Some(account.id);
             HarnessSession {
                 account_id: account.id,
                 account,
@@ -145,11 +142,14 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| {
+            self.current_account_id = Some(account.id);
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -184,10 +184,6 @@ impl AccountHarness for CliHarness {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
         let joined_org = parse_joined_org(&stdout)?;
-        // The CLI binary returns the AccountView reconstituted from
-        // the row; re-decorate it with `org = Some(joined_org)` to
-        // mirror the api/in-process surface where the account view
-        // already carries the org id.
         let account = AccountView {
             org: Some(joined_org),
             ..account
@@ -220,11 +216,88 @@ impl AccountHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn create_organization(
+        &mut self,
+        req: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrganization> {
+        let output = Command::new(&self.binary)
+            .args([
+                "organization",
+                "create",
+                "--database-url",
+                &self.db_url,
+                "--name",
+                req.name.as_str(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli org create: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_org_create_output(&stdout)
+    }
+
+    async fn list_available_organizations(&mut self) -> HarnessResult<Vec<HarnessOrgSummary>> {
+        let output = Command::new(&self.binary)
+            .args(["organization", "list", "--database-url", &self.db_url])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli org list: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        Ok(parse_org_list_output(&stdout))
+    }
+
+    async fn authorize_admin_operation(
+        &mut self,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> HarnessResult<()> {
+        let op_str = operation_to_str(operation);
+        let output = Command::new(&self.binary)
+            .args([
+                "organization",
+                "authorize-admin-operation",
+                "--database-url",
+                &self.db_url,
+                "--org-id",
+                &org_id.to_string(),
+                "--operation",
+                op_str,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli org authorize: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        Ok(())
+    }
+
+    async fn probe_last_admin_protection(
+        &mut self,
+        org_id: OrgId,
+        permission: OrgPermission,
+    ) -> HarnessResult<()> {
+        let account_id = super::require_account_id(self.current_account_id)?;
+        super::probe_last_admin_via_store(self.store.as_ref(), org_id, account_id, permission).await
+    }
 }
 
-/// Locate a workspace binary by name. The BDD runner is at
-/// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
-/// the same directory.
 pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if let Ok(explicit) = std::env::var(format!(
         "TANREN_BIN_{}",
@@ -247,8 +320,6 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if candidate.exists() {
         return Ok(candidate);
     }
-    // Fallback: walk up to the workspace root and check
-    // `target/{debug,release}/<bin>`.
     let mut cursor = dir;
     while let Some(parent) = cursor.parent() {
         for profile in ["debug", "release"] {
@@ -270,14 +341,15 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
+        }
+        if let Some(reason) = code_to_org_reason(code) {
+            return HarnessError::Organization(reason, summary);
         }
     }
     HarnessError::Transport(text.into_owned())
@@ -326,4 +398,82 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
     Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
         HarnessError::Transport(format!("parse org id: {e}"))
     })?))
+}
+
+fn parse_org_create_output(stdout: &str) -> HarnessResult<HarnessOrganization> {
+    let id_re = Regex::new(r"org_id=([0-9a-fA-F-]+)").expect("constant regex");
+    let id_cap = id_re.captures(stdout).ok_or_else(|| {
+        HarnessError::Transport(format!("parse org_id from cli stdout: {stdout}"))
+    })?;
+    let org_id = OrgId::from(
+        Uuid::parse_str(id_cap.get(1).map_or("", |m| m.as_str()))
+            .map_err(|e| HarnessError::Transport(format!("parse org id: {e}")))?,
+    );
+    let name_re = Regex::new(r"name=([^\s]+)").expect("constant regex");
+    let name = name_re
+        .captures(stdout)
+        .and_then(|c| c.get(1))
+        .map_or(String::new(), |m| m.as_str().to_owned());
+    let count_re = Regex::new(r"project_count=(\d+)").expect("constant regex");
+    let project_count: u64 = count_re
+        .captures(stdout)
+        .and_then(|c| c.get(1))
+        .and_then(|m| m.as_str().parse().ok())
+        .unwrap_or(0);
+    let perms_re = Regex::new(r"permissions=\[([^\]]*)\]").expect("constant regex");
+    let granted_permissions =
+        perms_re
+            .captures(stdout)
+            .and_then(|c| c.get(1))
+            .map_or(Vec::new(), |m| {
+                m.as_str()
+                    .split(", ")
+                    .filter_map(|s| str_to_permission(s.trim()))
+                    .collect()
+            });
+    Ok(HarnessOrganization {
+        org_id,
+        name,
+        granted_permissions,
+        project_count,
+    })
+}
+
+fn parse_org_list_output(stdout: &str) -> Vec<HarnessOrgSummary> {
+    if stdout.contains("organizations: (none)") {
+        return Vec::new();
+    }
+    let re = Regex::new(r"org_id=([0-9a-fA-F-]+)\s+name=([^\s]+)").expect("constant regex");
+    re.captures_iter(stdout)
+        .filter_map(|cap| {
+            let id = Uuid::parse_str(cap.get(1)?.as_str()).ok()?;
+            let name = cap.get(2)?.as_str().to_owned();
+            Some(HarnessOrgSummary {
+                id: OrgId::from(id),
+                name,
+            })
+        })
+        .collect()
+}
+
+fn operation_to_str(op: OrganizationAdminOperation) -> &'static str {
+    match op {
+        OrganizationAdminOperation::InviteMembers => "invite_members",
+        OrganizationAdminOperation::ManageAccess => "manage_access",
+        OrganizationAdminOperation::Configure => "configure",
+        OrganizationAdminOperation::SetPolicy => "set_policy",
+        OrganizationAdminOperation::Delete => "delete",
+        _ => "unknown",
+    }
+}
+
+fn str_to_permission(s: &str) -> Option<OrgPermission> {
+    match s {
+        "invite_members" => Some(OrgPermission::InviteMembers),
+        "manage_access" => Some(OrgPermission::ManageAccess),
+        "configure" => Some(OrgPermission::Configure),
+        "set_policy" => Some(OrgPermission::SetPolicy),
+        "delete" => Some(OrgPermission::Delete),
+        _ => None,
+    }
 }

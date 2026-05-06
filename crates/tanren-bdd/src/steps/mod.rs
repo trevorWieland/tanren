@@ -3,3 +3,4 @@
 //! here and the macros register globally.
 
 pub mod account;
+pub mod organization;

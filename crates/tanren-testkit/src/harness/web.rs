@@ -21,13 +21,17 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, CreateOrganizationRequest, OrganizationAdminOperation, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::{OrgId, OrgPermission};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessOrgSummary,
+    HarnessOrganization, HarnessResult, HarnessSession,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -79,5 +83,36 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn create_organization(
+        &mut self,
+        req: CreateOrganizationRequest,
+    ) -> HarnessResult<HarnessOrganization> {
+        self.inner.create_organization(req).await
+    }
+
+    async fn list_available_organizations(&mut self) -> HarnessResult<Vec<HarnessOrgSummary>> {
+        self.inner.list_available_organizations().await
+    }
+
+    async fn authorize_admin_operation(
+        &mut self,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> HarnessResult<()> {
+        self.inner
+            .authorize_admin_operation(org_id, operation)
+            .await
+    }
+
+    async fn probe_last_admin_protection(
+        &mut self,
+        org_id: OrgId,
+        permission: OrgPermission,
+    ) -> HarnessResult<()> {
+        self.inner
+            .probe_last_admin_protection(org_id, permission)
+            .await
     }
 }
