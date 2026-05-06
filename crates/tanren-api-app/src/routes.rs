@@ -113,6 +113,8 @@ pub struct AcceptInvitationBody {
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "organizations", description = "Organization invitation management."),
+        (name = "invitations", description = "Recipient-visible invitation lookups."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -320,5 +322,6 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .merge(crate::invitations::build_invitation_routes())
         .with_state(state)
 }

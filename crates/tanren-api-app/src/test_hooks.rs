@@ -25,8 +25,10 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_identity_policy::{
+    AccountId, Identifier, InvitationToken, OrgId, OrganizationPermission,
+};
+use tanren_store::{AccountStore, CreateInvitation, NewInvitation, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -64,10 +66,94 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+/// Request body for `POST /test-hooks/memberships`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedMembershipBody {
+    /// Account to add to the organization.
+    pub account_id: Uuid,
+    /// Target organization.
+    pub org_id: Uuid,
+    /// Permission names to grant (e.g. `["admin"]` or `["member"]`).
+    pub permissions: Vec<String>,
+}
+
+pub(crate) async fn seed_membership_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedMembershipBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let account_id = AccountId::new(body.account_id);
+    let org_id = OrgId::new(body.org_id);
+    let permissions = body
+        .permissions
+        .iter()
+        .map(|s| OrganizationPermission::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    store
+        .insert_membership(account_id, org_id, permissions, Utc::now())
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+/// Request body for `POST /test-hooks/org-invitations`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedOrgInvitationBody {
+    /// Opaque invitation token.
+    pub token: String,
+    /// Target organization.
+    pub org_id: Uuid,
+    /// Recipient identifier (email).
+    pub recipient_identifier: String,
+    /// Permission names to grant on acceptance.
+    pub permissions: Vec<String>,
+    /// Account id of the inviting admin.
+    pub created_by_account_id: Uuid,
+    /// Expiry instant.
+    pub expires_at: DateTime<Utc>,
+}
+
+pub(crate) async fn seed_org_invitation_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedOrgInvitationBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let token = InvitationToken::parse(&body.token)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let inviting_org_id = OrgId::new(body.org_id);
+    let recipient_identifier = Identifier::parse(&body.recipient_identifier)
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let granted_permissions = body
+        .permissions
+        .iter()
+        .map(|s| OrganizationPermission::parse(s))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let created_by_account_id = AccountId::new(body.created_by_account_id);
+    let now = Utc::now();
+    store
+        .seed_organization_invitation(CreateInvitation {
+            token,
+            inviting_org_id,
+            recipient_identifier,
+            granted_permissions,
+            created_by_account_id,
+            created_at: now,
+            expires_at: body.expires_at,
+        })
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route(
+            "/test-hooks/org-invitations",
+            post(seed_org_invitation_route),
+        )
+        .route("/test-hooks/memberships", post(seed_membership_route))
         .with_state(store)
 }

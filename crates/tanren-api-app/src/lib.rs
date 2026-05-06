@@ -38,6 +38,7 @@
 
 mod cookies;
 mod errors;
+mod invitations;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition
@@ -63,6 +64,7 @@ use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
 pub use crate::errors::AccountFailureBody;
+pub use crate::invitations::{CreateOrgInvitationBody, RecipientInvitationsQuery};
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,

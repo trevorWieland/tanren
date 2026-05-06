@@ -7,7 +7,9 @@
 
 use std::str::FromStr;
 
+use crate::errors::unauthenticated_error;
 use anyhow::{Context, Result};
+use axum::response::Response;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::AccountId;
 use tower_sessions::cookie::SameSite;
@@ -27,6 +29,17 @@ const SESSION_KEY_EXPIRES: &str = "expires_at";
 pub(crate) struct SessionWrite {
     pub(crate) account_id: AccountId,
     pub(crate) expires_at: DateTime<Utc>,
+}
+
+/// Read the authenticated `AccountId` from the tower-sessions cookie.
+/// Returns `Err` with the standard unauthenticated error body when the
+/// session is absent or corrupt.
+pub(crate) async fn read_session_account_id(session: &Session) -> Result<AccountId, Response> {
+    let account_id: Option<AccountId> = session.get(SESSION_KEY_ACCOUNT).await.map_err(|err| {
+        tracing::error!(target: "tanren_api", error = %err, "session read");
+        unauthenticated_error()
+    })?;
+    account_id.ok_or_else(unauthenticated_error)
 }
 
 /// Insert the account id and expiry into the tower-sessions row backing

@@ -108,6 +108,17 @@ where
     }
 }
 
+pub(crate) fn unauthenticated_error() -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AccountFailureBody {
+            code: "unauthenticated".to_owned(),
+            summary: "Authentication is required for this operation.".to_owned(),
+        }),
+    )
+        .into_response()
+}
+
 fn map_json_rejection(rejection: &JsonRejection) -> Response {
     let summary = match rejection {
         JsonRejection::JsonDataError(e) => e.body_text(),
