@@ -33,8 +33,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, MembershipRecord, NewAccount, SessionRecord,
-    StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, MemberInFlightWorkRecord, MembershipRecord,
+    NewAccount, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -287,6 +287,39 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         request: AcceptExistingInvitationRequest,
     ) -> Result<AcceptExistingInvitationOutput, AcceptExistingInvitationError>;
+
+    /// List all memberships for an organization.
+    async fn list_memberships_for_org(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Vec<MembershipRecord>, StoreError>;
+
+    /// List placeholder in-flight work items for a member in an
+    /// organization.
+    async fn list_in_flight_work_for_member(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<MemberInFlightWorkRecord>, StoreError>;
+
+    /// Delete a single membership by id. Returns `Ok(true)` when a row
+    /// was deleted, `Ok(false)` when no row matched.
+    async fn delete_membership(&self, membership_id: MembershipId) -> Result<bool, StoreError>;
+
+    /// Count memberships in an org that carry administrative
+    /// permissions (`org_permissions = 'admin'`). Used by the
+    /// last-admin invariant check at the store boundary so the
+    /// app-service layer does not need row-shape access.
+    async fn count_admin_memberships_for_org(&self, org_id: OrgId) -> Result<u64, StoreError>;
+
+    /// Atomically depart a member: delete the membership and append
+    /// success events in one transaction. Failure on any step rolls
+    /// back — the membership row stays intact so the caller can
+    /// retry.
+    async fn depart_member_atomic(
+        &self,
+        request: DepartMemberAtomicRequest,
+    ) -> Result<DepartMemberAtomicOutput, DepartMemberError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].
@@ -393,6 +426,67 @@ pub enum AcceptExistingInvitationError {
     WrongAccount,
     #[error("account is already a member of this organization")]
     AlreadyMember,
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Context the store passes back to the caller's event-builder for the
+/// membership departure flow.
+#[derive(Debug, Clone)]
+pub struct DepartMemberEventContext {
+    /// Account that is departing.
+    pub account_id: AccountId,
+    /// Organization the account is leaving.
+    pub org_id: OrgId,
+    /// Wall-clock time of the departure.
+    pub now: DateTime<Utc>,
+}
+
+/// Closure the store invokes inside the departure transaction to build
+/// the success-path event envelopes.
+pub type DepartMemberEventsBuilder =
+    Box<dyn FnOnce(&DepartMemberEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`AccountStore::depart_member_atomic`].
+pub struct DepartMemberAtomicRequest {
+    /// The membership to delete.
+    pub membership_id: MembershipId,
+    /// Account that is departing.
+    pub account_id: AccountId,
+    /// Organization the account is leaving.
+    pub org_id: OrgId,
+    /// Wall-clock time of the departure.
+    pub now: DateTime<Utc>,
+    /// Closure the store invokes inside the transaction to build
+    /// success-path event envelopes.
+    pub events_builder: DepartMemberEventsBuilder,
+}
+
+impl std::fmt::Debug for DepartMemberAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("DepartMemberAtomicRequest")
+            .field("membership_id", &self.membership_id)
+            .field("account_id", &self.account_id)
+            .field("org_id", &self.org_id)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Successful return from [`AccountStore::depart_member_atomic`].
+#[derive(Debug, Clone)]
+pub struct DepartMemberAtomicOutput {
+    /// The membership that was deleted.
+    pub deleted_membership: MembershipRecord,
+}
+
+/// Failure taxonomy for [`AccountStore::depart_member_atomic`].
+#[derive(Debug, thiserror::Error)]
+pub enum DepartMemberError {
+    /// No membership matches the supplied id.
+    #[error("membership not found")]
+    MembershipNotFound,
+    /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
 }

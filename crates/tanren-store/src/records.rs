@@ -211,3 +211,33 @@ pub struct NewInvitation {
     /// scenarios can exercise the revoked-invitation rejection path.
     pub revoked: bool,
 }
+
+/// Persisted placeholder in-flight work row — used by departure-flow
+/// BDD fixtures to represent work a departing member has outstanding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MemberInFlightWorkRecord {
+    /// Row id.
+    pub id: uuid::Uuid,
+    /// Account the work belongs to.
+    pub account_id: AccountId,
+    /// Organization the work is scoped to.
+    pub org_id: OrgId,
+    /// Human-readable description of the in-flight work.
+    pub description: String,
+    /// Wall-clock time the record was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::member_in_flight_work::Model> for MemberInFlightWorkRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::member_in_flight_work::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: model.id,
+            account_id: AccountId::new(model.account_id),
+            org_id: OrgId::new(model.org_id),
+            description: model.description,
+            created_at: model.created_at,
+        })
+    }
+}

@@ -6,4 +6,5 @@ pub(crate) mod account_sessions;
 pub(crate) mod accounts;
 pub(crate) mod events;
 pub(crate) mod invitations;
+pub(crate) mod member_in_flight_work;
 pub(crate) mod memberships;

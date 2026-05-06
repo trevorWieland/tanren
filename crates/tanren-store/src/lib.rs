@@ -10,27 +10,33 @@
 mod accept_existing_invitation;
 mod accept_invitation;
 mod entity;
+mod membership_departure;
 mod migration;
 mod records;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MemberInFlightWorkRecord, MembershipRecord, NewAccount,
+    NewInvitation, SessionRecord,
 };
 pub use traits::{
     AcceptExistingInvitationError, AcceptExistingInvitationEventContext,
     AcceptExistingInvitationEventsBuilder, AcceptExistingInvitationOutput,
     AcceptExistingInvitationRequest, AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest,
     AcceptInvitationError, AcceptInvitationEventContext, AcceptInvitationEventsBuilder,
-    AccountStore, ConsumeInvitationError, ConsumedInvitation,
+    AccountStore, ConsumeInvitationError, ConsumedInvitation, DepartMemberAtomicOutput,
+    DepartMemberAtomicRequest, DepartMemberError, DepartMemberEventContext,
+    DepartMemberEventsBuilder,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait,
+    PaginatorTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
@@ -352,78 +358,54 @@ impl AccountStore for Store {
     ) -> Result<AcceptExistingInvitationOutput, AcceptExistingInvitationError> {
         accept_existing_invitation::run(&self.conn, request).await
     }
-}
 
-/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
-/// so production binaries cannot accidentally seed test data; the testkit
-/// (and only the testkit) enables the feature.
-#[cfg(feature = "test-hooks")]
-impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn seed_invitation(
+    async fn list_memberships_for_org(
         &self,
-        new: NewInvitation,
-    ) -> Result<InvitationRecord, StoreError> {
-        let now = Utc::now();
-        let model = entity::invitations::ActiveModel {
-            token: Set(new.token.as_str().to_owned()),
-            inviting_org_id: Set(new.inviting_org_id.as_uuid()),
-            expires_at: Set(new.expires_at),
-            consumed_at: Set(None),
-            target_identifier: Set(new
-                .target_identifier
-                .as_ref()
-                .map(|i| i.as_str().to_owned())),
-            org_permissions: Set(new.org_permissions.as_ref().map(|p| p.as_str().to_owned())),
-            revoked_at: Set(new.revoked.then_some(now)),
-            revoked_by: Set(new.revoked.then_some(AccountId::fresh().as_uuid())),
-            consumed_by: Set(None),
-        };
-        let inserted = model.insert(&self.conn).await?;
-        InvitationRecord::try_from(inserted)
+        org_id: OrgId,
+    ) -> Result<Vec<MembershipRecord>, StoreError> {
+        let rows = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+        rows.into_iter().map(MembershipRecord::try_from).collect()
     }
 
-    /// Seed a fixture invitation with a raw (unvalidated) `org_permissions`
-    /// column value. Used by store-invariant BDD scenarios that need to
-    /// insert rows that bypass [`OrgPermissions::parse`] validation so
-    /// the consumption path is forced to surface
-    /// [`StoreError::DataInvariant`].
-    ///
-    /// Returns `Ok(())` on successful insert without validating the
-    /// row through [`InvitationRecord::try_from`] — the whole point is
-    /// to plant a value that normal validation would reject.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn seed_invitation_raw_permissions(
+    async fn list_in_flight_work_for_member(
         &self,
-        new: NewInvitation,
-        raw_org_permissions: Option<String>,
-    ) -> Result<(), StoreError> {
-        let now = Utc::now();
-        let model = entity::invitations::ActiveModel {
-            token: Set(new.token.as_str().to_owned()),
-            inviting_org_id: Set(new.inviting_org_id.as_uuid()),
-            expires_at: Set(new.expires_at),
-            consumed_at: Set(None),
-            target_identifier: Set(new
-                .target_identifier
-                .as_ref()
-                .map(|i| i.as_str().to_owned())),
-            org_permissions: Set(raw_org_permissions),
-            revoked_at: Set(new.revoked.then_some(now)),
-            revoked_by: Set(new.revoked.then_some(AccountId::fresh().as_uuid())),
-            consumed_by: Set(None),
-        };
-        model.insert(&self.conn).await?;
-        Ok(())
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<MemberInFlightWorkRecord>, StoreError> {
+        let rows = entity::member_in_flight_work::Entity::find()
+            .filter(entity::member_in_flight_work::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::member_in_flight_work::Column::OrgId.eq(org_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+        rows.into_iter()
+            .map(MemberInFlightWorkRecord::try_from)
+            .collect()
+    }
+
+    async fn delete_membership(&self, membership_id: MembershipId) -> Result<bool, StoreError> {
+        let result = entity::memberships::Entity::delete_by_id(membership_id.as_uuid())
+            .exec(&self.conn)
+            .await?;
+        Ok(result.rows_affected == 1)
+    }
+
+    async fn count_admin_memberships_for_org(&self, org_id: OrgId) -> Result<u64, StoreError> {
+        let count = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+            .filter(entity::memberships::Column::OrgPermissions.eq("admin"))
+            .count(&self.conn)
+            .await?;
+        Ok(count)
+    }
+
+    async fn depart_member_atomic(
+        &self,
+        request: DepartMemberAtomicRequest,
+    ) -> Result<DepartMemberAtomicOutput, DepartMemberError> {
+        membership_departure::run(&self.conn, request).await
     }
 }
 

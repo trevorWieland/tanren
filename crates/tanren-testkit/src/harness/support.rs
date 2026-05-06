@@ -64,14 +64,12 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
     })
 }
 
-pub(crate) async fn wait_for_server_ready(port: u16) {
-    for _ in 0..50 {
-        if tokio::net::TcpStream::connect(("127.0.0.1", port))
-            .await
-            .is_ok()
-        {
-            return;
+pub(crate) async fn wait_for_http_ready(client: &reqwest::Client, base_url: &str) {
+    let url = format!("{base_url}/health");
+    for _ in 0..200 {
+        if client.get(&url).send().await.is_ok() {
+            break;
         }
-        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
     }
 }

@@ -52,16 +52,21 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_invitations_revoked_by_account")
-                    .from(Invitations::Table, Invitations::RevokedBy)
-                    .to(Accounts::Table, Accounts::Id)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .to_owned(),
-            )
-            .await?;
+        if !matches!(
+            manager.get_database_backend(),
+            sea_orm::DatabaseBackend::Sqlite
+        ) {
+            manager
+                .create_foreign_key(
+                    ForeignKey::create()
+                        .name("fk_invitations_revoked_by_account")
+                        .from(Invitations::Table, Invitations::RevokedBy)
+                        .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::SetNull)
+                        .to_owned(),
+                )
+                .await?;
+        }
         manager
             .alter_table(
                 Table::alter()
@@ -70,16 +75,21 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        manager
-            .create_foreign_key(
-                ForeignKey::create()
-                    .name("fk_invitations_consumed_by_account")
-                    .from(Invitations::Table, Invitations::ConsumedBy)
-                    .to(Accounts::Table, Accounts::Id)
-                    .on_delete(ForeignKeyAction::SetNull)
-                    .to_owned(),
-            )
-            .await?;
+        if !matches!(
+            manager.get_database_backend(),
+            sea_orm::DatabaseBackend::Sqlite
+        ) {
+            manager
+                .create_foreign_key(
+                    ForeignKey::create()
+                        .name("fk_invitations_consumed_by_account")
+                        .from(Invitations::Table, Invitations::ConsumedBy)
+                        .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::SetNull)
+                        .to_owned(),
+                )
+                .await?;
+        }
         manager
             .alter_table(
                 Table::alter()
@@ -101,14 +111,19 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        manager
-            .drop_foreign_key(
-                ForeignKey::drop()
-                    .name("fk_invitations_consumed_by_account")
-                    .table(Invitations::Table)
-                    .to_owned(),
-            )
-            .await?;
+        if !matches!(
+            manager.get_database_backend(),
+            sea_orm::DatabaseBackend::Sqlite
+        ) {
+            manager
+                .drop_foreign_key(
+                    ForeignKey::drop()
+                        .name("fk_invitations_consumed_by_account")
+                        .table(Invitations::Table)
+                        .to_owned(),
+                )
+                .await?;
+        }
         manager
             .alter_table(
                 Table::alter()
@@ -117,14 +132,19 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-        manager
-            .drop_foreign_key(
-                ForeignKey::drop()
-                    .name("fk_invitations_revoked_by_account")
-                    .table(Invitations::Table)
-                    .to_owned(),
-            )
-            .await?;
+        if !matches!(
+            manager.get_database_backend(),
+            sea_orm::DatabaseBackend::Sqlite
+        ) {
+            manager
+                .drop_foreign_key(
+                    ForeignKey::drop()
+                        .name("fk_invitations_revoked_by_account")
+                        .table(Invitations::Table)
+                        .to_owned(),
+                )
+                .await?;
+        }
         manager
             .alter_table(
                 Table::alter()

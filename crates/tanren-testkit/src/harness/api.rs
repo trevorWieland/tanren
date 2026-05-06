@@ -27,8 +27,7 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::support::{
-    failure_from_body, harness_to_new_invitation, scenario_db_path, sqlite_url,
-    wait_for_server_ready,
+    failure_from_body, harness_to_new_invitation, scenario_db_path, sqlite_url, wait_for_http_ready,
 };
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult,
@@ -101,13 +100,13 @@ impl ApiHarness {
             let _ = axum::serve(listener, app).await;
         });
 
-        wait_for_server_ready(local_addr.port()).await;
-
         let client = Client::builder()
             .cookie_store(true)
             .timeout(super::HARNESS_DEFAULT_TIMEOUT)
             .build()
             .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
+
+        wait_for_http_ready(&client, &base_url).await;
 
         Ok(Self {
             base_url,
