@@ -173,6 +173,9 @@ mod tests {
 }
 
 #[cfg(test)]
+mod uninstall_api_smoke;
+
+#[cfg(test)]
 mod uninstall_smoke {
     use std::fs;
     use std::path::{Path, PathBuf};

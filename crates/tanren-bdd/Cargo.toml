@@ -12,12 +12,16 @@ description = "BDD step-definition home for Tanren. Hosts the cucumber `World` a
 workspace = true
 
 [dependencies]
+axum = { workspace = true }
 chrono = { workspace = true }
 cucumber = { workspace = true }
+reqwest = { workspace = true, features = ["cookies"] }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 sha2 = { workspace = true }
+tanren-api-app = { path = "../tanren-api-app", features = ["test-hooks"] }
+tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",

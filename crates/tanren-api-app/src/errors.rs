@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
+use tanren_app_services::project_uninstall::UninstallError;
 use tanren_contract::AccountFailureReason;
 
 /// Shared `{code, summary}` failure body.
@@ -78,6 +79,59 @@ fn failure_body(reason: AccountFailureReason) -> Response {
         Json(json!({"code": reason.code(), "summary": reason.summary()})),
     )
         .into_response()
+}
+
+/// Map an [`UninstallError`] to the matching HTTP response using the
+/// shared `{code, summary}` shape.
+pub(crate) fn map_uninstall_error(err: UninstallError) -> Response {
+    match err {
+        UninstallError::NoManifest { path } => (
+            StatusCode::NOT_FOUND,
+            Json(AccountFailureBody {
+                code: "manifest_not_found".to_owned(),
+                summary: format!("No install manifest found at {path}"),
+            }),
+        )
+            .into_response(),
+        UninstallError::ReadFailed { path, source } => {
+            tracing::error!(target: "tanren_api", error = %source, "manifest read failed at {path}");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response()
+        }
+        UninstallError::ParseFailed { source } => (
+            StatusCode::BAD_REQUEST,
+            Json(AccountFailureBody {
+                code: "manifest_invalid".to_owned(),
+                summary: format!("Failed to parse install manifest: {source}"),
+            }),
+        )
+            .into_response(),
+        UninstallError::Io(source) => {
+            tracing::error!(target: "tanren_api", error = %source, "I/O during uninstall");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response()
+        }
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AccountFailureBody {
+                code: "internal_error".to_owned(),
+                summary: "Tanren encountered an internal error.".to_owned(),
+            }),
+        )
+            .into_response(),
+    }
 }
 
 /// Custom `Json` extractor that maps any deserialize-time failure

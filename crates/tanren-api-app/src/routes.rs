@@ -12,8 +12,10 @@ use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
+use tanren_app_services::project_uninstall;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    UninstallPreview, UninstallResult,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -23,7 +25,9 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, map_app_error, map_uninstall_error, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -83,6 +87,40 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+/// Request body for `POST /projects/uninstall/preview`.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UninstallPreviewRequest {
+    /// Absolute path to the local repository root.
+    pub repo_path: String,
+}
+
+/// Response body for the uninstall-preview route.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UninstallPreviewResponse {
+    /// Preview of what will be removed and preserved.
+    pub preview: UninstallPreview,
+    /// Hosted account/project history is not affected by this operation.
+    pub hosted_data_unchanged: bool,
+}
+
+/// Request body for `POST /projects/uninstall/apply`.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub struct UninstallApplyRequest {
+    /// Absolute path to the local repository root.
+    pub repo_path: String,
+    /// Must be `true` to confirm the destructive operation.
+    pub confirm: bool,
+}
+
+/// Response body for the uninstall-apply route.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub struct UninstallApplyResponse {
+    /// Result of the uninstall operation.
+    pub result: UninstallResult,
+    /// Hosted account/project history is not affected by this operation.
+    pub hosted_data_unchanged: bool,
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -98,6 +136,8 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        uninstall_preview_route,
+        uninstall_apply_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +149,17 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        UninstallPreviewRequest,
+        UninstallPreviewResponse,
+        UninstallPreview,
+        UninstallApplyRequest,
+        UninstallApplyResponse,
+        UninstallResult,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "projects", description = "Project lifecycle: install, upgrade, uninstall."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +355,76 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Preview the uninstall of Tanren-generated assets from a repository.
+/// Does not modify any files on disk.
+#[utoipa::path(
+    post,
+    path = "/projects/uninstall/preview",
+    request_body = UninstallPreviewRequest,
+    responses(
+        (status = 200, body = UninstallPreviewResponse, description = "Preview of uninstall"),
+        (status = 400, body = AccountFailureBody, description = "manifest_invalid"),
+        (status = 404, body = AccountFailureBody, description = "manifest_not_found"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn uninstall_preview_route(
+    ValidatedJson(body): ValidatedJson<UninstallPreviewRequest>,
+) -> Response {
+    let repo = std::path::Path::new(&body.repo_path);
+    match project_uninstall::preview(repo) {
+        Ok(preview) => (
+            StatusCode::OK,
+            Json(UninstallPreviewResponse {
+                preview,
+                hosted_data_unchanged: true,
+            }),
+        )
+            .into_response(),
+        Err(err) => map_uninstall_error(err),
+    }
+}
+
+/// Apply the uninstall: remove unchanged Tanren-generated files.
+/// Requires `confirm: true` in the request body.
+#[utoipa::path(
+    post,
+    path = "/projects/uninstall/apply",
+    request_body = UninstallApplyRequest,
+    responses(
+        (status = 200, body = UninstallApplyResponse, description = "Uninstall applied"),
+        (status = 400, body = AccountFailureBody, description = "confirmation_required or manifest_invalid"),
+        (status = 404, body = AccountFailureBody, description = "manifest_not_found"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn uninstall_apply_route(
+    ValidatedJson(body): ValidatedJson<UninstallApplyRequest>,
+) -> Response {
+    if !body.confirm {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AccountFailureBody {
+                code: "confirmation_required".to_owned(),
+                summary: "Set `confirm` to `true` to apply the uninstall.".to_owned(),
+            }),
+        )
+            .into_response();
+    }
+    let repo = std::path::Path::new(&body.repo_path);
+    match project_uninstall::apply(repo) {
+        Ok(result) => (
+            StatusCode::OK,
+            Json(UninstallApplyResponse {
+                result,
+                hosted_data_unchanged: true,
+            }),
+        )
+            .into_response(),
+        Err(err) => map_uninstall_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +437,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(uninstall_preview_route))
+        .routes(routes!(uninstall_apply_route))
         .with_state(state)
 }
