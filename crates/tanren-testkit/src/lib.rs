@@ -17,8 +17,10 @@ pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
     HarnessSession, InProcessHarness, McpHarness, StandardsCliRunner, StandardsInspectResult,
-    TuiHarness, WebHarness, create_temp_project_dir, event_kinds, record_failure,
-    write_malformed_standard, write_project_config, write_valid_standard,
+    TuiHarness, WebHarness, build_standards_cleared_event, build_standards_configured_event,
+    create_temp_project_dir, event_kinds, record_failure, replay_standards_events,
+    seed_standards_read_model, write_malformed_standard, write_project_config,
+    write_valid_standard,
 };
 
 use chrono::{DateTime, Duration, Utc};

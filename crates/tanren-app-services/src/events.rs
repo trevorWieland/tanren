@@ -6,10 +6,18 @@
 //! serialise as the bare UUID via `#[serde(transparent)]`, so the
 //! on-disk JSON shape is unchanged across the type substitution that
 //! lands in PR 3.
+//!
+//! The standards event family (`"standards"`) captures configuration
+//! changes to the installed-standards root. The read-model in
+//! [`crate::standards`] replays these events to derive the effective
+//! standards root — the filesystem config (`tanren.yml`) is never the
+//! canonical source of truth for effective configuration.
+
+use std::path::PathBuf;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{AccountFailureReason, StandardSchema};
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
@@ -133,6 +141,80 @@ pub struct InvitationAcceptFailed {
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": EVENT_FAMILY,
+        "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+// ── Standards event family ───────────────────────────────────────────
+
+/// Tag on the JSON envelope that disambiguates standards events from
+/// account events.
+pub const STANDARDS_EVENT_FAMILY: &str = "standards";
+
+/// Closed taxonomy of standards event kinds.
+///
+/// Each variant corresponds to a configuration change that the
+/// [`crate::standards::StandardsReadModel`] replays to derive the
+/// effective standards root.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum StandardsEventKind {
+    /// The standards root directory was configured.
+    StandardsRootConfigured,
+    /// The standards root configuration was cleared.
+    StandardsRootCleared,
+}
+
+impl StandardsEventKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::StandardsRootConfigured => "standards_root_configured",
+            Self::StandardsRootCleared => "standards_root_cleared",
+        }
+    }
+}
+
+/// A standards root directory was configured.
+///
+/// Emitted when Tanren assets are installed (R-0023) and the standards
+/// root is recorded in the canonical event log. The
+/// [`crate::standards::StandardsReadModel`] projects this event to
+/// derive the effective standards root — callers must not read
+/// `tanren.yml` directly for effective configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StandardsRootConfigured {
+    /// Absolute path to the configured standards root directory.
+    pub standards_root: PathBuf,
+    /// Schema version of the standards configuration.
+    pub schema: StandardSchema,
+    /// Wall-clock time the configuration was recorded.
+    pub at: DateTime<Utc>,
+}
+
+/// The standards root configuration was cleared.
+///
+/// Emitted when the installed standards are removed or reset. The
+/// read-model projects this to an empty state so subsequent queries
+/// return [`crate::standards::StandardsResolutionError::NotConfigured`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct StandardsRootCleared {
+    /// Wall-clock time the configuration was cleared.
+    pub at: DateTime<Utc>,
+}
+
+/// Encode a typed standards event as the JSON envelope persisted in the
+/// event log. Mirrors [`envelope`] for the account family.
+#[must_use]
+pub fn standards_envelope<T: Serialize>(
+    kind: StandardsEventKind,
+    payload: &T,
+) -> serde_json::Value {
+    serde_json::json!({
+        "family": STANDARDS_EVENT_FAMILY,
         "kind": kind.as_str(),
         "payload": payload,
     })

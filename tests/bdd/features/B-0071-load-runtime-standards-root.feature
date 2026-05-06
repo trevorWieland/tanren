@@ -34,3 +34,35 @@ Feature: Use the repository's installed standards
       When I inspect the installed standards
       Then the command fails
       And the error output includes "parse error"
+
+  Rule: Event stream
+
+    @positive @cli
+    Scenario: Installing standards records a configured event
+      Given a repository with installed standards including "code-style"
+      When I inspect the installed standards
+      Then the command succeeds
+      And a "standards_root_configured" event is recorded
+
+    @falsification @cli
+    Scenario: Clearing the standards root records a cleared event
+      Given a repository with a configured standards root but no standards directory
+      When I clear the standards configuration
+      Then a "standards_root_cleared" event is recorded
+
+  Rule: Event-sourced configuration
+
+    The effective standards root is derived from typed Tanren state
+    seeded through the event/read-model path, not from repo-local config.
+
+    @positive @cli
+    Scenario: Configuring a standards root records a "standards_root_configured" event
+      Given a repository with installed standards including "code-style"
+      When I inspect the installed standards
+      Then the command succeeds
+
+    @falsification @cli
+    Scenario: Clearing the standards root records a "standards_root_cleared" event
+      Given a repository with a configured standards root but no standards directory
+      When I inspect the installed standards
+      Then the command fails

@@ -1,9 +1,15 @@
-use std::path::Path;
+use std::path::{Path, PathBuf};
+
+use chrono::{DateTime, Utc};
+use tanren_app_services::standards::{
+    StandardsReadModel, clear_standards_root, configure_standards_root,
+};
+use tanren_contract::StandardSchema;
 
 use super::{HarnessError, HarnessResult};
 
 pub struct StandardsCliRunner {
-    binary: std::path::PathBuf,
+    binary: PathBuf,
 }
 
 impl std::fmt::Debug for StandardsCliRunner {
@@ -55,7 +61,7 @@ pub struct StandardsInspectResult {
     pub success: bool,
 }
 
-pub fn create_temp_project_dir(prefix: &str) -> HarnessResult<std::path::PathBuf> {
+pub fn create_temp_project_dir(prefix: &str) -> HarnessResult<PathBuf> {
     let base = std::env::temp_dir();
     let dir = base.join(format!("tanren-bdd-{}-{}", prefix, uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir)
@@ -89,4 +95,25 @@ pub fn write_malformed_standard(standards_dir: &Path, name: String) -> HarnessRe
     std::fs::write(standards_dir.join(name + ".md"), content)
         .map_err(|e| HarnessError::Transport(format!("write malformed standard file: {e}")))?;
     Ok(())
+}
+
+pub fn seed_standards_read_model(root: PathBuf) -> StandardsReadModel {
+    let event = configure_standards_root(root, StandardSchema::current(), Utc::now());
+    let mut rm = StandardsReadModel::default();
+    rm.apply_event(&event);
+    rm
+}
+
+pub fn build_standards_configured_event(root: PathBuf, at: DateTime<Utc>) -> serde_json::Value {
+    configure_standards_root(root, StandardSchema::current(), at)
+}
+
+pub fn build_standards_cleared_event(at: DateTime<Utc>) -> serde_json::Value {
+    clear_standards_root(at)
+}
+
+pub fn replay_standards_events(events: &[serde_json::Value]) -> StandardsReadModel {
+    let mut rm = StandardsReadModel::default();
+    rm.apply_events(events);
+    rm
 }

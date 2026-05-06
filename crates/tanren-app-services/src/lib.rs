@@ -7,12 +7,13 @@
 
 pub mod account;
 pub mod events;
+pub mod standards;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, StandardsFailureReason,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -215,4 +216,14 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A standards resolution failure (root not configured, malformed,
+    /// etc.).
+    #[error("standards: {}", .0.code())]
+    Standards(StandardsFailureReason),
+}
+
+impl From<standards::StandardsResolutionError> for AppServiceError {
+    fn from(err: standards::StandardsResolutionError) -> Self {
+        Self::Standards(StandardsFailureReason::from(err))
+    }
 }
