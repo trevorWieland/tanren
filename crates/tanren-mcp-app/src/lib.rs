@@ -12,6 +12,7 @@
 
 mod actor;
 mod auth;
+mod config;
 mod response;
 
 use std::env;
@@ -29,7 +30,7 @@ use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, ServerCapabilities, ServerInfo};
 use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
+    StreamableHttpService, session::local::LocalSessionManager,
 };
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{AppServiceError, Handlers, Store};
@@ -38,28 +39,35 @@ use tanren_contract::{
     ProjectFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_policy::{ActorContext, Decision, ScopeTarget, authorize_project_registration};
-use tanren_provider_integrations::SourceControlProvider;
+use tanren_provider_integrations::{
+    FixedProviderRegistry, NullProviderRegistry, ProviderError, ProviderRegistry,
+    SourceControlProvider,
+};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 use crate::auth::AuthConfig;
+use crate::config::{CorsConfig, streamable_http_config};
 use crate::response::{map_failure, success};
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
-const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
 
-#[derive(Debug, Default)]
-pub struct Config;
+#[derive(Debug, Clone)]
+pub struct Config {
+    pub cors_allow_origins: Vec<axum::http::HeaderValue>,
+}
 
 impl Config {
-    #[must_use]
-    pub const fn from_env() -> Self {
-        Self
+    pub fn from_env() -> Self {
+        let cors = CorsConfig::from_env();
+        Self {
+            cors_allow_origins: cors.allow_origins,
+        }
     }
 }
 
@@ -69,7 +77,7 @@ type SharedActorContext = Arc<RwLock<Option<ActorContext>>>;
 pub(crate) struct TanrenMcp {
     handlers: Handlers,
     store: Arc<Store>,
-    provider: Option<Arc<dyn SourceControlProvider>>,
+    registry: Arc<dyn ProviderRegistry>,
     tool_router: ToolRouter<Self>,
     actor_context: SharedActorContext,
 }
@@ -85,13 +93,13 @@ impl TanrenMcp {
     fn new(
         handlers: Handlers,
         store: Arc<Store>,
-        provider: Option<Arc<dyn SourceControlProvider>>,
+        registry: Arc<dyn ProviderRegistry>,
         actor_context: SharedActorContext,
     ) -> Self {
         Self {
             handlers,
             store,
-            provider,
+            registry,
             actor_context,
             tool_router: Self::tool_router(),
         }
@@ -183,14 +191,27 @@ impl TanrenMcp {
         if let Err(result) = Self::check_scope_policy(&actor, request.org) {
             return Ok(result);
         }
-        let Some(provider) = self.provider.as_deref() else {
-            return Ok(map_failure(AppServiceError::Project(
-                ProjectFailureReason::ProviderNotConfigured,
-            )));
+        let provider = match self.registry.resolve() {
+            Ok(p) => p,
+            Err(ProviderError::NotConfigured) => {
+                return Ok(map_failure(AppServiceError::Project(
+                    ProjectFailureReason::ProviderNotConfigured,
+                )));
+            }
+            Err(_) => {
+                return Ok(map_failure(AppServiceError::Project(
+                    ProjectFailureReason::ProviderFailure,
+                )));
+            }
         };
         match self
             .handlers
-            .connect_project(self.store.as_ref(), provider, actor.account_id, request)
+            .connect_project(
+                self.store.as_ref(),
+                provider.as_ref(),
+                actor.account_id,
+                request,
+            )
             .await
         {
             Ok(project) => Ok(success(&project)),
@@ -213,14 +234,27 @@ impl TanrenMcp {
         if let Err(result) = Self::check_scope_policy(&actor, request.org) {
             return Ok(result);
         }
-        let Some(provider) = self.provider.as_deref() else {
-            return Ok(map_failure(AppServiceError::Project(
-                ProjectFailureReason::ProviderNotConfigured,
-            )));
+        let provider = match self.registry.resolve() {
+            Ok(p) => p,
+            Err(ProviderError::NotConfigured) => {
+                return Ok(map_failure(AppServiceError::Project(
+                    ProjectFailureReason::ProviderNotConfigured,
+                )));
+            }
+            Err(_) => {
+                return Ok(map_failure(AppServiceError::Project(
+                    ProjectFailureReason::ProviderFailure,
+                )));
+            }
         };
         match self
             .handlers
-            .create_project(self.store.as_ref(), provider, actor.account_id, request)
+            .create_project(
+                self.store.as_ref(),
+                provider.as_ref(),
+                actor.account_id,
+                request,
+            )
             .await
         {
             Ok(project) => Ok(success(&project)),
@@ -288,8 +322,9 @@ fn build_router(
     handlers: Handlers,
     store: Arc<Store>,
     cancellation: CancellationToken,
-    provider: Option<Arc<dyn SourceControlProvider>>,
+    registry: Arc<dyn ProviderRegistry>,
     actor_context: SharedActorContext,
+    cors_allow_origins: Vec<axum::http::HeaderValue>,
 ) -> Router {
     let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
@@ -298,7 +333,7 @@ fn build_router(
                 Ok(TanrenMcp::new(
                     handlers.clone(),
                     store.clone(),
-                    provider.clone(),
+                    registry.clone(),
                     actor_context.clone(),
                 ))
             },
@@ -314,43 +349,23 @@ fn build_router(
         .service(mcp_service);
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(cors_allow_origins)
+        .allow_methods([
+            axum::http::Method::GET,
+            axum::http::Method::POST,
+            axum::http::Method::DELETE,
+            axum::http::Method::OPTIONS,
+        ])
+        .allow_headers([
+            axum::http::header::CONTENT_TYPE,
+            axum::http::header::AUTHORIZATION,
+            axum::http::HeaderName::from_static("x-api-key"),
+        ]);
 
     Router::new()
         .route("/health", get(health))
         .nest_service("/mcp", mcp_with_auth)
         .layer(cors)
-}
-
-fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServerConfig {
-    let base = StreamableHttpServerConfig::default().with_cancellation_token(cancellation);
-    let raw = env::var(ALLOWED_HOSTS_ENV).ok().filter(|s| !s.is_empty());
-    let Some(value) = raw else {
-        return base;
-    };
-    if value.trim() == "*" {
-        tracing::warn!(
-            target: "tanren_mcp",
-            env_var = ALLOWED_HOSTS_ENV,
-            "Host-header validation disabled by `*`; relying on API-key auth as the sole gate."
-        );
-        return base.disable_allowed_hosts();
-    }
-    let mut hosts: Vec<String> = vec!["localhost".into(), "127.0.0.1".into(), "::1".into()];
-    for host in value.split(',') {
-        let trimmed = host.trim();
-        if !trimmed.is_empty() {
-            hosts.push(trimmed.to_owned());
-        }
-    }
-    tracing::info!(
-        target: "tanren_mcp",
-        allowed_hosts = ?hosts,
-        "Host-header validation extended via {ALLOWED_HOSTS_ENV}"
-    );
-    base.with_allowed_hosts(hosts)
 }
 
 #[cfg(any(test, feature = "test-hooks"))]
@@ -374,13 +389,16 @@ pub fn build_router_with_actor(
         bootstrap_key: Some(api_key),
     });
     let cancellation = CancellationToken::new();
+    let registry: Arc<dyn ProviderRegistry> = Arc::new(FixedProviderRegistry::new(provider));
+    let cors_config = CorsConfig::test_default();
     let router = build_router(
         auth_config,
         Handlers::new(),
         store,
         cancellation.clone(),
-        provider,
+        registry,
         handle.0.clone(),
+        cors_config.allow_origins,
     );
     (router, cancellation, handle)
 }
@@ -398,7 +416,7 @@ impl ActorContextHandle {
     }
 }
 
-pub async fn serve(_config: Config) -> Result<()> {
+pub async fn serve(config: Config) -> Result<()> {
     let bind = env::var(BIND_ADDRESS_ENV).unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned());
     let auth_config = Arc::new(AuthConfig::from_env());
     if auth_config.bootstrap_key.is_none() {
@@ -422,14 +440,16 @@ pub async fn serve(_config: Config) -> Result<()> {
     let actor_context = actor::resolve_serve_actor_context(&database_url).await;
     let shared_actor_context: SharedActorContext = Arc::new(RwLock::new(actor_context));
 
+    let registry: Arc<dyn ProviderRegistry> = Arc::new(NullProviderRegistry);
     let cancellation = CancellationToken::new();
     let router = build_router(
         auth_config,
         handlers,
         store,
         cancellation.clone(),
-        None,
+        registry,
         shared_actor_context,
+        config.cors_allow_origins,
     );
 
     let listener = TcpListener::bind(&bind)

@@ -1251,7 +1251,8 @@
       "completes_behaviors": [
         "B-0025",
         "B-0026",
-        "B-0310"
+        "B-0310",
+        "B-0311"
       ],
       "supports_behaviors": [],
       "depends_on": [
@@ -1304,6 +1305,19 @@
             "falsification"
           ],
           "description": "Per declared interface \u2014 Positive: personal-scope project registration succeeds for an authenticated account. Falsification: org-scoped registration is denied when the actor is not a member of the target org."
+        },
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0311",
+          "interfaces": [
+            "api",
+            "mcp"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Per declared interface \u2014 Positive: project commands succeed when the provider registry holds a configured provider. Falsification: project commands fail with provider_not_configured when no provider is registered."
         }
       ],
       "playbook": [

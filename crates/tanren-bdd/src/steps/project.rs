@@ -82,6 +82,15 @@ async fn given_inaccessible_scm_host(world: &mut TanrenWorld, host: String, acto
         .expect("seed inaccessible host");
 }
 
+#[given(expr = "the provider is not configured")]
+async fn given_provider_not_configured(world: &mut TanrenWorld) {
+    let ctx = world.ensure_account_ctx().await;
+    ctx.harness
+        .seed_provider_not_configured()
+        .await
+        .expect("seed provider not configured");
+}
+
 #[when(expr = "{word} connects the repository {string} to her account")]
 async fn when_connect_repo(world: &mut TanrenWorld, actor: String, slug: String) {
     do_connect(world, actor, &slug).await;

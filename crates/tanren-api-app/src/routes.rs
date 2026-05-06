@@ -18,6 +18,7 @@ use tanren_contract::{
     SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
+use tanren_provider_integrations::ProviderError;
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -349,6 +350,18 @@ fn provider_not_configured() -> Response {
     project_failure_body(ProjectFailureReason::ProviderNotConfigured)
 }
 
+fn resolve_provider(
+    state: &AppState,
+) -> Result<std::sync::Arc<dyn tanren_app_services::SourceControlProvider>, Box<Response>> {
+    match state.registry.resolve() {
+        Ok(provider) => Ok(provider),
+        Err(ProviderError::NotConfigured) => Err(Box::new(provider_not_configured())),
+        Err(_) => Err(Box::new(project_failure_body(
+            ProjectFailureReason::ProviderFailure,
+        ))),
+    }
+}
+
 /// Connect an existing repository as a new project (B-0025).
 #[utoipa::path(
     post,
@@ -374,12 +387,13 @@ pub(crate) async fn connect_project_route(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    let Some(provider) = state.provider.as_deref() else {
-        return provider_not_configured();
+    let provider = match resolve_provider(&state) {
+        Ok(p) => p,
+        Err(resp) => return *resp,
     };
     match state
         .handlers
-        .connect_project(state.store.as_ref(), provider, account_id, request)
+        .connect_project(state.store.as_ref(), provider.as_ref(), account_id, request)
         .await
     {
         Ok(project) => (StatusCode::CREATED, Json(project)).into_response(),
@@ -412,12 +426,13 @@ pub(crate) async fn create_project_route(
         Ok(id) => id,
         Err(resp) => return resp,
     };
-    let Some(provider) = state.provider.as_deref() else {
-        return provider_not_configured();
+    let provider = match resolve_provider(&state) {
+        Ok(p) => p,
+        Err(resp) => return *resp,
     };
     match state
         .handlers
-        .create_project(state.store.as_ref(), provider, account_id, request)
+        .create_project(state.store.as_ref(), provider.as_ref(), account_id, request)
         .await
     {
         Ok(project) => (StatusCode::CREATED, Json(project)).into_response(),

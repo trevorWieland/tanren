@@ -7,6 +7,7 @@
 //! the slice that first needs each provider family.
 
 use std::fmt;
+use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
@@ -168,6 +169,85 @@ pub trait SourceControlProvider: Send + Sync {
         &self,
         context: &ProviderConnectionContext,
     ) -> Result<RepositoryInfo, ProviderError>;
+}
+
+/// Registry that resolves a [`SourceControlProvider`] at request time.
+///
+/// Production binaries wire a [`NullProviderRegistry`] when no SCM backend
+/// is available, causing every project command to fail fast with
+/// [`ProviderError::NotConfigured`]. Future slices that introduce real
+/// adapters (GitHub, GitLab, etc.) will swap in a registry that looks up
+/// the correct provider by host.
+///
+/// BDD harnesses inject a [`FixedProviderRegistry`] wrapping a
+/// [`FixtureSourceControlProvider`](crate::FixedProviderProvider) so that
+/// scenarios can observe both the happy path and the not-configured
+/// failure path.
+pub trait ProviderRegistry: Send + Sync {
+    /// Resolve the source-control provider for the current request.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ProviderError::NotConfigured`] when no provider is
+    /// available, or [`ProviderError::HostAccess`] when the requested
+    /// host has no active provider connection.
+    fn resolve(&self) -> Result<Arc<dyn SourceControlProvider>, ProviderError>;
+}
+
+/// Registry that always returns [`ProviderError::NotConfigured`].
+///
+/// Used as the default registry in production builds until a real SCM
+/// adapter is wired in by a future slice.
+pub struct NullProviderRegistry;
+
+impl fmt::Debug for NullProviderRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("NullProviderRegistry").finish()
+    }
+}
+
+impl ProviderRegistry for NullProviderRegistry {
+    fn resolve(&self) -> Result<Arc<dyn SourceControlProvider>, ProviderError> {
+        Err(ProviderError::NotConfigured)
+    }
+}
+
+/// Registry wrapping a single, optional [`SourceControlProvider`].
+///
+/// Returns the inner provider when present, or
+/// [`ProviderError::NotConfigured`] when absent. Test-hook constructors
+/// build this from an `Option<Arc<dyn SourceControlProvider>>` so that
+/// existing BDD harness code does not need to change.
+pub struct FixedProviderRegistry {
+    provider: Option<Arc<dyn SourceControlProvider>>,
+}
+
+impl fmt::Debug for FixedProviderRegistry {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("FixedProviderRegistry")
+            .field(
+                "provider",
+                &self
+                    .provider
+                    .as_ref()
+                    .map(|_| "Some(<SourceControlProvider>)"),
+            )
+            .finish()
+    }
+}
+
+impl FixedProviderRegistry {
+    /// Create a registry from an optional provider.
+    #[must_use]
+    pub fn new(provider: Option<Arc<dyn SourceControlProvider>>) -> Self {
+        Self { provider }
+    }
+}
+
+impl ProviderRegistry for FixedProviderRegistry {
+    fn resolve(&self) -> Result<Arc<dyn SourceControlProvider>, ProviderError> {
+        self.provider.clone().ok_or(ProviderError::NotConfigured)
+    }
 }
 
 /// Errors raised by provider integrations.

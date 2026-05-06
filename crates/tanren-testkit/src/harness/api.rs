@@ -463,6 +463,7 @@ pub(crate) fn code_to_project_reason(code: &str) -> Option<ProjectFailureReason>
         "access_denied" => ProjectFailureReason::AccessDenied,
         "duplicate_repository" => ProjectFailureReason::DuplicateRepository,
         "provider_failure" => ProjectFailureReason::ProviderFailure,
+        "provider_not_configured" => ProjectFailureReason::ProviderNotConfigured,
         "validation_failed" => ProjectFailureReason::ValidationFailed,
         _ => return None,
     })
