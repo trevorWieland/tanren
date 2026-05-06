@@ -1,9 +1,4 @@
 //! TUI screen state machine and submit dispatch.
-//!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
 
 use std::env;
 use std::io::Stdout;
@@ -15,14 +10,16 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    Effect, FormAction, FormKind, accept_invitation_outcome, detail_item_count, handle_form_key,
+    handle_menu_key, is_press, parse_accept_invitation, parse_sign_in, parse_sign_up, render_error,
+    sign_in_outcome, sign_up_outcome, toggle_detail_spec,
 };
-use crate::{FormState, MenuChoice};
+use crate::{FormState, ProjectDetailState, ProjectListState};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -33,6 +30,8 @@ pub(crate) enum Screen {
     SignIn(FormState),
     AcceptInvitation(FormState),
     Outcome(OutcomeView),
+    ProjectList(ProjectListState),
+    ProjectDetail(Box<ProjectDetailState>),
 }
 
 #[derive(Debug)]
@@ -48,6 +47,7 @@ pub(crate) struct App {
     store: Option<Arc<Store>>,
     store_error: Option<String>,
     screen: Screen,
+    account_id: Option<AccountId>,
 }
 
 impl App {
@@ -58,8 +58,8 @@ impl App {
             .context("build tokio runtime")?;
         let (store, store_error) = match env::var(DATABASE_URL_ENV) {
             Ok(url) if !url.is_empty() => match runtime.block_on(Store::connect(&url)) {
-                Ok(store) => (Some(Arc::new(store)), None),
-                Err(err) => (None, Some(format!("store unavailable: {err}"))),
+                Ok(s) => (Some(Arc::new(s)), None),
+                Err(e) => (None, Some(format!("store unavailable: {e}"))),
             },
             _ => (
                 None,
@@ -72,6 +72,7 @@ impl App {
             store,
             store_error,
             screen: Screen::Menu { selected: 0 },
+            account_id: None,
         })
     }
 
@@ -80,11 +81,10 @@ impl App {
             terminal
                 .draw(|frame| self.draw(frame))
                 .context("render frame")?;
-
-            if !event::poll(Duration::from_millis(200)).context("poll terminal events")? {
+            if !event::poll(Duration::from_millis(200)).context("poll events")? {
                 continue;
             }
-            let Event::Key(key) = event::read().context("read terminal event")? else {
+            let Event::Key(key) = event::read().context("read event")? else {
                 continue;
             };
             if !is_press(&key) {
@@ -107,7 +107,14 @@ impl App {
                 if exit {
                     Effect::Exit
                 } else if let Some(screen) = next {
-                    Effect::ReplaceScreen(screen)
+                    if matches!(screen, Screen::ProjectList(_)) && self.account_id.is_some() {
+                        self.load_projects();
+                        Effect::None
+                    } else if matches!(screen, Screen::ProjectList(_)) {
+                        Effect::None
+                    } else {
+                        Effect::ReplaceScreen(Box::new(screen))
+                    }
                 } else {
                     Effect::None
                 }
@@ -117,21 +124,51 @@ impl App {
                     key.code,
                     KeyCode::Esc | KeyCode::Enter | KeyCode::Char('q' | 'Q')
                 ) {
-                    Effect::ReplaceScreen(Screen::Menu { selected: 0 })
-                } else {
-                    Effect::None
+                    if self.account_id.is_some() {
+                        self.load_projects();
+                    } else {
+                        self.screen = Screen::Menu { selected: 0 };
+                    }
                 }
+                Effect::None
+            }
+            Screen::ProjectList(state) => {
+                match key.code {
+                    KeyCode::Char('q' | 'Q') | KeyCode::Esc => {
+                        self.screen = Screen::Menu { selected: 0 };
+                    }
+                    KeyCode::Up => state.selected = state.selected.saturating_sub(1),
+                    KeyCode::Down if !state.projects.is_empty() => {
+                        state.selected = (state.selected + 1).min(state.projects.len() - 1);
+                    }
+                    KeyCode::Enter => self.switch_project(),
+                    _ => {}
+                }
+                Effect::None
+            }
+            Screen::ProjectDetail(state) => {
+                match key.code {
+                    KeyCode::Char('q' | 'Q') | KeyCode::Esc => self.load_projects(),
+                    KeyCode::Up => state.selected = state.selected.saturating_sub(1),
+                    KeyCode::Down => {
+                        state.selected =
+                            (state.selected + 1).min(detail_item_count(state).saturating_sub(1));
+                    }
+                    KeyCode::Enter => toggle_detail_spec(state),
+                    _ => {}
+                }
+                Effect::None
             }
             Screen::SignUp(state) => match handle_form_key(state, key) {
-                Some(action) => Effect::Form(action, FormKind::SignUp),
+                Some(a) => Effect::Form(a, FormKind::SignUp),
                 None => Effect::None,
             },
             Screen::SignIn(state) => match handle_form_key(state, key) {
-                Some(action) => Effect::Form(action, FormKind::SignIn),
+                Some(a) => Effect::Form(a, FormKind::SignIn),
                 None => Effect::None,
             },
             Screen::AcceptInvitation(state) => match handle_form_key(state, key) {
-                Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
+                Some(a) => Effect::Form(a, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
         };
@@ -139,7 +176,7 @@ impl App {
             Effect::None => false,
             Effect::Exit => true,
             Effect::ReplaceScreen(screen) => {
-                self.screen = screen;
+                self.screen = *screen;
                 false
             }
             Effect::Form(action, kind) => {
@@ -160,99 +197,100 @@ impl App {
 
     fn submit(&mut self, kind: FormKind) {
         let Some(store) = self.store.clone() else {
-            let message = self
+            let msg = self
                 .store_error
                 .clone()
                 .unwrap_or_else(|| "store unavailable".to_owned());
-            if let Some(state) = self.active_form_mut() {
-                state.error = Some(message);
+            if let Some(st) = self.active_form_mut() {
+                st.error = Some(msg);
             }
             return;
         };
-        let handlers = &self.handlers;
+        let h = &self.handlers;
         match kind {
             FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
+                let p = {
+                    let Screen::SignUp(st) = &self.screen else {
                         return;
                     };
-                    parse_sign_up(state)
+                    parse_sign_up(st)
                 };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
+                let req = match p {
+                    Ok(r) => r,
+                    Err(m) => {
+                        if let Screen::SignUp(st) = &mut self.screen {
+                            st.error = Some(m);
                         }
                         return;
                     }
                 };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+                match self.runtime.block_on(h.sign_up(store.as_ref(), req)) {
+                    Ok(resp) => {
+                        self.account_id = Some(resp.account.id);
+                        self.screen = Screen::Outcome(sign_up_outcome(&resp));
+                    }
                     Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
+                        if let Screen::SignUp(st) = &mut self.screen {
+                            st.error = Some(render_error(reason));
                         }
                     }
                 }
             }
             FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
+                let p = {
+                    let Screen::SignIn(st) = &self.screen else {
                         return;
                     };
-                    parse_sign_in(state)
+                    parse_sign_in(st)
                 };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
+                let req = match p {
+                    Ok(r) => r,
+                    Err(m) => {
+                        if let Screen::SignIn(st) = &mut self.screen {
+                            st.error = Some(m);
                         }
                         return;
                     }
                 };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+                match self.runtime.block_on(h.sign_in(store.as_ref(), req)) {
+                    Ok(resp) => {
+                        self.account_id = Some(resp.account.id);
+                        self.screen = Screen::Outcome(sign_in_outcome(&resp));
+                    }
                     Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
+                        if let Screen::SignIn(st) = &mut self.screen {
+                            st.error = Some(render_error(reason));
                         }
                     }
                 }
             }
             FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
+                let p = {
+                    let Screen::AcceptInvitation(st) = &self.screen else {
                         return;
                     };
-                    parse_accept_invitation(state)
+                    parse_accept_invitation(st)
                 };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
+                let req = match p {
+                    Ok(r) => r,
+                    Err(m) => {
+                        if let Screen::AcceptInvitation(st) = &mut self.screen {
+                            st.error = Some(m);
                         }
                         return;
                     }
                 };
-                let result = self
+                match self
                     .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+                    .block_on(h.accept_invitation(store.as_ref(), req))
+                {
+                    Ok(resp) => {
+                        self.account_id = Some(resp.account.id);
+                        self.screen = Screen::Outcome(accept_invitation_outcome(&resp));
                     }
                     Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
+                        if let Screen::AcceptInvitation(st) = &mut self.screen {
+                            st.error = Some(render_error(reason));
                         }
                     }
                 }
@@ -277,84 +315,84 @@ impl App {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
+            Screen::ProjectList(state) => draw::draw_project_list(frame, area, state),
+            Screen::ProjectDetail(state) => draw::draw_project_detail(frame, area, state),
         }
     }
-}
 
-#[derive(Debug, Clone, Copy)]
-enum FormKind {
-    SignUp,
-    SignIn,
-    AcceptInvitation,
-}
+    fn load_projects(&mut self) {
+        let (projects, error) = match (self.account_id, self.store.as_ref()) {
+            (None, _) => (vec![], Some("Not signed in.".to_owned())),
+            (Some(_), None) => (
+                vec![],
+                Some(
+                    self.store_error
+                        .clone()
+                        .unwrap_or_else(|| "store unavailable".to_owned()),
+                ),
+            ),
+            (Some(aid), Some(store)) => match self
+                .runtime
+                .block_on(self.handlers.list_projects(store.as_ref(), aid))
+            {
+                Ok(p) => (p, None),
+                Err(e) => (vec![], Some(render_error(e))),
+            },
+        };
+        self.screen = Screen::ProjectList(ProjectListState {
+            projects,
+            selected: 0,
+            error,
+        });
+    }
 
-#[derive(Debug, Clone, Copy)]
-enum FormAction {
-    Submit,
-    Cancel,
-}
-
-#[derive(Debug)]
-enum Effect {
-    None,
-    Exit,
-    ReplaceScreen(Screen),
-    Form(FormAction, FormKind),
-}
-
-fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
-    match key.code {
-        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
-        KeyCode::Up => {
-            if *selected == 0 {
-                *selected = MenuChoice::ALL.len() - 1;
-            } else {
-                *selected -= 1;
+    fn switch_project(&mut self) {
+        let Some(account_id) = self.account_id else {
+            return;
+        };
+        let (project, project_id) = {
+            let Screen::ProjectList(ref state) = self.screen else {
+                return;
+            };
+            let Some(project) = state.projects.get(state.selected).cloned() else {
+                return;
+            };
+            let pid = project.id;
+            (project, pid)
+        };
+        let Some(store) = self.store.clone() else {
+            self.screen = Screen::ProjectDetail(Box::new(ProjectDetailState {
+                project,
+                scoped: None,
+                selected: 0,
+                detail_spec: None,
+                error: self.store_error.clone(),
+            }));
+            return;
+        };
+        match self.runtime.block_on(self.handlers.switch_active_project(
+            store.as_ref(),
+            account_id,
+            project_id,
+        )) {
+            Ok(response) => {
+                self.screen = Screen::ProjectDetail(Box::new(ProjectDetailState {
+                    project: response.project,
+                    scoped: Some(response.scoped),
+                    selected: 0,
+                    detail_spec: None,
+                    error: None,
+                }));
+            }
+            Err(err) => {
+                self.screen = Screen::ProjectDetail(Box::new(ProjectDetailState {
+                    project,
+                    scoped: None,
+                    selected: 0,
+                    detail_spec: None,
+                    error: Some(render_error(err)),
+                }));
             }
         }
-        KeyCode::Down | KeyCode::Tab => {
-            *selected = (*selected + 1) % MenuChoice::ALL.len();
-        }
-        KeyCode::Enter => {
-            let choice = MenuChoice::ALL[*selected];
-            *next = Some(match choice {
-                MenuChoice::SignUp => Screen::SignUp(FormState::new(sign_up_fields())),
-                MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
-                MenuChoice::AcceptInvitation => {
-                    Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
-                }
-            });
-        }
-        _ => {}
     }
-    false
-}
-
-fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
-    match key.code {
-        KeyCode::Esc => Some(FormAction::Cancel),
-        KeyCode::Enter => Some(FormAction::Submit),
-        KeyCode::Tab | KeyCode::Down => {
-            state.cycle_focus(true);
-            None
-        }
-        KeyCode::BackTab | KeyCode::Up => {
-            state.cycle_focus(false);
-            None
-        }
-        KeyCode::Backspace => {
-            state.pop_char();
-            None
-        }
-        KeyCode::Char(c) => {
-            state.push_char(c);
-            None
-        }
-        _ => None,
-    }
-}
-
-fn is_press(key: &KeyEvent) -> bool {
-    use crossterm::event::KeyEventKind;
-    matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }

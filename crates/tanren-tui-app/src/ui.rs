@@ -1,7 +1,8 @@
-//! Form factories, outcome adapters, and error-message helpers for
-//! the TUI. Split out of `main.rs` to keep that file under the
-//! workspace 500-line budget.
+//! Form factories, outcome adapters, key-dispatch helpers, and
+//! error-message helpers for the TUI. Split out of `app.rs` to keep
+//! that file under the workspace 500-line budget.
 
+use crossterm::event::{KeyCode, KeyEvent};
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
@@ -10,7 +11,8 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{Email, InvitationToken, ValidationError};
 
-use crate::{FormField, FormState, OutcomeView};
+use crate::app::Screen;
+use crate::{FormField, FormState, MenuChoice, OutcomeView, ProjectDetailState, ProjectListState};
 
 pub(crate) fn sign_up_fields() -> Vec<FormField> {
     vec![
@@ -112,6 +114,9 @@ pub(crate) fn render_error(err: AppServiceError) -> String {
         AppServiceError::Account(reason) => format_failure(reason),
         AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
         AppServiceError::Store(err) => format!("internal_error: {err}"),
+        AppServiceError::Project(reason) => {
+            format!("project_error: {}", reason.code())
+        }
         _ => "internal_error: unknown app-service failure".to_owned(),
     }
 }
@@ -142,11 +147,6 @@ pub(crate) fn parse_accept_invitation(
 ) -> Result<AcceptInvitationRequest, String> {
     let invitation_token =
         InvitationToken::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    // The user supplies the email directly; the previous implementation
-    // synthesised it from the invitation token, which broke any token
-    // containing `@` (the resulting "<token>@invitation.tanren" had two
-    // `@` characters and Email::parse rejected it before the request
-    // ever reached `accept_invitation`). Codex P2 review on PR #133.
     let email = Email::parse(state.value(1)).map_err(|e| validation_message(&e))?;
     let password = SecretString::from(state.value(2).to_owned());
     let display_name = state.value(3).to_owned();
@@ -156,4 +156,111 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FormKind {
+    SignUp,
+    SignIn,
+    AcceptInvitation,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FormAction {
+    Submit,
+    Cancel,
+}
+
+#[derive(Debug)]
+pub(crate) enum Effect {
+    None,
+    Exit,
+    ReplaceScreen(Box<Screen>),
+    Form(FormAction, FormKind),
+}
+
+pub(crate) fn handle_menu_key(
+    selected: &mut usize,
+    key: KeyEvent,
+    next: &mut Option<Screen>,
+) -> bool {
+    match key.code {
+        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
+        KeyCode::Up => {
+            if *selected == 0 {
+                *selected = MenuChoice::ALL.len() - 1;
+            } else {
+                *selected -= 1;
+            }
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            *selected = (*selected + 1) % MenuChoice::ALL.len();
+        }
+        KeyCode::Enter => {
+            let choice = MenuChoice::ALL[*selected];
+            *next = Some(match choice {
+                MenuChoice::SignUp => Screen::SignUp(FormState::new(sign_up_fields())),
+                MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
+                MenuChoice::AcceptInvitation => {
+                    Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::ViewProjects => Screen::ProjectList(ProjectListState {
+                    projects: vec![],
+                    selected: 0,
+                    error: None,
+                }),
+            });
+        }
+        _ => {}
+    }
+    false
+}
+
+pub(crate) fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
+    match key.code {
+        KeyCode::Esc => Some(FormAction::Cancel),
+        KeyCode::Enter => Some(FormAction::Submit),
+        KeyCode::Tab | KeyCode::Down => {
+            state.cycle_focus(true);
+            None
+        }
+        KeyCode::BackTab | KeyCode::Up => {
+            state.cycle_focus(false);
+            None
+        }
+        KeyCode::Backspace => {
+            state.pop_char();
+            None
+        }
+        KeyCode::Char(c) => {
+            state.push_char(c);
+            None
+        }
+        _ => None,
+    }
+}
+
+pub(crate) fn detail_item_count(state: &ProjectDetailState) -> usize {
+    let base = state.project.attention_specs.len();
+    if state.scoped.is_some() {
+        base + 3
+    } else {
+        base
+    }
+}
+
+pub(crate) fn toggle_detail_spec(state: &mut ProjectDetailState) {
+    if state.selected < state.project.attention_specs.len() {
+        let spec = &state.project.attention_specs[state.selected];
+        if state.detail_spec.as_ref().is_some_and(|s| s.id == spec.id) {
+            state.detail_spec = None;
+        } else {
+            state.detail_spec = Some(spec.clone());
+        }
+    }
+}
+
+pub(crate) fn is_press(key: &KeyEvent) -> bool {
+    use crossterm::event::KeyEventKind;
+    matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }

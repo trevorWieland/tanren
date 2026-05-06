@@ -17,6 +17,7 @@
   --color-accent-fg: oklch(0.98 0 0);
   --color-error: oklch(0.62 0.2 25);
   --color-success: oklch(0.62 0.16 152);
+  --color-warning: oklch(0.72 0.16 75);
   --color-border: oklch(0.32 0.014 260);
 
   --radius-sm: 0.25rem;

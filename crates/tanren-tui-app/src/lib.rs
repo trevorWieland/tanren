@@ -92,18 +92,41 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    ViewProjects,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::ViewProjects,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::ViewProjects => "View projects",
         }
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct ProjectListState {
+    pub(crate) projects: Vec<tanren_contract::ProjectView>,
+    pub(crate) selected: usize,
+    pub(crate) error: Option<String>,
+}
+
+#[derive(Debug)]
+pub(crate) struct ProjectDetailState {
+    pub(crate) project: tanren_contract::ProjectView,
+    pub(crate) scoped: Option<tanren_contract::ProjectScopedViews>,
+    pub(crate) selected: usize,
+    pub(crate) detail_spec: Option<tanren_contract::AttentionSpecView>,
+    pub(crate) error: Option<String>,
 }
 
 #[derive(Debug)]
