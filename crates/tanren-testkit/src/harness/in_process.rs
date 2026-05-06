@@ -9,8 +9,11 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, ListOrganizationProjectsResponse, OrganizationSwitcher, SignInRequest,
+    SignUpRequest, SwitchActiveOrganizationResponse,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
@@ -140,6 +143,38 @@ impl AccountHarness for InProcessHarness {
         AccountStore::recent_events(&self.store, limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<OrganizationSwitcher> {
+        self.handlers
+            .list_organizations(&self.store, account_id)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn switch_active_org(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrganizationResponse> {
+        let request = tanren_contract::SwitchActiveOrganizationRequest { org_id };
+        self.handlers
+            .switch_active_org(&self.store, account_id, request)
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn list_active_org_projects(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationProjectsResponse> {
+        self.handlers
+            .list_active_org_projects(&self.store, account_id)
+            .await
+            .map_err(translate_app_error)
     }
 }
 

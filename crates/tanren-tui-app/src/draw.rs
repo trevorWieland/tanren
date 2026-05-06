@@ -8,14 +8,20 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
 use crate::{FormState, MenuChoice, OutcomeView};
 
-pub(crate) fn draw_menu(frame: &mut ratatui::Frame<'_>, area: Rect, selected: usize) {
+pub(crate) fn draw_menu(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    selected: usize,
+    has_orgs: Option<bool>,
+) {
+    let choices = MenuChoice::available(has_orgs);
     let mut lines = vec![
         Line::from("Tanren TUI"),
         Line::from(""),
         Line::from("Choose an action:"),
         Line::from(""),
     ];
-    for (idx, choice) in MenuChoice::ALL.iter().enumerate() {
+    for (idx, choice) in choices.iter().enumerate() {
         let marker = if idx == selected { "> " } else { "  " };
         let style = if idx == selected {
             Style::default().add_modifier(Modifier::REVERSED)

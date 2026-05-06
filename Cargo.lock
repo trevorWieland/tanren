@@ -4489,6 +4489,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

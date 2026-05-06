@@ -92,16 +92,43 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    ListOrganizations,
+    SwitchActiveOrg,
+    ListOrgProjects,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    const ALL: [Self; 6] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::ListOrganizations,
+        Self::SwitchActiveOrg,
+        Self::ListOrgProjects,
+    ];
+
+    const PERSONAL: [Self; 4] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::ListOrganizations,
+    ];
+
+    pub(crate) fn available(has_orgs: Option<bool>) -> &'static [Self] {
+        match has_orgs {
+            Some(false) => &Self::PERSONAL,
+            _ => &Self::ALL,
+        }
+    }
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::ListOrganizations => "List organizations",
+            Self::SwitchActiveOrg => "Switch active org",
+            Self::ListOrgProjects => "Org projects",
         }
     }
 }
@@ -161,3 +188,9 @@ impl FormState {
 // Re-export OutcomeView at crate root so `draw.rs`'s
 // `use crate::OutcomeView` continues to resolve.
 pub(crate) use app::OutcomeView;
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum FormAction {
+    Submit,
+    Cancel,
+}

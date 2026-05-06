@@ -146,8 +146,39 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(body),
-      // Cookie transport: send/receive HTTP-only session cookie on every
-      // request. Replaces localStorage token storage (M2).
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  if (!response.ok) {
+    let parsed: FailureBody = {};
+    try {
+      parsed = (await response.json()) as FailureBody;
+    } catch {
+      parsed = {};
+    }
+    const code =
+      typeof parsed.code === "string" ? parsed.code : "internal_error";
+    const summary =
+      typeof parsed.summary === "string"
+        ? parsed.summary
+        : `HTTP ${response.status}`;
+    throw new AccountRequestError({ code, summary });
+  }
+
+  return (await response.json()) as T;
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      method: "GET",
       credentials: "include",
     });
   } catch (cause: unknown) {
@@ -219,4 +250,23 @@ export async function signOut(): Promise<void> {
       summary: `HTTP ${response.status}`,
     });
   }
+}
+
+export function listOrganizations(): Promise<OrganizationSwitcher> {
+  return getJson<OrganizationSwitcher>("/account/organizations");
+}
+
+export function switchActiveOrganization(
+  input: SwitchActiveOrganizationInput,
+): Promise<SwitchActiveOrganizationResult> {
+  return postJson<SwitchActiveOrganizationResult>(
+    "/account/organizations/active",
+    input,
+  );
+}
+
+export function listActiveOrgProjects(): Promise<ListOrganizationProjectsResult> {
+  return getJson<ListOrganizationProjectsResult>(
+    "/account/organizations/active/projects",
+  );
 }

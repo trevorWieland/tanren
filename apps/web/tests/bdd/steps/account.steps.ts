@@ -25,12 +25,15 @@
 // the BDD run.
 
 import { createBdd, test as base } from "playwright-bdd";
+import { expect } from "@playwright/test";
 
 interface ActorState {
   email?: string;
   password?: string;
   hasSession?: boolean;
   lastFailureCode?: string;
+  accountId?: string;
+  activeOrg?: string | undefined;
 }
 
 interface WebWorld {
@@ -309,6 +312,63 @@ Then(/^(\w+) has joined an organization$/, async ({ world }, name: string) => {
     throw new Error(`${name} should hold a session after accepting invitation`);
   }
 });
+
+When(
+  /^(\w+) lists their organizations$/,
+  async ({ page, world }, name: string) => {
+    const a = actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const switcher = page.getByLabel(/organization/i);
+    const hasSwitcher = (await switcher.count()) > 0;
+    if (hasSwitcher) {
+      const value = await switcher.inputValue();
+      if (value) {
+        a.activeOrg = value;
+      }
+    }
+  },
+);
+
+When(
+  /^(\w+) switches active organization to "([^"]+)"$/,
+  async ({ page, world }, name: string, _orgName: string) => {
+    const a = actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const switcher = page.getByLabel(/organization/i);
+    const options = await switcher.locator("option").allInnerTexts();
+    const match = options.find((opt) => opt.includes(_orgName));
+    if (match) {
+      await switcher.selectOption({ label: match });
+    }
+    a.activeOrg = _orgName;
+  },
+);
+
+Then(
+  /^(\w+) sees no organization-scoped actions$/,
+  async ({ page, world }, name: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const personalLabel = page.getByText(/personal account/i);
+    await expect(personalLabel).toBeVisible({ timeout: 5_000 });
+  },
+);
+
+Then(
+  /^(\w+) sees the active organization project list$/,
+  async ({ page, world }, name: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const heading = page
+      .getByRole("heading", { level: 3 })
+      .filter({ hasText: /projects/i });
+    await expect(heading).toBeVisible({ timeout: 5_000 });
+  },
+);
 
 Then(
   /^(\w+) now holds (\d+) accounts?$/,

@@ -4,6 +4,11 @@ import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
 import * as m from "@/i18n/paraglide/messages";
+import {
+  type OrganizationSwitcher as OrgSwitcherState,
+  listOrganizations,
+} from "@/app/lib/account-client";
+import { OrganizationSwitcher } from "@/components/account/OrganizationSwitcher";
 
 interface HealthReport {
   status: string;
@@ -16,6 +21,7 @@ const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 export default function Home(): ReactNode {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [orgState, setOrgState] = useState<OrgSwitcherState | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -41,23 +47,55 @@ export default function Home(): ReactNode {
     };
   }, []);
 
+  useEffect(() => {
+    let cancelled = false;
+    listOrganizations()
+      .then((data) => {
+        if (!cancelled) {
+          setOrgState(data);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setOrgState(null);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
   return (
     <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
       <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
       <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
-      <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
-        {report !== null ? (
-          <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
-        ) : error !== null ? (
-          <span className="text-[--color-error]">
-            {m.app_health_unreachable()}: {error}
-          </span>
-        ) : (
-          <span className="text-[--color-fg-muted]">
-            {m.app_health_loading()}
-          </span>
-        )}
-      </section>
+
+      {orgState !== null ? (
+        <div className="flex w-full max-w-lg flex-col gap-6">
+          <OrganizationSwitcher
+            data={orgState}
+            onSwitched={(activeOrg) => {
+              setOrgState((prev) =>
+                prev ? { ...prev, active_org: activeOrg } : prev,
+              );
+            }}
+          />
+        </div>
+      ) : (
+        <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
+          {report !== null ? (
+            <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
+          ) : error !== null ? (
+            <span className="text-[--color-error]">
+              {m.app_health_unreachable()}: {error}
+            </span>
+          ) : (
+            <span className="text-[--color-fg-muted]">
+              {m.app_health_loading()}
+            </span>
+          )}
+        </section>
+      )}
     </main>
   );
 }

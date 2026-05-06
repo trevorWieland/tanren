@@ -21,7 +21,11 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ListOrganizationProjectsResponse, OrganizationSwitcher, SignInRequest,
+    SignUpRequest, SwitchActiveOrganizationResponse,
+};
+use tanren_identity_policy::{AccountId, OrgId};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
@@ -79,5 +83,27 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<OrganizationSwitcher> {
+        self.inner.list_organizations(account_id).await
+    }
+
+    async fn switch_active_org(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrganizationResponse> {
+        self.inner.switch_active_org(account_id, org_id).await
+    }
+
+    async fn list_active_org_projects(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationProjectsResponse> {
+        self.inner.list_active_org_projects(account_id).await
     }
 }
