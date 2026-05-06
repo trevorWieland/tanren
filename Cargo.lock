@@ -4248,6 +4248,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4488,6 +4489,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

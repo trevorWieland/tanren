@@ -18,6 +18,11 @@ use tanren_app_services::{Handlers, Store};
 use tokio::runtime::Runtime;
 
 use crate::draw;
+use crate::project::{
+    ProjectActionResult, connect_project_fields, disconnect_project_fields,
+    dispatch_connect_project, dispatch_disconnect_project, dispatch_list_projects,
+    dispatch_project_dependencies, list_projects_fields, project_dependencies_fields,
+};
 use crate::ui::{
     accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
     parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
@@ -32,6 +37,10 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    ProjectConnect(FormState),
+    ProjectList(FormState),
+    ProjectDisconnect(FormState),
+    ProjectDependencies(FormState),
     Outcome(OutcomeView),
 }
 
@@ -134,6 +143,22 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::ProjectConnect(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ProjectConnect),
+                None => Effect::None,
+            },
+            Screen::ProjectList(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ProjectList),
+                None => Effect::None,
+            },
+            Screen::ProjectDisconnect(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ProjectDisconnect),
+                None => Effect::None,
+            },
+            Screen::ProjectDependencies(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ProjectDependencies),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -169,6 +194,20 @@ impl App {
             }
             return;
         };
+        match kind {
+            FormKind::SignUp | FormKind::SignIn | FormKind::AcceptInvitation => {
+                self.submit_account(kind, &store);
+            }
+            FormKind::ProjectConnect
+            | FormKind::ProjectList
+            | FormKind::ProjectDisconnect
+            | FormKind::ProjectDependencies => {
+                self.submit_project(kind, &store);
+            }
+        }
+    }
+
+    fn submit_account(&mut self, kind: FormKind, store: &Arc<Store>) {
         let handlers = &self.handlers;
         match kind {
             FormKind::SignUp => {
@@ -257,12 +296,62 @@ impl App {
                     }
                 }
             }
+            _ => {}
+        }
+    }
+
+    fn submit_project(&mut self, kind: FormKind, store: &Arc<Store>) {
+        let handlers = &self.handlers;
+        let result = match kind {
+            FormKind::ProjectConnect => {
+                let Screen::ProjectConnect(state) = &self.screen else {
+                    return;
+                };
+                dispatch_connect_project(&self.runtime, handlers, store, state)
+            }
+            FormKind::ProjectList => {
+                let Screen::ProjectList(state) = &self.screen else {
+                    return;
+                };
+                dispatch_list_projects(&self.runtime, handlers, store, state)
+            }
+            FormKind::ProjectDisconnect => {
+                let Screen::ProjectDisconnect(state) = &self.screen else {
+                    return;
+                };
+                dispatch_disconnect_project(&self.runtime, handlers, store, state)
+            }
+            FormKind::ProjectDependencies => {
+                let Screen::ProjectDependencies(state) = &self.screen else {
+                    return;
+                };
+                dispatch_project_dependencies(&self.runtime, handlers, store, state)
+            }
+            _ => return,
+        };
+        self.apply_project_result(result);
+    }
+
+    fn apply_project_result(&mut self, result: ProjectActionResult) {
+        match result {
+            ProjectActionResult::Outcome(view) => self.screen = Screen::Outcome(view),
+            ProjectActionResult::Error(msg) => {
+                if let Some(state) = self.active_form_mut() {
+                    state.error = Some(msg);
+                }
+            }
         }
     }
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::ProjectConnect(s)
+            | Screen::ProjectList(s)
+            | Screen::ProjectDisconnect(s)
+            | Screen::ProjectDependencies(s) => Some(s),
             _ => None,
         }
     }
@@ -276,6 +365,18 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::ProjectConnect(state) => {
+                draw::draw_form(frame, area, "Connect project", state);
+            }
+            Screen::ProjectList(state) => {
+                draw::draw_form(frame, area, "List projects", state);
+            }
+            Screen::ProjectDisconnect(state) => {
+                draw::draw_form(frame, area, "Disconnect project", state);
+            }
+            Screen::ProjectDependencies(state) => {
+                draw::draw_form(frame, area, "Project dependencies", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -286,6 +387,10 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    ProjectConnect,
+    ProjectList,
+    ProjectDisconnect,
+    ProjectDependencies,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -322,6 +427,18 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::ProjectConnect => {
+                    Screen::ProjectConnect(FormState::new(connect_project_fields()))
+                }
+                MenuChoice::ProjectList => {
+                    Screen::ProjectList(FormState::new(list_projects_fields()))
+                }
+                MenuChoice::ProjectDisconnect => {
+                    Screen::ProjectDisconnect(FormState::new(disconnect_project_fields()))
+                }
+                MenuChoice::ProjectDependencies => {
+                    Screen::ProjectDependencies(FormState::new(project_dependencies_fields()))
                 }
             });
         }

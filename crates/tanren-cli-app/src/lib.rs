@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod project;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -23,7 +25,8 @@ use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId, ProjectId};
+use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +66,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Project flow: connect, list, disconnect, specs, dependencies.
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
     },
 }
 
@@ -112,6 +120,67 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum ProjectAction {
+    /// Connect a repository as a Tanren project.
+    Connect {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Account id initiating the connection.
+        #[arg(long)]
+        account_id: String,
+        /// Organization that will own the project.
+        #[arg(long)]
+        org_id: String,
+        /// Human-readable name for the project.
+        #[arg(long)]
+        name: String,
+        /// URL or path of the repository to connect.
+        #[arg(long)]
+        repository_url: String,
+    },
+    /// List projects accessible to an account.
+    List {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Account whose projects to list.
+        #[arg(long)]
+        account_id: String,
+    },
+    /// Disconnect a project from Tanren without modifying the repository.
+    Disconnect {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Project id to disconnect.
+        #[arg(long)]
+        project_id: String,
+        /// Account requesting the disconnect.
+        #[arg(long)]
+        account_id: String,
+    },
+    /// List specs attached to a project.
+    Specs {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Project whose specs to list.
+        #[arg(long)]
+        project_id: String,
+    },
+    /// List cross-project dependency links for a project.
+    Dependencies {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Project whose dependencies to list.
+        #[arg(long)]
+        project_id: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +191,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Project { action }) => dispatch_project(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -172,6 +242,98 @@ fn dispatch_account(action: AccountAction) -> Result<()> {
         .build()
         .context("build tokio runtime")?;
     runtime.block_on(run_account(action))
+}
+
+fn dispatch_project(action: ProjectAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(run_project(action))
+}
+
+async fn run_project(action: ProjectAction) -> Result<()> {
+    let handlers = Handlers::new();
+    match action {
+        ProjectAction::Connect {
+            database_url,
+            account_id,
+            org_id,
+            name,
+            repository_url,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let account_id = parse_uuid(&account_id, "account_id")?;
+            let org_id = parse_uuid(&org_id, "org_id")?;
+            project::connect_project(
+                &handlers,
+                &store,
+                &database_url,
+                AccountId::new(account_id),
+                OrgId::new(org_id),
+                name,
+                repository_url,
+            )
+            .await
+        }
+        ProjectAction::List {
+            database_url,
+            account_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let account_id = parse_uuid(&account_id, "account_id")?;
+            project::list_projects(&handlers, &store, &database_url, AccountId::new(account_id))
+                .await
+        }
+        ProjectAction::Disconnect {
+            database_url,
+            project_id,
+            account_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let project_id = parse_uuid(&project_id, "project_id")?;
+            let account_id = parse_uuid(&account_id, "account_id")?;
+            project::disconnect_project(
+                &handlers,
+                &store,
+                &database_url,
+                ProjectId::new(project_id),
+                AccountId::new(account_id),
+            )
+            .await
+        }
+        ProjectAction::Specs {
+            database_url,
+            project_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let project_id = parse_uuid(&project_id, "project_id")?;
+            project::project_specs(&handlers, &store, ProjectId::new(project_id)).await
+        }
+        ProjectAction::Dependencies {
+            database_url,
+            project_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let project_id = parse_uuid(&project_id, "project_id")?;
+            project::project_dependencies(&handlers, &store, ProjectId::new(project_id)).await
+        }
+    }
+}
+
+fn parse_uuid(raw: &str, field: &str) -> Result<Uuid> {
+    raw.parse::<Uuid>()
+        .with_context(|| format!("parse --{field} as UUID"))
 }
 
 async fn run_account(action: AccountAction) -> Result<()> {
