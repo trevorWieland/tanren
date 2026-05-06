@@ -141,3 +141,29 @@ impl ProjectFailureReason {
         }
     }
 }
+
+/// Request to list all projects visible to an account.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListProjectsRequest {
+    /// Account whose projects to list.
+    pub account_id: AccountId,
+}
+
+/// Request to retrieve the scoped views (specs, loops, milestones)
+/// for the currently active project.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectScopedViewsRequest {
+    /// Account whose active-project scoped views to return.
+    pub account_id: AccountId,
+}
+
+/// Request to drill down into a specific attention-flagged spec.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct AttentionSpecRequest {
+    /// Account performing the lookup.
+    pub account_id: AccountId,
+    /// Project that contains the spec.
+    pub project_id: ProjectId,
+    /// Spec to look up.
+    pub spec_id: SpecId,
+}

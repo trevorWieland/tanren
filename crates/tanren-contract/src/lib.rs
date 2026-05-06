@@ -14,7 +14,8 @@ pub use account::{
 };
 
 pub use project::{
-    AttentionSpecView, ProjectFailureReason, ProjectScopedViews, ProjectStateSummary, ProjectView,
+    AttentionSpecRequest, AttentionSpecView, ListProjectsRequest, ProjectFailureReason,
+    ProjectScopedViews, ProjectScopedViewsRequest, ProjectStateSummary, ProjectView,
     SwitchProjectRequest, SwitchProjectResponse,
 };
 
