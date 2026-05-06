@@ -4496,10 +4496,13 @@ dependencies = [
  "crossterm",
  "ratatui",
  "secrecy",
+ "serde_json",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

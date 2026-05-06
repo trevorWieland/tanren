@@ -13,6 +13,8 @@
 //! - `app` hosts the screen state machine, the `App` struct, and the
 //!   submit dispatch.
 //! - `draw` hosts the ratatui rendering primitives.
+//! - `notifications` hosts notification-preference form factories,
+//!   outcome adapters, and validation.
 //! - `ui` hosts form-field factories, outcome adapters, and validation.
 //!
 //! The TUI returns bearer-mode `SessionView` responses from
@@ -20,6 +22,7 @@
 
 mod app;
 mod draw;
+mod notifications;
 mod ui;
 
 use std::io::{Stdout, stdout};
@@ -92,16 +95,26 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    NotificationSetPreference,
+    NotificationOrgOverride,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::NotificationSetPreference,
+        Self::NotificationOrgOverride,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::NotificationSetPreference => "Set notification preference",
+            Self::NotificationOrgOverride => "Set org notification override",
         }
     }
 }
@@ -158,6 +171,4 @@ impl FormState {
     }
 }
 
-// Re-export OutcomeView at crate root so `draw.rs`'s
-// `use crate::OutcomeView` continues to resolve.
 pub(crate) use app::OutcomeView;

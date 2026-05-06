@@ -263,7 +263,7 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
     Ok(())
 }
 
-fn app_service_error(err: AppServiceError) -> anyhow::Error {
+pub(crate) fn app_service_error(err: AppServiceError) -> anyhow::Error {
     match err {
         AppServiceError::Account(r) => anyhow::anyhow!("error: {} — {}", r.code(), r.summary()),
         AppServiceError::Configuration(r) => {
@@ -275,7 +275,7 @@ fn app_service_error(err: AppServiceError) -> anyhow::Error {
     }
 }
 
-async fn connect_and_authenticate(
+pub(crate) async fn connect_and_authenticate(
     database_url: &str,
 ) -> Result<(Handlers, Store, AuthenticatedActor)> {
     let handlers = Handlers::new();

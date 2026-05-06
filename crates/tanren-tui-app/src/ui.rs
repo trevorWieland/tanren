@@ -110,6 +110,9 @@ pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
 pub(crate) fn render_error(err: AppServiceError) -> String {
     match err {
         AppServiceError::Account(reason) => format_failure(reason),
+        AppServiceError::Configuration(reason) => {
+            format!("{}: {}", reason.code(), reason.summary())
+        }
         AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
         AppServiceError::Store(err) => format!("internal_error: {err}"),
         _ => "internal_error: unknown app-service failure".to_owned(),

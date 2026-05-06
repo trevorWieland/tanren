@@ -1,10 +1,3 @@
-//! TUI screen state machine and submit dispatch.
-//!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
-
 use std::env;
 use std::io::Stdout;
 use std::sync::Arc;
@@ -14,10 +7,15 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{AuthenticatedActor, Handlers, Store};
 use tokio::runtime::Runtime;
 
 use crate::draw;
+use crate::notifications::{
+    notification_set_org_override_fields, notification_set_org_override_outcome,
+    notification_set_preference_fields, notification_set_preference_outcome,
+    parse_notification_set_org_override, parse_notification_set_preference,
+};
 use crate::ui::{
     accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
     parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
@@ -33,6 +31,8 @@ pub(crate) enum Screen {
     SignIn(FormState),
     AcceptInvitation(FormState),
     Outcome(OutcomeView),
+    NotificationSetPreference(FormState),
+    NotificationSetOrgOverride(FormState),
 }
 
 #[derive(Debug)]
@@ -47,6 +47,7 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    actor: Option<AuthenticatedActor>,
     screen: Screen,
 }
 
@@ -71,6 +72,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            actor: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -134,6 +136,14 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::NotificationSetPreference(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::NotificationSetPreference),
+                None => Effect::None,
+            },
+            Screen::NotificationSetOrgOverride(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::NotificationSetOrgOverride),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -169,92 +179,189 @@ impl App {
             }
             return;
         };
-        let handlers = &self.handlers;
         match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+            FormKind::SignUp => self.submit_sign_up(&store),
+            FormKind::SignIn => self.submit_sign_in(&store),
+            FormKind::AcceptInvitation => self.submit_accept_invitation(&store),
+            FormKind::NotificationSetPreference => self.submit_notification_set_preference(&store),
+            FormKind::NotificationSetOrgOverride => {
+                self.submit_notification_set_org_override(&store);
+            }
+        }
+    }
+
+    fn submit_sign_up(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::SignUp(state) = &self.screen else {
+                return;
+            };
+            parse_sign_up(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(self.handlers.sign_up(store.as_ref(), request));
+        match result {
+            Ok(response) => {
+                self.actor = Some(AuthenticatedActor::from_account_id(response.account.id));
+                self.screen = Screen::Outcome(sign_up_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+        }
+    }
+
+    fn submit_sign_in(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::SignIn(state) = &self.screen else {
+                return;
+            };
+            parse_sign_in(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(self.handlers.sign_in(store.as_ref(), request));
+        match result {
+            Ok(response) => {
+                self.actor = Some(AuthenticatedActor::from_account_id(response.account.id));
+                self.screen = Screen::Outcome(sign_in_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+        }
+    }
+
+    fn submit_accept_invitation(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::AcceptInvitation(state) = &self.screen else {
+                return;
+            };
+            parse_accept_invitation(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(self.handlers.accept_invitation(store.as_ref(), request));
+        match result {
+            Ok(response) => {
+                self.actor = Some(AuthenticatedActor::from_account_id(response.account.id));
+                self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_notification_set_preference(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::NotificationSetPreference(state) = &self.screen else {
+                return;
+            };
+            parse_notification_set_preference(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::NotificationSetPreference(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let Some(actor) = self.actor.as_ref() else {
+            if let Screen::NotificationSetPreference(state) = &mut self.screen {
+                state.error = Some("Not signed in — sign in first.".to_owned());
+            }
+            return;
+        };
+        let result = self
+            .runtime
+            .block_on(
+                self.handlers
+                    .set_notification_preferences(store.as_ref(), actor, request),
+            );
+        match result {
+            Ok(response) => {
+                self.screen = Screen::Outcome(notification_set_preference_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::NotificationSetPreference(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_notification_set_org_override(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::NotificationSetOrgOverride(state) = &self.screen else {
+                return;
+            };
+            parse_notification_set_org_override(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::NotificationSetOrgOverride(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let Some(actor) = self.actor.as_ref() else {
+            if let Screen::NotificationSetOrgOverride(state) = &mut self.screen {
+                state.error = Some("Not signed in — sign in first.".to_owned());
+            }
+            return;
+        };
+        let result = self
+            .runtime
+            .block_on(self.handlers.set_organization_notification_overrides(
+                store.as_ref(),
+                actor,
+                request,
+            ));
+        match result {
+            Ok(response) => {
+                self.screen = Screen::Outcome(notification_set_org_override_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::NotificationSetOrgOverride(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
         }
@@ -262,7 +369,11 @@ impl App {
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::NotificationSetPreference(s)
+            | Screen::NotificationSetOrgOverride(s) => Some(s),
             _ => None,
         }
     }
@@ -276,6 +387,12 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::NotificationSetPreference(state) => {
+                draw::draw_form(frame, area, "Set notification preference", state);
+            }
+            Screen::NotificationSetOrgOverride(state) => {
+                draw::draw_form(frame, area, "Set org notification override", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -286,6 +403,8 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    NotificationSetPreference,
+    NotificationSetOrgOverride,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -323,6 +442,12 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
                 }
+                MenuChoice::NotificationSetPreference => Screen::NotificationSetPreference(
+                    FormState::new(notification_set_preference_fields()),
+                ),
+                MenuChoice::NotificationOrgOverride => Screen::NotificationSetOrgOverride(
+                    FormState::new(notification_set_org_override_fields()),
+                ),
             });
         }
         _ => {}

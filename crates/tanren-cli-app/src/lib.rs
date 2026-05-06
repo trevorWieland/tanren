@@ -13,6 +13,7 @@
 //! lives only on the api-app surface.
 
 mod commands;
+mod notifications;
 
 use std::env;
 use std::fs;
@@ -61,6 +62,10 @@ enum Command {
     Credential {
         #[command(subcommand)]
         action: CredentialAction,
+    },
+    Notification {
+        #[command(subcommand)]
+        action: NotificationAction,
     },
 }
 
@@ -166,6 +171,65 @@ pub(crate) enum CredentialAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+pub(crate) enum NotificationAction {
+    Preferences {
+        #[command(subcommand)]
+        action: NotificationPrefAction,
+    },
+    #[command(name = "org-override")]
+    OrgOverride {
+        #[command(subcommand)]
+        action: NotificationOrgOverrideAction,
+    },
+    Route {
+        #[command(subcommand)]
+        action: NotificationRouteAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum NotificationPrefAction {
+    Set {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        event_type: String,
+        #[arg(long)]
+        channels: String,
+    },
+    List {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum NotificationOrgOverrideAction {
+    Set {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        org_id: String,
+        #[arg(long)]
+        event_type: String,
+        #[arg(long)]
+        channels: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum NotificationRouteAction {
+    Evaluate {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        event_type: String,
+        #[arg(long)]
+        org_id: Option<String>,
+    },
+}
+
 #[must_use]
 pub fn run(config: Config) -> ExitCode {
     let result = match config.command {
@@ -178,6 +242,7 @@ pub fn run(config: Config) -> ExitCode {
             action: ConfigAction::User { action },
         }) => commands::dispatch_user_config(action),
         Some(Command::Credential { action }) => commands::dispatch_credential(action),
+        Some(Command::Notification { action }) => notifications::dispatch_notification(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
