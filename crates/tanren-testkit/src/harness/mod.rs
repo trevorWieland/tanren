@@ -45,6 +45,7 @@
 mod api;
 mod cli;
 mod in_process;
+mod install_drift;
 mod mcp;
 mod tui;
 mod web;
@@ -65,6 +66,7 @@ use tanren_store::EventEnvelope;
 pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
+pub use install_drift::{DriftEntry, DriftReport, InstallDriftFixture};
 pub use mcp::McpHarness;
 pub use tui::TuiHarness;
 pub use web::WebHarness;

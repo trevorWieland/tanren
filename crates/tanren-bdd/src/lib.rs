@@ -21,6 +21,8 @@ use tanren_testkit::{
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
 };
 
+use crate::steps::install_drift::InstallDriftContext;
+
 /// Cucumber `World` shared across all Tanren BDD scenarios.
 #[derive(Debug, Default, CucumberWorld)]
 pub struct TanrenWorld {
@@ -28,6 +30,8 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Install-drift detection context (B-0069).
+    pub install_drift: Option<InstallDriftContext>,
 }
 
 impl TanrenWorld {
@@ -167,6 +171,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            install_drift: None,
         };
         assert_eq!(world.seed.value(), 42);
     }
