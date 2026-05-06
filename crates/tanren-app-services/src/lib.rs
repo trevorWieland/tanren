@@ -7,15 +7,20 @@
 
 pub mod account;
 pub mod events;
+pub mod organization;
+pub mod organization_events;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
+    CreateOrganizationRequest, OrganizationAdminOperation, OrganizationFailureReason,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+use tanren_identity_policy::{
+    AccountId, Argon2idVerifier, CredentialVerifier, OrgId, OrgPermission,
+};
+pub use tanren_store::{AccountStore, OrganizationStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -199,6 +204,119 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Organization-creation command for a known account: create the
+    /// org, link a membership, grant all five bootstrap admin
+    /// permissions, and append an `organization_created` event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::DuplicateOrganizationName`] when
+    /// the canonical name is already taken, or
+    /// [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn create_organization_for_account<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        request: CreateOrganizationRequest,
+    ) -> Result<organization::CreateOrganizationOutput, AppServiceError>
+    where
+        S: AccountStore + OrganizationStore + ?Sized,
+    {
+        organization::create_organization_for_account(store, &self.clock, account_id, request).await
+    }
+
+    /// Session-backed organization-creation command: resolve the
+    /// bearer token to an account, then delegate to
+    /// [`Handlers::create_organization_for_account`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::AuthRequired`] when the session is
+    /// missing or expired; delegates all other failure modes to the
+    /// account-based variant.
+    pub async fn create_organization_with_session<S>(
+        &self,
+        store: &S,
+        bearer_token: &str,
+        request: CreateOrganizationRequest,
+    ) -> Result<organization::CreateOrganizationOutput, AppServiceError>
+    where
+        S: AccountStore + OrganizationStore + ?Sized,
+    {
+        organization::create_organization_with_session(store, &self.clock, bearer_token, request)
+            .await
+    }
+
+    /// List organizations the supplied account is a member of.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn list_account_organizations<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+    ) -> Result<Vec<tanren_store::OrganizationRecord>, AppServiceError>
+    where
+        S: OrganizationStore + ?Sized,
+    {
+        organization::list_account_organizations(store, account_id).await
+    }
+
+    /// No-op authorization probe: returns `Ok(())` when the account
+    /// holds the permission matching the requested admin operation on
+    /// the specified organization.
+    ///
+    /// This is a read-only check — it does not mutate any state.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::PermissionDenied`] when the
+    /// account lacks the requested permission or is not a member of
+    /// the organization.
+    pub async fn authorize_org_admin_operation<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        org_id: OrgId,
+        operation: OrganizationAdminOperation,
+    ) -> Result<(), AppServiceError>
+    where
+        S: OrganizationStore + ?Sized,
+    {
+        organization::authorize_org_admin_operation(store, account_id, org_id, operation).await
+    }
+
+    /// Enforce the last-admin-holder invariant: returns
+    /// `Err(LastAdminHolder)` when the account is the sole holder of
+    /// the specified permission in the organization.
+    ///
+    /// This is a read-only check intended for leave/remove flows
+    /// (R-0007) to call before revoking a permission or removing a
+    /// member.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Organization`] with
+    /// [`OrganizationFailureReason::LastAdminHolder`] when revoking
+    /// the permission would leave the organization without any holder.
+    pub async fn assert_not_last_admin_holder<S>(
+        &self,
+        store: &S,
+        org_id: OrgId,
+        account_id: AccountId,
+        permission: OrgPermission,
+    ) -> Result<(), AppServiceError>
+    where
+        S: OrganizationStore + ?Sized,
+    {
+        organization::assert_not_last_admin_holder(store, org_id, account_id, permission).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +333,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// An organization-flow taxonomy failure.
+    #[error("organization: {}", .0.code())]
+    Organization(OrganizationFailureReason),
 }
