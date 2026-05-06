@@ -12,10 +12,12 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod install;
+
 use std::env;
 use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
@@ -63,6 +65,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Install and drift-check Tanren assets.
+    Install {
+        #[command(subcommand)]
+        action: InstallAction,
     },
 }
 
@@ -112,6 +119,19 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Subcommand)]
+enum InstallAction {
+    /// Check installed assets for drift without modifying the repository.
+    Drift {
+        /// Path to the installed repository to check.
+        #[arg(long)]
+        repo: PathBuf,
+        /// Output format.
+        #[arg(long, value_parser = ["json"])]
+        format: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +142,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Install { action }) => dispatch_install(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -305,6 +326,25 @@ fn session_path() -> PathBuf {
             PathBuf::from,
         );
     base.join("tanren").join("session")
+}
+
+fn dispatch_install(action: InstallAction) -> Result<()> {
+    match action {
+        InstallAction::Drift { repo, format } => run_install_drift(&repo, &format),
+    }
+}
+
+fn run_install_drift(repo: &Path, _format: &str) -> Result<()> {
+    let report = install::check_drift(repo)
+        .with_context(|| format!("check drift for {}", repo.display()))?;
+    let json = serde_json::to_string(&report).context("serialize drift report")?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(handle, "{json}").context("write drift report")?;
+    if report.has_drift {
+        anyhow::bail!("drift detected");
+    }
+    Ok(())
 }
 
 fn persist_session(token: &str) -> Result<()> {
