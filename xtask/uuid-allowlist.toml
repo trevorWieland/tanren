@@ -7,6 +7,7 @@
 # event envelope and SeaORM model entry points stay raw `Uuid` so the
 # domain newtypes can wrap them at the conversion boundary.
 allowed_files = [
+  "crates/tanren-identity-policy/src/ids.rs",
   "crates/tanren-identity-policy/src/lib.rs",
   "crates/tanren-store/src/lib.rs",
   "crates/tanren-store/src/entity/accounts.rs",

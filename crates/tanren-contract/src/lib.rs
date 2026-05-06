@@ -6,10 +6,16 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod project;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use project::{
+    AttentionSpecView, ProjectFailureReason, ProjectScopedViews, ProjectStateSummary, ProjectView,
+    SwitchProjectRequest, SwitchProjectResponse,
 };
 
 use serde::{Deserialize, Serialize};
