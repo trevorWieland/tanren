@@ -3,10 +3,11 @@
   "generated_at": "2026-05-01",
   "product_ref": "docs/product/vision.md",
   "behavior_root": "docs/behaviors",
+  "surface_registry_ref": "docs/experience/surfaces.yml",
   "architecture_root": "docs/architecture",
   "implementation_ref": null,
   "foundation_spec_id": "F-0002",
-  "completion_definition": "A behavior spec node is complete IFF (a) BDD scenarios with positive and falsification witnesses exist and pass for every behavior listed in completes_behaviors on every interface declared by that behavior, and (b) the subjective playbook has been walked end-to-end with a human accepting each step on every declared interface. Foundation spec nodes are complete IFF the definition_of_done in the foundation spec passes; they intentionally complete zero behaviors.",
+  "completion_definition": "A behavior spec node is complete IFF (a) BDD scenarios with positive and falsification witnesses exist and pass for every behavior listed in completes_behaviors on every surface declared by that behavior, and (b) the subjective playbook has been walked end-to-end with a human accepting each step on every declared surface. Foundation spec nodes are complete IFF the definition_of_done in the foundation spec passes; they intentionally complete zero behaviors.",
   "parallelization_strategy": {
     "phase_1_foundation_sequential": [
       "M-0001",

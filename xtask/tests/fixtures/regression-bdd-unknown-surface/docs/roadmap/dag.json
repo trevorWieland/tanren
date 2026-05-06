@@ -1,0 +1,15 @@
+{
+  "schema": "tanren.roadmap_dag.v0",
+  "nodes": [
+    {
+      "id": "R-0001",
+      "expected_evidence": [
+        {
+          "behavior_id": "B-0001",
+          "surfaces": ["web"],
+          "witnesses": ["positive"]
+        }
+      ]
+    }
+  ]
+}

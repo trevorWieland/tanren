@@ -6,9 +6,12 @@
 ## What this is
 
 A dependency-aware DAG of spec-sized work that, when complete, realizes every
-accepted behavior in [`docs/behaviors/`](../behaviors) on every interface that
-behavior declares. The DAG lets multiple independent streams progress in
-parallel while honoring real ordering constraints.
+accepted behavior in [`docs/behaviors/`](../behaviors) on every surface that
+behavior declares. Existing Tanren behavior records still use `interfaces:` as
+a migration alias; new project-facing roadmap work should use surfaces from
+[`docs/experience/surfaces.yml`](../experience/surfaces.yml). The DAG lets
+multiple independent streams progress in parallel while honoring real ordering
+constraints.
 
 Read [`dag.json`](dag.json) for the canonical structure. This document is a
 human-friendly rendering.
@@ -36,13 +39,13 @@ that closes four F-0001 misalignments (HTTP MCP transport, mechanical BDD
 tag enforcement, locked `.feature` convention, dependency-shape drift)
 before any R-* node lands. Both foundation specs complete zero behaviors by
 design. Every roadmap spec (R-0001 onwards) is a thin behavior slice that
-fully completes its declared behaviors on every interface those behaviors
-declare — no future spec is gated on "an interface doesn't exist yet".
+fully completes its declared behaviors on every surface those behaviors
+declare — no future spec is gated on "a surface doesn't exist yet".
 
 **Completion definition.** A behavior spec is complete IFF (a) BDD scenarios
 with positive and falsification witnesses pass for every behavior in
-`completes_behaviors` on every declared interface, AND (b) the subjective
-playbook walks end-to-end with human acceptance on every declared interface.
+`completes_behaviors` on every declared surface, AND (b) the subjective
+playbook walks end-to-end with human acceptance on every declared surface.
 
 **Cluster, don't enumerate.** Specs bundle 1-4 closely-related behaviors when
 they share scaffolding, lifecycle, or proof structure. Specs split when
@@ -188,6 +191,13 @@ python3 scripts/roadmap_check.py --reduce
   removed by `--reduce`. Every behavior node has F-0002 as a transitive
   ancestor (and F-0002 has F-0001).
 - **`expected_evidence`** lists per-behavior BDD coverage with witnesses
-  (`positive` + `falsification`) and the interfaces the proof must cover.
+  (`positive` + `falsification`) and the surfaces the proof must cover. During
+  migration, existing entries may use `interfaces`; validators treat it as a
+  compatibility alias for `surfaces`.
+- **`surface_scope`** optionally lists the project surfaces touched by the
+  node. Validators reject unknown IDs from `docs/experience/surfaces.yml`.
+- **`experience_risk`** optionally records `low`, `medium`, or `high` based on
+  interaction complexity, proof-adapter uncertainty, accessibility risk, and
+  whether the node changes a critical user path.
 - **`playbook`** is the human-walked acceptance sequence. Subjective; one
   reviewer signs off.

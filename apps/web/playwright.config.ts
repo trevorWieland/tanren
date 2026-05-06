@@ -14,8 +14,14 @@ const testDir = defineBddConfig({
   tags: "@web",
 });
 
-const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3000";
+const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3100";
 const webBaseUrl = process.env["WEB_BASE_URL"] ?? `http://127.0.0.1:${webPort}`;
+
+const webServerCommand = [
+  "pnpm exec concurrently -n paraglide,next",
+  '"paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations --watch"',
+  `"next dev --turbopack --hostname 127.0.0.1 --port ${webPort}"`,
+].join(" ");
 
 // NOTE: NEXT_PUBLIC_API_URL is intentionally NOT captured here at
 // config-load. globalSetup (./tests/bdd/global-setup.ts) chooses the API
@@ -46,8 +52,8 @@ export default defineConfig({
   // The `tanren-api` Rust binary is spawned by globalSetup against an
   // ephemeral SQLite DB; the Next.js dev server below picks up the API
   // URL from .env.local (written by globalSetup). PLAYWRIGHT_NO_SERVER
-  // skips the Next.js spin-up when the developer has already booted the
-  // dev server in another tab.
+  // skips the Next.js spin-up when the developer has intentionally booted
+  // the matching dev server in another tab.
   ...(process.env["PLAYWRIGHT_NO_SERVER"]
     ? {}
     : {
@@ -56,9 +62,9 @@ export default defineConfig({
           // resolves at runtime from .env.local (production builds
           // bake the value at build time, which is incompatible with
           // globalSetup picking an ephemeral API port).
-          command: "pnpm dev",
+          command: webServerCommand,
           url: webBaseUrl,
-          reuseExistingServer: process.env["CI"] !== "true",
+          reuseExistingServer: false,
           timeout: 240_000,
           // No `env` block — see comment above. NEXT_PUBLIC_API_URL is
           // sourced from .env.local, which globalSetup writes after

@@ -36,7 +36,9 @@ Supporting owned projections:
 - `docs/product/concepts.md` defines product concepts and scopes.
 - Runtime actor IDs are defined by runtime and related subsystem architecture
   records.
-- `docs/architecture/subsystems/interfaces.md` defines interface IDs.
+- `docs/experience/surfaces.yml` defines active project surface IDs.
+- `docs/architecture/subsystems/interfaces.md` defines Tanren's own public
+  surfaces during the `interfaces:` to `surfaces:` migration.
 - `docs/implementation/verification.md` will summarize current verification
   state once any implementation exists. It is produced by the
   `assess-implementation` skill and is absent pre-Foundation; Tanren has no
@@ -54,7 +56,7 @@ title: <imperative phrase, user-visible>
 area: implementation-loop                  # stable product area slug
 personas: [solo-builder, team-builder]      # IDs from docs/product/personas.md
 runtime_actors: []                          # optional IDs from architecture
-interfaces: [web, api, mcp, cli, tui]       # subset of {web, api, mcp, cli, tui}
+surfaces: [web, api, mcp, cli, tui]         # IDs from docs/experience/surfaces.yml
 contexts: [personal, organizational]        # one or both
 product_status: draft | accepted | deprecated | removed
 verification_status: unimplemented | implemented | asserted | retired
@@ -116,20 +118,21 @@ These are hard rules. Violations should fail review.
    *"a `<persona>` can"*. Never *"the system shall"* or *"the service MUST"*.
 3. **Describe outcomes, not flows.** If a behavior needs numbered steps, it is
    too low-level. Split it, or promote the steps into a lane brief.
-4. **Every behavior names at least one persona, one interface, and one
+4. **Every behavior names at least one persona, one surface, and one
    context.** Do not use `any` for personas; list the specific product personas
    or external clients that care about the behavior. `runtime_actors` may be
    added only for internal runtime subjects defined in runtime and related
    subsystem architecture records.
 
-   The `interfaces` field MUST be a subset of `{web, api, mcp, cli, tui}` as
-   defined in `docs/architecture/subsystems/interfaces.md`. The legacy `any`
-   marker is forbidden, as is `daemon` (an internal actor, not a public
-   interface). The list represents the architectural commitment of where this
+   The `surfaces` field MUST be a subset of `docs/experience/surfaces.yml`.
+   Existing Tanren behavior files still use `interfaces:`; validators treat
+   that field as a compatibility alias until the catalog migrates. The legacy
+   `any` marker is forbidden, as is `daemon` (an internal actor, not a public
+   surface). The list represents the architectural commitment of where this
    behavior is reachable to its declared personas — not a description of how
-   it is implemented. Adding or removing an interface is a behavior change.
+   it is implemented. Adding or removing a surface is a behavior change.
 
-   Default for human-facing behaviors (any persona in
+   Default for Tanren human-facing behaviors (any persona in
    `{solo-builder, team-builder, observer, operator}`):
    `[web, api, mcp, cli, tui]`. Narrower lists require a clear product reason
    stated in the behavior body or the `Out of scope` section. Common
@@ -201,12 +204,12 @@ honoring scoped access or reporting progress. Runtime actors belong in
 
 ### Device reach
 
-Every behavior should be achievable via at least one interface that works on
-each supported device class — phone, low-power laptop, full laptop. The `web`
-interface is responsive and works on phone and laptop. `mcp` is reachable
-from phone chat clients. `api` is reachable from any client (web, mobile
-native, or external automation). `cli` and `tui` are laptop-only. A behavior
-that genuinely cannot work on a phone must state this in **Out of scope**.
+Every behavior should be achievable via at least one surface that works on each
+supported device class for the adopting project. Tanren's `web` surface is
+responsive and works on phone and laptop. `mcp` is reachable from phone chat
+clients. `api` is reachable from any client (web, mobile native, or external
+automation). `cli` and `tui` are laptop-only. A behavior that genuinely cannot
+work on a supported device class must state this in **Out of scope**.
 
 ### External issue trackers
 

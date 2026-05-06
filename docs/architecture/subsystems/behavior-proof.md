@@ -264,8 +264,10 @@ This section is the mechanical contract that
 [`scripts/roadmap_check.py`](../../../scripts/roadmap_check.py)
 cross-references. It was locked in F-0002 to close drift between
 `tests/bdd/README.md`, `interfaces.md`, and three competing R-0001
-attempts. Future authors should not relitigate; if the convention truly
-needs to change, change it here first and then update both validators.
+attempts. The current implementation now loads scenario surface tags from
+`docs/experience/surfaces.yml`, while accepting existing `interfaces:` fields
+as a migration alias. Future authors should not relitigate; if the convention
+truly needs to change, change it here first and then update both validators.
 
 ### File granularity
 
@@ -284,13 +286,13 @@ needs to change, change it here first and then update both validators.
 - **Feature-level**: exactly one tag, `@B-XXXX`, matching the filename
   prefix. No other feature-level tags.
 - **Scenario-level**: exactly one of `@positive` / `@falsification`,
-  plus 1–2 interface tags drawn from `@web | @api | @mcp | @cli | @tui`.
-- **Closed allowlist**: the seven scenario tags above are the only tags
-  permitted anywhere in the suite. `@skip`, `@wip`, `@ignore`, phase
-  tags, wave tags, and proof IDs are rejected.
-- **Two-interface scenarios** (e.g., create-via-CLI verify-via-web)
+  plus 1–2 surface tags drawn from `docs/experience/surfaces.yml`.
+- **Closed allowlist**: witness tags plus configured surface tags are the only
+  scenario tags permitted anywhere in the suite. `@skip`, `@wip`, `@ignore`,
+  phase tags, wave tags, and proof IDs are rejected.
+- **Two-surface scenarios** (e.g., create-via-CLI verify-via-web)
   require a `# rationale: <one line>` comment immediately above the
-  scenario's tag block. Three or more interface tags on a single
+  scenario's tag block. Three or more surface tags on a single
   scenario is a hard error.
 
 ### Forbidden Gherkin constructs
@@ -298,32 +300,33 @@ needs to change, change it here first and then update both validators.
 - `Scenario Outline` and `Examples:` blocks are forbidden. Outlines
   generate synthetic scenario names that destabilize assessment and
   mutation IDs and break the one-witness-per-scenario rule.
-- `Background:` and `Rule:` are allowed. `Rule:` is encouraged as the
-  natural seam for grouping scenarios per interface inside one file.
+- `Background:` and `Rule:` are allowed. `Rule:` is encouraged for grouping
+  scenarios per surface inside one file.
 
 ### Coverage rules (strict equality)
 
 A behavior is binary: fully asserted or not. There is no "partially
 asserted" lane.
 
-- The union of interface tags across the feature's scenarios must
-  **equal** the behavior's frontmatter `interfaces:` set. Any tag
-  outside that set is a hard error (surface drift); any frontmatter
-  interface with no tagged scenario is a hard error (incomplete proof).
-- For each interface in the behavior's `interfaces:` set, the feature
+- The union of surface tags across the feature's scenarios must
+  **equal** the behavior's frontmatter `surfaces:` set. During migration,
+  `interfaces:` is accepted as an alias. Any tag outside that set is a hard
+  error (surface drift); any frontmatter surface with no tagged scenario is a
+  hard error (incomplete proof).
+- For each surface in the behavior's surface set, the feature
   must contain at least one `@positive` scenario tagged for that
-  interface.
+  surface.
 - When the R-* node's `expected_evidence.witnesses` for the behavior
   includes `falsification`, the feature must additionally contain at
-  least one `@falsification` scenario tagged for **every** interface in
-  the behavior's `interfaces:` set. F-0002 deliberately elevates
-  falsification to per-interface coverage, stricter than the
+  least one `@falsification` scenario tagged for **every** surface in
+  the behavior's surface set. F-0002 deliberately elevates
+  falsification to per-surface coverage, stricter than the
   "where meaningful" framing in core invariant 5 above; the elevation
   is the contract because every surface needs an independent negative
   witness, not just the behavior as a whole.
 - The validator already enforces that
-  `expected_evidence.interfaces` equals the behavior's
-  `interfaces:`; this convention rides on top.
+  `expected_evidence.surfaces` equals the behavior's surface declaration.
+  During migration, `expected_evidence.interfaces` is accepted as an alias.
 
 ### Validator wiring
 
@@ -335,16 +338,16 @@ that every `B-XXXX-*.feature` references an accepted behavior with a
 DAG node — runs in `scripts/roadmap_check.py` so an orphan feature
 file is caught even if the xtask validator has not been touched.
 
-## Per-Interface BDD Wire-Harness Wiring (R-0001)
+## Per-Surface BDD Wire-Harness Wiring (R-0001)
 
-The interface tags `@web | @api | @mcp | @cli | @tui` are **witnesses,
-not labels**. Each tagged scenario MUST drive the actual surface — a
-real HTTP request against a spawned server for `@api` and `@mcp`, a
-real subprocess for `@cli`, a real pty for `@tui`, a real browser for
-`@web`. A scenario that tags `@cli` but invokes the in-process
-`Handlers` facade is a tagging lie and is rejected.
+Surface tags are **witnesses, not labels**. Each tagged scenario MUST drive
+the actual observable surface through that surface's proof adapter. For
+Tanren's current surfaces, that means a real HTTP request against a spawned
+server for `@api` and `@mcp`, a real subprocess for `@cli`, a real pty for
+`@tui`, and a real browser for `@web`. A scenario that tags `@cli` but invokes
+the in-process `Handlers` facade is a tagging lie and is rejected.
 
-This is the canonical contract that closes the per-interface BDD gap
+This is the canonical contract that closes the per-surface BDD gap
 identified during R-0001 review. It cross-references
 [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../../profiles/rust-cargo/testing/bdd-wire-harness.md).
 
@@ -372,7 +375,7 @@ written once and dispatched by tag.
 active scenario's tag set via cucumber-rs's scenario object and
 instantiates the matching harness. Step bodies look up
 `world.harness_mut()` and invoke the harness method; the same Gherkin
-step source drives every interface.
+step source drives every surface.
 
 ### Single Gherkin source of truth across Rust and Playwright
 
@@ -400,7 +403,7 @@ the same behavior.
   and `tanren-contract` only; `Handlers` is reachable only via
   harnesses.
 - The existing `xtask check-bdd-tags` continues to enforce the closed
-  tag allowlist, per-interface positive coverage, and per-interface
+  tag allowlist, per-surface positive coverage, and per-surface
   falsification coverage where the R-* node's
   `expected_evidence.witnesses` includes `falsification`.
 
@@ -424,8 +427,8 @@ the same behavior.
 - Assessment owns current assertion classification; behavior proof owns proof
   status and proof-quality signals.
 - Universal feature metadata includes behavior ID, witness kind, proof target,
-  interface or surface under test, fixture scope, assertion policy version,
-  source event position, and redaction class.
+  surface under test, fixture scope, assertion policy version, source event
+  position, and redaction class.
 - Falsification-witness exceptions are limited to behavior-not-testable,
   external-system-unavailable, destructive-real-world-action, and
   policy-prohibited-observation, each requiring rationale and review.

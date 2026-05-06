@@ -13,8 +13,7 @@ adopting repository.
 > `assess-implementation` command have been removed during the architecture
 > rewrite. The spec-orchestration state machine is being redesigned from
 > scratch and will be reintroduced as Tanren-native, typed-event-driven
-> commands. Until then, only the four project-method commands below are
-> supported.
+> commands. Until then, only the project-method commands below are supported.
 
 ## Layout
 
@@ -26,7 +25,9 @@ Current project-method chain:
 
 ```text
 plan-product
+-> define-surfaces
 -> identify-behaviors
+-> design-experience
 -> architect-system
 -> craft-roadmap
 ```
@@ -34,7 +35,10 @@ plan-product
 Project commands directly edit owned planning projections for now:
 
 - `plan-product` owns `docs/product/**`.
+- `define-surfaces` owns `docs/experience/surfaces.yml`.
 - `identify-behaviors` owns `docs/behaviors/**`.
+- `design-experience` owns behavior-surface experience projections under
+  `docs/experience/**` except `surfaces.yml`.
 - `architect-system` owns `docs/architecture/**`.
 - `craft-roadmap` owns `docs/roadmap/**`.
 
