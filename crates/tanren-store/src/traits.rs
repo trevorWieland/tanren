@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrganizationPermission,
+    SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, CreateInvitation, EventEnvelope, InvitationRecord, NewAccount, SessionRecord,
+    StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -50,6 +52,9 @@ pub struct AcceptInvitationEventContext {
     /// The organization the new account joined (read from the
     /// consumed invitation row inside the transaction).
     pub joined_org: OrgId,
+    /// Permissions granted to the new member, read from the
+    /// consumed invitation row.
+    pub granted_permissions: Vec<OrganizationPermission>,
     /// `now` from the request, threaded through so event payloads
     /// can carry the same instant as the row writes.
     pub now: DateTime<Utc>,
@@ -119,6 +124,8 @@ pub struct AcceptInvitationAtomicOutput {
     pub session: SessionRecord,
     /// Organization the new account joined.
     pub joined_org: OrgId,
+    /// Permissions granted to the new member.
+    pub granted_permissions: Vec<OrganizationPermission>,
 }
 
 /// Failure taxonomy for [`AccountStore::accept_invitation_atomic`]. The
@@ -149,6 +156,23 @@ pub enum AcceptInvitationError {
     Store(#[from] StoreError),
 }
 
+/// Failure taxonomy for [`AccountStore::revoke_invitation`].
+#[derive(Debug, thiserror::Error)]
+pub enum RevokeInvitationError {
+    /// No invitation matches the supplied token.
+    #[error("invitation not found")]
+    NotFound,
+    /// The invitation has already been consumed.
+    #[error("invitation already consumed")]
+    AlreadyConsumed,
+    /// The invitation has already been revoked.
+    #[error("invitation already revoked")]
+    AlreadyRevoked,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Port the account-flow handlers consume. The SeaORM-backed adapter is
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
@@ -173,11 +197,12 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     async fn insert_account(&self, new: NewAccount) -> Result<AccountRecord, StoreError>;
 
     /// Insert a membership linking an account to an organization at the
-    /// supplied instant.
+    /// supplied instant with the given permissions.
     async fn insert_membership(
         &self,
         account_id: AccountId,
         org_id: OrgId,
+        permissions: Vec<OrganizationPermission>,
         now: DateTime<Utc>,
     ) -> Result<MembershipId, StoreError>;
 
@@ -186,6 +211,47 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         token: &InvitationToken,
     ) -> Result<Option<InvitationRecord>, StoreError>;
+
+    /// Create a new invitation.
+    async fn create_invitation(
+        &self,
+        invitation: CreateInvitation,
+    ) -> Result<InvitationRecord, StoreError>;
+
+    /// List all invitations for an organization.
+    async fn list_invitations_by_org(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Vec<InvitationRecord>, StoreError>;
+
+    /// List all invitations for a recipient identifier.
+    async fn list_invitations_by_recipient(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<InvitationRecord>, StoreError>;
+
+    /// Revoke a pending invitation. Sets `revoked_at` on the row.
+    async fn revoke_invitation(
+        &self,
+        token: &InvitationToken,
+        now: DateTime<Utc>,
+    ) -> Result<InvitationRecord, RevokeInvitationError>;
+
+    /// Look up the account behind a session token. Returns `None` if
+    /// the session does not exist or has expired (relative to `now`).
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
+    /// Look up the permissions an account holds within an organization.
+    /// Returns an empty vec if the account is not a member.
+    async fn find_organization_permissions(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<OrganizationPermission>, StoreError>;
 
     /// Atomically consume an invitation. Implementations issue a single
     /// conditional UPDATE filtered on `consumed_at IS NULL AND expires_at
@@ -209,6 +275,8 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     ///   exists but `consumed_at` was already set by another caller.
     /// - `Err(ConsumeInvitationError::Expired)` when the row exists but
     ///   `expires_at <= now`.
+    /// - `Err(ConsumeInvitationError::Revoked)` when the row has been
+    ///   revoked.
     /// - `Err(ConsumeInvitationError::Store(_))` for unexpected DB
     ///   failures.
     async fn consume_invitation(
@@ -259,6 +327,8 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 pub struct ConsumedInvitation {
     /// Organization the new account joins on acceptance.
     pub inviting_org_id: OrgId,
+    /// Permissions granted on acceptance.
+    pub granted_permissions: Vec<OrganizationPermission>,
     /// Wall-clock time the invitation was set to expire.
     pub expires_at: DateTime<Utc>,
     /// Wall-clock time the invitation was consumed (the `now` passed in).
@@ -280,6 +350,9 @@ pub enum ConsumeInvitationError {
     /// The invitation exists but `expires_at <= now`.
     #[error("invitation expired")]
     Expired,
+    /// The invitation has been revoked.
+    #[error("invitation revoked")]
+    Revoked,
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),

@@ -13,10 +13,13 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter, Set, TransactionTrait,
 };
-use tanren_identity_policy::{MembershipId, OrgId, SessionToken, ValidationError};
+use tanren_identity_policy::{
+    MembershipId, OrgId, OrganizationPermission, SessionToken, ValidationError,
+};
 use uuid::Uuid;
 
 use crate::entity;
+use crate::records::granted_permissions_json;
 use crate::traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder,
@@ -48,13 +51,17 @@ async fn run_in_txn(
         events_builder,
     } = request;
 
-    let inviting_org_id = consume_invitation_in_txn(txn, token.as_str(), now).await?;
+    let consume_result = consume_invitation_in_txn(txn, token.as_str(), now).await?;
+    let inviting_org_id = consume_result.org_id;
+    let granted_permissions = consume_result.permissions;
+
     let account_record = insert_account_in_txn(txn, &account, inviting_org_id).await?;
     insert_membership_in_txn(
         txn,
         membership_id,
         account_record.id.as_uuid(),
         inviting_org_id,
+        &granted_permissions,
         now,
     )
     .await?;
@@ -74,6 +81,7 @@ async fn run_in_txn(
             identifier: account_record.identifier.clone(),
             token,
             joined_org: inviting_org_id,
+            granted_permissions: granted_permissions.clone(),
             now,
         },
     )
@@ -83,18 +91,24 @@ async fn run_in_txn(
         account: account_record,
         session: session_record,
         joined_org: inviting_org_id,
+        granted_permissions,
     })
+}
+
+struct ConsumeResult {
+    org_id: OrgId,
+    permissions: Vec<OrganizationPermission>,
 }
 
 /// Conditional UPDATE on the invitation row + disambiguation read.
 /// Mirrors `Store::consume_invitation` exactly; running inside a
 /// transaction means the disambiguation `find_by_id` sees a consistent
-/// view even under concurrent acceptance.
+/// view even under concurrent acceptance. Rejects revoked invitations.
 async fn consume_invitation_in_txn(
     txn: &DatabaseTransaction,
     token: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<OrgId, AcceptInvitationError> {
+) -> Result<ConsumeResult, AcceptInvitationError> {
     let token_owned = token.to_owned();
     let result = entity::invitations::Entity::update_many()
         .col_expr(
@@ -103,6 +117,7 @@ async fn consume_invitation_in_txn(
         )
         .filter(entity::invitations::Column::Token.eq(token_owned.clone()))
         .filter(entity::invitations::Column::ConsumedAt.is_null())
+        .filter(entity::invitations::Column::RevokedAt.is_null())
         .filter(entity::invitations::Column::ExpiresAt.gt(now))
         .exec(txn)
         .await
@@ -117,7 +132,11 @@ async fn consume_invitation_in_txn(
                 column: "invitation_token",
                 cause: ValidationError::InvitationTokenEmpty,
             })?;
-        return Ok(OrgId::new(row.inviting_org_id));
+        let permissions = parse_permissions(&row.granted_permissions)?;
+        return Ok(ConsumeResult {
+            org_id: OrgId::new(row.inviting_org_id),
+            permissions,
+        });
     }
 
     let existing = entity::invitations::Entity::find_by_id(token_owned)
@@ -126,10 +145,32 @@ async fn consume_invitation_in_txn(
         .map_err(StoreError::from)?;
     Err(match existing {
         None => AcceptInvitationError::InvitationNotFound,
+        Some(row) if row.revoked_at.is_some() => AcceptInvitationError::InvitationExpired,
         Some(row) if row.consumed_at.is_some() => AcceptInvitationError::InvitationAlreadyConsumed,
         Some(row) if row.expires_at <= now => AcceptInvitationError::InvitationExpired,
         Some(_) => AcceptInvitationError::InvitationAlreadyConsumed,
     })
+}
+
+fn parse_permissions(value: &serde_json::Value) -> Result<Vec<OrganizationPermission>, StoreError> {
+    let arr = value.as_array().ok_or_else(|| StoreError::DataInvariant {
+        column: "granted_permissions",
+        cause: ValidationError::EmptyPermissionName,
+    })?;
+    let mut perms = Vec::with_capacity(arr.len());
+    for item in arr {
+        let s = item.as_str().ok_or_else(|| StoreError::DataInvariant {
+            column: "granted_permissions",
+            cause: ValidationError::EmptyPermissionName,
+        })?;
+        perms.push(
+            OrganizationPermission::parse(s).map_err(|err| StoreError::DataInvariant {
+                column: "granted_permissions",
+                cause: err,
+            })?,
+        );
+    }
+    Ok(perms)
 }
 
 /// Insert the new account row. Caller's `account.org_id` is ignored —
@@ -166,12 +207,14 @@ async fn insert_membership_in_txn(
     membership_id: MembershipId,
     account_uuid: Uuid,
     inviting_org_id: OrgId,
+    permissions: &[OrganizationPermission],
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), AcceptInvitationError> {
     let model = entity::memberships::ActiveModel {
         id: Set(membership_id.as_uuid()),
         account_id: Set(account_uuid),
         org_id: Set(inviting_org_id.as_uuid()),
+        permissions: Set(granted_permissions_json(permissions)),
         created_at: Set(now),
     };
     model.insert(txn).await.map_err(StoreError::from)?;

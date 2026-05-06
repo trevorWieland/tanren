@@ -13,14 +13,18 @@ mod migration;
 mod records;
 mod traits;
 
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
+
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, CreateInvitation, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
+    SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, RevokeInvitationError,
 };
 
 use async_trait::async_trait;
@@ -33,11 +37,13 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrganizationPermission,
+    SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
+
+use crate::records::{granted_permissions_json, parse_permissions_json};
 
 /// A connected handle to Tanren's canonical event store.
 ///
@@ -160,6 +166,7 @@ impl AccountStore for Store {
         &self,
         account_id: AccountId,
         org_id: OrgId,
+        permissions: Vec<OrganizationPermission>,
         now: DateTime<Utc>,
     ) -> Result<MembershipId, StoreError> {
         let id = MembershipId::fresh();
@@ -167,6 +174,7 @@ impl AccountStore for Store {
             id: Set(id.as_uuid()),
             account_id: Set(account_id.as_uuid()),
             org_id: Set(org_id.as_uuid()),
+            permissions: Set(granted_permissions_json(&permissions)),
             created_at: Set(now),
         };
         model.insert(&self.conn).await?;
@@ -183,35 +191,66 @@ impl AccountStore for Store {
         row.map(InvitationRecord::try_from).transpose()
     }
 
-    async fn consume_invitation(
+    async fn create_invitation(
+        &self,
+        invitation: CreateInvitation,
+    ) -> Result<InvitationRecord, StoreError> {
+        let model = entity::invitations::ActiveModel {
+            token: Set(invitation.token.as_str().to_owned()),
+            inviting_org_id: Set(invitation.inviting_org_id.as_uuid()),
+            recipient_identifier: Set(invitation.recipient_identifier.as_str().to_owned()),
+            granted_permissions: Set(granted_permissions_json(&invitation.granted_permissions)),
+            created_by_account_id: Set(invitation.created_by_account_id.as_uuid()),
+            created_at: Set(invitation.created_at),
+            expires_at: Set(invitation.expires_at),
+            consumed_at: Set(None),
+            revoked_at: Set(None),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        InvitationRecord::try_from(inserted)
+    }
+
+    async fn list_invitations_by_org(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Vec<InvitationRecord>, StoreError> {
+        let rows = entity::invitations::Entity::find()
+            .filter(entity::invitations::Column::InvitingOrgId.eq(org_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+        rows.into_iter().map(InvitationRecord::try_from).collect()
+    }
+
+    async fn list_invitations_by_recipient(
+        &self,
+        identifier: &Identifier,
+    ) -> Result<Vec<InvitationRecord>, StoreError> {
+        let rows = entity::invitations::Entity::find()
+            .filter(entity::invitations::Column::RecipientIdentifier.eq(identifier.as_str()))
+            .all(&self.conn)
+            .await?;
+        rows.into_iter().map(InvitationRecord::try_from).collect()
+    }
+
+    async fn revoke_invitation(
         &self,
         token: &InvitationToken,
         now: DateTime<Utc>,
-    ) -> Result<ConsumedInvitation, ConsumeInvitationError> {
-        // Single round-trip conditional UPDATE: only flip rows that are
-        // still pending and not yet expired. SQLite serialises writes,
-        // and a Postgres deployment relies on the partial-unique index
-        // `idx_invitations_active_token` (see the
-        // m20260503_000002_account_sessions_expires_at migration) to
-        // belt-and-brace the same invariant.
+    ) -> Result<InvitationRecord, RevokeInvitationError> {
         let token_owned = token.as_str().to_owned();
         let result = entity::invitations::Entity::update_many()
             .col_expr(
-                entity::invitations::Column::ConsumedAt,
+                entity::invitations::Column::RevokedAt,
                 sea_orm::sea_query::Expr::value(Some(now)),
             )
             .filter(entity::invitations::Column::Token.eq(token_owned.clone()))
             .filter(entity::invitations::Column::ConsumedAt.is_null())
-            .filter(entity::invitations::Column::ExpiresAt.gt(now))
+            .filter(entity::invitations::Column::RevokedAt.is_null())
             .exec(&self.conn)
             .await
             .map_err(StoreError::from)?;
 
         if result.rows_affected == 1 {
-            // Re-read the row to populate the success shape. The row is
-            // already pinned to `consumed_at = now` so any concurrent
-            // acceptance has lost the race and will see the same row in
-            // its disambiguation read below.
             let row = entity::invitations::Entity::find_by_id(token_owned)
                 .one(&self.conn)
                 .await
@@ -220,31 +259,99 @@ impl AccountStore for Store {
                     column: "invitation_token",
                     cause: ValidationError::InvitationTokenEmpty,
                 })?;
+            return InvitationRecord::try_from(row).map_err(RevokeInvitationError::Store);
+        }
+
+        let existing = entity::invitations::Entity::find_by_id(token_owned)
+            .one(&self.conn)
+            .await
+            .map_err(StoreError::from)?;
+        Err(match existing {
+            None => RevokeInvitationError::NotFound,
+            Some(row) if row.consumed_at.is_some() => RevokeInvitationError::AlreadyConsumed,
+            Some(row) if row.revoked_at.is_some() => RevokeInvitationError::AlreadyRevoked,
+            Some(_) => RevokeInvitationError::AlreadyConsumed,
+        })
+    }
+
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find()
+            .filter(entity::account_sessions::Column::Token.eq(token.expose_secret()))
+            .filter(entity::account_sessions::Column::ExpiresAt.gt(now))
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
+
+    async fn find_organization_permissions(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<OrganizationPermission>, StoreError> {
+        let row = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+            .one(&self.conn)
+            .await?;
+        match row {
+            Some(m) => parse_permissions_json(&m.permissions),
+            None => Ok(Vec::new()),
+        }
+    }
+
+    async fn consume_invitation(
+        &self,
+        token: &InvitationToken,
+        now: DateTime<Utc>,
+    ) -> Result<ConsumedInvitation, ConsumeInvitationError> {
+        let token_owned = token.as_str().to_owned();
+        let result = entity::invitations::Entity::update_many()
+            .col_expr(
+                entity::invitations::Column::ConsumedAt,
+                sea_orm::sea_query::Expr::value(Some(now)),
+            )
+            .filter(entity::invitations::Column::Token.eq(token_owned.clone()))
+            .filter(entity::invitations::Column::ConsumedAt.is_null())
+            .filter(entity::invitations::Column::RevokedAt.is_null())
+            .filter(entity::invitations::Column::ExpiresAt.gt(now))
+            .exec(&self.conn)
+            .await
+            .map_err(StoreError::from)?;
+
+        if result.rows_affected == 1 {
+            let row = entity::invitations::Entity::find_by_id(token_owned)
+                .one(&self.conn)
+                .await
+                .map_err(StoreError::from)?
+                .ok_or_else(|| StoreError::DataInvariant {
+                    column: "invitation_token",
+                    cause: ValidationError::InvitationTokenEmpty,
+                })?;
+            let permissions = parse_permissions_json(&row.granted_permissions)
+                .map_err(ConsumeInvitationError::Store)?;
             return Ok(ConsumedInvitation {
                 inviting_org_id: OrgId::new(row.inviting_org_id),
+                granted_permissions: permissions,
                 expires_at: row.expires_at,
                 consumed_at: row.consumed_at.unwrap_or(now),
             });
         }
 
-        // No row was transitioned. Disambiguate why.
         let existing = entity::invitations::Entity::find_by_id(token.as_str().to_owned())
             .one(&self.conn)
             .await
             .map_err(StoreError::from)?;
-        match existing {
-            None => Err(ConsumeInvitationError::NotFound),
-            Some(row) if row.consumed_at.is_some() => Err(ConsumeInvitationError::AlreadyConsumed),
-            Some(row) if row.expires_at <= now => Err(ConsumeInvitationError::Expired),
-            // The row matched the WHERE clause when we read it but the
-            // UPDATE reported zero rows-affected — this can only happen
-            // if a concurrent caller transitioned-then-reset the row,
-            // which the schema does not permit. Surface as
-            // `AlreadyConsumed` because that's the racier-than-expected
-            // failure shape the user-facing API exposes for any
-            // already-locked invitation.
-            Some(_) => Err(ConsumeInvitationError::AlreadyConsumed),
-        }
+        Err(match existing {
+            None => ConsumeInvitationError::NotFound,
+            Some(row) if row.revoked_at.is_some() => ConsumeInvitationError::Revoked,
+            Some(row) if row.consumed_at.is_some() => ConsumeInvitationError::AlreadyConsumed,
+            Some(row) if row.expires_at <= now => ConsumeInvitationError::Expired,
+            Some(_) => ConsumeInvitationError::AlreadyConsumed,
+        })
     }
 
     async fn accept_invitation_atomic(
@@ -296,10 +403,6 @@ impl AccountStore for Store {
     }
 
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
-        // tie-breaker. Without the secondary key, events landing inside the
-        // same timestamp bucket can come back in different orders across
-        // reads — replay correctness demands a total order.
         let rows = entity::events::Entity::find()
             .order_by_desc(entity::events::Column::OccurredAt)
             .order_by_desc(entity::events::Column::Id)
@@ -307,33 +410,6 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
-    }
-}
-
-/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
-/// so production binaries cannot accidentally seed test data; the testkit
-/// (and only the testkit) enables the feature.
-#[cfg(feature = "test-hooks")]
-impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn seed_invitation(
-        &self,
-        new: NewInvitation,
-    ) -> Result<InvitationRecord, StoreError> {
-        let model = entity::invitations::ActiveModel {
-            token: Set(new.token.as_str().to_owned()),
-            inviting_org_id: Set(new.inviting_org_id.as_uuid()),
-            expires_at: Set(new.expires_at),
-            consumed_at: Set(None),
-        };
-        let inserted = model.insert(&self.conn).await?;
-        InvitationRecord::try_from(inserted)
     }
 }
 

@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, OrganizationPermission,
+    SessionToken,
 };
 
 use crate::entity;
@@ -55,6 +56,40 @@ impl TryFrom<entity::accounts::Model> for AccountRecord {
     }
 }
 
+/// Parse a JSON array value into a `Vec<OrganizationPermission>`.
+pub(crate) fn parse_permissions_json(
+    value: &serde_json::Value,
+) -> Result<Vec<OrganizationPermission>, StoreError> {
+    let arr = value.as_array().ok_or_else(|| StoreError::DataInvariant {
+        column: "granted_permissions",
+        cause: tanren_identity_policy::ValidationError::EmptyPermissionName,
+    })?;
+    let mut perms = Vec::with_capacity(arr.len());
+    for item in arr {
+        let s = item.as_str().ok_or_else(|| StoreError::DataInvariant {
+            column: "granted_permissions",
+            cause: tanren_identity_policy::ValidationError::EmptyPermissionName,
+        })?;
+        perms.push(
+            OrganizationPermission::parse(s).map_err(|err| StoreError::DataInvariant {
+                column: "granted_permissions",
+                cause: err,
+            })?,
+        );
+    }
+    Ok(perms)
+}
+
+/// Serialize a `Vec<OrganizationPermission>` into a JSON array value.
+fn permissions_to_json(perms: &[OrganizationPermission]) -> serde_json::Value {
+    serde_json::Value::Array(
+        perms
+            .iter()
+            .map(|p| serde_json::Value::String(p.as_str().to_owned()))
+            .collect(),
+    )
+}
+
 /// Persisted invitation row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvitationRecord {
@@ -62,10 +97,20 @@ pub struct InvitationRecord {
     pub token: InvitationToken,
     /// Organization the new account joins on acceptance.
     pub inviting_org_id: OrgId,
+    /// Recipient identifier (the invitee's email / identifier).
+    pub recipient_identifier: Identifier,
+    /// Permissions granted on acceptance.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// Account id of the admin who created this invitation.
+    pub created_by_account_id: AccountId,
+    /// Wall-clock time the invitation was created.
+    pub created_at: DateTime<Utc>,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
-    /// Set when the invitation has been accepted (or revoked).
+    /// Set when the invitation has been consumed.
     pub consumed_at: Option<DateTime<Utc>>,
+    /// Set when the invitation has been revoked before consumption.
+    pub revoked_at: Option<DateTime<Utc>>,
 }
 
 impl TryFrom<entity::invitations::Model> for InvitationRecord {
@@ -73,11 +118,18 @@ impl TryFrom<entity::invitations::Model> for InvitationRecord {
 
     fn try_from(model: entity::invitations::Model) -> Result<Self, Self::Error> {
         let token = parse_db_invitation_token(&model.token)?;
+        let recipient_identifier = parse_db_identifier(&model.recipient_identifier)?;
+        let granted_permissions = parse_permissions_json(&model.granted_permissions)?;
         Ok(Self {
             token,
             inviting_org_id: OrgId::new(model.inviting_org_id),
+            recipient_identifier,
+            granted_permissions,
+            created_by_account_id: AccountId::new(model.created_by_account_id),
+            created_at: model.created_at,
             expires_at: model.expires_at,
             consumed_at: model.consumed_at,
+            revoked_at: model.revoked_at,
         })
     }
 }
@@ -91,18 +143,24 @@ pub struct MembershipRecord {
     pub account_id: AccountId,
     /// Organization the account is a member of.
     pub org_id: OrgId,
+    /// Permissions granted within the organization.
+    pub permissions: Vec<OrganizationPermission>,
     /// Wall-clock time the membership was created.
     pub created_at: DateTime<Utc>,
 }
 
-impl From<entity::memberships::Model> for MembershipRecord {
-    fn from(model: entity::memberships::Model) -> Self {
-        Self {
+impl TryFrom<entity::memberships::Model> for MembershipRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::memberships::Model) -> Result<Self, Self::Error> {
+        let permissions = parse_permissions_json(&model.permissions)?;
+        Ok(Self {
             id: MembershipId::new(model.id),
             account_id: AccountId::new(model.account_id),
             org_id: OrgId::new(model.org_id),
+            permissions,
             created_at: model.created_at,
-        }
+        })
     }
 }
 
@@ -164,4 +222,27 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::AccountStore::create_invitation`].
+#[derive(Debug, Clone)]
+pub struct CreateInvitation {
+    /// Opaque token shared with the invitee out of band.
+    pub token: InvitationToken,
+    /// Organization the new account joins on acceptance.
+    pub inviting_org_id: OrgId,
+    /// Recipient identifier (the invitee's email / identifier).
+    pub recipient_identifier: Identifier,
+    /// Permissions granted on acceptance.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// Account id of the admin who created this invitation.
+    pub created_by_account_id: AccountId,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+    /// Expiry instant.
+    pub expires_at: DateTime<Utc>,
+}
+
+pub(crate) fn granted_permissions_json(perms: &[OrganizationPermission]) -> serde_json::Value {
+    permissions_to_json(perms)
 }
