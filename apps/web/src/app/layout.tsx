@@ -1,5 +1,7 @@
 import type { ReactNode } from "react";
 
+import { Providers } from "@/app/providers";
+
 import "./globals.css";
 
 export const metadata = {
@@ -14,7 +16,9 @@ interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps): ReactNode {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <Providers>{children}</Providers>
+      </body>
     </html>
   );
 }

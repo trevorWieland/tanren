@@ -1,17 +1,19 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useState } from "react";
 import type { ReactNode } from "react";
 
-import { signOut } from "@/app/lib/account-client";
 import {
   type AttentionSpecView,
   type ProjectView,
-  type ScopedViewsResponse,
-  listProjects,
-  switchProject,
-  ProjectRequestError,
 } from "@/app/lib/project-client";
+import {
+  useActiveProject,
+  useActiveProjectViews,
+  useProjectList,
+  useSignOutMutation,
+  useSwitchProjectMutation,
+} from "@/app/lib/project-queries";
 import * as m from "@/i18n/paraglide/messages";
 
 const stateLabel: Record<string, string> = {
@@ -22,74 +24,30 @@ const stateLabel: Record<string, string> = {
 };
 
 export default function Home(): ReactNode {
-  const [projects, setProjects] = useState<ProjectView[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const [authError, setAuthError] = useState(false);
-  const [activeProject, setActiveProject] = useState<ProjectView | null>(null);
-  const [scoped, setScoped] = useState<ScopedViewsResponse | null>(null);
+  const projectListQuery = useProjectList();
+  const activeProject = useActiveProject();
+  const { data: scopedViews } = useActiveProjectViews();
+  const switchMutation = useSwitchProjectMutation();
+  const signOutMutation = useSignOutMutation();
   const [expandedSpec, setExpandedSpec] = useState<AttentionSpecView | null>(
     null,
   );
-  const [switching, setSwitching] = useState(false);
 
-  useEffect(() => {
-    let cancelled = false;
-    listProjects()
-      .then((data) => {
-        if (!cancelled) {
-          setProjects(data);
-        }
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) return;
-        if (
-          reason instanceof ProjectRequestError &&
-          reason.code === "unauthenticated"
-        ) {
-          setAuthError(true);
-        } else {
-          setError(reason instanceof Error ? reason.message : String(reason));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  const handleSwitch = useCallback((projectId: string) => {
-    setSwitching(true);
-    setExpandedSpec(null);
-    switchProject(projectId)
-      .then((result) => {
-        setActiveProject(result.project);
-        setScoped({
-          project_id: result.scoped.project_id,
-          specs: result.scoped.specs,
-          loops: result.scoped.loops,
-          milestones: result.scoped.milestones,
-          view_state: null,
-        });
-        setSwitching(false);
-      })
-      .catch((reason: unknown) => {
-        setError(reason instanceof Error ? reason.message : String(reason));
-        setSwitching(false);
-      });
-  }, []);
-
-  const handleSignOut = useCallback(() => {
-    signOut()
-      .then(() => {
-        setProjects(null);
-        setAuthError(true);
-        setActiveProject(null);
-        setScoped(null);
-      })
-      .catch(() => {
-        setProjects(null);
-        setAuthError(true);
-      });
-  }, []);
+  const projects = projectListQuery.data ?? null;
+  const authError =
+    projectListQuery.authError ||
+    signOutMutation.isSuccess ||
+    signOutMutation.isError;
+  const queryError =
+    !projectListQuery.authError && projectListQuery.error !== null
+      ? projectListQuery.error instanceof Error
+        ? projectListQuery.error.message
+        : String(projectListQuery.error)
+      : null;
+  const mutationError =
+    switchMutation.error instanceof Error ? switchMutation.error.message : null;
+  const error = mutationError ?? queryError;
+  const switching = switchMutation.isPending;
 
   if (authError) {
     return (
@@ -112,7 +70,9 @@ export default function Home(): ReactNode {
         <h1 className="text-lg font-semibold">{m.app_title()}</h1>
         <button
           type="button"
-          onClick={handleSignOut}
+          onClick={() => {
+            signOutMutation.mutate();
+          }}
           className="rounded-md border border-[--color-border] px-3 py-1 text-sm text-[--color-fg-default] hover:bg-[--color-bg-elevated]"
         >
           {m.projects_signOut()}
@@ -131,7 +91,8 @@ export default function Home(): ReactNode {
             id="active-project-select"
             value={activeProject?.id ?? ""}
             onChange={(event) => {
-              handleSwitch(event.target.value);
+              setExpandedSpec(null);
+              switchMutation.mutate(event.target.value);
             }}
             disabled={switching || projects === null}
             className="min-w-0 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-surface] px-3 py-2 text-sm text-[--color-fg-default] focus:outline-none focus:ring-2 focus:ring-[--color-accent]"
@@ -167,7 +128,10 @@ export default function Home(): ReactNode {
               key={project.id}
               project={project}
               isActive={activeProject?.id === project.id}
-              onSwitch={handleSwitch}
+              onSwitch={(id) => {
+                setExpandedSpec(null);
+                switchMutation.mutate(id);
+              }}
               switching={switching}
               expandedSpec={expandedSpec}
               onExpandSpec={setExpandedSpec}
@@ -175,7 +139,7 @@ export default function Home(): ReactNode {
           ))}
         </div>
 
-        {activeProject !== null && scoped !== null && (
+        {activeProject !== null && scopedViews != null && (
           <section
             aria-label={m.projects_scopedViews()}
             className="mt-6 rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4"
@@ -185,13 +149,13 @@ export default function Home(): ReactNode {
             </h3>
             <div className="flex flex-wrap gap-4 text-sm">
               <span>
-                {m.projects_specs()}: {scoped.specs.length}
+                {m.projects_specs()}: {scopedViews.specs.length}
               </span>
               <span>
-                {m.projects_loops()}: {scoped.loops.length}
+                {m.projects_loops()}: {scopedViews.loops.length}
               </span>
               <span>
-                {m.projects_milestones()}: {scoped.milestones.length}
+                {m.projects_milestones()}: {scopedViews.milestones.length}
               </span>
             </div>
           </section>
