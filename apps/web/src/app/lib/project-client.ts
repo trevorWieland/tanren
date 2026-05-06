@@ -1,7 +1,7 @@
 import * as m from "@/i18n/paraglide/messages";
 import type { components } from "@/api/generated/tanren";
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const API_URL = import.meta.env["VITE_API_URL"] ?? "http://localhost:8080";
 
 export type ProjectView = components["schemas"]["ProjectView"];
 export type ActiveProjectView = components["schemas"]["ActiveProjectView"];

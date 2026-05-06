@@ -1,23 +1,19 @@
-"use client";
-
 import { useState } from "react";
 import type { ReactNode } from "react";
 
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 
 import { getActiveProject } from "@/app/lib/project-client";
+import { ActiveProjectSummary } from "@/components/project/ActiveProjectSummary";
 import { ConnectProjectForm } from "@/components/project/ConnectProjectForm";
 import { CreateProjectForm } from "@/components/project/CreateProjectForm";
-import { ActiveProjectSummary } from "@/components/project/ActiveProjectSummary";
 import * as m from "@/i18n/paraglide/messages";
 
 type Tab = "connect" | "create";
 
 const ACTIVE_PROJECT_KEY = ["active-project"] as const;
 
-export { ACTIVE_PROJECT_KEY };
-
-export default function NewProjectPage(): ReactNode {
+export function NewProjectRoute(): ReactNode {
   const [tab, setTab] = useState<Tab>("connect");
   const queryClient = useQueryClient();
 

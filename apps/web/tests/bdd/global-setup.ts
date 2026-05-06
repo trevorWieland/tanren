@@ -120,11 +120,9 @@ export default async function globalSetup(): Promise<void> {
         "TANREN_BDD_EXTERNAL_API=true but NEXT_PUBLIC_API_URL is unset",
       );
     }
-    // Mirror to .env.local so the Next.js dev server (a child
-    // process spawned by Playwright's webServer) picks it up.
     writeFileSync(
       envLocalPath,
-      `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\n`,
+      `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\nVITE_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\n`,
     );
     // Stash the pre-existing content for teardown even on the
     // external-API path; teardown reads __tanrenBddState first and
@@ -203,7 +201,10 @@ export default async function globalSetup(): Promise<void> {
   await waitForHealth(`${apiUrl}/health`, 180_000);
 
   process.env["NEXT_PUBLIC_API_URL"] = apiUrl;
-  writeFileSync(envLocalPath, `NEXT_PUBLIC_API_URL=${apiUrl}\n`);
+  writeFileSync(
+    envLocalPath,
+    `NEXT_PUBLIC_API_URL=${apiUrl}\nVITE_API_URL=${apiUrl}\n`,
+  );
 
   globalThis.__tanrenBddState = {
     apiProcess,
