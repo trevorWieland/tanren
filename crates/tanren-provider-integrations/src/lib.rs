@@ -10,6 +10,7 @@ use std::fmt;
 
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use tanren_identity_policy::AccountId;
 use thiserror::Error;
 
 /// Stable identifier for a provider family (`"github"`, `"linear"`, ...).
@@ -65,6 +66,60 @@ pub struct RepositoryInfo {
     pub url: String,
 }
 
+/// Typed provider action describing what the caller is asking the
+/// source-control provider to do. Actions are constructed *before* the
+/// external side effect is dispatched so that logging, auditing, and
+/// policy checks can inspect the full intent.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[non_exhaustive]
+pub enum ProviderAction {
+    /// Verify that the caller has access to the repository at `url`.
+    CheckRepoAccess {
+        /// Fully-qualified repository URL to verify.
+        url: String,
+    },
+    /// Create a new repository named `name` on the SCM host.
+    CreateRepository {
+        /// Name for the new repository.
+        name: String,
+    },
+}
+
+/// Typed connection context passed to every [`SourceControlProvider`]
+/// method. Carries the authenticated actor, the target SCM host, and
+/// the requested provider action — giving the implementation enough
+/// information to perform authorization checks before the external
+/// side effect.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ProviderConnectionContext {
+    /// Authenticated account issuing the request.
+    pub actor: AccountId,
+    /// Target SCM host for the operation.
+    pub host: HostId,
+    /// The specific action the caller is requesting.
+    pub action: ProviderAction,
+}
+
+impl ProviderConnectionContext {
+    /// Borrow the `url` when the action is [`ProviderAction::CheckRepoAccess`].
+    #[must_use]
+    pub fn check_repo_access_url(&self) -> Option<&str> {
+        match &self.action {
+            ProviderAction::CheckRepoAccess { url } => Some(url),
+            _ => None,
+        }
+    }
+
+    /// Borrow the `name` when the action is [`ProviderAction::CreateRepository`].
+    #[must_use]
+    pub fn create_repository_name(&self) -> Option<&str> {
+        match &self.action {
+            ProviderAction::CreateRepository { name } => Some(name),
+            _ => None,
+        }
+    }
+}
+
 /// The outbound provider trait every adapter implements.
 #[async_trait]
 pub trait ProviderAdapter: Send + Sync {
@@ -78,35 +133,40 @@ pub trait ProviderAdapter: Send + Sync {
 /// Concrete implementations (GitHub, GitLab, etc.) are owned by M-0009.
 /// This trait supplies the seam that project-registration flows
 /// (B-0025, B-0026) call into without knowing the upstream provider.
+///
+/// Every method receives a [`ProviderConnectionContext`] containing the
+/// authenticated actor, target host, and the requested provider action.
+/// Implementations use this context for authorization checks before
+/// invoking the external side effect.
 #[async_trait]
 pub trait SourceControlProvider: Send + Sync {
-    /// Verify that the caller has access to the repository at `url` on
-    /// the given `host`. Returns [`RepositoryInfo`] on success.
+    /// Verify that the caller identified by the connection context has
+    /// access to the repository specified in the action. Returns
+    /// [`RepositoryInfo`] on success.
     ///
     /// # Errors
     ///
     /// Returns [`ProviderError::HostAccess`] when the caller has no
-    /// active provider connection for `host`, or [`ProviderError::Call`]
+    /// active provider connection for the host, or [`ProviderError::Call`]
     /// when the provider rejects the request or the repository does not
     /// exist.
     async fn check_repo_access(
         &self,
-        host: &HostId,
-        url: &str,
+        context: &ProviderConnectionContext,
     ) -> Result<RepositoryInfo, ProviderError>;
 
-    /// Create a new repository named `name` on the designated `host`.
-    /// Returns [`RepositoryInfo`] for the newly created repository.
+    /// Create a new repository on the designated host as specified in
+    /// the connection context action. Returns [`RepositoryInfo`] for the
+    /// newly created repository.
     ///
     /// # Errors
     ///
     /// Returns [`ProviderError::HostAccess`] when the caller has no
-    /// active provider connection for `host`, or [`ProviderError::Call`]
+    /// active provider connection for the host, or [`ProviderError::Call`]
     /// when the provider rejects the request or is unreachable.
     async fn create_repository(
         &self,
-        host: &HostId,
-        name: &str,
+        context: &ProviderConnectionContext,
     ) -> Result<RepositoryInfo, ProviderError>;
 }
 
@@ -121,4 +181,7 @@ pub enum ProviderError {
     /// The provider call could not complete.
     #[error("provider call failed: {0}")]
     Call(String),
+    /// No SCM provider is configured for the deployment.
+    #[error("no SCM provider configured")]
+    NotConfigured,
 }

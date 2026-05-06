@@ -13,7 +13,7 @@ use clap::Subcommand;
 use tanren_app_services::{Handlers, SourceControlProvider, Store};
 use tanren_contract::{ConnectProjectRequest, CreateProjectRequest, ProjectView};
 use tanren_identity_policy::AccountId;
-use tanren_provider_integrations::{HostId, ProviderError, RepositoryInfo};
+use tanren_provider_integrations::{ProviderConnectionContext, ProviderError, RepositoryInfo};
 use uuid::Uuid;
 
 use super::service_error;
@@ -175,20 +175,20 @@ struct StubProvider;
 impl SourceControlProvider for StubProvider {
     async fn check_repo_access(
         &self,
-        host: &HostId,
-        _url: &str,
+        context: &ProviderConnectionContext,
     ) -> Result<RepositoryInfo, ProviderError> {
         Err(ProviderError::Call(format!(
-            "no SCM provider configured for {host}"
+            "no SCM provider configured for {}",
+            context.host
         )))
     }
     async fn create_repository(
         &self,
-        host: &HostId,
-        _name: &str,
+        context: &ProviderConnectionContext,
     ) -> Result<RepositoryInfo, ProviderError> {
         Err(ProviderError::Call(format!(
-            "no SCM provider configured for {host}"
+            "no SCM provider configured for {}",
+            context.host
         )))
     }
 }

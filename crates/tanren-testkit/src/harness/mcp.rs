@@ -282,6 +282,11 @@ impl AccountHarness for McpHarness {
         self.provider = self.provider.clone().with_accessible_host(host);
         Ok(())
     }
+
+    async fn seed_provider_not_configured(&mut self) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_not_configured();
+        Ok(())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {

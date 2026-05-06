@@ -26,6 +26,19 @@ async fn clean_env(world: &mut TanrenWorld) {
     let _ = world.ensure_account_ctx().await;
 }
 
+#[given(expr = "a signed-in account {string}")]
+async fn given_signed_in_account(world: &mut TanrenWorld, actor: String) {
+    let email = format!("{actor}@tanren.bdd");
+    let password = format!("password-for-{actor}");
+    do_sign_up(world, actor, email, password, "BDD actor".to_owned()).await;
+    let ctx = world.account.as_mut().expect("ctx initialized");
+    assert!(
+        matches!(ctx.last_outcome, Some(HarnessOutcome::SignedUp(_))),
+        "background sign-up step must succeed (got {:?})",
+        ctx.last_outcome
+    );
+}
+
 #[given(expr = "a pending invitation token {string}")]
 async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
     let ctx = world.ensure_account_ctx().await;

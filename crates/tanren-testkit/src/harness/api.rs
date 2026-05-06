@@ -379,6 +379,11 @@ impl AccountHarness for ApiHarness {
         self.provider = self.provider.clone().with_accessible_host(host);
         Ok(())
     }
+
+    async fn seed_provider_not_configured(&mut self) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_not_configured();
+        Ok(())
+    }
 }
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {

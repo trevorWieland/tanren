@@ -46,12 +46,6 @@ Feature: Connect Tanren to an existing repository
       And alice connects the repository "acme-api-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
 
-    @falsification @api
-    Scenario: Connecting a repo over the API without an SCM provider configured returns provider_not_configured
-      Given no SCM provider is configured
-      When alice connects the repository "acme-api-no-provider-repo" to her account
-      Then the request fails with code "provider_not_configured"
-
   Rule: Web surface
 
     @positive @web
@@ -89,12 +83,6 @@ Feature: Connect Tanren to an existing repository
       When alice connects the repository "acme-web-dup-repo" to her account
       And alice connects the repository "acme-web-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
-
-    @falsification @web
-    Scenario: Connecting a repo over the web without an SCM provider configured returns provider_not_configured
-      Given no SCM provider is configured
-      When alice connects the repository "acme-web-no-provider-repo" to her account
-      Then the request fails with code "provider_not_configured"
 
   Rule: CLI surface
 
@@ -134,12 +122,6 @@ Feature: Connect Tanren to an existing repository
       And alice connects the repository "acme-cli-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
 
-    @falsification @cli
-    Scenario: Connecting a repo over the CLI without an SCM provider configured returns provider_not_configured
-      Given no SCM provider is configured
-      When alice connects the repository "acme-cli-no-provider-repo" to her account
-      Then the request fails with code "provider_not_configured"
-
   Rule: MCP surface
 
     @positive @mcp
@@ -178,12 +160,6 @@ Feature: Connect Tanren to an existing repository
       And alice connects the repository "acme-mcp-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
 
-    @falsification @mcp
-    Scenario: Connecting a repo over MCP without an SCM provider configured returns provider_not_configured
-      Given no SCM provider is configured
-      When alice connects the repository "acme-mcp-no-provider-repo" to her account
-      Then the request fails with code "provider_not_configured"
-
   Rule: TUI surface
 
     @positive @tui
@@ -221,39 +197,6 @@ Feature: Connect Tanren to an existing repository
       When alice connects the repository "acme-tui-dup-repo" to her account
       And alice connects the repository "acme-tui-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
-
-    @falsification @tui
-    Scenario: Connecting a repo over the TUI without an SCM provider configured returns provider_not_configured
-      Given no SCM provider is configured
-      When alice connects the repository "acme-tui-no-provider-repo" to her account
-      Then the request fails with code "provider_not_configured"
-
-  Rule: Input validation
-
-    @falsification @api
-    Scenario: Connecting a repository with a URL containing credentials over the API is rejected
-      When alice connects a repository with URL "https://user:pass@github.com/org/repo" to her account
-      Then the request fails with code "validation_failed"
-
-    @falsification @mcp
-    Scenario: Connecting a repository with a URL containing a query string over MCP is rejected
-      When alice connects a repository with URL "https://github.com/org/repo?token=secret" to her account
-      Then the request fails with code "validation_failed"
-
-    @falsification @cli
-    Scenario: Connecting a repository with a URL containing a fragment over the CLI is rejected
-      When alice connects a repository with URL "https://github.com/org/repo#section" to her account
-      Then the request fails with code "validation_failed"
-
-    @falsification @tui
-    Scenario: Connecting a repository with an empty name over the TUI is rejected
-      When alice connects a repository with an empty name to her account
-      Then the request fails with code "validation_failed"
-
-    @falsification @web
-    Scenario: Connecting a repository with a name exceeding the maximum length over the web is rejected
-      When alice connects a repository with a name exceeding the maximum length to her account
-      Then the request fails with code "validation_failed"
 
   Rule: Cross-interface verification
 

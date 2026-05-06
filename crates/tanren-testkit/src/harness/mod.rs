@@ -310,6 +310,12 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     async fn seed_accessible_host(&mut self, _host: &str) -> HarnessResult<()> {
         Ok(())
     }
+
+    /// Mark the fixture provider as not configured. All subsequent
+    /// SCM provider calls will return `provider_not_configured`.
+    async fn seed_provider_not_configured(&mut self) -> HarnessResult<()> {
+        Ok(())
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.

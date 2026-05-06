@@ -123,4 +123,8 @@ impl AccountHarness for WebHarness {
     async fn seed_accessible_host(&mut self, host: &str) -> HarnessResult<()> {
         self.inner.seed_accessible_host(host).await
     }
+
+    async fn seed_provider_not_configured(&mut self) -> HarnessResult<()> {
+        self.inner.seed_provider_not_configured().await
+    }
 }

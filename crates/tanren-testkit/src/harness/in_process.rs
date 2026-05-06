@@ -212,6 +212,11 @@ impl AccountHarness for InProcessHarness {
         self.provider = self.provider.clone().with_accessible_host(host);
         Ok(())
     }
+
+    async fn seed_provider_not_configured(&mut self) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_not_configured();
+        Ok(())
+    }
 }
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {

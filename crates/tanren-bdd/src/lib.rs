@@ -69,6 +69,7 @@ pub struct AccountContext {
     pub last_project_account_id: Option<tanren_identity_policy::AccountId>,
     pub last_active_project: Option<Option<ActiveProjectView>>,
     pub captured_repository_identity: Option<String>,
+    pub projects: Vec<ProjectView>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -88,6 +89,7 @@ impl std::fmt::Debug for AccountContext {
                 "captured_repository_identity",
                 &self.captured_repository_identity,
             )
+            .field("project_count", &self.projects.len())
             .finish_non_exhaustive()
     }
 }
@@ -127,6 +129,7 @@ impl AccountContext {
             last_project_account_id: None,
             last_active_project: None,
             captured_repository_identity: None,
+            projects: Vec::new(),
         }
     }
 }
@@ -166,7 +169,12 @@ mod tests {
     //! Unit-test guards for the BDD harness machinery itself.
 
     use super::TanrenWorld;
+    use tanren_identity_policy::AccountId;
+    use tanren_provider_integrations::{
+        HostId, ProviderAction, ProviderConnectionContext, SourceControlProvider,
+    };
     use tanren_testkit::FixtureSeed;
+    use tanren_testkit::FixtureSourceControlProvider;
 
     #[test]
     fn world_default_is_constructible() {
@@ -181,5 +189,168 @@ mod tests {
             account: None,
         };
         assert_eq!(world.seed.value(), 42);
+    }
+
+    fn make_context(
+        actor: &AccountId,
+        host: &str,
+        action: ProviderAction,
+    ) -> ProviderConnectionContext {
+        ProviderConnectionContext {
+            actor: *actor,
+            host: HostId::new(host.to_owned()),
+            action,
+        }
+    }
+
+    #[tokio::test]
+    async fn fixture_create_repository_records_url_and_returns_info() {
+        let actor = AccountId::fresh();
+        let fixture =
+            FixtureSourceControlProvider::new().with_actor_connection(actor, "gitlab.com");
+
+        let ctx = make_context(
+            &actor,
+            "gitlab.com",
+            ProviderAction::CreateRepository {
+                name: "acme-widget".to_owned(),
+            },
+        );
+
+        let info = fixture
+            .create_repository(&ctx)
+            .await
+            .expect("create_repository should succeed for connected actor");
+
+        assert_eq!(info.url, "https://gitlab.com/acme-widget");
+
+        let created = fixture.created_repositories();
+        assert_eq!(created.len(), 1);
+        assert_eq!(created[0].url, "https://gitlab.com/acme-widget");
+    }
+
+    #[tokio::test]
+    async fn fixture_create_repository_rejects_unconnected_actor() {
+        let actor = AccountId::fresh();
+        let fixture =
+            FixtureSourceControlProvider::new().with_actor_connection(actor, "github.com");
+
+        let other_actor = AccountId::fresh();
+        let ctx = make_context(
+            &other_actor,
+            "gitlab.com",
+            ProviderAction::CreateRepository {
+                name: "oops".to_owned(),
+            },
+        );
+
+        let err = fixture
+            .create_repository(&ctx)
+            .await
+            .expect_err("should reject unconnected actor/host");
+
+        assert!(
+            matches!(err, tanren_provider_integrations::ProviderError::HostAccess(ref h) if h.as_str() == "gitlab.com"),
+            "expected HostAccess error, got {err:?}"
+        );
+        assert!(fixture.created_repositories().is_empty());
+    }
+
+    #[tokio::test]
+    async fn fixture_check_repo_access_succeeds_for_connected_actor() {
+        let actor = AccountId::fresh();
+        let repo_url = "https://github.com/acme/existing-repo";
+        let fixture = FixtureSourceControlProvider::new()
+            .with_actor_connection(actor, "github.com")
+            .with_existing_repository(repo_url);
+
+        let ctx = make_context(
+            &actor,
+            "github.com",
+            ProviderAction::CheckRepoAccess {
+                url: repo_url.to_owned(),
+            },
+        );
+
+        let info = fixture
+            .check_repo_access(&ctx)
+            .await
+            .expect("check_repo_access should succeed for connected actor with existing repo");
+
+        assert_eq!(info.url, repo_url);
+    }
+
+    #[tokio::test]
+    async fn fixture_check_repo_access_rejects_unknown_host() {
+        let actor = AccountId::fresh();
+        let fixture =
+            FixtureSourceControlProvider::new().with_actor_connection(actor, "github.com");
+
+        let ctx = make_context(
+            &actor,
+            "gitlab.com",
+            ProviderAction::CheckRepoAccess {
+                url: "https://gitlab.com/acme/repo".to_owned(),
+            },
+        );
+
+        let err = fixture
+            .check_repo_access(&ctx)
+            .await
+            .expect_err("should reject host with no actor connection");
+
+        assert!(
+            matches!(err, tanren_provider_integrations::ProviderError::HostAccess(ref h) if h.as_str() == "gitlab.com"),
+            "expected HostAccess error, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fixture_not_configured_provider_rejects_all_calls() {
+        let fixture = FixtureSourceControlProvider::new().with_not_configured();
+        let actor = AccountId::fresh();
+        let ctx = make_context(
+            &actor,
+            "github.com",
+            ProviderAction::CreateRepository {
+                name: "anything".to_owned(),
+            },
+        );
+
+        let err = fixture
+            .create_repository(&ctx)
+            .await
+            .expect_err("not-configured provider must reject");
+
+        assert!(
+            matches!(
+                err,
+                tanren_provider_integrations::ProviderError::NotConfigured
+            ),
+            "expected NotConfigured, got {err:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn fixture_globally_accessible_host_allows_any_actor() {
+        let fixture = FixtureSourceControlProvider::new()
+            .with_accessible_host("github.com")
+            .with_existing_repository("https://github.com/acme/pub-repo");
+
+        let unrelated_actor = AccountId::fresh();
+        let ctx = make_context(
+            &unrelated_actor,
+            "github.com",
+            ProviderAction::CheckRepoAccess {
+                url: "https://github.com/acme/pub-repo".to_owned(),
+            },
+        );
+
+        let info = fixture
+            .check_repo_access(&ctx)
+            .await
+            .expect("globally accessible host should allow any actor");
+
+        assert_eq!(info.url, "https://github.com/acme/pub-repo");
     }
 }

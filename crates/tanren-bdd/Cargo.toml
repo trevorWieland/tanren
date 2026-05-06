@@ -21,6 +21,7 @@ tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
+tanren-provider-integrations = { path = "../tanren-provider-integrations" }
 tanren-testkit = { path = "../tanren-testkit" }
 tokio = { workspace = true }
 

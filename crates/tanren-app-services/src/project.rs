@@ -27,7 +27,9 @@ use tanren_contract::{
     normalize_repository_identity,
 };
 use tanren_identity_policy::{AccountId, ProjectId, RepositoryId};
-use tanren_provider_integrations::{HostId, SourceControlProvider};
+use tanren_provider_integrations::{
+    HostId, ProviderAction, ProviderConnectionContext, SourceControlProvider,
+};
 use tanren_store::{AccountStore, NewProject, ProjectRecord, ProjectStore, RegisterProjectError};
 
 use crate::events::{
@@ -71,7 +73,14 @@ where
     };
     let host_id = HostId::new(host_str.to_owned());
 
-    if let Err(err) = scm.check_repo_access(&host_id, url.as_str()).await {
+    let context = ProviderConnectionContext {
+        actor: account_id,
+        host: host_id,
+        action: ProviderAction::CheckRepoAccess {
+            url: url.as_str().to_owned(),
+        },
+    };
+    if let Err(err) = scm.check_repo_access(&context).await {
         let reason = map_provider_error(&err);
         emit_connect_rejected(store, reason, &url.redacted(), now).await?;
         return Err(AppServiceError::Project(reason));
@@ -144,7 +153,14 @@ where
 
     let host_id = HostId::new(host.as_str().to_owned());
 
-    let repo_info = match scm.create_repository(&host_id, name.as_str()).await {
+    let context = ProviderConnectionContext {
+        actor: account_id,
+        host: host_id,
+        action: ProviderAction::CreateRepository {
+            name: name.as_str().to_owned(),
+        },
+    };
+    let repo_info = match scm.create_repository(&context).await {
         Ok(info) => info,
         Err(err) => {
             let reason = map_provider_error(&err);
@@ -246,6 +262,9 @@ fn map_provider_error(err: &tanren_provider_integrations::ProviderError) -> Proj
         }
         tanren_provider_integrations::ProviderError::Call(_) => {
             ProjectFailureReason::ProviderFailure
+        }
+        tanren_provider_integrations::ProviderError::NotConfigured => {
+            ProjectFailureReason::ProviderNotConfigured
         }
         _ => ProjectFailureReason::ProviderFailure,
     }
