@@ -11,7 +11,9 @@ use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::secret_serde;
-use tanren_identity_policy::{AccountId, Email, Identifier, InvitationToken, OrgId, SessionToken};
+use tanren_identity_policy::{
+    AccountId, Email, Identifier, InvitationToken, OrgId, OrganizationPermission, SessionToken,
+};
 use utoipa::ToSchema;
 
 /// Self-signup request.
@@ -186,6 +188,96 @@ impl SessionEnvelope {
     }
 }
 
+/// Lifecycle status of an organization invitation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum InvitationStatus {
+    /// The invitation is open and may be accepted.
+    Pending,
+    /// The invitation has been accepted by the recipient.
+    Accepted,
+    /// The invitation has been revoked by an administrator.
+    Revoked,
+}
+
+/// External-facing view of an organization invitation.
+///
+/// Exposes the full invitation lifecycle visible to both the inviting
+/// organization's admins and the invitee.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrgInvitationView {
+    /// Opaque token identifying this invitation.
+    pub token: InvitationToken,
+    /// Organization the invitation targets.
+    pub org_id: OrgId,
+    /// Recipient identifier (email or other handle) the invitation was
+    /// addressed to.
+    pub recipient_identifier: Identifier,
+    /// Organization-level permissions granted on acceptance.
+    pub permissions: Vec<OrganizationPermission>,
+    /// Current lifecycle status of the invitation.
+    pub status: InvitationStatus,
+    /// Account that created the invitation.
+    pub creator: AccountId,
+    /// Wall-clock time the invitation was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the invitation expires.
+    pub expires_at: DateTime<Utc>,
+    /// Wall-clock time the invitation was revoked, if applicable.
+    pub revoked_at: Option<DateTime<Utc>>,
+}
+
+/// Request to create a new organization invitation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CreateOrgInvitationRequest {
+    /// Organization to invite the recipient into.
+    pub org_id: OrgId,
+    /// Recipient identifier (email or other handle).
+    pub recipient_identifier: Identifier,
+    /// Organization-level permissions to grant on acceptance.
+    pub permissions: Vec<OrganizationPermission>,
+    /// Wall-clock time the invitation expires.
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Successful organization-invitation-creation response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CreateOrgInvitationResponse {
+    /// View of the freshly created invitation.
+    pub invitation: OrgInvitationView,
+}
+
+/// Request to list organization invitations.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListOrgInvitationsRequest {
+    /// Organization whose invitations to list.
+    pub org_id: OrgId,
+}
+
+/// Successful organization-invitation-listing response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListOrgInvitationsResponse {
+    /// Invitations matching the request.
+    pub invitations: Vec<OrgInvitationView>,
+}
+
+/// Request to revoke an organization invitation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RevokeOrgInvitationRequest {
+    /// Organization that owns the invitation.
+    pub org_id: OrgId,
+    /// Opaque token of the invitation to revoke.
+    pub token: InvitationToken,
+}
+
+/// Successful organization-invitation-revocation response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RevokeOrgInvitationResponse {
+    /// View of the invitation after revocation.
+    pub invitation: OrgInvitationView,
+}
+
 /// Closed taxonomy of account-flow failures.
 ///
 /// Maps onto the shared `{code, summary}` error body documented in
@@ -212,6 +304,14 @@ pub enum AccountFailureReason {
     InvitationExpired,
     /// Invitation token has already been accepted or revoked.
     InvitationAlreadyConsumed,
+    /// The caller does not have the required permissions for this
+    /// operation.
+    PermissionDenied,
+    /// The operation is not valid in a personal (non-organization)
+    /// context.
+    PersonalContext,
+    /// The invitation has been revoked by an administrator.
+    InvitationRevoked,
 }
 
 impl AccountFailureReason {
@@ -225,6 +325,9 @@ impl AccountFailureReason {
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
+            Self::PermissionDenied => "permission_denied",
+            Self::PersonalContext => "personal_context",
+            Self::InvitationRevoked => "invitation_revoked",
         }
     }
 
@@ -244,6 +347,13 @@ impl AccountFailureReason {
             Self::InvitationAlreadyConsumed => {
                 "The invitation has already been accepted or was revoked."
             }
+            Self::PermissionDenied => {
+                "The caller does not have the required permissions for this operation."
+            }
+            Self::PersonalContext => {
+                "This operation is not valid in a personal (non-organization) context."
+            }
+            Self::InvitationRevoked => "The invitation has been revoked by an administrator.",
         }
     }
 
@@ -257,7 +367,11 @@ impl AccountFailureReason {
             Self::InvalidCredential => 401,
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
-            Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
+            Self::InvitationExpired | Self::InvitationAlreadyConsumed | Self::InvitationRevoked => {
+                410
+            }
+            Self::PermissionDenied => 403,
+            Self::PersonalContext => 422,
         }
     }
 }
