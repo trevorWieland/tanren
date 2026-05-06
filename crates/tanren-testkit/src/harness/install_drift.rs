@@ -6,7 +6,7 @@ use std::process::Stdio;
 use anyhow::{Context, Result, ensure};
 use serde::Deserialize;
 use tanren_app_services::install::PROJECTION_MANIFEST;
-use tanren_contract::InstallDriftAssetKind;
+use tanren_contract::{InstallDriftAssetKind, InstallDriftState};
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -21,7 +21,8 @@ pub struct DriftReport {
 #[derive(Debug, Clone, Deserialize)]
 pub struct DriftEntry {
     pub relative_path: String,
-    pub state: String,
+    pub asset_kind: InstallDriftAssetKind,
+    pub state: InstallDriftState,
 }
 
 pub struct InstallDriftFixture {
@@ -52,6 +53,18 @@ impl InstallDriftFixture {
 
     pub fn repo_dir(&self) -> &Path {
         &self.repo_dir
+    }
+
+    pub fn first_generated_rel_path() -> &'static str {
+        first_generated().rel_path
+    }
+
+    pub fn first_preserved_rel_path() -> &'static str {
+        first_preserved().rel_path
+    }
+
+    pub fn all_manifest_rel_paths() -> Vec<&'static str> {
+        PROJECTION_MANIFEST.iter().map(|e| e.rel_path).collect()
     }
 
     pub fn modify_generated_asset(&self) -> Result<()> {

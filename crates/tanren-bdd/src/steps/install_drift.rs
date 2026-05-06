@@ -1,7 +1,8 @@
 use std::collections::HashMap;
 
 use cucumber::{given, then, when};
-use tanren_testkit::{DriftEntry, DriftReport, InstallDriftFixture};
+use tanren_contract::InstallDriftState;
+use tanren_testkit::{DriftReport, InstallDriftFixture};
 
 use crate::TanrenWorld;
 
@@ -85,6 +86,13 @@ fn then_no_drift(world: &mut TanrenWorld) {
         "expected no drift, but drift was reported: {:?}",
         report.entries
     );
+    assert!(
+        report.entries.iter().all(
+            |e| e.state == InstallDriftState::Matches || e.state == InstallDriftState::Accepted
+        ),
+        "expected all entries to be Matches or Accepted, got: {:?}",
+        report.entries
+    );
 }
 
 #[then(expr = "the drift report shows drift")]
@@ -102,11 +110,23 @@ fn then_has_drift(world: &mut TanrenWorld) {
 fn then_standard_missing(world: &mut TanrenWorld) {
     let ctx = world.install_drift.as_ref().expect("fixture must exist");
     let report = ctx.report.as_ref().expect("drift report must exist");
-    let found = report.entries.iter().any(|e| e.state == "missing");
+    let expected_path = InstallDriftFixture::first_preserved_rel_path();
+    let found = report
+        .entries
+        .iter()
+        .find(|e| e.relative_path == expected_path);
     assert!(
-        found,
-        "expected at least one missing entry, got {:?}",
+        found.is_some(),
+        "expected entry for path {expected_path}, got: {:?}",
         report.entries
+    );
+    let entry = found.expect("checked above");
+    assert_eq!(
+        entry.state,
+        InstallDriftState::Missing,
+        "expected {} to be Missing, got {:?}",
+        expected_path,
+        entry.state
     );
 }
 
@@ -114,11 +134,23 @@ fn then_standard_missing(world: &mut TanrenWorld) {
 fn then_standard_accepted(world: &mut TanrenWorld) {
     let ctx = world.install_drift.as_ref().expect("fixture must exist");
     let report = ctx.report.as_ref().expect("drift report must exist");
-    let found = report.entries.iter().any(|e| e.state == "accepted");
+    let expected_path = InstallDriftFixture::first_preserved_rel_path();
+    let found = report
+        .entries
+        .iter()
+        .find(|e| e.relative_path == expected_path);
     assert!(
-        found,
-        "expected at least one accepted entry, got {:?}",
+        found.is_some(),
+        "expected entry for path {expected_path}, got: {:?}",
         report.entries
+    );
+    let entry = found.expect("checked above");
+    assert_eq!(
+        entry.state,
+        InstallDriftState::Accepted,
+        "expected {} to be Accepted, got {:?}",
+        expected_path,
+        entry.state
     );
 }
 
@@ -130,15 +162,18 @@ fn then_unchanged(world: &mut TanrenWorld) {
         .snapshots_after
         .as_ref()
         .expect("post-check snapshots must exist");
-    for (path, before_bytes) in before {
-        match after.get(path) {
-            Some(after_bytes) => assert_eq!(
-                before_bytes, after_bytes,
-                "file {path} was modified by the drift check"
-            ),
-            None => {
-                unreachable!("file {path} existed before drift check but is missing after")
-            }
+    let all_paths = InstallDriftFixture::all_manifest_rel_paths();
+    for rel_path in &all_paths {
+        let before_bytes = before.get(*rel_path);
+        let after_bytes = after.get(*rel_path);
+        let before_present = before_bytes.is_some();
+        let after_present = after_bytes.is_some();
+        assert_eq!(
+            before_present, after_present,
+            "file {rel_path} presence changed after drift check (before={before_present}, after={after_present})"
+        );
+        if let (Some(b), Some(a)) = (before_bytes, after_bytes) {
+            assert_eq!(b, a, "file {rel_path} was modified by the drift check");
         }
     }
 }
@@ -147,15 +182,68 @@ fn then_unchanged(world: &mut TanrenWorld) {
 fn then_preserved_accepted(world: &mut TanrenWorld) {
     let ctx = world.install_drift.as_ref().expect("fixture must exist");
     let report = ctx.report.as_ref().expect("drift report must exist");
-    let accepted: Vec<&DriftEntry> = report
+    let expected_path = InstallDriftFixture::first_preserved_rel_path();
+    let found = report
         .entries
         .iter()
-        .filter(|e| e.state == "accepted")
-        .collect();
+        .find(|e| e.relative_path == expected_path);
     assert!(
-        !accepted.is_empty(),
-        "expected at least one accepted preserved standard, got {:?}",
+        found.is_some(),
+        "expected entry for preserved path {expected_path}, got: {:?}",
         report.entries
+    );
+    let entry = found.expect("checked above");
+    assert_eq!(
+        entry.state,
+        InstallDriftState::Accepted,
+        "expected {expected_path} to be Accepted, got {:?}",
+        entry.state
+    );
+}
+
+#[then(expr = "the generated asset is reported as drifted")]
+fn then_generated_drifted(world: &mut TanrenWorld) {
+    let ctx = world.install_drift.as_ref().expect("fixture must exist");
+    let report = ctx.report.as_ref().expect("drift report must exist");
+    let expected_path = InstallDriftFixture::first_generated_rel_path();
+    let found = report
+        .entries
+        .iter()
+        .find(|e| e.relative_path == expected_path);
+    assert!(
+        found.is_some(),
+        "expected entry for generated path {expected_path}, got: {:?}",
+        report.entries
+    );
+    let entry = found.expect("checked above");
+    assert_eq!(
+        entry.state,
+        InstallDriftState::Drifted,
+        "expected {expected_path} to be Drifted, got {:?}",
+        entry.state
+    );
+}
+
+#[then(expr = "the generated asset is reported as missing")]
+fn then_generated_missing(world: &mut TanrenWorld) {
+    let ctx = world.install_drift.as_ref().expect("fixture must exist");
+    let report = ctx.report.as_ref().expect("drift report must exist");
+    let expected_path = InstallDriftFixture::first_generated_rel_path();
+    let found = report
+        .entries
+        .iter()
+        .find(|e| e.relative_path == expected_path);
+    assert!(
+        found.is_some(),
+        "expected entry for generated path {expected_path}, got: {:?}",
+        report.entries
+    );
+    let entry = found.expect("checked above");
+    assert_eq!(
+        entry.state,
+        InstallDriftState::Missing,
+        "expected {expected_path} to be Missing, got {:?}",
+        entry.state
     );
 }
 

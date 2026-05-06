@@ -18,12 +18,14 @@ Feature: Detect installer drift without mutating files
       Given a generated asset is modified
       When the drift check runs against the repository
       Then the drift report shows drift
+      And the generated asset is reported as drifted
 
     @positive @cli
     Scenario: Deleted preserved standard reports missing
       Given a preserved standard is deleted
       When the drift check runs against the repository
       Then the drift report shows the standard as missing
+      And the repository is unchanged by the drift check
 
     @positive @cli
     Scenario: Edited preserved standard is accepted as non-drift
@@ -43,4 +45,5 @@ Feature: Detect installer drift without mutating files
       Given a generated asset is deleted
       When the drift check runs against the repository
       Then the drift report shows drift
+      And the generated asset is reported as missing
       And the preserved standard is reported as accepted
