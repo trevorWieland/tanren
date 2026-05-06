@@ -32,7 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, ProjectRecord, SessionRecord,
+    StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -252,6 +253,31 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    /// List all organization ids the given account is a member of.
+    /// Returns an empty vec for personal accounts with no memberships.
+    async fn list_account_org_memberships(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrgId>, StoreError>;
+
+    /// Set the active organization for an account. Fails with
+    /// [`SetActiveOrgError::NotAMember`] if the account has no
+    /// membership in the given organization.
+    async fn set_active_org(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), SetActiveOrgError>;
+
+    /// List all projects for the account's currently active organization.
+    /// Returns an empty vec when the account has no active organization
+    /// (personal accounts with no memberships) or when the active org
+    /// has no projects.
+    async fn list_projects_for_active_org(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<ProjectRecord>, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].
@@ -280,6 +306,17 @@ pub enum ConsumeInvitationError {
     /// The invitation exists but `expires_at <= now`.
     #[error("invitation expired")]
     Expired,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`AccountStore::set_active_org`].
+#[derive(Debug, thiserror::Error)]
+pub enum SetActiveOrgError {
+    /// The account has no membership in the target organization.
+    #[error("account is not a member of the target organization")]
+    NotAMember,
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),

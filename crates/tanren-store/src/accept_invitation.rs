@@ -147,6 +147,7 @@ async fn insert_account_in_txn(
         password_phc: Set(account.password_phc.clone()),
         created_at: Set(account.created_at),
         org_id: Set(Some(inviting_org_id.as_uuid())),
+        active_org_id: Set(None),
     };
     let inserted = match account_model.insert(txn).await {
         Ok(a) => a,

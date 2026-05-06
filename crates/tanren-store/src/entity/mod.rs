@@ -7,3 +7,5 @@ pub(crate) mod accounts;
 pub(crate) mod events;
 pub(crate) mod invitations;
 pub(crate) mod memberships;
+pub(crate) mod organizations;
+pub(crate) mod projects;

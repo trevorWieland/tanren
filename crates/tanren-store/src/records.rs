@@ -9,7 +9,7 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, SessionToken,
 };
 
 use crate::entity;
@@ -37,6 +37,8 @@ pub struct AccountRecord {
     pub created_at: DateTime<Utc>,
     /// Owning organization — `None` for personal (self-signup) accounts.
     pub org_id: Option<OrgId>,
+    /// Currently active organization — `None` until the user selects one.
+    pub active_org_id: Option<OrgId>,
 }
 
 impl TryFrom<entity::accounts::Model> for AccountRecord {
@@ -51,6 +53,7 @@ impl TryFrom<entity::accounts::Model> for AccountRecord {
             password_phc: model.password_phc,
             created_at: model.created_at,
             org_id: model.org_id.map(OrgId::new),
+            active_org_id: model.active_org_id.map(OrgId::new),
         })
     }
 }
@@ -164,4 +167,73 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted organization row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationRecord {
+    /// Stable organization id.
+    pub id: OrgId,
+    /// Human-readable name.
+    pub name: String,
+    /// Wall-clock time the organization was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::organizations::Model> for OrganizationRecord {
+    fn from(model: entity::organizations::Model) -> Self {
+        Self {
+            id: OrgId::new(model.id),
+            name: model.name,
+            created_at: model.created_at,
+        }
+    }
+}
+
+/// Input shape for [`crate::Store::seed_organization`].
+#[derive(Debug, Clone)]
+pub struct NewOrganization {
+    /// Stable id allocated by the caller (`UUIDv7`).
+    pub id: OrgId,
+    /// Human-readable name.
+    pub name: String,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Persisted project row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    /// Stable project id.
+    pub id: ProjectId,
+    /// Owning organization.
+    pub org_id: OrgId,
+    /// Human-readable name.
+    pub name: String,
+    /// Wall-clock time the project was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::projects::Model> for ProjectRecord {
+    fn from(model: entity::projects::Model) -> Self {
+        Self {
+            id: ProjectId::new(model.id),
+            org_id: OrgId::new(model.org_id),
+            name: model.name,
+            created_at: model.created_at,
+        }
+    }
+}
+
+/// Input shape for [`crate::Store::seed_project`].
+#[derive(Debug, Clone)]
+pub struct NewProject {
+    /// Stable id allocated by the caller (`UUIDv7`).
+    pub id: ProjectId,
+    /// Owning organization.
+    pub org_id: OrgId,
+    /// Human-readable name.
+    pub name: String,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
 }

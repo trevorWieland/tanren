@@ -16,6 +16,7 @@ pub struct Model {
     pub password_phc: String,
     pub created_at: DateTimeUtc,
     pub org_id: Option<Uuid>,
+    pub active_org_id: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

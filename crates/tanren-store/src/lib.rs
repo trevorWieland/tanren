@@ -15,12 +15,13 @@ mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, NewOrganization,
+    NewProject, OrganizationRecord, ProjectRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, SetActiveOrgError,
 };
 
 use async_trait::async_trait;
@@ -151,6 +152,7 @@ impl AccountStore for Store {
             password_phc: Set(new.password_phc),
             created_at: Set(new.created_at),
             org_id: Set(new.org_id.map(OrgId::as_uuid)),
+            active_org_id: Set(None),
         };
         let inserted = model.insert(&self.conn).await?;
         AccountRecord::try_from(inserted)
@@ -296,10 +298,6 @@ impl AccountStore for Store {
     }
 
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
-        // tie-breaker. Without the secondary key, events landing inside the
-        // same timestamp bucket can come back in different orders across
-        // reads — replay correctness demands a total order.
         let rows = entity::events::Entity::find()
             .order_by_desc(entity::events::Column::OccurredAt)
             .order_by_desc(entity::events::Column::Id)
@@ -307,6 +305,62 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
+    }
+
+    async fn list_account_org_memberships(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrgId>, StoreError> {
+        let rows = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+        Ok(rows.into_iter().map(|r| OrgId::new(r.org_id)).collect())
+    }
+
+    async fn set_active_org(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), SetActiveOrgError> {
+        let is_member = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+            .one(&self.conn)
+            .await
+            .map_err(StoreError::from)?;
+
+        if is_member.is_none() {
+            return Err(SetActiveOrgError::NotAMember);
+        }
+
+        entity::accounts::Entity::update_many()
+            .col_expr(
+                entity::accounts::Column::ActiveOrgId,
+                sea_orm::sea_query::Expr::value(Some(org_id.as_uuid())),
+            )
+            .filter(entity::accounts::Column::Id.eq(account_id.as_uuid()))
+            .exec(&self.conn)
+            .await
+            .map_err(StoreError::from)?;
+        Ok(())
+    }
+
+    async fn list_projects_for_active_org(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<ProjectRecord>, StoreError> {
+        let account = entity::accounts::Entity::find_by_id(account_id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        let Some(active_org_id) = account.and_then(|a| a.active_org_id) else {
+            return Ok(Vec::new());
+        };
+        let rows = entity::projects::Entity::find()
+            .filter(entity::projects::Column::OrgId.eq(active_org_id))
+            .all(&self.conn)
+            .await?;
+        Ok(rows.into_iter().map(ProjectRecord::from).collect())
     }
 }
 
@@ -334,6 +388,47 @@ impl Store {
         };
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
+    }
+
+    pub async fn seed_organization(
+        &self,
+        new: NewOrganization,
+    ) -> Result<OrganizationRecord, StoreError> {
+        let model = entity::organizations::ActiveModel {
+            id: Set(new.id.as_uuid()),
+            name: Set(new.name),
+            created_at: Set(new.created_at),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        Ok(OrganizationRecord::from(inserted))
+    }
+
+    pub async fn seed_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        now: DateTime<Utc>,
+    ) -> Result<MembershipId, StoreError> {
+        let id = MembershipId::fresh();
+        let model = entity::memberships::ActiveModel {
+            id: Set(id.as_uuid()),
+            account_id: Set(account_id.as_uuid()),
+            org_id: Set(org_id.as_uuid()),
+            created_at: Set(now),
+        };
+        model.insert(&self.conn).await?;
+        Ok(id)
+    }
+
+    pub async fn seed_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError> {
+        let model = entity::projects::ActiveModel {
+            id: Set(new.id.as_uuid()),
+            org_id: Set(new.org_id.as_uuid()),
+            name: Set(new.name),
+            created_at: Set(new.created_at),
+        };
+        let inserted = model.insert(&self.conn).await?;
+        Ok(ProjectRecord::from(inserted))
     }
 }
 
