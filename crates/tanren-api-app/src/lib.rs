@@ -68,6 +68,11 @@ pub use crate::routes::{
     SignUpResponseCookie,
 };
 
+pub use tanren_contract::{
+    ListOrganizationProjectsResponse, OrganizationSwitcher, SwitchActiveOrganizationRequest,
+    SwitchActiveOrganizationResponse,
+};
+
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";

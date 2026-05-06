@@ -13,9 +13,11 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ListOrganizationProjectsResponse, OrganizationSwitcher,
+    SessionEnvelope, SignInRequest, SignUpRequest, SwitchActiveOrganizationRequest,
+    SwitchActiveOrganizationResponse,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -24,6 +26,8 @@ use utoipa_axum::routes;
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+
+const SESSION_KEY_ACCOUNT: &str = "account_id";
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -83,6 +87,37 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+/// Extract the `AccountId` stored in the cookie session. Returns a 401
+/// `unauthenticated` error body when the session is absent or does not
+/// contain an account id. All organization-scoped routes use this helper
+/// instead of trusting an account id supplied in the request body.
+async fn require_account_id(session: &Session) -> Result<AccountId, Response> {
+    session
+        .get::<AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .map_err(|err| {
+            tracing::error!(target: "tanren_api", error = %err, "session read");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response()
+        })?
+        .ok_or_else(|| {
+            (
+                StatusCode::UNAUTHORIZED,
+                Json(AccountFailureBody {
+                    code: "unauthenticated".to_owned(),
+                    summary: "Authentication required.".to_owned(),
+                }),
+            )
+                .into_response()
+        })
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -98,6 +133,9 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        list_organizations_route,
+        switch_active_org_route,
+        list_active_org_projects_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +147,15 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        OrganizationSwitcher,
+        SwitchActiveOrganizationRequest,
+        SwitchActiveOrganizationResponse,
+        ListOrganizationProjectsResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "organizations", description = "Organization-scoped operations: list memberships, switch active org, list projects."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +351,99 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// List organizations the authenticated account belongs to, including
+/// which one is currently active. Personal accounts with zero org
+/// memberships receive an empty memberships vector.
+#[utoipa::path(
+    get,
+    path = "/account/organizations",
+    responses(
+        (status = 200, body = OrganizationSwitcher, description = "Organization memberships listed"),
+        (status = 401, body = AccountFailureBody, description = "unauthenticated"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn list_organizations_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let account_id = match require_account_id(&session).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state
+        .handlers
+        .list_organizations(state.store.as_ref(), account_id)
+        .await
+    {
+        Ok(switcher) => (StatusCode::OK, Json(switcher)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Switch the active organization for the authenticated account. The
+/// target `org_id` comes from the request body; the `account_id` is
+/// derived from the cookie session (never from the body).
+#[utoipa::path(
+    post,
+    path = "/account/organizations/active",
+    request_body = SwitchActiveOrganizationRequest,
+    responses(
+        (status = 200, body = SwitchActiveOrganizationResponse, description = "Active organization switched"),
+        (status = 401, body = AccountFailureBody, description = "unauthenticated"),
+        (status = 403, body = AccountFailureBody, description = "organization_not_member"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn switch_active_org_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<SwitchActiveOrganizationRequest>,
+) -> Response {
+    let account_id = match require_account_id(&session).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state
+        .handlers
+        .switch_active_org(state.store.as_ref(), account_id, request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List projects scoped to the authenticated account's currently active
+/// organization. Returns an empty list when the account has no active
+/// organization (personal accounts with zero memberships).
+#[utoipa::path(
+    get,
+    path = "/account/organizations/active/projects",
+    responses(
+        (status = 200, body = ListOrganizationProjectsResponse, description = "Projects listed"),
+        (status = 401, body = AccountFailureBody, description = "unauthenticated"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn list_active_org_projects_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let account_id = match require_account_id(&session).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state
+        .handlers
+        .list_active_org_projects(state.store.as_ref(), account_id)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +456,8 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(list_organizations_route))
+        .routes(routes!(switch_active_org_route))
+        .routes(routes!(list_active_org_projects_route))
         .with_state(state)
 }

@@ -25,8 +25,8 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId, ProjectId};
+use tanren_store::{NewInvitation, NewOrganization, NewProject, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -64,10 +64,102 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+/// Request body for `POST /test-hooks/organizations`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedOrganizationBody {
+    /// Organization id. Omit to let the seeder allocate a fresh `OrgId`.
+    #[serde(default = "default_org_id")]
+    pub org_id: Option<Uuid>,
+    /// Human-readable organization name.
+    pub name: String,
+}
+
+fn default_org_id() -> Option<Uuid> {
+    None
+}
+
+pub(crate) async fn seed_organization_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedOrganizationBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let org_id = body.org_id.map_or_else(OrgId::fresh, OrgId::new);
+    store
+        .seed_organization(NewOrganization {
+            id: org_id,
+            name: body.name,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+/// Request body for `POST /test-hooks/memberships`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedMembershipBody {
+    /// Account to add to the organization.
+    pub account_id: Uuid,
+    /// Organization the account joins.
+    pub org_id: Uuid,
+}
+
+pub(crate) async fn seed_membership_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedMembershipBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    store
+        .seed_membership(
+            AccountId::new(body.account_id),
+            OrgId::new(body.org_id),
+            Utc::now(),
+        )
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+/// Request body for `POST /test-hooks/projects`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedProjectBody {
+    /// Project id. Omit to let the seeder allocate a fresh `ProjectId`.
+    #[serde(default = "default_project_id")]
+    pub project_id: Option<Uuid>,
+    /// Owning organization.
+    pub org_id: Uuid,
+    /// Human-readable project name.
+    pub name: String,
+}
+
+fn default_project_id() -> Option<Uuid> {
+    None
+}
+
+pub(crate) async fn seed_project_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedProjectBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let project_id = body
+        .project_id
+        .map_or_else(ProjectId::fresh, ProjectId::new);
+    store
+        .seed_project(NewProject {
+            id: project_id,
+            org_id: OrgId::new(body.org_id),
+            name: body.name,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route("/test-hooks/organizations", post(seed_organization_route))
+        .route("/test-hooks/memberships", post(seed_membership_route))
+        .route("/test-hooks/projects", post(seed_project_route))
         .with_state(store)
 }
