@@ -1,6 +1,5 @@
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
-    QueryFilter, Set, TransactionTrait,
+    ActiveModelTrait, DatabaseConnection, DatabaseTransaction, EntityTrait, Set, TransactionTrait,
 };
 use uuid::Uuid;
 
@@ -54,11 +53,7 @@ pub(crate) async fn reconnect_atomic(
                 .await
                 .map_err(ReconnectProjectError::Store)?;
             let record = reconnect_project_in_txn(txn, request.project_id).await?;
-            let specs = read_specs_in_txn(txn, request.project_id).await?;
-            Ok(ReconnectProjectAtomicOutput {
-                project: record,
-                specs,
-            })
+            Ok(ReconnectProjectAtomicOutput { project: record })
         })
     })
     .await
@@ -114,20 +109,6 @@ async fn reconnect_project_in_txn(
     active.disconnected_at = Set(None);
     let updated = active.update(txn).await.map_err(StoreError::from)?;
     Ok(ProjectRecord::from(updated))
-}
-
-async fn read_specs_in_txn(
-    txn: &DatabaseTransaction,
-    project_id: tanren_identity_policy::ProjectId,
-) -> Result<Vec<crate::ProjectSpecRecord>, StoreError> {
-    let rows = entity::project_specs::Entity::find()
-        .filter(entity::project_specs::Column::ProjectId.eq(project_id.as_uuid()))
-        .all(txn)
-        .await?;
-    Ok(rows
-        .into_iter()
-        .map(crate::ProjectSpecRecord::from)
-        .collect())
 }
 
 async fn append_events_in_txn(

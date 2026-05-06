@@ -22,9 +22,9 @@ use tanren_identity_policy::{ProjectId, ProviderConnectionId, SpecId};
 use tanren_policy::{ActorContext, Decision, ProjectAction, evaluate_project_policy};
 use tanren_provider_integrations::ProviderRegistry;
 use tanren_store::{
-    AccountStore, ConnectProjectAtomicRequest, DependencyLinkStatus,
+    AccountStore, ConnectProjectAtomicRequest, DependencyLinkStatus, DependencyProjection,
     DisconnectProjectAtomicRequest, DisconnectProjectError, NewProject, ProjectStatus,
-    ProjectStore, ReconnectProjectAtomicRequest, ReconnectProjectError,
+    ProjectStore, ReconnectProjectAtomicRequest, ReconnectProjectError, SpecProjection,
 };
 
 use crate::events::{
@@ -220,7 +220,7 @@ pub(crate) async fn disconnect_project<S>(
     request: DisconnectProjectRequest,
 ) -> Result<DisconnectProjectResponse, AppServiceError>
 where
-    S: AccountStore + ProjectStore + ?Sized,
+    S: AccountStore + ProjectStore + DependencyProjection + ?Sized,
 {
     let now = clock.now();
 
@@ -315,7 +315,7 @@ pub(crate) async fn project_specs<S>(
     project_id: ProjectId,
 ) -> Result<Vec<ProjectSpecView>, AppServiceError>
 where
-    S: ProjectStore + ?Sized,
+    S: ProjectStore + SpecProjection + ?Sized,
 {
     let can_see = store
         .account_can_see_project(actor.account_id(), project_id)
@@ -343,7 +343,7 @@ pub(crate) async fn project_dependencies<S>(
     project_id: ProjectId,
 ) -> Result<Vec<ProjectDependencyView>, AppServiceError>
 where
-    S: ProjectStore + ?Sized,
+    S: ProjectStore + DependencyProjection + ?Sized,
 {
     let can_see = store
         .account_can_see_project(actor.account_id(), project_id)

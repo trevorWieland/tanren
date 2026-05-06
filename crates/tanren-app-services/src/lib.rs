@@ -23,7 +23,9 @@ pub use tanren_provider_integrations::{
     LocalProviderRegistry, LocalSourceControlProvider, ProviderRegistry, SourceControlProvider,
     VoidProviderRegistry,
 };
-pub use tanren_store::{AccountStore, NewProject, ProjectStore, Store};
+pub use tanren_store::{
+    AccountStore, DependencyProjection, NewProject, ProjectStore, SpecProjection, Store,
+};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -266,7 +268,7 @@ impl Handlers {
         request: DisconnectProjectRequest,
     ) -> Result<DisconnectProjectResponse, AppServiceError>
     where
-        S: AccountStore + ProjectStore + ?Sized,
+        S: AccountStore + ProjectStore + DependencyProjection + ?Sized,
     {
         project::disconnect_project(store, &self.clock, actor, request).await
     }
@@ -278,7 +280,7 @@ impl Handlers {
         project_id: ProjectId,
     ) -> Result<Vec<project::ProjectSpecView>, AppServiceError>
     where
-        S: ProjectStore + ?Sized,
+        S: ProjectStore + SpecProjection + ?Sized,
     {
         project::project_specs(store, actor, project_id).await
     }
@@ -290,7 +292,7 @@ impl Handlers {
         project_id: ProjectId,
     ) -> Result<Vec<project::ProjectDependencyView>, AppServiceError>
     where
-        S: ProjectStore + ?Sized,
+        S: ProjectStore + DependencyProjection + ?Sized,
     {
         project::project_dependencies(store, actor, project_id).await
     }

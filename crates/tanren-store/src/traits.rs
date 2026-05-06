@@ -34,8 +34,7 @@ use tanren_identity_policy::{
 
 use crate::{
     AccountRecord, EventEnvelope, InvitationRecord, NewAccount, NewProject,
-    ProjectDependencyRecord, ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord,
-    SessionRecord, StoreError,
+    ProjectDependencyRecord, ProjectRecord, ProjectSpecRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -263,8 +262,41 @@ pub enum ConsumeInvitationError {
     Store(#[from] StoreError),
 }
 
+/// Read-only projection port for spec history, separated from
+/// [`ProjectStore`] so project lifecycle operations cannot
+/// accidentally mutate spec state.
+#[async_trait]
+pub trait SpecProjection: Send + Sync + std::fmt::Debug {
+    /// Read all specs for a project, regardless of connection status.
+    async fn read_project_specs(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectSpecRecord>, StoreError>;
+}
+
+/// Read-only projection port for cross-project dependency links,
+/// separated from [`ProjectStore`] so dependency resolution concerns
+/// stay structurally distinct from project lifecycle persistence.
+#[async_trait]
+pub trait DependencyProjection: Send + Sync + std::fmt::Debug {
+    /// Read all dependency links originating from a project, annotated
+    /// with whether the target is resolved, disconnected, or unknown.
+    async fn read_project_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
+
+    /// Read all dependency links targeting the supplied project,
+    /// annotated with resolution status. Used by disconnect to
+    /// surface inbound unresolved-link signals.
+    async fn read_inbound_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
+}
+
 /// Status of a cross-project dependency link's target. Used by
-/// [`ProjectStore::read_project_dependencies`] to surface
+/// [`DependencyProjection::read_project_dependencies`] to surface
 /// unresolved-link signals without requiring M-0007's lookup module.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DependencyLinkStatus {
@@ -288,14 +320,13 @@ pub struct ProjectDependencyLink {
 }
 
 /// Return shape for [`ProjectStore::reconnect_project`]. Carries the
-/// restored project record alongside the retained spec history so the
-/// reconnection path (B-0025) can restore access to prior specs.
+/// restored project record. Spec history is read separately through the
+/// [`SpecProjection`] port so reconnect cannot accidentally mutate spec
+/// lifecycle state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ReconnectedProject {
     /// The reconnected project record (status is now `Connected`).
     pub project: ProjectRecord,
-    /// Spec records retained from before the disconnection.
-    pub specs: Vec<ProjectSpecRecord>,
 }
 
 /// Failure taxonomy for [`ProjectStore::disconnect_project`].
@@ -338,8 +369,6 @@ pub struct ReconnectProjectAtomicRequest {
 pub struct ReconnectProjectAtomicOutput {
     /// The reconnected project record (status is now `Connected`).
     pub project: ProjectRecord,
-    /// Spec records retained from before the disconnection.
-    pub specs: Vec<ProjectSpecRecord>,
 }
 
 /// Input for [`ProjectStore::connect_project_atomic`]. Bundles the
@@ -413,7 +442,8 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     ) -> Result<Option<ProjectRecord>, StoreError>;
 
     /// Clear the disconnected state on an existing project and return
-    /// the restored record alongside its retained spec history.
+    /// the restored record. Spec history is read separately through
+    /// the [`SpecProjection`] port.
     async fn reconnect_project(
         &self,
         project_id: ProjectId,
@@ -421,7 +451,7 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
 
     /// Append the supplied lifecycle events, then clear
     /// `disconnected_at` on the project row, all in one transaction.
-    /// Returns the updated project record and retained spec history.
+    /// Returns the updated project record.
     async fn reconnect_project_atomic(
         &self,
         request: ReconnectProjectAtomicRequest,
@@ -442,39 +472,6 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         &self,
         request: DisconnectProjectAtomicRequest,
     ) -> Result<DisconnectProjectAtomicOutput, DisconnectProjectError>;
-
-    /// Read all specs for a project, regardless of connection status.
-    async fn read_project_specs(
-        &self,
-        project_id: ProjectId,
-    ) -> Result<Vec<ProjectSpecRecord>, StoreError>;
-
-    /// Read all dependency links originating from a project, annotating
-    /// each with whether the target is resolved, disconnected, or
-    /// unknown.
-    async fn read_project_dependencies(
-        &self,
-        project_id: ProjectId,
-    ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
-
-    /// Read all dependency links whose target is the supplied project,
-    /// annotating each with whether the target is resolved, disconnected,
-    /// or unknown. Used by disconnect to surface inbound unresolved-link
-    /// signals from other projects that depend on the project being
-    /// disconnected.
-    async fn read_inbound_dependencies(
-        &self,
-        project_id: ProjectId,
-    ) -> Result<Vec<ProjectDependencyLink>, StoreError>;
-
-    /// Insert a loop-fixture row. M-0003 fixture seam for the
-    /// no-active-loops precondition; replaced when M-0011 lands.
-    async fn set_loop_fixture(
-        &self,
-        project_id: ProjectId,
-        is_active: bool,
-        now: DateTime<Utc>,
-    ) -> Result<ProjectLoopFixtureRecord, StoreError>;
 
     /// Return `true` when at least one active loop fixture exists for
     /// the project.

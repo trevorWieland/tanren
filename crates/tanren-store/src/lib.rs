@@ -25,10 +25,10 @@ pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
     ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, ConsumeInvitationError,
-    ConsumedInvitation, DependencyLinkStatus, DisconnectProjectAtomicOutput,
+    ConsumedInvitation, DependencyLinkStatus, DependencyProjection, DisconnectProjectAtomicOutput,
     DisconnectProjectAtomicRequest, DisconnectProjectError, ProjectDependencyLink, ProjectStore,
     ReconnectProjectAtomicOutput, ReconnectProjectAtomicRequest, ReconnectProjectError,
-    ReconnectedProject,
+    ReconnectedProject, SpecProjection,
 };
 
 use async_trait::async_trait;

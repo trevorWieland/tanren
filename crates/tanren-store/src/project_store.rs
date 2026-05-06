@@ -4,7 +4,6 @@
 //! line budget.
 
 use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, EntityTrait, PaginatorTrait, QueryFilter,
     Set,
@@ -16,13 +15,11 @@ use crate::Store;
 use crate::entity;
 use crate::traits::{
     ConnectProjectAtomicOutput, ConnectProjectAtomicRequest, DependencyLinkStatus,
-    DisconnectProjectAtomicOutput, DisconnectProjectAtomicRequest, DisconnectProjectError,
-    ProjectDependencyLink, ProjectStore, ReconnectProjectAtomicOutput,
-    ReconnectProjectAtomicRequest, ReconnectProjectError, ReconnectedProject,
+    DependencyProjection, DisconnectProjectAtomicOutput, DisconnectProjectAtomicRequest,
+    DisconnectProjectError, ProjectDependencyLink, ProjectStore, ReconnectProjectAtomicOutput,
+    ReconnectProjectAtomicRequest, ReconnectProjectError, ReconnectedProject, SpecProjection,
 };
-use crate::{
-    ProjectDependencyRecord, ProjectLoopFixtureRecord, ProjectRecord, ProjectSpecRecord, StoreError,
-};
+use crate::{ProjectDependencyRecord, ProjectRecord, ProjectSpecRecord, StoreError};
 
 #[async_trait]
 impl ProjectStore for Store {
@@ -64,11 +61,8 @@ impl ProjectStore for Store {
         active.disconnected_at = Set(None);
         let updated = active.update(&self.conn).await.map_err(StoreError::from)?;
 
-        let specs = read_specs(&self.conn, project_id).await?;
-
         Ok(ReconnectedProject {
             project: ProjectRecord::from(updated),
-            specs,
         })
     }
 
@@ -108,59 +102,6 @@ impl ProjectStore for Store {
         request: DisconnectProjectAtomicRequest,
     ) -> Result<DisconnectProjectAtomicOutput, DisconnectProjectError> {
         crate::project_lifecycle::disconnect_atomic(&self.conn, request).await
-    }
-
-    async fn read_project_specs(
-        &self,
-        project_id: ProjectId,
-    ) -> Result<Vec<ProjectSpecRecord>, StoreError> {
-        read_specs(&self.conn, project_id).await
-    }
-
-    async fn read_project_dependencies(
-        &self,
-        project_id: ProjectId,
-    ) -> Result<Vec<ProjectDependencyLink>, StoreError> {
-        let deps = entity::project_dependencies::Entity::find()
-            .filter(entity::project_dependencies::Column::SourceProjectId.eq(project_id.as_uuid()))
-            .all(&self.conn)
-            .await?;
-
-        resolve_dep_statuses(&self.conn, deps).await
-    }
-
-    async fn read_inbound_dependencies(
-        &self,
-        project_id: ProjectId,
-    ) -> Result<Vec<ProjectDependencyLink>, StoreError> {
-        let deps = entity::project_dependencies::Entity::find()
-            .filter(entity::project_dependencies::Column::TargetProjectId.eq(project_id.as_uuid()))
-            .all(&self.conn)
-            .await?;
-
-        resolve_dep_statuses(&self.conn, deps).await
-    }
-
-    async fn set_loop_fixture(
-        &self,
-        project_id: ProjectId,
-        is_active: bool,
-        now: DateTime<Utc>,
-    ) -> Result<ProjectLoopFixtureRecord, StoreError> {
-        let id = Uuid::now_v7();
-        let model = entity::project_loop_fixtures::ActiveModel {
-            id: Set(id),
-            project_id: Set(project_id.as_uuid()),
-            is_active: Set(is_active),
-            created_at: Set(now),
-        };
-        model.insert(&self.conn).await?;
-        Ok(ProjectLoopFixtureRecord {
-            id,
-            project_id,
-            is_active,
-            created_at: now,
-        })
     }
 
     async fn has_active_loop_fixtures(&self, project_id: ProjectId) -> Result<bool, StoreError> {
@@ -209,6 +150,43 @@ impl ProjectStore for Store {
             .map(|m| OrgId::new(m.org_id))
             .collect();
         Ok(org_ids)
+    }
+}
+
+#[async_trait]
+impl SpecProjection for Store {
+    async fn read_project_specs(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectSpecRecord>, StoreError> {
+        read_specs(&self.conn, project_id).await
+    }
+}
+
+#[async_trait]
+impl DependencyProjection for Store {
+    async fn read_project_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError> {
+        let deps = entity::project_dependencies::Entity::find()
+            .filter(entity::project_dependencies::Column::SourceProjectId.eq(project_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+
+        resolve_dep_statuses(&self.conn, deps).await
+    }
+
+    async fn read_inbound_dependencies(
+        &self,
+        project_id: ProjectId,
+    ) -> Result<Vec<ProjectDependencyLink>, StoreError> {
+        let deps = entity::project_dependencies::Entity::find()
+            .filter(entity::project_dependencies::Column::TargetProjectId.eq(project_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+
+        resolve_dep_statuses(&self.conn, deps).await
     }
 }
 
