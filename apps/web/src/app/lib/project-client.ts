@@ -1,49 +1,17 @@
 import * as m from "@/i18n/paraglide/messages";
+import type { components } from "@/api/generated/tanren";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
-export interface RepositoryView {
-  id: string;
-  url: string;
-}
-
-export interface ProjectContentCounts {
-  specs: number;
-  milestones: number;
-  initiatives: number;
-}
-
-export interface ProjectView {
-  id: string;
-  name: string;
-  repository: RepositoryView;
-  owner: string;
-  org: string | null;
-  created_at: string;
-  content_counts: ProjectContentCounts;
-}
-
-export interface ActiveProjectView {
-  project: ProjectView;
-  activated_at: string;
-}
-
-export interface ConnectProjectInput {
-  name: string;
-  repository_url: string;
-}
-
-export interface CreateProjectInput {
-  name: string;
-  provider_host: string;
-}
+export type ProjectView = components["schemas"]["ProjectView"];
+export type ActiveProjectView = components["schemas"]["ActiveProjectView"];
+export type ConnectProjectRequest =
+  components["schemas"]["ConnectProjectRequest"];
+export type CreateProjectRequest =
+  components["schemas"]["CreateProjectRequest"];
 
 export type ProjectFailureCode =
-  | "access_denied"
-  | "duplicate_repository"
-  | "validation_failed"
-  | "provider_failure"
-  | "provider_not_configured"
+  | components["schemas"]["ProjectFailureReason"]
   | "unavailable"
   | "internal_error";
 
@@ -52,7 +20,7 @@ export interface ProjectFailure {
   summary: string;
 }
 
-interface FailureBody {
+interface ParsedErrorBody {
   code?: unknown;
   summary?: unknown;
 }
@@ -97,9 +65,9 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   }
 
   if (!response.ok) {
-    let parsed: FailureBody = {};
+    let parsed: ParsedErrorBody = {};
     try {
-      parsed = (await response.json()) as FailureBody;
+      parsed = (await response.json()) as ParsedErrorBody;
     } catch {
       parsed = {};
     }
@@ -134,9 +102,9 @@ async function getJson<T>(path: string): Promise<T | null> {
   }
 
   if (!response.ok) {
-    let parsed: FailureBody = {};
+    let parsed: ParsedErrorBody = {};
     try {
-      parsed = (await response.json()) as FailureBody;
+      parsed = (await response.json()) as ParsedErrorBody;
     } catch {
       parsed = {};
     }
@@ -153,12 +121,14 @@ async function getJson<T>(path: string): Promise<T | null> {
 }
 
 export function connectProject(
-  input: ConnectProjectInput,
+  input: ConnectProjectRequest,
 ): Promise<ProjectView> {
   return postJson<ProjectView>("/projects/connect", input);
 }
 
-export function createProject(input: CreateProjectInput): Promise<ProjectView> {
+export function createProject(
+  input: CreateProjectRequest,
+): Promise<ProjectView> {
   return postJson<ProjectView>("/projects/create", input);
 }
 

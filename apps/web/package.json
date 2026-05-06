@@ -18,7 +18,8 @@
     "storybook:test": "vitest run --project=storybook",
     "bddgen": "bddgen",
     "e2e": "bddgen && playwright test",
-    "e2e:install": "playwright install --with-deps chromium"
+    "e2e:install": "playwright install --with-deps chromium",
+    "generate-api": "node scripts/generate-api-client.mjs"
   },
   "dependencies": {
     "@inlang/paraglide-js": "catalog:default",
@@ -42,12 +43,13 @@
     "@vitest/browser": "catalog:default",
     "@vitest/browser-playwright": "catalog:default",
     "concurrently": "catalog:default",
-    "vite": "catalog:default",
+    "openapi-typescript": "^7.13.0",
     "oxlint": "catalog:default",
     "playwright-bdd": "catalog:default",
     "prettier": "catalog:default",
     "storybook": "catalog:default",
     "typescript": "catalog:default",
+    "vite": "catalog:default",
     "vitest": "catalog:default"
   }
 }

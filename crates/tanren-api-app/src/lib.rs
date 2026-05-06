@@ -54,9 +54,9 @@ use axum::Json;
 use axum::http::{HeaderValue, header};
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
-use tanren_provider_integrations::{
-    FixedProviderRegistry, NullProviderRegistry, ProviderRegistry, SourceControlProvider,
-};
+#[cfg(any(test, feature = "test-hooks"))]
+use tanren_provider_integrations::{FixedProviderRegistry, SourceControlProvider};
+use tanren_provider_integrations::{NullProviderRegistry, ProviderRegistry};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 

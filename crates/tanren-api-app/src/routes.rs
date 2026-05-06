@@ -121,6 +121,7 @@ pub struct AcceptInvitationBody {
         CreateProjectRequest,
         ProjectView,
         ActiveProjectView,
+        ProjectFailureReason,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
