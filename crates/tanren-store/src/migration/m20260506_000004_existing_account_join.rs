@@ -53,10 +53,30 @@ impl MigrationTrait for Migration {
             )
             .await?;
         manager
+            .create_foreign_key(
+                ForeignKey::create()
+                    .name("fk_invitations_revoked_by_account")
+                    .from(Invitations::Table, Invitations::RevokedBy)
+                    .to(Accounts::Table, Accounts::Id)
+                    .on_delete(ForeignKeyAction::SetNull)
+                    .to_owned(),
+            )
+            .await?;
+        manager
             .alter_table(
                 Table::alter()
                     .table(Invitations::Table)
                     .add_column(ColumnDef::new(Invitations::ConsumedBy).uuid().null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .create_foreign_key(
+                ForeignKey::create()
+                    .name("fk_invitations_consumed_by_account")
+                    .from(Invitations::Table, Invitations::ConsumedBy)
+                    .to(Accounts::Table, Accounts::Id)
+                    .on_delete(ForeignKeyAction::SetNull)
                     .to_owned(),
             )
             .await?;
@@ -82,10 +102,26 @@ impl MigrationTrait for Migration {
             )
             .await?;
         manager
+            .drop_foreign_key(
+                ForeignKey::drop()
+                    .name("fk_invitations_consumed_by_account")
+                    .table(Invitations::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
             .alter_table(
                 Table::alter()
                     .table(Invitations::Table)
                     .drop_column(Invitations::ConsumedBy)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_foreign_key(
+                ForeignKey::drop()
+                    .name("fk_invitations_revoked_by_account")
+                    .table(Invitations::Table)
                     .to_owned(),
             )
             .await?;
@@ -134,6 +170,12 @@ enum Invitations {
     RevokedAt,
     RevokedBy,
     ConsumedBy,
+}
+
+#[derive(DeriveIden)]
+enum Accounts {
+    Table,
+    Id,
 }
 
 #[derive(DeriveIden)]
