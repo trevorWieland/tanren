@@ -7,7 +7,7 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -16,7 +16,9 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, UpgradePreviewResponse,
+};
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
@@ -25,7 +27,7 @@ use uuid::Uuid;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, UpgradeHarness,
 };
 
 /// `@cli` wire harness.
@@ -326,4 +328,62 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
     Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
         HarnessError::Transport(format!("parse org id: {e}"))
     })?))
+}
+
+#[async_trait]
+impl UpgradeHarness for CliHarness {
+    async fn upgrade_preview(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        self.run_upgrade_subcommand(root, false).await
+    }
+
+    async fn upgrade_apply(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        self.run_upgrade_subcommand(root, true).await
+    }
+}
+
+impl CliHarness {
+    async fn run_upgrade_subcommand(
+        &mut self,
+        root: &Path,
+        confirm: bool,
+    ) -> HarnessResult<UpgradePreviewResponse> {
+        let mut args = vec![
+            "upgrade".to_owned(),
+            "--root".to_owned(),
+            root.to_string_lossy().to_string(),
+        ];
+        if confirm {
+            args.push("--confirm".to_owned());
+        }
+        let output = Command::new(&self.binary)
+            .args(&args)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli upgrade: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        parse_upgrade_response(&stdout)
+    }
+}
+
+fn parse_upgrade_response(stdout: &str) -> HarnessResult<UpgradePreviewResponse> {
+    let re =
+        Regex::new(r"Upgrade (?:preview|applied): ([^ ]+) -> ([^ ]+)").expect("constant regex");
+    let captures = re.captures(stdout).ok_or_else(|| {
+        HarnessError::Transport(format!("could not parse upgrade output: {stdout}"))
+    })?;
+    let source = captures.get(1).map_or("", |m| m.as_str()).to_owned();
+    let target = captures.get(2).map_or("", |m| m.as_str()).to_owned();
+    Ok(UpgradePreviewResponse {
+        source_version: source,
+        target_version: target,
+        actions: Vec::new(),
+        concerns: Vec::new(),
+        preserved_user_paths: Vec::new(),
+    })
 }

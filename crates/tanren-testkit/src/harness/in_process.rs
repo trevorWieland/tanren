@@ -4,18 +4,21 @@
 //! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
 //! is hardened).
 
+use std::path::Path;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, SignInRequest, SignUpRequest, UpgradePreviewResponse,
+};
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, UpgradeHarness,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -152,5 +155,24 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+    }
+}
+
+fn translate_preview_error(err: &tanren_app_services::PreviewError) -> HarnessError {
+    HarnessError::Transport(format!("upgrade preview: {err}"))
+}
+
+fn translate_apply_error(err: &tanren_app_services::ApplyError) -> HarnessError {
+    HarnessError::Transport(format!("upgrade apply: {err}"))
+}
+
+#[async_trait]
+impl UpgradeHarness for InProcessHarness {
+    async fn upgrade_preview(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        tanren_app_services::preview_upgrade(root).map_err(|e| translate_preview_error(&e))
+    }
+
+    async fn upgrade_apply(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        tanren_app_services::apply_upgrade(root).map_err(|e| translate_apply_error(&e))
     }
 }

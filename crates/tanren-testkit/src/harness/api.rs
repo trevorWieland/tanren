@@ -9,7 +9,7 @@
 //! goes through the harness's own `Store` handle (the api app's
 //! `Arc<Store>` is a clone of the same `Store`).
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -19,6 +19,7 @@ use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    UpgradePreviewResponse,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
@@ -26,7 +27,7 @@ use tokio::task::JoinHandle;
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, UpgradeHarness,
 };
 
 /// `@api` wire harness.
@@ -372,6 +373,58 @@ impl AccountHarness for ApiHarness {
     }
 }
 
+#[async_trait]
+impl UpgradeHarness for ApiHarness {
+    async fn upgrade_preview(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        let url = format!("{}/assets/upgrade/preview", self.base_url);
+        let body = serde_json::json!({
+            "root": root.to_string_lossy(),
+        });
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /assets/upgrade/preview: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode preview: {e}")))
+    }
+
+    async fn upgrade_apply(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        let url = format!("{}/assets/upgrade/apply", self.base_url);
+        let body = serde_json::json!({
+            "root": root.to_string_lossy(),
+            "confirm": true,
+        });
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /assets/upgrade/apply: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode apply: {e}")))
+    }
+}
+
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
     p.push(format!(
@@ -382,7 +435,7 @@ pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
     p
 }
 
-pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
+pub(crate) fn sqlite_url(path: &Path) -> String {
     format!("sqlite://{}?mode=rwc", path.display())
 }
 

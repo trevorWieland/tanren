@@ -16,13 +16,16 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use std::path::Path;
+use tanren_contract::{
+    AcceptInvitationRequest, SignInRequest, SignUpRequest, UpgradePreviewResponse,
+};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, UpgradeHarness,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -73,5 +76,16 @@ impl AccountHarness for TuiHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+}
+
+#[async_trait]
+impl UpgradeHarness for TuiHarness {
+    async fn upgrade_preview(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        self.inner.upgrade_preview(root).await
+    }
+
+    async fn upgrade_apply(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        self.inner.upgrade_apply(root).await
     }
 }

@@ -2,7 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -15,7 +15,9 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, UpgradePreviewResponse,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -23,7 +25,7 @@ use tokio::task::JoinHandle;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, UpgradeHarness,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -247,5 +249,27 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         HarnessError::Account(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
+    }
+}
+
+#[async_trait]
+impl UpgradeHarness for McpHarness {
+    async fn upgrade_preview(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        let body = serde_json::json!({
+            "root": root.to_string_lossy(),
+        });
+        let payload = self.call_tool("upgrade.preview", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode upgrade preview: {e}")))
+    }
+
+    async fn upgrade_apply(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse> {
+        let body = serde_json::json!({
+            "root": root.to_string_lossy(),
+            "confirm": true,
+        });
+        let payload = self.call_tool("upgrade.apply", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode upgrade apply: {e}")))
     }
 }

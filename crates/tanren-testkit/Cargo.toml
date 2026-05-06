@@ -35,6 +35,7 @@ rmcp = { workspace = true, features = [
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+sha2 = { workspace = true }
 tanren-api-app = { path = "../tanren-api-app", features = ["test-hooks"] }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
@@ -45,4 +46,5 @@ tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
 tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
+toml = { workspace = true }
 uuid = { workspace = true }

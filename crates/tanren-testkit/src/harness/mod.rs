@@ -42,7 +42,8 @@
 //! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
 //!   dispatch on an ephemeral `SQLite` store).
 
-mod api;
+pub mod api;
+pub mod assets;
 mod cli;
 mod in_process;
 mod mcp;
@@ -50,6 +51,7 @@ mod tui;
 mod web;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -58,11 +60,13 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    UpgradePreviewResponse,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
+pub use assets::UpgradeFixture;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
@@ -359,4 +363,27 @@ impl ConcurrentAcceptanceTally {
     pub fn failures_with_code(&self, code: &str) -> usize {
         self.failures_by_code.get(code).copied().unwrap_or(0)
     }
+}
+
+/// Per-interface seam for asset upgrade preview and confirmed apply
+/// (R-0026). Step bodies dispatch through this trait rather than
+/// calling `tanren_app_services::preview_upgrade` /
+/// `apply_upgrade` directly.
+///
+/// Each implementation drives the matching real surface end-to-end:
+/// `@api` posts JSON to the HTTP endpoint, `@cli` shells out to the
+/// `tanren-cli` binary, `@mcp` invokes the rmcp tool, and `@web` /
+/// `@tui` delegate to the in-process harness. This mirrors the
+/// [`AccountHarness`] pattern established in R-0001 sub-9.
+#[async_trait]
+pub trait UpgradeHarness: Send + std::fmt::Debug {
+    /// Compute a read-only upgrade preview for the repo at `root`.
+    /// Returns the planned actions, concerns, and preserved user paths
+    /// without modifying any files.
+    async fn upgrade_preview(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse>;
+
+    /// Execute a confirmed upgrade for the repo at `root`.
+    /// Applies all planned actions: creates, updates, and removes
+    /// Tanren-owned assets while preserving user-owned files.
+    async fn upgrade_apply(&mut self, root: &Path) -> HarnessResult<UpgradePreviewResponse>;
 }
