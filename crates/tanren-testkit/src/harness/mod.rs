@@ -283,6 +283,17 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     /// Mark an existing session as expired so subsequent operations
     /// fail with `Unauthenticated`.
     async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()>;
+
+    async fn seed_corrupted_invitation(
+        &mut self,
+        fixture: HarnessInvitation,
+        raw_org_permissions: String,
+    ) -> HarnessResult<()> {
+        let _ = (fixture, raw_org_permissions);
+        Err(HarnessError::Transport(
+            "seed_corrupted_invitation not supported by this harness".to_owned(),
+        ))
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.

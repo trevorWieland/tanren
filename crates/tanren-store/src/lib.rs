@@ -234,15 +234,16 @@ impl AccountStore for Store {
                     column: "invitation_token",
                     cause: ValidationError::InvitationTokenEmpty,
                 })?;
+            let org_permissions = row
+                .org_permissions
+                .as_deref()
+                .map(parse_db_org_permissions)
+                .transpose()?;
             return Ok(ConsumedInvitation {
                 inviting_org_id: OrgId::new(row.inviting_org_id),
                 expires_at: row.expires_at,
                 consumed_at: row.consumed_at.unwrap_or(now),
-                org_permissions: row
-                    .org_permissions
-                    .as_deref()
-                    .map(OrgPermissions::parse)
-                    .and_then(Result::ok),
+                org_permissions,
             });
         }
 
@@ -386,6 +387,43 @@ impl Store {
         };
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
+    }
+
+    /// Seed a fixture invitation with a raw (unvalidated) `org_permissions`
+    /// column value. Used by store-invariant BDD scenarios that need to
+    /// insert rows that bypass [`OrgPermissions::parse`] validation so
+    /// the consumption path is forced to surface
+    /// [`StoreError::DataInvariant`].
+    ///
+    /// Returns `Ok(())` on successful insert without validating the
+    /// row through [`InvitationRecord::try_from`] — the whole point is
+    /// to plant a value that normal validation would reject.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the insert fails.
+    pub async fn seed_invitation_raw_permissions(
+        &self,
+        new: NewInvitation,
+        raw_org_permissions: Option<String>,
+    ) -> Result<(), StoreError> {
+        let now = Utc::now();
+        let model = entity::invitations::ActiveModel {
+            token: Set(new.token.as_str().to_owned()),
+            inviting_org_id: Set(new.inviting_org_id.as_uuid()),
+            expires_at: Set(new.expires_at),
+            consumed_at: Set(None),
+            target_identifier: Set(new
+                .target_identifier
+                .as_ref()
+                .map(|i| i.as_str().to_owned())),
+            org_permissions: Set(raw_org_permissions),
+            revoked_at: Set(new.revoked.then_some(now)),
+            revoked_by: Set(new.revoked.then_some(AccountId::fresh().as_uuid())),
+            consumed_by: Set(None),
+        };
+        model.insert(&self.conn).await?;
+        Ok(())
     }
 }
 

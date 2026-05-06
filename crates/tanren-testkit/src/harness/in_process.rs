@@ -15,8 +15,9 @@ use tanren_contract::{
     SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{AccountStore, EventEnvelope};
 
+use super::support::harness_to_new_invitation;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult,
     HarnessKind, HarnessResult, HarnessSession,
@@ -132,14 +133,7 @@ impl AccountHarness for InProcessHarness {
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
-            .seed_invitation(NewInvitation {
-                token: fixture.token,
-                inviting_org_id: fixture.inviting_org,
-                expires_at: fixture.expires_at,
-                target_identifier: fixture.target_identifier,
-                org_permissions: fixture.org_permissions,
-                revoked: fixture.revoked,
-            })
+            .seed_invitation(harness_to_new_invitation(fixture))
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
@@ -187,6 +181,21 @@ impl AccountHarness for InProcessHarness {
 
     async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
         self.expired_sessions.insert(account_id);
+        Ok(())
+    }
+
+    async fn seed_corrupted_invitation(
+        &mut self,
+        fixture: HarnessInvitation,
+        raw_org_permissions: String,
+    ) -> HarnessResult<()> {
+        self.store
+            .seed_invitation_raw_permissions(
+                harness_to_new_invitation(fixture),
+                Some(raw_org_permissions),
+            )
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_corrupted_invitation: {e}")))?;
         Ok(())
     }
 }

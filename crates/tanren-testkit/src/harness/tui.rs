@@ -93,4 +93,14 @@ impl AccountHarness for TuiHarness {
     async fn expire_session(&mut self, account_id: AccountId) -> HarnessResult<()> {
         self.inner.expire_session(account_id).await
     }
+
+    async fn seed_corrupted_invitation(
+        &mut self,
+        fixture: HarnessInvitation,
+        raw_org_permissions: String,
+    ) -> HarnessResult<()> {
+        self.inner
+            .seed_corrupted_invitation(fixture, raw_org_permissions)
+            .await
+    }
 }

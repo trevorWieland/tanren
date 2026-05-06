@@ -5,8 +5,9 @@ use std::path::PathBuf;
 
 use serde_json::Value;
 use tanren_contract::AccountFailureReason;
+use tanren_store::NewInvitation;
 
-use super::HarnessError;
+use super::{HarnessError, HarnessInvitation};
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
     let mut p = std::env::temp_dir();
@@ -38,6 +39,17 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     }
 }
 
+pub(crate) fn harness_to_new_invitation(fixture: HarnessInvitation) -> NewInvitation {
+    NewInvitation {
+        token: fixture.token,
+        inviting_org_id: fixture.inviting_org,
+        expires_at: fixture.expires_at,
+        target_identifier: fixture.target_identifier,
+        org_permissions: fixture.org_permissions,
+        revoked: fixture.revoked,
+    }
+}
+
 pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
     Some(match code {
         "duplicate_identifier" => AccountFailureReason::DuplicateIdentifier,
@@ -50,4 +62,16 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "unauthenticated" => AccountFailureReason::Unauthenticated,
         _ => return None,
     })
+}
+
+pub(crate) async fn wait_for_server_ready(port: u16) {
+    for _ in 0..50 {
+        if tokio::net::TcpStream::connect(("127.0.0.1", port))
+            .await
+            .is_ok()
+        {
+            return;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(2)).await;
+    }
 }

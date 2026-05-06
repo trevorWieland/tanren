@@ -600,7 +600,8 @@
       "title": "Join an organization with an existing account",
       "completes_behaviors": [
         "B-0045",
-        "B-0289"
+        "B-0289",
+        "B-0290"
       ],
       "supports_behaviors": [],
       "depends_on": [
@@ -635,6 +636,18 @@
           "description": "Positive: MCP join tool processes session token without exposing it in debug output. Falsification: MCP join tool rejects an expired session token.",
           "interfaces": [
             "mcp"
+          ]
+        },
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0290",
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Positive: valid org_permissions populate membership correctly on existing-account join. Falsification: corrupted org_permissions in the store reject acceptance with a store error.",
+          "interfaces": [
+            "cli"
           ]
         }
       ],

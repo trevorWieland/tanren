@@ -232,6 +232,17 @@ async fn then_member_of_n_orgs(world: &mut TanrenWorld, actor: String, count: us
     );
 }
 
+#[given(expr = "a corrupted invitation for {string} with token {string}")]
+async fn given_corrupted_invitation(world: &mut TanrenWorld, email: String, token: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let fixture = build_invitation_fixture(&token, Some(&email), false, false, None);
+    ctx.harness
+        .seed_corrupted_invitation(fixture, "   ".to_owned())
+        .await
+        .expect("seed corrupted invitation");
+    ctx.invitations.insert(token);
+}
+
 fn build_invitation_fixture(
     token: &str,
     email: Option<&str>,

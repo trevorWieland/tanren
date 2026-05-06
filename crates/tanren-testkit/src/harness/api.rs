@@ -22,11 +22,14 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountView, JoinOrganizationRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{AccountStore, EventEnvelope};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::support::{failure_from_body, scenario_db_path, sqlite_url};
+use super::support::{
+    failure_from_body, harness_to_new_invitation, scenario_db_path, sqlite_url,
+    wait_for_server_ready,
+};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult,
     HarnessKind, HarnessResult, HarnessSession,
@@ -97,6 +100,8 @@ impl ApiHarness {
         let server = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
+
+        wait_for_server_ready(local_addr.port()).await;
 
         let client = Client::builder()
             .cookie_store(true)
@@ -354,14 +359,7 @@ impl AccountHarness for ApiHarness {
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
-            .seed_invitation(NewInvitation {
-                token: fixture.token,
-                inviting_org_id: fixture.inviting_org,
-                expires_at: fixture.expires_at,
-                target_identifier: fixture.target_identifier,
-                org_permissions: fixture.org_permissions,
-                revoked: fixture.revoked,
-            })
+            .seed_invitation(harness_to_new_invitation(fixture))
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
@@ -423,6 +421,21 @@ impl AccountHarness for ApiHarness {
             cookie.clear();
             cookie.push_str("expired");
         }
+        Ok(())
+    }
+
+    async fn seed_corrupted_invitation(
+        &mut self,
+        fixture: HarnessInvitation,
+        raw_org_permissions: String,
+    ) -> HarnessResult<()> {
+        self.store
+            .seed_invitation_raw_permissions(
+                harness_to_new_invitation(fixture),
+                Some(raw_org_permissions),
+            )
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_corrupted_invitation: {e}")))?;
         Ok(())
     }
 }

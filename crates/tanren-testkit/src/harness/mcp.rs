@@ -284,6 +284,28 @@ impl AccountHarness for McpHarness {
         }
         Ok(())
     }
+
+    async fn seed_corrupted_invitation(
+        &mut self,
+        fixture: HarnessInvitation,
+        raw_org_permissions: String,
+    ) -> HarnessResult<()> {
+        self.store
+            .seed_invitation_raw_permissions(
+                NewInvitation {
+                    token: fixture.token,
+                    inviting_org_id: fixture.inviting_org,
+                    expires_at: fixture.expires_at,
+                    target_identifier: fixture.target_identifier,
+                    org_permissions: fixture.org_permissions,
+                    revoked: fixture.revoked,
+                },
+                Some(raw_org_permissions),
+            )
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_corrupted_invitation: {e}")))?;
+        Ok(())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {

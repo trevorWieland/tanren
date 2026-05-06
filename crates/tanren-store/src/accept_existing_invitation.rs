@@ -114,8 +114,8 @@ async fn consume_invitation_in_txn(
         let org_permissions = row
             .org_permissions
             .as_deref()
-            .map(OrgPermissions::parse)
-            .and_then(Result::ok);
+            .map(crate::parse_db_org_permissions)
+            .transpose()?;
         return Ok(ConsumedExistingInvitation {
             inviting_org_id: OrgId::new(row.inviting_org_id),
             org_permissions,

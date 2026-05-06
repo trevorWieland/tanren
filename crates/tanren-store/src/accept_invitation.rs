@@ -13,7 +13,7 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter, Set, TransactionTrait,
 };
-use tanren_identity_policy::{MembershipId, OrgId, SessionToken, ValidationError};
+use tanren_identity_policy::{MembershipId, OrgId, OrgPermissions, SessionToken, ValidationError};
 use uuid::Uuid;
 
 use crate::entity;
@@ -48,13 +48,14 @@ async fn run_in_txn(
         events_builder,
     } = request;
 
-    let inviting_org_id = consume_invitation_in_txn(txn, token.as_str(), now).await?;
-    let account_record = insert_account_in_txn(txn, &account, inviting_org_id).await?;
+    let consumed = consume_invitation_in_txn(txn, token.as_str(), now).await?;
+    let account_record = insert_account_in_txn(txn, &account, consumed.inviting_org_id).await?;
     insert_membership_in_txn(
         txn,
         membership_id,
         account_record.id.as_uuid(),
-        inviting_org_id,
+        consumed.inviting_org_id,
+        consumed.org_permissions.as_ref(),
         now,
     )
     .await?;
@@ -73,7 +74,7 @@ async fn run_in_txn(
             account_id: account_record.id,
             identifier: account_record.identifier.clone(),
             token,
-            joined_org: inviting_org_id,
+            joined_org: consumed.inviting_org_id,
             now,
         },
     )
@@ -82,8 +83,13 @@ async fn run_in_txn(
     Ok(AcceptInvitationAtomicOutput {
         account: account_record,
         session: session_record,
-        joined_org: inviting_org_id,
+        joined_org: consumed.inviting_org_id,
     })
+}
+
+struct ConsumedInvitationInTxn {
+    inviting_org_id: OrgId,
+    org_permissions: Option<OrgPermissions>,
 }
 
 /// Conditional UPDATE on the invitation row + disambiguation read.
@@ -94,7 +100,7 @@ async fn consume_invitation_in_txn(
     txn: &DatabaseTransaction,
     token: &str,
     now: chrono::DateTime<chrono::Utc>,
-) -> Result<OrgId, AcceptInvitationError> {
+) -> Result<ConsumedInvitationInTxn, AcceptInvitationError> {
     let token_owned = token.to_owned();
     let result = entity::invitations::Entity::update_many()
         .col_expr(
@@ -117,7 +123,15 @@ async fn consume_invitation_in_txn(
                 column: "invitation_token",
                 cause: ValidationError::InvitationTokenEmpty,
             })?;
-        return Ok(OrgId::new(row.inviting_org_id));
+        let org_permissions = row
+            .org_permissions
+            .as_deref()
+            .map(crate::parse_db_org_permissions)
+            .transpose()?;
+        return Ok(ConsumedInvitationInTxn {
+            inviting_org_id: OrgId::new(row.inviting_org_id),
+            org_permissions,
+        });
     }
 
     let existing = entity::invitations::Entity::find_by_id(token_owned)
@@ -166,6 +180,7 @@ async fn insert_membership_in_txn(
     membership_id: MembershipId,
     account_uuid: Uuid,
     inviting_org_id: OrgId,
+    org_permissions: Option<&OrgPermissions>,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), AcceptInvitationError> {
     let model = entity::memberships::ActiveModel {
@@ -173,7 +188,7 @@ async fn insert_membership_in_txn(
         account_id: Set(account_uuid),
         org_id: Set(inviting_org_id.as_uuid()),
         created_at: Set(now),
-        org_permissions: Set(None),
+        org_permissions: Set(org_permissions.map(|p| p.as_str().to_owned())),
     };
     model.insert(txn).await.map_err(StoreError::from)?;
     Ok(())
