@@ -1,31 +1,13 @@
-//! MCP upgrade tool parameter types and error mapping.
+//! MCP upgrade tool error mapping.
 //!
 //! Split out of `lib.rs` to keep the main module under the workspace
 //! 500-line line-budget. The `#[rmcp::tool]` method bodies in `lib.rs`
-//! delegate to helpers here.
+//! delegate to helpers here. Request parameter types are imported from
+//! `tanren-contract`.
 
 use rmcp::model::{CallToolResult, Content};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::{ApplyError, PreviewError};
-
-/// Parameters for the `upgrade.preview` MCP tool.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-pub(crate) struct UpgradePreviewParams {
-    /// Absolute or relative path to the repository root.
-    pub(crate) root: String,
-}
-
-/// Parameters for the `upgrade.apply` MCP tool.
-#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
-pub(crate) struct UpgradeApplyParams {
-    /// Absolute or relative path to the repository root.
-    pub(crate) root: String,
-    /// Must be `true` to confirm the upgrade. Returns
-    /// `confirmation_required` when absent or false.
-    pub(crate) confirm: bool,
-}
 
 /// Map a [`PreviewError`] to an MCP tool failure result.
 pub(crate) fn map_preview_failure(err: &PreviewError) -> CallToolResult {

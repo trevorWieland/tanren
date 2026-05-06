@@ -14,7 +14,8 @@ pub use account::{
 };
 pub use assets::{
     AssetAction, AssetEntry, AssetManifest, AssetOwnership, MANIFEST_FORMAT_VERSION,
-    MigrationConcern, MigrationConcernKind, UpgradePreviewResponse,
+    MigrationConcern, MigrationConcernKind, UpgradeApplyRequest, UpgradeFailureBody,
+    UpgradePreviewRequest, UpgradePreviewResponse,
 };
 
 use serde::{Deserialize, Serialize};

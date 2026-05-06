@@ -1,33 +1,14 @@
-//! Asset upgrade HTTP request shapes and error mapping.
+//! Asset upgrade error mapping.
 //!
 //! Split out of `routes.rs` so each file stays under the workspace 500-line
-//! line-budget. The route handlers live in `routes.rs`; the types and
-//! error mapping live here.
+//! line-budget. The route handlers live in `routes.rs`; the error mapping
+//! lives here. Request and failure DTOs are imported from `tanren-contract`.
 
 use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use serde::{Deserialize, Serialize};
 use tanren_app_services::{ApplyError, PreviewError};
-
-use crate::errors::AccountFailureBody;
-
-/// Request body for `POST /assets/upgrade/preview`.
-#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct UpgradePreviewRequest {
-    /// Absolute or relative path to the repository root.
-    pub root: String,
-}
-
-/// Request body for `POST /assets/upgrade/apply`.
-#[derive(Debug, Clone, Deserialize, Serialize, utoipa::ToSchema)]
-pub struct UpgradeApplyRequest {
-    /// Absolute or relative path to the repository root.
-    pub root: String,
-    /// Must be `true` to confirm the upgrade. The endpoint returns 400
-    /// (`confirmation_required`) when absent or false.
-    pub confirm: bool,
-}
+use tanren_contract::UpgradeFailureBody;
 
 /// Map a [`PreviewError`] to an HTTP response.
 pub(crate) fn map_preview_error(err: &PreviewError) -> Response {
@@ -63,7 +44,7 @@ pub(crate) fn map_preview_error(err: &PreviewError) -> Response {
     };
     (
         status,
-        Json(AccountFailureBody {
+        Json(UpgradeFailureBody {
             code: code.to_owned(),
             summary,
         }),
@@ -81,7 +62,7 @@ pub(crate) fn map_apply_error(err: ApplyError) -> Response {
             observed,
         } => (
             StatusCode::CONFLICT,
-            Json(AccountFailureBody {
+            Json(UpgradeFailureBody {
                 code: "unreported_drift".to_owned(),
                 summary: format!(
                     "Drift detected for {}: on-disk hash {} differs from manifest hash {}",
@@ -96,7 +77,7 @@ pub(crate) fn map_apply_error(err: ApplyError) -> Response {
             tracing::error!(target: "tanren_api", path = %path.display(), error = %source, "upgrade I/O error");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
+                Json(UpgradeFailureBody {
                     code: "internal_error".to_owned(),
                     summary: "Tanren encountered an internal error.".to_owned(),
                 }),
@@ -107,7 +88,7 @@ pub(crate) fn map_apply_error(err: ApplyError) -> Response {
             tracing::error!(target: "tanren_api", error = %msg, "manifest write error");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
+                Json(UpgradeFailureBody {
                     code: "internal_error".to_owned(),
                     summary: "Tanren encountered an internal error.".to_owned(),
                 }),
@@ -116,7 +97,7 @@ pub(crate) fn map_apply_error(err: ApplyError) -> Response {
         }
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
+            Json(UpgradeFailureBody {
                 code: "internal_error".to_owned(),
                 summary: "Tanren encountered an internal error.".to_owned(),
             }),

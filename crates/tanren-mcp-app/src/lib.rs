@@ -31,7 +31,10 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, SignInRequest, SignUpRequest, UpgradeApplyRequest,
+    UpgradePreviewRequest,
+};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -145,38 +148,38 @@ impl TanrenMcp {
     }
 
     /// Read-only upgrade preview. Returns the planned actions, migration
-    /// concerns, and preserved user paths for the repository at `root`
-    /// without modifying any files.
+    /// concerns, and preserved user paths for the installation identified
+    /// by `installation_id` without modifying any files.
     #[rmcp::tool(
         name = "upgrade.preview",
-        description = "Preview what an asset upgrade would change in a Tanren-managed repository. Returns planned actions (create, update, remove, preserve), migration concerns, and preserved user paths. No files are modified."
+        description = "Preview what an asset upgrade would change in a Tanren-managed project. Returns planned actions (create, update, remove, preserve), migration concerns, and preserved user paths. No files are modified."
     )]
     async fn upgrade_preview(
         &self,
-        Parameters(params): Parameters<assets::UpgradePreviewParams>,
+        Parameters(params): Parameters<UpgradePreviewRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let root = std::path::Path::new(&params.root);
+        let root = std::path::Path::new(&params.installation_id);
         match tanren_app_services::preview_upgrade(root) {
             Ok(response) => Ok(success(&response)),
             Err(err) => Ok(assets::map_preview_failure(&err)),
         }
     }
 
-    /// Confirmed upgrade apply. Requires `confirm: true` in the request;
-    /// returns a `confirmation_required` error otherwise. Applies
-    /// generated-asset changes while preserving user-owned files.
+    /// Confirmed upgrade apply. Requires `confirm: true` and an `operation_id`
+    /// idempotency key in the request; returns a `confirmation_required` error
+    /// otherwise. Applies generated-asset changes while preserving user-owned files.
     #[rmcp::tool(
         name = "upgrade.apply",
-        description = "Apply a confirmed asset upgrade to a Tanren-managed repository. Requires confirm=true. Applies Tanren-generated asset changes while preserving user-owned files. Returns the same preview summary after applying changes."
+        description = "Apply a confirmed asset upgrade to a Tanren-managed project. Requires confirm=true and an operation_id. Applies Tanren-generated asset changes while preserving user-owned files. Returns the same preview summary after applying changes."
     )]
     async fn upgrade_apply(
         &self,
-        Parameters(params): Parameters<assets::UpgradeApplyParams>,
+        Parameters(params): Parameters<UpgradeApplyRequest>,
     ) -> Result<CallToolResult, McpError> {
         if !params.confirm {
             return Ok(assets::confirmation_required());
         }
-        let root = std::path::Path::new(&params.root);
+        let root = std::path::Path::new(&params.installation_id);
         match tanren_app_services::apply_upgrade(root) {
             Ok(response) => Ok(success(&response)),
             Err(err) => Ok(assets::map_apply_failure(err)),

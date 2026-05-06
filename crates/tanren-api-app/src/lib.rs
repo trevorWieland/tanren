@@ -63,11 +63,13 @@ use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
-pub use crate::assets::{UpgradeApplyRequest, UpgradePreviewRequest};
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
+};
+pub use tanren_contract::{
+    UpgradeApplyRequest, UpgradeFailureBody, UpgradePreviewRequest, UpgradePreviewResponse,
 };
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";

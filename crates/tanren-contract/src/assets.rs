@@ -1,8 +1,8 @@
-//! Asset upgrade preview contract shapes.
+//! Asset upgrade contract shapes.
 //!
 //! Types for the versioned asset manifest, diff actions, migration concerns,
-//! and the upgrade preview response. Shared across all Tanren interface
-//! surfaces (CLI, API, MCP, TUI).
+//! upgrade request/response bodies, and failure DTOs. Shared across all
+//! Tanren interface surfaces (CLI, API, MCP, TUI).
 
 use std::path::PathBuf;
 
@@ -155,4 +155,44 @@ pub struct UpgradePreviewResponse {
     #[schemars(with = "Vec<String>")]
     #[schema(value_type = Vec<String>)]
     pub preserved_user_paths: Vec<PathBuf>,
+}
+
+/// Request body for the upgrade preview operation.
+///
+/// Identifies the target installation by identity rather than by filesystem
+/// path, so the contract remains stable across host machines and CI runners.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct UpgradePreviewRequest {
+    /// Installation identifier for the Tanren-managed project.
+    pub installation_id: String,
+}
+
+/// Request body for the confirmed upgrade apply operation.
+///
+/// Carries an explicit confirmation flag and a client-provided idempotency
+/// key so that retries of the same logical operation are deduplicated by
+/// the handler.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct UpgradeApplyRequest {
+    /// Installation identifier for the Tanren-managed project.
+    pub installation_id: String,
+    /// Must be `true` to confirm the upgrade. The handler returns
+    /// `confirmation_required` when absent or false.
+    pub confirm: bool,
+    /// Client-provided idempotency key. The handler deduplicates apply
+    /// operations carrying the same key.
+    pub operation_id: String,
+}
+
+/// Shared failure body for asset upgrade operations.
+///
+/// Maps onto the same `{code, summary}` wire taxonomy used by account-flow
+/// errors but lives in `tanren-contract` so API, MCP, CLI, and TUI adapters
+/// can project the same shape without importing interface-specific crates.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct UpgradeFailureBody {
+    /// Stable error code from the closed upgrade-failure taxonomy.
+    pub code: String,
+    /// Human-readable summary.
+    pub summary: String,
 }
