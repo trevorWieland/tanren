@@ -467,6 +467,75 @@ narrow allowlist for CSS custom properties only) enforces this. The
 component layer reads tokens through Tailwind utility classes, never
 through arbitrary hex literals.
 
+## Canonical Existing-Account Join Interface Decisions
+
+These decisions land with R-0006 ("Join an organization with an existing
+account") and apply to every feature that handles existing-account invitation
+acceptance. They describe how each surface exposes the join operation and how
+session context differs from the new-account accept-invitation flow (R-0001).
+
+### Existing-account join across surfaces
+
+The join operation accepts an invitation on behalf of an already-authenticated
+account, creating a membership in the inviting organization. Unlike the
+new-account accept-invitation flow (R-0001), the join flow does not create an
+account or mint a new session — the caller must already hold a valid session.
+
+| Surface | Identifier | Session source | Response shape |
+|---------|-----------|----------------|----------------|
+| `api` | `POST /invitations/{token}/join` | Cookie session (`tower_sessions`) | `JoinOrganizationResponseCookie` |
+| `web` | `POST /invitations/{token}/join` (same route, same-origin POST from accept interstitial) | Cookie session | `JoinOrganizationResponseCookie` |
+| `mcp` | `account.join_organization` tool | Bearer `session_token` in tool input | JSON `CallToolResult` wrapping `JoinOrganizationResponse` |
+| `cli` | `account join --invitation <token>` | Persisted session file (`$XDG_STATE_HOME/tanren/session`) | stdout: `joined_org=… permissions=… project_access=[]` |
+| `tui` | "Join organization" screen (menu entry 4) | In-memory `account_id` from prior sign-up or sign-in | Outcome screen with org, permissions, selectable orgs |
+
+### Session context differences from accept-invitation
+
+The new-account accept-invitation flow (`POST /invitations/{token}/accept`)
+creates an account and mints a new session. The existing-account join flow
+(`POST /invitations/{token}/join`) requires an established session and returns
+no session artifact — the caller keeps the session they already have.
+
+On the `api` and `web` surfaces, the join handler reads `account_id` from the
+cookie session via `read_cookie_session`. If the cookie is absent or expired,
+the handler returns `unauthenticated` (HTTP 401) before reaching application
+services.
+
+On the `mcp` surface, the `account.join_organization` tool receives the bearer
+session token in its input schema, looks up the session row, and verifies
+expiry before delegating to the join handler.
+
+On the `cli` surface, `account join` reads the session token from the
+persisted session file, resolves `account_id` from the store, and verifies
+expiry.
+
+On the `tui` surface, the "Join organization" screen requires that a prior
+sign-up or sign-in established an in-memory `account_id`. If `account_id` is
+`None`, the screen shows an error asking the user to sign in or sign up first.
+
+### Join response shape
+
+`JoinOrganizationResponse` carries the joined org, the membership's org-level
+permissions, the full list of selectable organization memberships (so the
+caller can offer org switching via R-0004), and an explicitly empty
+`project_access_grants` list. The empty list makes project-level access
+visibly absent without introducing grant types owned by the project-access
+subsystem (M-0031).
+
+### Join error projection
+
+Join-path failures map to the shared error taxonomy (see above) with two
+join-specific codes:
+
+- `wrong_account` (HTTP 403): the invitation is addressed to a different
+  account's identifier.
+- `unauthenticated` (HTTP 401): the caller attempted a join without a valid
+  session.
+
+Other join-path failures reuse existing invitation codes
+(`invitation_not_found`, `invitation_expired`,
+`invitation_already_consumed`).
+
 ## Rejected Alternatives
 
 - **`any` as a behavior interface marker.** Rejected because explicit interface
