@@ -9,7 +9,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_configuration_secrets::{CredentialId, CredentialKind, UserSettingKey};
+use tanren_configuration_secrets::{
+    CredentialId, CredentialKind, NotificationEventType, UserSettingKey,
+};
 use tanren_contract::{AccountFailureReason, ConfigurationFailureReason};
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
@@ -183,6 +185,36 @@ pub struct CredentialRemoveRejected {
 pub fn configuration_envelope<T: Serialize>(kind: &str, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": CONFIGURATION_EVENT_FAMILY,
+        "kind": kind,
+        "payload": payload,
+    })
+}
+
+pub const NOTIFICATION_EVENT_FAMILY: &str = "notification";
+
+pub const NOTIFICATION_PREFERENCE_REJECTED_KIND: &str = "notification_preference_rejected";
+pub const NOTIFICATION_ORG_OVERRIDE_REJECTED_KIND: &str = "notification_org_override_rejected";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationPreferenceRejected {
+    pub account_id: AccountId,
+    pub event_type: NotificationEventType,
+    pub reason: ConfigurationFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct NotificationOrgOverrideRejected {
+    pub account_id: AccountId,
+    pub org_id: OrgId,
+    pub reason: ConfigurationFailureReason,
+    pub at: DateTime<Utc>,
+}
+
+#[must_use]
+pub fn notification_envelope<T: Serialize>(kind: &str, payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": NOTIFICATION_EVENT_FAMILY,
         "kind": kind,
         "payload": payload,
     })

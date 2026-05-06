@@ -7,18 +7,23 @@
 
 pub mod account;
 pub mod events;
+pub mod notifications;
 pub mod user_configuration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{NotificationChannel, NotificationChannelSet};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
     ConfigurationFailureReason, ContractVersion, CreateCredentialRequest, CreateCredentialResponse,
-    GetUserConfigRequest, GetUserConfigResponse, ListCredentialsResponse, ListUserConfigResponse,
-    RemoveCredentialRequest, RemoveCredentialResponse, RemoveUserConfigRequest,
-    RemoveUserConfigResponse, SetUserConfigRequest, SetUserConfigResponse, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse, UpdateCredentialRequest,
-    UpdateCredentialResponse,
+    EvaluateNotificationRouteRequest, EvaluateNotificationRouteResponse, GetUserConfigRequest,
+    GetUserConfigResponse, ListCredentialsResponse, ListNotificationPreferencesResponse,
+    ListUserConfigResponse, ReadPendingRoutingSnapshotResponse, RemoveCredentialRequest,
+    RemoveCredentialResponse, RemoveUserConfigRequest, RemoveUserConfigResponse,
+    SetNotificationPreferencesRequest, SetNotificationPreferencesResponse,
+    SetOrganizationNotificationOverridesRequest, SetOrganizationNotificationOverridesResponse,
+    SetUserConfigRequest, SetUserConfigResponse, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse, UpdateCredentialRequest, UpdateCredentialResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier, SessionToken};
 pub use tanren_store::{AccountStore, Store};
@@ -104,6 +109,7 @@ impl Clock {
 pub struct Handlers {
     clock: Clock,
     verifier: Arc<dyn CredentialVerifier>,
+    notification_supported_channels: NotificationChannelSet,
 }
 
 impl Default for Handlers {
@@ -111,6 +117,7 @@ impl Default for Handlers {
         Self {
             clock: Clock::default(),
             verifier: Arc::new(Argon2idVerifier::production()),
+            notification_supported_channels: NotificationChannel::all().iter().copied().collect(),
         }
     }
 }
@@ -130,6 +137,7 @@ impl Handlers {
         Self {
             clock,
             verifier: Arc::new(Argon2idVerifier::production()),
+            notification_supported_channels: NotificationChannel::all().iter().copied().collect(),
         }
     }
 
@@ -139,7 +147,20 @@ impl Handlers {
     /// implementation) thread it in here.
     #[must_use]
     pub fn with_verifier(clock: Clock, verifier: Arc<dyn CredentialVerifier>) -> Self {
-        Self { clock, verifier }
+        Self {
+            clock,
+            verifier,
+            notification_supported_channels: NotificationChannel::all().iter().copied().collect(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_notification_supported_channels(
+        mut self,
+        channels: NotificationChannelSet,
+    ) -> Self {
+        self.notification_supported_channels = channels;
+        self
     }
 
     /// Liveness query. Returns the same shape regardless of which interface
@@ -332,6 +353,78 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         user_configuration::remove_credential(store, &self.clock, actor, request).await
+    }
+
+    pub async fn set_notification_preferences<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: SetNotificationPreferencesRequest,
+    ) -> Result<SetNotificationPreferencesResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        notifications::set_notification_preferences(
+            store,
+            &self.clock,
+            actor,
+            &self.notification_supported_channels,
+            request,
+        )
+        .await
+    }
+
+    pub async fn list_notification_preferences<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+    ) -> Result<ListNotificationPreferencesResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        notifications::list_notification_preferences(store, actor).await
+    }
+
+    pub async fn set_organization_notification_overrides<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: SetOrganizationNotificationOverridesRequest,
+    ) -> Result<SetOrganizationNotificationOverridesResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        notifications::set_organization_notification_overrides(
+            store,
+            &self.clock,
+            actor,
+            &self.notification_supported_channels,
+            request,
+        )
+        .await
+    }
+
+    pub async fn evaluate_notification_route<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+        request: EvaluateNotificationRouteRequest,
+    ) -> Result<EvaluateNotificationRouteResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        notifications::evaluate_notification_route(store, &self.clock, actor, request).await
+    }
+
+    pub async fn read_pending_routing_snapshot<S>(
+        &self,
+        store: &S,
+        actor: &AuthenticatedActor,
+    ) -> Result<ReadPendingRoutingSnapshotResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        notifications::read_pending_routing_snapshot(store, &self.clock, actor).await
     }
 }
 
