@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod install;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -63,6 +65,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Bootstrap Tanren methodology assets into a repository.
+    Install {
+        #[command(flatten)]
+        args: install::InstallArgs,
     },
 }
 
@@ -122,6 +129,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Install { args }) => install::run_install(args),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
