@@ -147,6 +147,53 @@ pub struct OrgMembershipView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ProjectAccessGrant {}
 
+/// Voluntary leave request. The authenticated member requests departure
+/// from the specified organization.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct LeaveOrganizationRequest {
+    /// Organization the caller wants to leave.
+    pub org_id: OrgId,
+}
+
+/// Admin-initiated member removal request. The authenticated admin removes
+/// another account from the specified organization.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RemoveMemberRequest {
+    /// Organization to remove the member from.
+    pub org_id: OrgId,
+    /// Account to remove from the organization.
+    pub member_account_id: AccountId,
+}
+
+/// Placeholder for an in-flight work item surfaced before departure
+/// completes. Detailed fields will be added by M-0042 (change history)
+/// and M-0004 (assignment reassignment). The struct is intentionally a
+/// stub so the departure response shape can represent preview-before-
+/// completion without depending on project-access internals.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct InFlightWorkItem {}
+
+/// Response for both voluntary leave and admin-initiated removal. Supports
+/// a two-phase flow: preview-before-completion (surfaces in-flight work
+/// with `completed = false`) and final departure (`completed = true`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct MembershipDepartureResponse {
+    /// `false` indicates a preview — in-flight work is surfaced but the
+    /// departure has not been committed. `true` indicates the departure
+    /// is final.
+    pub completed: bool,
+    /// In-flight work items that would be orphaned (preview) or are being
+    /// handed off (completion).
+    pub in_flight_work: Vec<InFlightWorkItem>,
+    /// The organization the member departed. `None` during preview,
+    /// `Some` after successful departure.
+    pub departed_org: Option<OrgId>,
+    /// All organization memberships selectable by the departing account
+    /// after the departure completes. Used by callers to offer org
+    /// switching.
+    pub selectable_organizations: Vec<OrgMembershipView>,
+}
+
 /// External-facing view of a Tanren account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct AccountView {
@@ -268,6 +315,15 @@ pub enum AccountFailureReason {
     /// session. Interface layers map missing or expired sessions to this
     /// code before calling the handler.
     Unauthenticated,
+    /// The account is not a member of the target organization.
+    NotOrgMember,
+    /// The authenticated account lacks the permission required for the
+    /// requested operation (e.g. non-admin attempting member removal).
+    PermissionDenied,
+    /// The departure cannot proceed because the account is the last
+    /// holder of administrative permissions in the organization. An org
+    /// must always have at least one admin.
+    LastAdminPermissionHolder,
 }
 
 impl AccountFailureReason {
@@ -283,6 +339,9 @@ impl AccountFailureReason {
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
             Self::WrongAccount => "wrong_account",
             Self::Unauthenticated => "unauthenticated",
+            Self::NotOrgMember => "not_org_member",
+            Self::PermissionDenied => "permission_denied",
+            Self::LastAdminPermissionHolder => "last_admin_permission_holder",
         }
     }
 
@@ -304,6 +363,13 @@ impl AccountFailureReason {
             }
             Self::WrongAccount => "The invitation is addressed to a different account.",
             Self::Unauthenticated => "Authentication is required to join an organization.",
+            Self::NotOrgMember => "The account is not a member of the target organization.",
+            Self::PermissionDenied => {
+                "The authenticated account lacks permission for the requested operation."
+            }
+            Self::LastAdminPermissionHolder => {
+                "The account is the last administrative-permission holder in the organization."
+            }
         }
     }
 
@@ -316,9 +382,9 @@ impl AccountFailureReason {
             Self::DuplicateIdentifier => 409,
             Self::InvalidCredential | Self::Unauthenticated => 401,
             Self::ValidationFailed => 400,
-            Self::InvitationNotFound => 404,
+            Self::InvitationNotFound | Self::NotOrgMember => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
-            Self::WrongAccount => 403,
+            Self::WrongAccount | Self::PermissionDenied | Self::LastAdminPermissionHolder => 403,
         }
     }
 }

@@ -48,6 +48,18 @@ impl OrgPermissions {
     pub fn as_str(&self) -> &str {
         &self.0
     }
+
+    /// Returns `true` when this permission set grants administrative
+    /// authority within the organization (can manage members, settings,
+    /// and other admin-scoped operations).
+    ///
+    /// Currently only the `admin` tag is treated as administrative.
+    /// M-0004 will extend this predicate with granular permission
+    /// checks once the richer permission taxonomy lands.
+    #[must_use]
+    pub fn is_administrative(&self) -> bool {
+        self.0 == "admin"
+    }
 }
 
 impl std::fmt::Display for OrgPermissions {
