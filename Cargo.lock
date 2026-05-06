@@ -4389,6 +4389,7 @@ dependencies = [
  "anyhow",
  "axum",
  "rmcp",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",

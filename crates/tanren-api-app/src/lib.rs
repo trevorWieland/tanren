@@ -36,6 +36,7 @@
 //! - **Sign-out.** `POST /sessions/revoke` clears the cookie via
 //!   `Session::flush` and returns 204.
 
+mod assets;
 mod cookies;
 mod errors;
 mod routes;
@@ -62,6 +63,7 @@ use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
+pub use crate::assets::{UpgradeApplyRequest, UpgradePreviewRequest};
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    UpgradePreviewResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -22,6 +23,9 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
+use crate::assets::{
+    UpgradeApplyRequest, UpgradePreviewRequest, map_apply_error, map_preview_error,
+};
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
@@ -98,6 +102,8 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        upgrade_preview_route,
+        upgrade_apply_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +115,14 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        UpgradePreviewRequest,
+        UpgradeApplyRequest,
+        UpgradePreviewResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "assets", description = "Asset upgrade: preview planned changes and apply confirmed upgrades."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +318,65 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Compute a read-only upgrade preview for the repository at `root`.
+/// Returns the planned actions, concerns, and preserved user paths
+/// without modifying any files.
+#[utoipa::path(
+    post,
+    path = "/assets/upgrade/preview",
+    request_body = UpgradePreviewRequest,
+    responses(
+        (status = 200, body = UpgradePreviewResponse, description = "Upgrade preview computed"),
+        (status = 400, body = AccountFailureBody, description = "manifest_parse_error or unsupported_manifest_version"),
+        (status = 404, body = AccountFailureBody, description = "root_not_found or manifest_missing"),
+    ),
+    tag = "assets",
+)]
+pub(crate) async fn upgrade_preview_route(
+    ValidatedJson(request): ValidatedJson<UpgradePreviewRequest>,
+) -> Response {
+    let root = std::path::Path::new(&request.root);
+    match tanren_app_services::preview_upgrade(root) {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_preview_error(&err),
+    }
+}
+
+/// Execute a confirmed upgrade for the repository at `root`. Requires
+/// `confirm: true` in the request body; returns 400 with
+/// `confirmation_required` otherwise.
+#[utoipa::path(
+    post,
+    path = "/assets/upgrade/apply",
+    request_body = UpgradeApplyRequest,
+    responses(
+        (status = 200, body = UpgradePreviewResponse, description = "Upgrade applied"),
+        (status = 400, body = AccountFailureBody, description = "confirmation_required, manifest_parse_error, or unsupported_manifest_version"),
+        (status = 404, body = AccountFailureBody, description = "root_not_found or manifest_missing"),
+        (status = 409, body = AccountFailureBody, description = "unreported_drift"),
+    ),
+    tag = "assets",
+)]
+pub(crate) async fn upgrade_apply_route(
+    ValidatedJson(request): ValidatedJson<UpgradeApplyRequest>,
+) -> Response {
+    if !request.confirm {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(AccountFailureBody {
+                code: "confirmation_required".to_owned(),
+                summary: "Set confirm to true to apply the upgrade.".to_owned(),
+            }),
+        )
+            .into_response();
+    }
+    let root = std::path::Path::new(&request.root);
+    match tanren_app_services::apply_upgrade(root) {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_apply_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +389,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(upgrade_preview_route))
+        .routes(routes!(upgrade_apply_route))
         .with_state(state)
 }
