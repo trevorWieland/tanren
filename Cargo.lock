@@ -4165,7 +4165,6 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
- "sea-orm",
  "secrecy",
  "serde",
  "serde_json",
