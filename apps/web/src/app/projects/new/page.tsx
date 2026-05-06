@@ -3,7 +3,9 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
-import type { ProjectView } from "@/app/lib/project-client";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
+
+import { getActiveProject } from "@/app/lib/project-client";
 import { ConnectProjectForm } from "@/components/project/ConnectProjectForm";
 import { CreateProjectForm } from "@/components/project/CreateProjectForm";
 import { ActiveProjectSummary } from "@/components/project/ActiveProjectSummary";
@@ -11,17 +13,30 @@ import * as m from "@/i18n/paraglide/messages";
 
 type Tab = "connect" | "create";
 
+const ACTIVE_PROJECT_KEY = ["active-project"] as const;
+
+export { ACTIVE_PROJECT_KEY };
+
 export default function NewProjectPage(): ReactNode {
   const [tab, setTab] = useState<Tab>("connect");
-  const [activeProject, setActiveProject] = useState<ProjectView | null>(null);
+  const queryClient = useQueryClient();
 
-  if (activeProject !== null) {
+  const { data: active } = useQuery({
+    queryKey: ACTIVE_PROJECT_KEY,
+    queryFn: getActiveProject,
+  });
+
+  if (active?.project) {
     return (
       <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
         <h1 className="text-2xl font-semibold">{m.projectActive_title()}</h1>
-        <ActiveProjectSummary project={activeProject} />
+        <ActiveProjectSummary project={active.project} />
       </main>
     );
+  }
+
+  function handleSuccess(): void {
+    queryClient.invalidateQueries({ queryKey: ACTIVE_PROJECT_KEY });
   }
 
   return (
@@ -56,9 +71,9 @@ export default function NewProjectPage(): ReactNode {
         </button>
       </div>
       {tab === "connect" ? (
-        <ConnectProjectForm onSuccess={setActiveProject} />
+        <ConnectProjectForm onSuccess={handleSuccess} />
       ) : (
-        <CreateProjectForm onSuccess={setActiveProject} />
+        <CreateProjectForm onSuccess={handleSuccess} />
       )}
     </main>
   );

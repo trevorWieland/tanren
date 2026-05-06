@@ -1,14 +1,14 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useId, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import * as v from "valibot";
+import { useMutation } from "@tanstack/react-query";
 
 import {
   ProjectRequestError,
   connectProject,
   describeProjectFailure,
-  type ProjectView,
 } from "@/app/lib/project-client";
 import * as m from "@/i18n/paraglide/messages";
 
@@ -18,7 +18,7 @@ const ConnectInput = v.object({
 });
 
 export interface ConnectProjectFormProps {
-  onSuccess?: ((result: ProjectView) => void) | undefined;
+  onSuccess?: () => void;
 }
 
 const inputClass =
@@ -38,7 +38,24 @@ export function ConnectProjectForm({
   const [name, setName] = useState("");
   const [repositoryUrl, setRepositoryUrl] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+
+  const mutation = useMutation({
+    mutationFn: connectProject,
+    onSuccess: () => {
+      onSuccess?.();
+    },
+    onError: (cause: Error) => {
+      if (cause instanceof ProjectRequestError) {
+        setErrorMessage(
+          `${cause.failure.code}: ${describeProjectFailure(cause.failure)}`,
+        );
+      } else {
+        setErrorMessage(
+          cause instanceof Error ? cause.message : m.projectConnect_failed(),
+        );
+      }
+    },
+  });
 
   function onSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -51,22 +68,7 @@ export function ConnectProjectForm({
       setErrorMessage(m.projectConnect_required());
       return;
     }
-    startTransition(async () => {
-      try {
-        const result = await connectProject(parsed.output);
-        onSuccess?.(result);
-      } catch (cause: unknown) {
-        if (cause instanceof ProjectRequestError) {
-          setErrorMessage(
-            `${cause.failure.code}: ${describeProjectFailure(cause.failure)}`,
-          );
-        } else if (cause instanceof Error) {
-          setErrorMessage(cause.message);
-        } else {
-          setErrorMessage(m.projectConnect_failed());
-        }
-      }
-    });
+    mutation.mutate(parsed.output);
   }
 
   const errorActive = errorMessage !== null;
@@ -112,8 +114,14 @@ export function ConnectProjectForm({
           className={inputClass}
         />
       </div>
-      <button type="submit" disabled={pending} className={buttonClass}>
-        {pending ? m.projectConnect_submitting() : m.projectConnect_submit()}
+      <button
+        type="submit"
+        disabled={mutation.isPending}
+        className={buttonClass}
+      >
+        {mutation.isPending
+          ? m.projectConnect_submitting()
+          : m.projectConnect_submit()}
       </button>
       {errorActive && (
         <p

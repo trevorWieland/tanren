@@ -39,3 +39,4 @@ catalog:
   # `vite` bump to 8 trips that constraint. Drop this once Storybook 9
   # widens its vite peer.
   vite: "7.3.2"
+  "@tanstack/react-query": "5.81.5"
