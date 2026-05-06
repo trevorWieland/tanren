@@ -6,9 +6,11 @@
 
 use std::sync::Arc;
 
-use tanren_app_services::Store;
+use tanren_app_services::{AppServiceError, SourceControlProvider, Store};
+use tanren_contract::ProjectFailureReason;
+use tanren_provider_integrations::ProviderError;
 
-use super::{App, FormKind, Screen, StubProvider};
+use super::{App, FormKind, Screen};
 use crate::FormState;
 use crate::ui::{
     accept_invitation_outcome, active_project_none_outcome, active_project_outcome,
@@ -18,6 +20,17 @@ use crate::ui::{
 };
 
 impl App {
+    fn resolve_provider(&self) -> Result<Arc<dyn SourceControlProvider>, String> {
+        self.registry.resolve().map_err(|e| match e {
+            ProviderError::NotConfigured => render_error(AppServiceError::Project(
+                ProjectFailureReason::ProviderNotConfigured,
+            )),
+            _ => render_error(AppServiceError::Project(
+                ProjectFailureReason::ProviderFailure,
+            )),
+        })
+    }
+
     pub(super) fn submit(&mut self, kind: FormKind) {
         let Some(store) = self.store.clone() else {
             let message = self
@@ -144,10 +157,18 @@ impl App {
                 return;
             }
         };
-        let scm = StubProvider;
+        let scm = match self.resolve_provider() {
+            Ok(p) => p,
+            Err(message) => {
+                if let Screen::ConnectProject(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
         let result = self.runtime.block_on(self.handlers.connect_project(
             store.as_ref(),
-            &scm,
+            scm.as_ref(),
             account_id,
             request,
         ));
@@ -179,10 +200,18 @@ impl App {
                 return;
             }
         };
-        let scm = StubProvider;
+        let scm = match self.resolve_provider() {
+            Ok(p) => p,
+            Err(message) => {
+                if let Screen::CreateProject(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
         let result = self.runtime.block_on(self.handlers.create_project(
             store.as_ref(),
-            &scm,
+            scm.as_ref(),
             account_id,
             request,
         ));

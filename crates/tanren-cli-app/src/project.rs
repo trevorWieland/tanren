@@ -2,18 +2,19 @@
 //!
 //! Extracted from `lib.rs` to keep that file under the workspace 500-line
 //! budget.  Owns [`ProjectAction`] (the `clap` sub-enum), the async
-//! dispatch path, the `StubProvider` used when no real SCM provider is
-//! wired, and the `parse_account_id` helper.
+//! dispatch path, and the `parse_account_id` helper.
 
 use std::io::Write;
+use std::sync::Arc;
 
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use clap::Subcommand;
-use tanren_app_services::{Handlers, SourceControlProvider, Store};
-use tanren_contract::{ConnectProjectRequest, CreateProjectRequest, ProjectView};
+use tanren_app_services::{AppServiceError, Handlers, SourceControlProvider, Store};
+use tanren_contract::{
+    ConnectProjectRequest, CreateProjectRequest, ProjectFailureReason, ProjectView,
+};
 use tanren_identity_policy::AccountId;
-use tanren_provider_integrations::{ProviderConnectionContext, ProviderError, RepositoryInfo};
+use tanren_provider_integrations::{NullProviderRegistry, ProviderError, ProviderRegistry};
 use uuid::Uuid;
 
 use super::service_error;
@@ -69,9 +70,19 @@ pub(crate) fn dispatch_project(action: ProjectAction) -> Result<()> {
     runtime.block_on(run_project(action))
 }
 
+fn resolve_provider() -> Result<Arc<dyn SourceControlProvider>> {
+    NullProviderRegistry.resolve().map_err(|e| match e {
+        ProviderError::NotConfigured => service_error(AppServiceError::Project(
+            ProjectFailureReason::ProviderNotConfigured,
+        )),
+        _ => service_error(AppServiceError::Project(
+            ProjectFailureReason::ProviderFailure,
+        )),
+    })
+}
+
 async fn run_project(action: ProjectAction) -> Result<()> {
     let handlers = Handlers::new();
-    let scm = StubProvider;
     match action {
         ProjectAction::Connect {
             database_url,
@@ -83,10 +94,11 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 .await
                 .context("connect to store")?;
             let aid = parse_account_id(&account_id)?;
+            let scm = resolve_provider()?;
             let response = handlers
                 .connect_project(
                     &store,
-                    &scm,
+                    scm.as_ref(),
                     aid,
                     ConnectProjectRequest {
                         name,
@@ -108,10 +120,11 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 .await
                 .context("connect to store")?;
             let aid = parse_account_id(&account_id)?;
+            let scm = resolve_provider()?;
             let response = handlers
                 .create_project(
                     &store,
-                    &scm,
+                    scm.as_ref(),
                     aid,
                     CreateProjectRequest {
                         name,
@@ -167,28 +180,4 @@ pub(crate) fn parse_account_id(raw: &str) -> Result<AccountId> {
     let uuid =
         Uuid::parse_str(raw).with_context(|| format!("parse --account-id as UUID: {raw}"))?;
     Ok(AccountId::new(uuid))
-}
-
-struct StubProvider;
-
-#[async_trait]
-impl SourceControlProvider for StubProvider {
-    async fn check_repo_access(
-        &self,
-        context: &ProviderConnectionContext,
-    ) -> Result<RepositoryInfo, ProviderError> {
-        Err(ProviderError::Call(format!(
-            "no SCM provider configured for {}",
-            context.host
-        )))
-    }
-    async fn create_repository(
-        &self,
-        context: &ProviderConnectionContext,
-    ) -> Result<RepositoryInfo, ProviderError> {
-        Err(ProviderError::Call(format!(
-            "no SCM provider configured for {}",
-            context.host
-        )))
-    }
 }

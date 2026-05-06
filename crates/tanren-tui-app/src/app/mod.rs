@@ -14,12 +14,11 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
-use async_trait::async_trait;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Handlers, SourceControlProvider, Store};
-use tanren_provider_integrations::{ProviderConnectionContext, ProviderError, RepositoryInfo};
+use tanren_app_services::{Handlers, Store};
+use tanren_provider_integrations::NullProviderRegistry;
 use tokio::runtime::Runtime;
 
 use crate::draw;
@@ -49,13 +48,24 @@ pub(crate) struct OutcomeView {
     pub(crate) lines: Vec<String>,
 }
 
-#[derive(Debug)]
 pub(crate) struct App {
     runtime: Runtime,
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    pub(super) registry: Box<dyn tanren_provider_integrations::ProviderRegistry>,
     screen: Screen,
+}
+
+impl std::fmt::Debug for App {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("App")
+            .field("handlers", &self.handlers)
+            .field("store", &self.store)
+            .field("store_error", &self.store_error)
+            .field("screen", &self.screen)
+            .finish_non_exhaustive()
+    }
 }
 
 impl App {
@@ -79,6 +89,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            registry: Box::new(NullProviderRegistry),
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -289,28 +300,4 @@ fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
 fn is_press(key: &KeyEvent) -> bool {
     use crossterm::event::KeyEventKind;
     matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
-}
-
-pub(super) struct StubProvider;
-
-#[async_trait]
-impl SourceControlProvider for StubProvider {
-    async fn check_repo_access(
-        &self,
-        context: &ProviderConnectionContext,
-    ) -> Result<RepositoryInfo, ProviderError> {
-        Err(ProviderError::Call(format!(
-            "no SCM provider configured for {}",
-            context.host
-        )))
-    }
-    async fn create_repository(
-        &self,
-        context: &ProviderConnectionContext,
-    ) -> Result<RepositoryInfo, ProviderError> {
-        Err(ProviderError::Call(format!(
-            "no SCM provider configured for {}",
-            context.host
-        )))
-    }
 }
