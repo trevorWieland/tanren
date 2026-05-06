@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod invitation;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -63,6 +65,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Organization invitation commands.
+    Invitation {
+        #[command(subcommand)]
+        action: invitation::InvitationAction,
     },
 }
 
@@ -122,6 +129,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Invitation { action }) => invitation::dispatch_invitation(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -271,7 +279,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
     Ok(())
 }
 
-fn account_error(err: AppServiceError) -> anyhow::Error {
+pub(crate) fn account_error(err: AppServiceError) -> anyhow::Error {
     match err {
         AppServiceError::Account(reason) => {
             anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
@@ -286,7 +294,7 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
     }
 }
 
-fn session_path() -> PathBuf {
+pub(crate) fn session_path() -> PathBuf {
     if let Ok(explicit) = env::var(SESSION_FILE_ENV) {
         if !explicit.is_empty() {
             return PathBuf::from(explicit);
