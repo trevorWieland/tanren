@@ -46,6 +46,12 @@ Feature: Connect Tanren to an existing repository
       And alice connects the repository "acme-api-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
 
+    @falsification @api
+    Scenario: Connecting a repo over the API without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice connects the repository "acme-api-no-provider-repo" to her account
+      Then the request fails with code "provider_not_configured"
+
   Rule: Web surface
 
     @positive @web
@@ -83,6 +89,12 @@ Feature: Connect Tanren to an existing repository
       When alice connects the repository "acme-web-dup-repo" to her account
       And alice connects the repository "acme-web-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+
+    @falsification @web
+    Scenario: Connecting a repo over the web without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice connects the repository "acme-web-no-provider-repo" to her account
+      Then the request fails with code "provider_not_configured"
 
   Rule: CLI surface
 
@@ -122,6 +134,12 @@ Feature: Connect Tanren to an existing repository
       And alice connects the repository "acme-cli-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
 
+    @falsification @cli
+    Scenario: Connecting a repo over the CLI without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice connects the repository "acme-cli-no-provider-repo" to her account
+      Then the request fails with code "provider_not_configured"
+
   Rule: MCP surface
 
     @positive @mcp
@@ -160,6 +178,12 @@ Feature: Connect Tanren to an existing repository
       And alice connects the repository "acme-mcp-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
 
+    @falsification @mcp
+    Scenario: Connecting a repo over MCP without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice connects the repository "acme-mcp-no-provider-repo" to her account
+      Then the request fails with code "provider_not_configured"
+
   Rule: TUI surface
 
     @positive @tui
@@ -197,6 +221,12 @@ Feature: Connect Tanren to an existing repository
       When alice connects the repository "acme-tui-dup-repo" to her account
       And alice connects the repository "acme-tui-dup-repo" to her account again
       Then the second request fails with code "duplicate_repository"
+
+    @falsification @tui
+    Scenario: Connecting a repo over the TUI without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice connects the repository "acme-tui-no-provider-repo" to her account
+      Then the request fails with code "provider_not_configured"
 
   Rule: Cross-interface verification
 

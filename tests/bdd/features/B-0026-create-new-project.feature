@@ -28,6 +28,12 @@ Feature: Create a new project from scratch
       When alice creates a new project named "acme-api-denied" at host "git.denied-api.com"
       Then the request fails with code "access_denied"
 
+    @falsification @api
+    Scenario: Creating a new project over the API without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice creates a new project named "acme-api-no-provider" at host "git.example.com"
+      Then the request fails with code "provider_not_configured"
+
   Rule: Web surface
 
     @positive @web
@@ -46,6 +52,12 @@ Feature: Create a new project from scratch
       Given a fixture SCM host "git.denied-web.com" that alice cannot access
       When alice creates a new project named "acme-web-denied" at host "git.denied-web.com"
       Then the request fails with code "access_denied"
+
+    @falsification @web
+    Scenario: Creating a new project over the web without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice creates a new project named "acme-web-no-provider" at host "git.example.com"
+      Then the request fails with code "provider_not_configured"
 
   Rule: CLI surface
 
@@ -66,6 +78,12 @@ Feature: Create a new project from scratch
       When alice creates a new project named "acme-cli-denied" at host "git.denied-cli.com"
       Then the request fails with code "access_denied"
 
+    @falsification @cli
+    Scenario: Creating a new project over the CLI without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice creates a new project named "acme-cli-no-provider" at host "git.example.com"
+      Then the request fails with code "provider_not_configured"
+
   Rule: MCP surface
 
     @positive @mcp
@@ -85,6 +103,12 @@ Feature: Create a new project from scratch
       When alice creates a new project named "acme-mcp-denied" at host "git.denied-mcp.com"
       Then the request fails with code "access_denied"
 
+    @falsification @mcp
+    Scenario: Creating a new project over MCP without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice creates a new project named "acme-mcp-no-provider" at host "git.example.com"
+      Then the request fails with code "provider_not_configured"
+
   Rule: TUI surface
 
     @positive @tui
@@ -103,6 +127,12 @@ Feature: Create a new project from scratch
       Given a fixture SCM host "git.denied-tui.com" that alice cannot access
       When alice creates a new project named "acme-tui-denied" at host "git.denied-tui.com"
       Then the request fails with code "access_denied"
+
+    @falsification @tui
+    Scenario: Creating a new project over the TUI without an SCM provider configured returns provider_not_configured
+      Given no SCM provider is configured
+      When alice creates a new project named "acme-tui-no-provider" at host "git.example.com"
+      Then the request fails with code "provider_not_configured"
 
   Rule: Cross-interface verification
 

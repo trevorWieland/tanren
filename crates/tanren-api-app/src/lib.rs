@@ -63,7 +63,7 @@ use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
-pub use crate::errors::AccountFailureBody;
+pub use crate::errors::FailureBody;
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,

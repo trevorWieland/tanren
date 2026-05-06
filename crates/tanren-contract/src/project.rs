@@ -135,6 +135,8 @@ pub enum ProjectFailureReason {
     ValidationFailed,
     /// The upstream SCM provider rejected the request or was unreachable.
     ProviderFailure,
+    /// No SCM provider is configured for the deployment.
+    ProviderNotConfigured,
 }
 
 impl ProjectFailureReason {
@@ -146,6 +148,7 @@ impl ProjectFailureReason {
             Self::DuplicateRepository => "duplicate_repository",
             Self::ValidationFailed => "validation_failed",
             Self::ProviderFailure => "provider_failure",
+            Self::ProviderNotConfigured => "provider_not_configured",
         }
     }
 
@@ -159,6 +162,7 @@ impl ProjectFailureReason {
                 "The submitted input did not satisfy contract-level validation."
             }
             Self::ProviderFailure => "The SCM provider rejected the request or was unreachable.",
+            Self::ProviderNotConfigured => "SCM provider is not configured.",
         }
     }
 
@@ -171,6 +175,7 @@ impl ProjectFailureReason {
             Self::DuplicateRepository => 409,
             Self::ValidationFailed => 400,
             Self::ProviderFailure => 502,
+            Self::ProviderNotConfigured => 503,
         }
     }
 }

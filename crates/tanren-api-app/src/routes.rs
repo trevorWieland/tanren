@@ -14,7 +14,8 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, ActiveProjectView, ConnectProjectRequest,
-    CreateProjectRequest, ProjectView, SessionEnvelope, SignInRequest, SignUpRequest,
+    CreateProjectRequest, ProjectFailureReason, ProjectView, SessionEnvelope, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -24,7 +25,9 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    FailureBody, ValidatedJson, map_app_error, project_failure_body, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -111,7 +114,7 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
-        AccountFailureBody,
+        FailureBody,
         SessionEnvelope,
         ConnectProjectRequest,
         CreateProjectRequest,
@@ -152,9 +155,9 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
     request_body = SignUpRequest,
     responses(
         (status = 201, body = SignUpResponseCookie, description = "Account created"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
-        (status = 409, body = AccountFailureBody, description = "duplicate_identifier"),
+        (status = 400, body = FailureBody, description = "validation_failed"),
+        (status = 401, body = FailureBody, description = "invalid_credential"),
+        (status = 409, body = FailureBody, description = "duplicate_identifier"),
     ),
     tag = "accounts",
 )]
@@ -192,8 +195,8 @@ pub(crate) async fn sign_up_route(
     request_body = SignInRequest,
     responses(
         (status = 200, body = SignInResponseCookie, description = "Sign-in succeeded"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+        (status = 400, body = FailureBody, description = "validation_failed"),
+        (status = 401, body = FailureBody, description = "invalid_credential"),
     ),
     tag = "accounts",
 )]
@@ -234,9 +237,9 @@ pub(crate) async fn sign_in_route(
     ),
     responses(
         (status = 201, body = AcceptInvitationResponseCookie, description = "Invitation accepted"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 404, body = AccountFailureBody, description = "invitation_not_found"),
-        (status = 410, body = AccountFailureBody, description = "invitation_expired or invitation_already_consumed"),
+        (status = 400, body = FailureBody, description = "validation_failed"),
+        (status = 404, body = FailureBody, description = "invitation_not_found"),
+        (status = 410, body = FailureBody, description = "invitation_expired or invitation_already_consumed"),
     ),
     tag = "accounts",
 )]
@@ -251,7 +254,7 @@ pub(crate) async fn accept_invitation_route(
         Err(err) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(AccountFailureBody {
+                Json(FailureBody {
                     code: "validation_failed".to_owned(),
                     summary: err.to_string(),
                 }),
@@ -307,7 +310,7 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
         tracing::error!(target: "tanren_api", error = %err, "session flush");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
+            Json(FailureBody {
                 code: "internal_error".to_owned(),
                 summary: "Tanren encountered an internal error.".to_owned(),
             }),
@@ -322,7 +325,7 @@ async fn require_account_id(session: &Session) -> Result<AccountId, Response> {
         Ok(Some(id)) => Ok(id),
         Ok(None) => Err((
             StatusCode::UNAUTHORIZED,
-            Json(AccountFailureBody {
+            Json(FailureBody {
                 code: "auth_required".to_owned(),
                 summary: "Authentication required.".to_owned(),
             }),
@@ -332,7 +335,7 @@ async fn require_account_id(session: &Session) -> Result<AccountId, Response> {
             tracing::error!(target: "tanren_api", error = %err, "session read");
             Err((
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
+                Json(FailureBody {
                     code: "internal_error".to_owned(),
                     summary: "Tanren encountered an internal error.".to_owned(),
                 }),
@@ -343,14 +346,7 @@ async fn require_account_id(session: &Session) -> Result<AccountId, Response> {
 }
 
 fn provider_not_configured() -> Response {
-    (
-        StatusCode::SERVICE_UNAVAILABLE,
-        Json(AccountFailureBody {
-            code: "provider_not_configured".to_owned(),
-            summary: "SCM provider is not configured.".to_owned(),
-        }),
-    )
-        .into_response()
+    project_failure_body(ProjectFailureReason::ProviderNotConfigured)
 }
 
 /// Connect an existing repository as a new project (B-0025).
@@ -360,12 +356,12 @@ fn provider_not_configured() -> Response {
     request_body = ConnectProjectRequest,
     responses(
         (status = 201, body = ProjectView, description = "Project connected"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 403, body = AccountFailureBody, description = "access_denied"),
-        (status = 409, body = AccountFailureBody, description = "duplicate_repository"),
-        (status = 502, body = AccountFailureBody, description = "provider_failure"),
-        (status = 503, body = AccountFailureBody, description = "provider_not_configured"),
+        (status = 400, body = FailureBody, description = "validation_failed"),
+        (status = 401, body = FailureBody, description = "auth_required"),
+        (status = 403, body = FailureBody, description = "access_denied"),
+        (status = 409, body = FailureBody, description = "duplicate_repository"),
+        (status = 502, body = FailureBody, description = "provider_failure"),
+        (status = 503, body = FailureBody, description = "provider_not_configured"),
     ),
     tag = "projects",
 )]
@@ -398,12 +394,12 @@ pub(crate) async fn connect_project_route(
     request_body = CreateProjectRequest,
     responses(
         (status = 201, body = ProjectView, description = "Project created"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 403, body = AccountFailureBody, description = "access_denied"),
-        (status = 409, body = AccountFailureBody, description = "duplicate_repository"),
-        (status = 502, body = AccountFailureBody, description = "provider_failure"),
-        (status = 503, body = AccountFailureBody, description = "provider_not_configured"),
+        (status = 400, body = FailureBody, description = "validation_failed"),
+        (status = 401, body = FailureBody, description = "auth_required"),
+        (status = 403, body = FailureBody, description = "access_denied"),
+        (status = 409, body = FailureBody, description = "duplicate_repository"),
+        (status = 502, body = FailureBody, description = "provider_failure"),
+        (status = 503, body = FailureBody, description = "provider_not_configured"),
     ),
     tag = "projects",
 )]
@@ -436,7 +432,7 @@ pub(crate) async fn create_project_route(
     responses(
         (status = 200, body = ActiveProjectView, description = "Active project"),
         (status = 204, description = "No active project"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 401, body = FailureBody, description = "auth_required"),
     ),
     tag = "projects",
 )]

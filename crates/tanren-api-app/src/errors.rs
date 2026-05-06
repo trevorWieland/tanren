@@ -2,7 +2,8 @@
 //!
 //! Split out of `lib.rs` so the api-app crate stays under the workspace
 //! 500-line line-budget. The shapes here are the wire equivalent of
-//! `tanren_contract::AccountFailureReason` rendered through the
+//! `tanren_contract::AccountFailureReason` and
+//! `tanren_contract::ProjectFailureReason` rendered through the
 //! API's HTTP transport.
 
 use axum::Json;
@@ -17,7 +18,7 @@ use tanren_contract::{AccountFailureReason, ProjectFailureReason};
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct AccountFailureBody {
+pub struct FailureBody {
     /// Stable error code from the closed taxonomy.
     pub code: String,
     /// Human-readable summary.
@@ -31,7 +32,7 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
     tracing::error!(target: "tanren_api", error = %err, "session install");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(AccountFailureBody {
+        Json(FailureBody {
             code: "internal_error".to_owned(),
             summary: "Tanren encountered an internal error.".to_owned(),
         }),
@@ -81,7 +82,7 @@ fn account_failure_body(reason: AccountFailureReason) -> Response {
         .into_response()
 }
 
-fn project_failure_body(reason: ProjectFailureReason) -> Response {
+pub(crate) fn project_failure_body(reason: ProjectFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
@@ -130,7 +131,7 @@ fn map_json_rejection(rejection: &JsonRejection) -> Response {
     };
     (
         StatusCode::BAD_REQUEST,
-        Json(AccountFailureBody {
+        Json(FailureBody {
             code: "validation_failed".to_owned(),
             summary,
         }),

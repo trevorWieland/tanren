@@ -33,7 +33,7 @@ use serde_json::json;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ActiveProjectView, ConnectProjectRequest, CreateProjectRequest,
-    SignInRequest, SignUpRequest,
+    ProjectFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId};
 use tanren_provider_integrations::SourceControlProvider;
@@ -167,7 +167,9 @@ impl TanrenMcp {
         Parameters(params): Parameters<ProjectConnectParams>,
     ) -> Result<CallToolResult, McpError> {
         let Some(provider) = self.provider.as_deref() else {
-            return Ok(provider_not_configured());
+            return Ok(map_failure(AppServiceError::Project(
+                ProjectFailureReason::ProviderNotConfigured,
+            )));
         };
         let request = ConnectProjectRequest {
             name: params.name,
@@ -193,7 +195,9 @@ impl TanrenMcp {
         Parameters(params): Parameters<ProjectCreateParams>,
     ) -> Result<CallToolResult, McpError> {
         let Some(provider) = self.provider.as_deref() else {
-            return Ok(provider_not_configured());
+            return Ok(map_failure(AppServiceError::Project(
+                ProjectFailureReason::ProviderNotConfigured,
+            )));
         };
         let request = CreateProjectRequest {
             name: params.name,
@@ -270,15 +274,6 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     let body = json!({
         "code": code,
         "summary": summary,
-    });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
-}
-
-fn provider_not_configured() -> CallToolResult {
-    let body = json!({
-        "code": "provider_not_configured",
-        "summary": "SCM provider is not configured.",
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
