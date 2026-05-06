@@ -1,34 +1,11 @@
 use chrono::Utc;
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
 use tanren_app_services::{AppServiceError, OrganizationStore, Store};
-use tanren_contract::{OrganizationAdminOperation, OrganizationFailureReason};
-use tanren_identity_policy::{AccountId, OrgId, OrganizationName};
+use tanren_contract::OrganizationFailureReason;
+use tanren_identity_policy::SessionToken;
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(crate) struct OrgCreateReq {
-    #[serde(default)]
-    pub(crate) session_token: Option<String>,
-    pub(crate) name: OrganizationName,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(crate) struct OrgListReq {
-    #[serde(default)]
-    pub(crate) session_token: Option<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub(crate) struct OrgAuthReq {
-    #[serde(default)]
-    pub(crate) session_token: Option<String>,
-    pub(crate) org_id: OrgId,
-    pub(crate) operation: OrganizationAdminOperation,
-}
-
-pub(crate) fn require_token(token: Option<&String>) -> Result<&str, AppServiceError> {
+pub(crate) fn require_token(token: Option<&SessionToken>) -> Result<&str, AppServiceError> {
     token
-        .map(String::as_str)
+        .map(SessionToken::expose_secret)
         .filter(|s| !s.is_empty())
         .ok_or(AppServiceError::Organization(
             OrganizationFailureReason::AuthRequired,
@@ -38,7 +15,7 @@ pub(crate) fn require_token(token: Option<&String>) -> Result<&str, AppServiceEr
 pub(crate) async fn resolve_session(
     store: &Store,
     token: &str,
-) -> Result<AccountId, AppServiceError> {
+) -> Result<tanren_identity_policy::AccountId, AppServiceError> {
     let now = Utc::now();
     let session = store.resolve_bearer_session(token, now).await?;
     match session {

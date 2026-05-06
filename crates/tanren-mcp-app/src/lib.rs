@@ -25,14 +25,15 @@ use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, CreateOrganizationRequest, CreateOrganizationResponse,
-    ListOrganizationsRequest, SignInRequest, SignUpRequest,
+    ListOrganizationsRequest, OrganizationAuthorizeToolRequest, OrganizationCreateToolRequest,
+    OrganizationListToolRequest, SignInRequest, SignUpRequest,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 mod tools;
-use tools::{OrgAuthReq, OrgCreateReq, OrgListReq, require_token, resolve_session};
+use tools::{require_token, resolve_session};
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
@@ -115,7 +116,7 @@ impl TanrenMcp {
     )]
     async fn organization_create(
         &self,
-        Parameters(req): Parameters<OrgCreateReq>,
+        Parameters(req): Parameters<OrganizationCreateToolRequest>,
     ) -> Result<CallToolResult, McpError> {
         let token = match require_token(req.session_token.as_ref()) {
             Ok(t) => t,
@@ -149,7 +150,7 @@ impl TanrenMcp {
     )]
     async fn organization_list(
         &self,
-        Parameters(req): Parameters<OrgListReq>,
+        Parameters(req): Parameters<OrganizationListToolRequest>,
     ) -> Result<CallToolResult, McpError> {
         let token = match require_token(req.session_token.as_ref()) {
             Ok(t) => t,
@@ -159,13 +160,13 @@ impl TanrenMcp {
             Ok(id) => id,
             Err(e) => return Ok(map_failure(e)),
         };
+        let list_request = ListOrganizationsRequest {
+            limit: req.limit,
+            after: req.after,
+        };
         match self
             .handlers
-            .list_account_organizations(
-                self.store.as_ref(),
-                aid,
-                ListOrganizationsRequest::default(),
-            )
+            .list_account_organizations(self.store.as_ref(), aid, list_request)
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -178,7 +179,7 @@ impl TanrenMcp {
     )]
     async fn organization_authorize_admin(
         &self,
-        Parameters(req): Parameters<OrgAuthReq>,
+        Parameters(req): Parameters<OrganizationAuthorizeToolRequest>,
     ) -> Result<CallToolResult, McpError> {
         let token = match require_token(req.session_token.as_ref()) {
             Ok(t) => t,
@@ -225,9 +226,9 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
             (reason.code().to_owned(), reason.summary().to_owned())
         }
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
+        AppServiceError::Store(_) => (
             "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
+            "Tanren encountered an internal error.".to_owned(),
         ),
         _ => (
             "internal_error".to_owned(),

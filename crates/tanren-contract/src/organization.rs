@@ -9,7 +9,9 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tanren_identity_policy::{AccountId, MembershipId, OrgId, OrgPermission, OrganizationName};
+use tanren_identity_policy::{
+    AccountId, MembershipId, OrgId, OrgPermission, OrganizationName, SessionToken,
+};
 use utoipa::ToSchema;
 
 /// Create-organization request.
@@ -238,6 +240,53 @@ pub struct ListOrganizationsResponse {
     /// fetch the next page. `None` when no more pages remain.
     #[serde(default)]
     pub next_cursor: Option<String>,
+}
+
+/// MCP tool request for creating an organization.
+///
+/// Wraps the domain-level [`CreateOrganizationRequest`] fields with an
+/// MCP-specific `session_token` parameter. The MCP transport does not
+/// use HTTP headers for authentication — the token is passed as a tool
+/// parameter instead.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationCreateToolRequest {
+    /// Opaque session token obtained from a prior sign-up or sign-in.
+    #[serde(default)]
+    pub session_token: Option<SessionToken>,
+    /// Human-readable name for the new organization.
+    pub name: OrganizationName,
+}
+
+/// MCP tool request for listing organizations the authenticated account
+/// belongs to.
+///
+/// Mirrors the pagination fields of [`ListOrganizationsRequest`] with an
+/// additional `session_token` for MCP-level authentication.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationListToolRequest {
+    /// Opaque session token obtained from a prior sign-up or sign-in.
+    #[serde(default)]
+    pub session_token: Option<SessionToken>,
+    /// Maximum number of organizations to return. When `None` the
+    /// handler applies [`DEFAULT_ORG_PAGE_SIZE`].
+    #[serde(default)]
+    pub limit: Option<u32>,
+    /// Opaque cursor from a prior response's `next_cursor` field.
+    #[serde(default)]
+    pub after: Option<String>,
+}
+
+/// MCP tool request for checking whether the authenticated account holds
+/// a specific admin permission on an organization.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationAuthorizeToolRequest {
+    /// Opaque session token obtained from a prior sign-up or sign-in.
+    #[serde(default)]
+    pub session_token: Option<SessionToken>,
+    /// Organization to check permissions on.
+    pub org_id: OrgId,
+    /// Administrative operation to authorize.
+    pub operation: OrganizationAdminOperation,
 }
 
 impl OrganizationFailureReason {

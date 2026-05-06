@@ -22,7 +22,6 @@ anyhow = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
 rmcp = { workspace = true }
-schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

@@ -15,8 +15,10 @@ pub use account::{
 pub use organization::{
     CreateOrganizationRequest, CreateOrganizationResponse, DEFAULT_ORG_PAGE_SIZE,
     DefaultOrgPageSize, ListOrganizationsRequest, ListOrganizationsResponse,
-    OrganizationAdminOperation, OrganizationCreatedEvent, OrganizationCreationRejectedEvent,
-    OrganizationEventKind, OrganizationFailureReason, OrganizationMembershipView, OrganizationView,
+    OrganizationAdminOperation, OrganizationAuthorizeToolRequest, OrganizationCreateToolRequest,
+    OrganizationCreatedEvent, OrganizationCreationRejectedEvent, OrganizationEventKind,
+    OrganizationFailureReason, OrganizationListToolRequest, OrganizationMembershipView,
+    OrganizationView,
 };
 
 use serde::{Deserialize, Serialize};
