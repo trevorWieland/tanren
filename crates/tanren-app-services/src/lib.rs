@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod events;
+pub mod install;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
