@@ -10,7 +10,9 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::AccountFailureReason;
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, Identifier, InvitationToken, OrgId, OrganizationPermission,
+};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
@@ -41,6 +43,16 @@ pub enum AccountEventKind {
     /// An invitation acceptance was rejected — not found / expired /
     /// already consumed / validation failure.
     InvitationAcceptFailed,
+    /// An invitation was created by an org admin.
+    InvitationCreated,
+    /// An invitation was revoked by an org admin.
+    InvitationRevoked,
+    /// An invitation operation was denied due to insufficient permissions
+    /// or invalid organizational context.
+    InviteDenied,
+    /// Organization-level permissions were granted to an account (on
+    /// invitation acceptance).
+    PermissionGranted,
 }
 
 impl AccountEventKind {
@@ -54,6 +66,10 @@ impl AccountEventKind {
             Self::SignUpRejected => "sign_up_rejected",
             Self::SignInFailed => "sign_in_failed",
             Self::InvitationAcceptFailed => "invitation_accept_failed",
+            Self::InvitationCreated => "invitation_created",
+            Self::InvitationRevoked => "invitation_revoked",
+            Self::InviteDenied => "invite_denied",
+            Self::PermissionGranted => "permission_granted",
         }
     }
 }
@@ -125,6 +141,44 @@ pub struct InvitationAcceptFailed {
     /// Token the caller submitted.
     pub token: InvitationToken,
     /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// An invitation was created by an org admin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvitationCreated {
+    pub org_id: OrgId,
+    pub token: InvitationToken,
+    pub recipient_identifier: Identifier,
+    pub granted_permissions: Vec<OrganizationPermission>,
+    pub created_by: AccountId,
+    pub at: DateTime<Utc>,
+}
+
+/// An invitation was revoked by an org admin.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InvitationRevoked {
+    pub org_id: OrgId,
+    pub token: InvitationToken,
+    pub revoked_by: AccountId,
+    pub at: DateTime<Utc>,
+}
+
+/// An invitation operation was denied.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct InviteDenied {
+    pub reason: AccountFailureReason,
+    pub org_id: Option<OrgId>,
+    pub attempted_by: Option<AccountId>,
+    pub at: DateTime<Utc>,
+}
+
+/// Organization-level permissions were granted to an account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionGranted {
+    pub account_id: AccountId,
+    pub org_id: OrgId,
+    pub permissions: Vec<OrganizationPermission>,
     pub at: DateTime<Utc>,
 }
 

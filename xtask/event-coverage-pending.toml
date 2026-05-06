@@ -1,0 +1,32 @@
+# Event-coverage pending allowlist.
+#
+# `xtask check-event-coverage` rejects every event variant in
+# `AccountEventKind` that has no BDD step asserting it fires. Event
+# variants that ship ahead of the BDD feature file that exercises them
+# are listed here with a forward pointer to the spec that will close
+# the gap.
+#
+# When the spec lands and the BDD step is written, remove the entry —
+# the checker fails on stale entries (allowlisted variants that turn
+# out to have BDD coverage after all, or names that no longer match a
+# variant in the workspace).
+
+[[pending]]
+name = "InvitationCreated"
+upcoming_spec = "R-0005"
+reason = "Invitation-created event emitted by app-services create_invitation handler; BDD coverage lands with R-0005 invitation flow feature file."
+
+[[pending]]
+name = "InvitationRevoked"
+upcoming_spec = "R-0005"
+reason = "Invitation-revoked event emitted by app-services revoke_invitation handler; BDD coverage lands with R-0005 invitation flow feature file."
+
+[[pending]]
+name = "InviteDenied"
+upcoming_spec = "R-0005"
+reason = "Invite-denied event emitted when non-admin attempts invitation operations; BDD coverage lands with R-0005 invitation flow feature file."
+
+[[pending]]
+name = "PermissionGranted"
+upcoming_spec = "R-0005"
+reason = "Permission-granted event emitted on invitation acceptance (new-account and existing-account paths); BDD coverage lands with R-0005 invitation flow feature file."

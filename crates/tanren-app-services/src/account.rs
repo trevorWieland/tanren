@@ -36,8 +36,8 @@ use tanren_store::{
 };
 
 use crate::events::{
-    AccountCreated, AccountEventKind, InvitationAcceptFailed, InvitationAccepted, SignInFailed,
-    SignUpRejected, SignedIn, envelope,
+    AccountCreated, AccountEventKind, InvitationAcceptFailed, InvitationAccepted,
+    PermissionGranted, SignInFailed, SignUpRejected, SignedIn, envelope,
 };
 use crate::{AppServiceError, Clock};
 
@@ -335,6 +335,15 @@ fn build_accept_invitation_events_builder() -> tanren_store::AcceptInvitationEve
                         token: ctx.token.clone(),
                         account_id: ctx.account_id,
                         joined_org: ctx.joined_org,
+                        at: ctx.now,
+                    },
+                ),
+                envelope(
+                    AccountEventKind::PermissionGranted,
+                    &PermissionGranted {
+                        account_id: ctx.account_id,
+                        org_id: ctx.joined_org,
+                        permissions: ctx.granted_permissions.clone(),
                         at: ctx.now,
                     },
                 ),

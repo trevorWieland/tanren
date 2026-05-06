@@ -13,13 +13,27 @@
 //! per missing assertion.
 
 use anyhow::{Context, Result, bail};
-use std::collections::BTreeMap;
+use serde::Deserialize;
+use std::collections::{BTreeMap, HashMap};
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use syn::{Item, ItemEnum};
 use walkdir::WalkDir;
+
+#[derive(Debug, Deserialize)]
+struct PendingVariant {
+    name: String,
+    upcoming_spec: String,
+    reason: String,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PendingFile {
+    #[serde(default)]
+    pending: Vec<PendingVariant>,
+}
 
 pub(crate) fn run(root: &Path) -> Result<()> {
     let app_services_src = root.join("crates").join("tanren-app-services").join("src");
@@ -49,34 +63,55 @@ pub(crate) fn run(root: &Path) -> Result<()> {
         return Ok(());
     }
 
+    let pending = load_pending(&root.join("xtask").join("event-coverage-pending.toml"))?;
+
     let features_root = root.join("tests").join("bdd").join("features");
     let feature_text = collect_feature_text(&features_root)?;
 
     let mut violations: Vec<String> = Vec::new();
+    let mut stale_pending: Vec<String> = Vec::new();
     for (variant, (path, line)) in &variants {
         let needle_a = format!("'{}' event", to_snake_case(variant));
         let needle_b = format!("\"{}\" event", to_snake_case(variant));
         let needle_c = format!("`{}` event", to_snake_case(variant));
-        if !feature_text.contains(&needle_a)
-            && !feature_text.contains(&needle_b)
-            && !feature_text.contains(&needle_c)
-        {
-            violations.push(format!(
-                "{}:{}: event variant `{}` has no BDD step asserting it fires",
-                path.strip_prefix(root).unwrap_or(path).display(),
-                line,
-                variant
+        let covered = feature_text.contains(&needle_a)
+            || feature_text.contains(&needle_b)
+            || feature_text.contains(&needle_c);
+        if covered {
+            if pending.contains_key(variant) {
+                stale_pending.push(format!(
+                    "variant `{variant}` now has BDD coverage; remove its entry from xtask/event-coverage-pending.toml"
+                ));
+            }
+            continue;
+        }
+        if pending.contains_key(variant) {
+            continue;
+        }
+        violations.push(format!(
+            "{}:{}: event variant `{}` has no BDD step asserting it fires",
+            path.strip_prefix(root).unwrap_or(path).display(),
+            line,
+            variant
+        ));
+    }
+
+    for name in pending.keys() {
+        if !variants.contains_key(name) {
+            stale_pending.push(format!(
+                "pending entry `{name}` does not match any event variant in the workspace"
             ));
         }
     }
 
-    if violations.is_empty() {
+    if violations.is_empty() && stale_pending.is_empty() {
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         let _ = writeln!(
             handle,
-            "check-event-coverage: 0 violations ({} variant(s) covered)",
-            variants.len()
+            "check-event-coverage: 0 violations ({} variant(s) covered, {} pending)",
+            variants.len() - pending.len(),
+            pending.len()
         );
         return Ok(());
     }
@@ -86,10 +121,45 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     for v in &violations {
         let _ = writeln!(handle, "{v}");
     }
+    for v in &stale_pending {
+        let _ = writeln!(handle, "{v}");
+    }
     bail!(
-        "check-event-coverage: {} variant(s) lack a BDD step assertion",
-        violations.len()
+        "check-event-coverage: {} violation(s), {} stale pending entry(ies)",
+        violations.len(),
+        stale_pending.len()
     );
+}
+
+fn load_pending(path: &Path) -> Result<HashMap<String, PendingVariant>> {
+    if !path.exists() {
+        return Ok(HashMap::new());
+    }
+    let raw = fs::read_to_string(path).with_context(|| format!("read {}", path.display()))?;
+    let parsed: PendingFile =
+        toml::from_str(&raw).with_context(|| format!("parse {} as TOML", path.display()))?;
+    let mut out = HashMap::with_capacity(parsed.pending.len());
+    for entry in parsed.pending {
+        if entry.reason.trim().is_empty() {
+            bail!(
+                "event-coverage pending entry `{}` has empty `reason`",
+                entry.name
+            );
+        }
+        if entry.upcoming_spec.trim().is_empty() {
+            bail!(
+                "event-coverage pending entry `{}` has empty `upcoming_spec`",
+                entry.name
+            );
+        }
+        if let Some(prev) = out.insert(entry.name.clone(), entry) {
+            bail!(
+                "event-coverage pending file has duplicate entry for `{}`",
+                prev.name
+            );
+        }
+    }
+    Ok(out)
 }
 
 fn collect_event_variants(

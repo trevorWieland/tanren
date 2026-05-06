@@ -7,14 +7,19 @@
 
 pub mod account;
 pub mod events;
+pub mod invitations;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CreateOrgInvitationRequest, CreateOrgInvitationResponse, ListOrgInvitationsResponse,
+    RevokeOrgInvitationRequest, RevokeOrgInvitationResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{
+    AccountId, Argon2idVerifier, CredentialVerifier, Identifier, InvitationToken,
+};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -198,6 +203,130 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Create an organization invitation. The caller must be an org admin.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::PersonalContext`] when the caller is not in an
+    /// organizational context; [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::PermissionDenied`] when the caller is not an
+    /// org admin; [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn create_invitation<S>(
+        &self,
+        store: &S,
+        caller_account_id: AccountId,
+        caller_org_context: Option<tanren_identity_policy::OrgId>,
+        request: CreateOrgInvitationRequest,
+    ) -> Result<CreateOrgInvitationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        invitations::create_invitation(
+            store,
+            &self.clock,
+            caller_account_id,
+            caller_org_context,
+            request,
+        )
+        .await
+    }
+
+    /// List all invitations for an organization. The caller must be an org
+    /// admin.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::PermissionDenied`] when the caller is not an
+    /// org admin; [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn list_org_invitations<S>(
+        &self,
+        store: &S,
+        caller_account_id: AccountId,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> Result<ListOrgInvitationsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        invitations::list_org_invitations(store, caller_account_id, org_id).await
+    }
+
+    /// List pending invitations addressed to a recipient identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn list_recipient_invitations<S>(
+        &self,
+        store: &S,
+        identifier: &Identifier,
+    ) -> Result<ListOrgInvitationsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        invitations::list_recipient_invitations(store, identifier).await
+    }
+
+    /// Revoke a pending organization invitation. The caller must be an org
+    /// admin.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::PersonalContext`] when the caller is not in an
+    /// organizational context; [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::PermissionDenied`] when the caller is not an
+    /// org admin; [`AppServiceError::Account`] with the matching invitation
+    /// taxonomy variant when the token is unknown / already consumed /
+    /// already revoked; [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn revoke_invitation<S>(
+        &self,
+        store: &S,
+        caller_account_id: AccountId,
+        caller_org_context: Option<tanren_identity_policy::OrgId>,
+        request: RevokeOrgInvitationRequest,
+    ) -> Result<RevokeOrgInvitationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        invitations::revoke_invitation(
+            store,
+            &self.clock,
+            caller_account_id,
+            caller_org_context,
+            request,
+        )
+        .await
+    }
+
+    /// Accept an invitation as an existing account. Validates the recipient
+    /// identifier, consumes the invitation, grants the stored
+    /// organization permissions, and emits a `permission_granted` event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with the matching failure reason
+    /// when the invitation is unknown / revoked / expired / already consumed
+    /// or the recipient identifier does not match;
+    /// [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn accept_invitation_existing<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        identifier: Identifier,
+        token: InvitationToken,
+    ) -> Result<invitations::AcceptExistingInvitationOutput, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        invitations::accept_invitation_existing(store, &self.clock, account_id, identifier, token)
+            .await
     }
 }
 
