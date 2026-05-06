@@ -7,5 +7,8 @@ pub(crate) mod accounts;
 pub(crate) mod events;
 pub(crate) mod invitations;
 pub(crate) mod memberships;
+pub(crate) mod notification_org_overrides;
+pub(crate) mod notification_preferences;
+pub(crate) mod pending_notification_routes;
 pub(crate) mod user_config_values;
 pub(crate) mod user_credentials;

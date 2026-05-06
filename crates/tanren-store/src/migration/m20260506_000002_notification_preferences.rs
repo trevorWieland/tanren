@@ -1,0 +1,310 @@
+//! R-0010 migration: create notification preference, organization override,
+//! supported-channel, and pending-route tables.
+
+use sea_orm_migration::prelude::*;
+
+#[derive(DeriveMigrationName)]
+pub(super) struct Migration;
+
+impl std::fmt::Debug for Migration {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("Migration").finish()
+    }
+}
+
+#[async_trait::async_trait]
+impl MigrationTrait for Migration {
+    async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        create_preferences_table(manager).await?;
+        create_org_overrides_table(manager).await?;
+        create_supported_channels_table(manager).await?;
+        create_pending_routes_table(manager).await?;
+        Ok(())
+    }
+
+    async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_pending_notification_routes_account_event_unique")
+                    .table(PendingNotificationRoutes::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(PendingNotificationRoutes::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_notification_supported_channels_channel_unique")
+                    .table(NotificationSupportedChannels::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(NotificationSupportedChannels::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_notification_org_overrides_account_org_event_unique")
+                    .table(NotificationOrgOverrides::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(NotificationOrgOverrides::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_notification_preferences_account_event_unique")
+                    .table(NotificationPreferences::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(NotificationPreferences::Table)
+                    .to_owned(),
+            )
+            .await?;
+        Ok(())
+    }
+}
+
+async fn create_preferences_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(NotificationPreferences::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(NotificationPreferences::Id)
+                        .uuid()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(NotificationPreferences::AccountId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationPreferences::EventType)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationPreferences::EnabledChannels)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationPreferences::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_notification_preferences_account_event_unique")
+                .table(NotificationPreferences::Table)
+                .col(NotificationPreferences::AccountId)
+                .col(NotificationPreferences::EventType)
+                .unique()
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_org_overrides_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(NotificationOrgOverrides::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(NotificationOrgOverrides::Id)
+                        .uuid()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(NotificationOrgOverrides::AccountId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationOrgOverrides::OrgId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationOrgOverrides::EventType)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationOrgOverrides::EnabledChannels)
+                        .text()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(NotificationOrgOverrides::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_notification_org_overrides_account_org_event_unique")
+                .table(NotificationOrgOverrides::Table)
+                .col(NotificationOrgOverrides::AccountId)
+                .col(NotificationOrgOverrides::OrgId)
+                .col(NotificationOrgOverrides::EventType)
+                .unique()
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_supported_channels_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(NotificationSupportedChannels::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(NotificationSupportedChannels::Id)
+                        .uuid()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(NotificationSupportedChannels::Channel)
+                        .string()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_notification_supported_channels_channel_unique")
+                .table(NotificationSupportedChannels::Table)
+                .col(NotificationSupportedChannels::Channel)
+                .unique()
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_pending_routes_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(PendingNotificationRoutes::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(PendingNotificationRoutes::Id)
+                        .uuid()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(PendingNotificationRoutes::AccountId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(PendingNotificationRoutes::EventType)
+                        .string()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(PendingNotificationRoutes::ChannelsSnapshot)
+                        .text()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(PendingNotificationRoutes::OverridingOrgId).uuid())
+                .col(
+                    ColumnDef::new(PendingNotificationRoutes::ComputedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .to_owned(),
+        )
+        .await?;
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_pending_notification_routes_account_event_unique")
+                .table(PendingNotificationRoutes::Table)
+                .col(PendingNotificationRoutes::AccountId)
+                .col(PendingNotificationRoutes::EventType)
+                .unique()
+                .to_owned(),
+        )
+        .await
+}
+
+#[derive(DeriveIden)]
+enum NotificationPreferences {
+    Table,
+    Id,
+    AccountId,
+    EventType,
+    EnabledChannels,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NotificationOrgOverrides {
+    Table,
+    Id,
+    AccountId,
+    OrgId,
+    EventType,
+    EnabledChannels,
+    UpdatedAt,
+}
+
+#[derive(DeriveIden)]
+enum NotificationSupportedChannels {
+    Table,
+    Id,
+    Channel,
+}
+
+#[derive(DeriveIden)]
+enum PendingNotificationRoutes {
+    Table,
+    Id,
+    AccountId,
+    EventType,
+    ChannelsSnapshot,
+    OverridingOrgId,
+    ComputedAt,
+}

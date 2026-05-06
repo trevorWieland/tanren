@@ -10,6 +10,7 @@
 mod accept_invitation;
 mod entity;
 mod migration;
+mod notifications;
 mod records;
 mod traits;
 mod user_configuration;
@@ -17,7 +18,8 @@ mod user_configuration;
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, CredentialRecord, InvitationRecord, MembershipRecord, NewAccount, NewCredential,
-    NewInvitation, NewUserConfigValue, SessionRecord, UpdateCredential, UserConfigRecord,
+    NewInvitation, NewUserConfigValue, NotificationOrgOverrideRecord, NotificationPreferenceRecord,
+    PendingNotificationRouteRecord, SessionRecord, UpdateCredential, UserConfigRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
@@ -37,7 +39,9 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_configuration_secrets::{CredentialId, UserSettingKey};
+use tanren_configuration_secrets::{
+    CredentialId, NotificationChannelSet, NotificationEventType, UserSettingKey,
+};
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -194,63 +198,7 @@ impl AccountStore for Store {
         token: &InvitationToken,
         now: DateTime<Utc>,
     ) -> Result<ConsumedInvitation, ConsumeInvitationError> {
-        // Single round-trip conditional UPDATE: only flip rows that are
-        // still pending and not yet expired. SQLite serialises writes,
-        // and a Postgres deployment relies on the partial-unique index
-        // `idx_invitations_active_token` (see the
-        // m20260503_000002_account_sessions_expires_at migration) to
-        // belt-and-brace the same invariant.
-        let token_owned = token.as_str().to_owned();
-        let result = entity::invitations::Entity::update_many()
-            .col_expr(
-                entity::invitations::Column::ConsumedAt,
-                sea_orm::sea_query::Expr::value(Some(now)),
-            )
-            .filter(entity::invitations::Column::Token.eq(token_owned.clone()))
-            .filter(entity::invitations::Column::ConsumedAt.is_null())
-            .filter(entity::invitations::Column::ExpiresAt.gt(now))
-            .exec(&self.conn)
-            .await
-            .map_err(StoreError::from)?;
-
-        if result.rows_affected == 1 {
-            // Re-read the row to populate the success shape. The row is
-            // already pinned to `consumed_at = now` so any concurrent
-            // acceptance has lost the race and will see the same row in
-            // its disambiguation read below.
-            let row = entity::invitations::Entity::find_by_id(token_owned)
-                .one(&self.conn)
-                .await
-                .map_err(StoreError::from)?
-                .ok_or_else(|| StoreError::DataInvariant {
-                    column: "invitation_token",
-                    cause: ValidationError::InvitationTokenEmpty,
-                })?;
-            return Ok(ConsumedInvitation {
-                inviting_org_id: OrgId::new(row.inviting_org_id),
-                expires_at: row.expires_at,
-                consumed_at: row.consumed_at.unwrap_or(now),
-            });
-        }
-
-        // No row was transitioned. Disambiguate why.
-        let existing = entity::invitations::Entity::find_by_id(token.as_str().to_owned())
-            .one(&self.conn)
-            .await
-            .map_err(StoreError::from)?;
-        match existing {
-            None => Err(ConsumeInvitationError::NotFound),
-            Some(row) if row.consumed_at.is_some() => Err(ConsumeInvitationError::AlreadyConsumed),
-            Some(row) if row.expires_at <= now => Err(ConsumeInvitationError::Expired),
-            // The row matched the WHERE clause when we read it but the
-            // UPDATE reported zero rows-affected — this can only happen
-            // if a concurrent caller transitioned-then-reset the row,
-            // which the schema does not permit. Surface as
-            // `AlreadyConsumed` because that's the racier-than-expected
-            // failure shape the user-facing API exposes for any
-            // already-locked invitation.
-            Some(_) => Err(ConsumeInvitationError::AlreadyConsumed),
-        }
+        accept_invitation::consume_invitation_standalone(&self.conn, token.as_str(), now).await
     }
 
     async fn accept_invitation_atomic(
@@ -387,32 +335,90 @@ impl AccountStore for Store {
         user_configuration::find_account_id_by_session_token(&self.conn, token.expose_secret(), now)
             .await
     }
-}
 
-/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
-/// so production binaries cannot accidentally seed test data; the testkit
-/// (and only the testkit) enables the feature.
-#[cfg(feature = "test-hooks")]
-impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn seed_invitation(
+    async fn upsert_notification_preference(
         &self,
-        new: NewInvitation,
-    ) -> Result<InvitationRecord, StoreError> {
-        let model = entity::invitations::ActiveModel {
-            token: Set(new.token.as_str().to_owned()),
-            inviting_org_id: Set(new.inviting_org_id.as_uuid()),
-            expires_at: Set(new.expires_at),
-            consumed_at: Set(None),
-        };
-        let inserted = model.insert(&self.conn).await?;
-        InvitationRecord::try_from(inserted)
+        account_id: AccountId,
+        event_type: NotificationEventType,
+        enabled_channels: NotificationChannelSet,
+        now: DateTime<Utc>,
+    ) -> Result<NotificationPreferenceRecord, StoreError> {
+        notifications::upsert_notification_preference(
+            &self.conn,
+            account_id,
+            event_type,
+            enabled_channels,
+            now,
+        )
+        .await
+    }
+
+    async fn list_notification_preferences(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<NotificationPreferenceRecord>, StoreError> {
+        notifications::list_notification_preferences(&self.conn, account_id).await
+    }
+
+    async fn upsert_notification_org_override(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        event_type: NotificationEventType,
+        enabled_channels: NotificationChannelSet,
+        now: DateTime<Utc>,
+    ) -> Result<NotificationOrgOverrideRecord, StoreError> {
+        notifications::upsert_notification_org_override(
+            &self.conn,
+            account_id,
+            org_id,
+            event_type,
+            enabled_channels,
+            now,
+        )
+        .await
+    }
+
+    async fn list_notification_org_overrides(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<NotificationOrgOverrideRecord>, StoreError> {
+        notifications::list_notification_org_overrides(&self.conn, account_id, org_id).await
+    }
+
+    async fn upsert_pending_notification_route(
+        &self,
+        account_id: AccountId,
+        event_type: NotificationEventType,
+        channels_snapshot: NotificationChannelSet,
+        overriding_org_id: Option<OrgId>,
+        now: DateTime<Utc>,
+    ) -> Result<PendingNotificationRouteRecord, StoreError> {
+        notifications::upsert_pending_notification_route(
+            &self.conn,
+            account_id,
+            event_type,
+            channels_snapshot,
+            overriding_org_id,
+            now,
+        )
+        .await
+    }
+
+    async fn list_pending_notification_routes(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<PendingNotificationRouteRecord>, StoreError> {
+        notifications::list_pending_notification_routes(&self.conn, account_id).await
+    }
+
+    async fn is_account_member_of_org(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<bool, StoreError> {
+        notifications::is_account_member_of_org(&self.conn, account_id, org_id).await
     }
 }
 

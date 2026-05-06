@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_configuration_secrets::{
-    CredentialId, CredentialKind, CredentialScope, UserSettingKey, UserSettingValue,
+    CredentialId, CredentialKind, CredentialScope, NotificationChannelSet, NotificationEventType,
+    UserSettingKey, UserSettingValue,
 };
 use tanren_identity_policy::{
     AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
@@ -302,4 +303,109 @@ pub struct UpdateCredential {
     pub encrypted_value: Vec<u8>,
     /// Wall-clock time for the update.
     pub now: DateTime<Utc>,
+}
+
+/// Persisted notification preference row — per-account, per-event-type channel
+/// selection. Typed envelope over the crate-private `SeaORM` model.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationPreferenceRecord {
+    /// Account this preference belongs to.
+    pub account_id: AccountId,
+    /// Event type this preference governs.
+    pub event_type: NotificationEventType,
+    /// Channels enabled for this event type.
+    pub enabled_channels: NotificationChannelSet,
+    /// Wall-clock time the preference was last set.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::notification_preferences::Model> for NotificationPreferenceRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::notification_preferences::Model) -> Result<Self, Self::Error> {
+        use crate::notifications::{
+            notification_channels_from_db, notification_event_type_from_db,
+        };
+        Ok(Self {
+            account_id: AccountId::new(model.account_id),
+            event_type: notification_event_type_from_db(&model.event_type)?,
+            enabled_channels: notification_channels_from_db(
+                "notification_preferences",
+                &model.enabled_channels,
+            )?,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+/// Persisted organization-level notification override — per-account, per-org, per-event-type.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NotificationOrgOverrideRecord {
+    /// Account this override belongs to.
+    pub account_id: AccountId,
+    /// Organization this override belongs to.
+    pub org_id: OrgId,
+    /// Event type this override governs.
+    pub event_type: NotificationEventType,
+    /// Channels mandated (or suppressed) by the organization.
+    pub enabled_channels: NotificationChannelSet,
+    /// Wall-clock time the override was last set.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::notification_org_overrides::Model> for NotificationOrgOverrideRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::notification_org_overrides::Model) -> Result<Self, Self::Error> {
+        use crate::notifications::{
+            notification_channels_from_db, notification_event_type_from_db,
+        };
+        Ok(Self {
+            account_id: AccountId::new(model.account_id),
+            org_id: OrgId::new(model.org_id),
+            event_type: notification_event_type_from_db(&model.event_type)?,
+            enabled_channels: notification_channels_from_db(
+                "notification_org_overrides",
+                &model.enabled_channels,
+            )?,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+/// Persisted pending notification route — resolved snapshot of user preference
+/// merged with organization overrides, ready for delivery. The channel snapshot
+/// is preserved exactly as supplied at creation time.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PendingNotificationRouteRecord {
+    /// Account this route belongs to.
+    pub account_id: AccountId,
+    /// Event type this route covers.
+    pub event_type: NotificationEventType,
+    /// Channel snapshot preserved at creation time.
+    pub channels_snapshot: NotificationChannelSet,
+    /// Organization whose override contributed to this entry, if any.
+    pub overriding_org_id: Option<OrgId>,
+    /// Wall-clock time this route was computed.
+    pub computed_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::pending_notification_routes::Model> for PendingNotificationRouteRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::pending_notification_routes::Model) -> Result<Self, Self::Error> {
+        use crate::notifications::{
+            notification_channels_from_db, notification_event_type_from_db,
+        };
+        Ok(Self {
+            account_id: AccountId::new(model.account_id),
+            event_type: notification_event_type_from_db(&model.event_type)?,
+            channels_snapshot: notification_channels_from_db(
+                "pending_notification_routes",
+                &model.channels_snapshot,
+            )?,
+            overriding_org_id: model.overriding_org_id.map(OrgId::new),
+            computed_at: model.computed_at,
+        })
+    }
 }

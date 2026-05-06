@@ -27,14 +27,17 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use tanren_configuration_secrets::{CredentialId, UserSettingKey};
+use tanren_configuration_secrets::{
+    CredentialId, NotificationChannelSet, NotificationEventType, UserSettingKey,
+};
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
 
 use crate::{
     AccountRecord, CredentialRecord, EventEnvelope, InvitationRecord, NewAccount, NewCredential,
-    NewUserConfigValue, SessionRecord, StoreError, UpdateCredential, UserConfigRecord,
+    NewUserConfigValue, NotificationOrgOverrideRecord, NotificationPreferenceRecord,
+    PendingNotificationRouteRecord, SessionRecord, StoreError, UpdateCredential, UserConfigRecord,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -327,6 +330,67 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         token: &SessionToken,
         now: DateTime<Utc>,
     ) -> Result<Option<AccountId>, StoreError>;
+
+    /// Upsert a notification preference for an account and event type.
+    /// Idempotent on `(account_id, event_type)` — existing rows are
+    /// replaced in place.
+    async fn upsert_notification_preference(
+        &self,
+        account_id: AccountId,
+        event_type: NotificationEventType,
+        enabled_channels: NotificationChannelSet,
+        now: DateTime<Utc>,
+    ) -> Result<NotificationPreferenceRecord, StoreError>;
+
+    /// List all notification preferences for an account.
+    async fn list_notification_preferences(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<NotificationPreferenceRecord>, StoreError>;
+
+    /// Upsert an organization-level notification override. Idempotent on
+    /// `(account_id, org_id, event_type)`.
+    async fn upsert_notification_org_override(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        event_type: NotificationEventType,
+        enabled_channels: NotificationChannelSet,
+        now: DateTime<Utc>,
+    ) -> Result<NotificationOrgOverrideRecord, StoreError>;
+
+    /// List all notification overrides for an account within an organization.
+    async fn list_notification_org_overrides(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<NotificationOrgOverrideRecord>, StoreError>;
+
+    /// Upsert a pending notification route. Idempotent on `(account_id,
+    /// event_type)`. The `channels_snapshot` is preserved exactly as
+    /// supplied at creation time.
+    async fn upsert_pending_notification_route(
+        &self,
+        account_id: AccountId,
+        event_type: NotificationEventType,
+        channels_snapshot: NotificationChannelSet,
+        overriding_org_id: Option<OrgId>,
+        now: DateTime<Utc>,
+    ) -> Result<PendingNotificationRouteRecord, StoreError>;
+
+    /// List all pending notification routes for an account.
+    async fn list_pending_notification_routes(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<PendingNotificationRouteRecord>, StoreError>;
+
+    /// Check whether an account is a member of the given organization.
+    /// Used for authorization checks when managing org-level overrides.
+    async fn is_account_member_of_org(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<bool, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].
