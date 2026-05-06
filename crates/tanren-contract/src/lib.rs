@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod configuration;
+pub mod notifications;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
@@ -19,6 +20,15 @@ pub use configuration::{
     ListUserConfigResponse, RemoveCredentialRequest, RemoveCredentialResponse,
     RemoveUserConfigRequest, RemoveUserConfigResponse, SetUserConfigRequest, SetUserConfigResponse,
     UpdateCredentialRequest, UpdateCredentialResponse, UserConfigEntry,
+};
+
+pub use notifications::{
+    EvaluateNotificationRouteRequest, EvaluateNotificationRouteResponse,
+    ListNotificationPreferencesRequest, ListNotificationPreferencesResponse,
+    OrganizationNotificationOverride, ReadPendingRoutingSnapshotRequest,
+    ReadPendingRoutingSnapshotResponse, RoutingSnapshotEntry, SetNotificationPreferencesRequest,
+    SetNotificationPreferencesResponse, SetOrganizationNotificationOverridesRequest,
+    SetOrganizationNotificationOverridesResponse,
 };
 
 use serde::{Deserialize, Serialize};

@@ -5,6 +5,12 @@
 //! recorded in event payloads, projection files, or proof artifacts; only
 //! non-secret metadata is event-replayable.
 
+pub mod notifications;
+
+pub use notifications::{
+    NotificationChannel, NotificationChannelSet, NotificationEventType, NotificationPreference,
+};
+
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use secrecy::SecretString;

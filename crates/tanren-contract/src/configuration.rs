@@ -232,6 +232,12 @@ pub enum ConfigurationFailureReason {
     /// The authenticated user is not authorized to perform the
     /// requested operation on this credential or configuration entry.
     Unauthorized,
+    /// The requested notification channel is not supported by the
+    /// current deployment or user's device configuration.
+    UnsupportedNotificationChannel,
+    /// The authenticated user is not authorized to set notification
+    /// overrides for the target organization (e.g. non-admin role).
+    UnauthorizedOrganizationOverride,
 }
 
 impl ConfigurationFailureReason {
@@ -247,6 +253,8 @@ impl ConfigurationFailureReason {
             Self::CredentialKindScopeMismatch => "credential_kind_scope_mismatch",
             Self::ValidationFailed => "validation_failed",
             Self::Unauthorized => "unauthorized",
+            Self::UnsupportedNotificationChannel => "unsupported_notification_channel",
+            Self::UnauthorizedOrganizationOverride => "unauthorized_organization_override",
         }
     }
 
@@ -272,6 +280,12 @@ impl ConfigurationFailureReason {
                 "The submitted input did not satisfy contract-level validation."
             }
             Self::Unauthorized => "The authenticated user is not authorized for this operation.",
+            Self::UnsupportedNotificationChannel => {
+                "The requested notification channel is not supported."
+            }
+            Self::UnauthorizedOrganizationOverride => {
+                "The authenticated user is not authorized to set notification overrides for this organization."
+            }
         }
     }
 
@@ -287,7 +301,8 @@ impl ConfigurationFailureReason {
             | Self::ValidationFailed
             | Self::CredentialKindScopeMismatch => 400,
             Self::DuplicateCredentialName => 409,
-            Self::Unauthorized => 403,
+            Self::Unauthorized | Self::UnauthorizedOrganizationOverride => 403,
+            Self::UnsupportedNotificationChannel => 422,
         }
     }
 }
