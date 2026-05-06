@@ -18,16 +18,15 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, McpHarness, StandardsInspectResult, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
 #[derive(Debug, Default, CucumberWorld)]
 pub struct TanrenWorld {
-    /// Deterministic fixture seed.
     pub seed: FixtureSeed,
-    /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    pub standards: Option<StandardsContext>,
 }
 
 impl TanrenWorld {
@@ -82,6 +81,29 @@ impl std::fmt::Debug for AccountContext {
                 &self.last_outcome.as_ref().map(short_outcome_label),
             )
             .finish()
+    }
+}
+
+pub struct StandardsContext {
+    pub project_dir: PathBuf,
+    pub last_result: Option<StandardsInspectResult>,
+}
+
+impl std::fmt::Debug for StandardsContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StandardsContext")
+            .field("project_dir", &self.project_dir)
+            .field(
+                "last_result_success",
+                &self.last_result.as_ref().map(|r| r.success),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+impl Drop for StandardsContext {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.project_dir);
     }
 }
 
@@ -167,6 +189,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            standards: None,
         };
         assert_eq!(world.seed.value(), 42);
     }

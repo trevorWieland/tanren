@@ -46,6 +46,7 @@ mod api;
 mod cli;
 mod in_process;
 mod mcp;
+mod standards;
 mod tui;
 mod web;
 
@@ -66,6 +67,10 @@ pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
+pub use standards::{
+    StandardsCliRunner, StandardsInspectResult, create_temp_project_dir, write_malformed_standard,
+    write_project_config, write_valid_standard,
+};
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 
