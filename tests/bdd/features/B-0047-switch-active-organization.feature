@@ -14,9 +14,7 @@ Feature: Switch the active organization within an account
     @positive @api
     Scenario: Switching active org over the API changes listed projects
       Given alice has signed up with email "alice-api-org@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -49,9 +47,7 @@ Feature: Switch the active organization within an account
     @falsification @api
     Scenario: API prevents project leakage after switching organizations
       Given alice has signed up with email "alice-api-leak@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -61,9 +57,7 @@ Feature: Switch the active organization within an account
     @positive @web
     Scenario: Switching active org over the web changes listed projects
       Given alice has signed up with email "alice-web-org@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -96,9 +90,7 @@ Feature: Switch the active organization within an account
     @falsification @web
     Scenario: Web prevents project leakage after switching organizations
       Given alice has signed up with email "alice-web-leak@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -108,9 +100,7 @@ Feature: Switch the active organization within an account
     @positive @cli
     Scenario: Switching active org over the CLI changes listed projects
       Given alice has signed up with email "alice-cli-org@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -143,9 +133,7 @@ Feature: Switch the active organization within an account
     @falsification @cli
     Scenario: CLI prevents project leakage after switching organizations
       Given alice has signed up with email "alice-cli-leak@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -155,9 +143,7 @@ Feature: Switch the active organization within an account
     @positive @mcp
     Scenario: Switching active org over MCP changes listed projects
       Given alice has signed up with email "alice-mcp-org@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -190,9 +176,7 @@ Feature: Switch the active organization within an account
     @falsification @mcp
     Scenario: MCP prevents project leakage after switching organizations
       Given alice has signed up with email "alice-mcp-leak@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -202,9 +186,7 @@ Feature: Switch the active organization within an account
     @positive @tui
     Scenario: Switching active org over the TUI changes listed projects
       Given alice has signed up with email "alice-tui-org@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"
@@ -237,9 +219,7 @@ Feature: Switch the active organization within an account
     @falsification @tui
     Scenario: TUI prevents project leakage after switching organizations
       Given alice has signed up with email "alice-tui-leak@example.com" and password "p4ssw0rd"
-      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" and organization "00000000-0000-0000-0000-000000000002" named "Beta"
-      And organization "00000000-0000-0000-0000-000000000001" has project "00000000-0000-0000-0000-000000000101" named "Alpha Project"
-      And organization "00000000-0000-0000-0000-000000000002" has project "00000000-0000-0000-0000-000000000102" named "Beta Project"
+      And alice has signed up and belongs to organization "00000000-0000-0000-0000-000000000001" named "Alpha" with project "00000000-0000-0000-0000-000000000101" named "Alpha Project" and organization "00000000-0000-0000-0000-000000000002" named "Beta" with project "00000000-0000-0000-0000-000000000102" named "Beta Project"
       When alice switches active organization to "00000000-0000-0000-0000-000000000001"
       And alice lists the active organization projects
       Then alice sees only projects belonging to "00000000-0000-0000-0000-000000000001"

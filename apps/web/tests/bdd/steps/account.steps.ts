@@ -454,55 +454,45 @@ Then(
 );
 
 // ============================================================================
-// Organization fixture seeding — backed by the `/test-hooks/*`
-// HTTP endpoints.
+// Organization fixture seeding — backed by the bulk
+// `POST /test-hooks/seed-fixtures` endpoint.
 // ============================================================================
 
-async function seedOrganization(orgId: string, name: string): Promise<void> {
-  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
-  const res = await fetch(`${apiUrl}/test-hooks/organizations`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ org_id: orgId, name }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    if (body.includes("UNIQUE constraint")) return;
-    throw new Error(
-      `seed organization '${name}' failed: ${res.status} ${body}`,
-    );
-  }
+interface FixtureOrganization {
+  org_id?: string;
+  name: string;
 }
 
-async function seedMembership(accountId: string, orgId: string): Promise<void> {
-  const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
-  const res = await fetch(`${apiUrl}/test-hooks/memberships`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ account_id: accountId, org_id: orgId }),
-  });
-  if (!res.ok) {
-    const body = await res.text();
-    if (body.includes("UNIQUE constraint")) return;
-    throw new Error(`seed membership failed: ${res.status} ${body}`);
-  }
+interface FixtureMembership {
+  account_id: string;
+  org_id: string;
 }
 
-async function seedProject(
-  projectId: string,
-  orgId: string,
-  name: string,
-): Promise<void> {
+interface FixtureProject {
+  project_id?: string;
+  org_id: string;
+  name: string;
+}
+
+async function seedFixtures(opts: {
+  organizations?: FixtureOrganization[];
+  memberships?: FixtureMembership[];
+  projects?: FixtureProject[];
+}): Promise<void> {
   const apiUrl = process.env["VITE_API_URL"] ?? "http://127.0.0.1:8081";
-  const res = await fetch(`${apiUrl}/test-hooks/projects`, {
+  const res = await fetch(`${apiUrl}/test-hooks/seed-fixtures`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ project_id: projectId, org_id: orgId, name }),
+    body: JSON.stringify({
+      organizations: opts.organizations ?? [],
+      memberships: opts.memberships ?? [],
+      projects: opts.projects ?? [],
+    }),
   });
   if (!res.ok) {
     const body = await res.text();
     if (body.includes("UNIQUE constraint")) return;
-    throw new Error(`seed project '${name}' failed: ${res.status} ${body}`);
+    throw new Error(`seed fixtures failed: ${res.status} ${body}`);
   }
 }
 
@@ -535,10 +525,53 @@ Given(
         `actor ${name} must have signed up before org fixture steps`,
       );
     }
-    await seedOrganization(orgXId, orgXName);
-    await seedOrganization(orgYId, orgYName);
-    await seedMembership(a.accountId, orgXId);
-    await seedMembership(a.accountId, orgYId);
+    await seedFixtures({
+      organizations: [
+        { org_id: orgXId, name: orgXName },
+        { org_id: orgYId, name: orgYName },
+      ],
+      memberships: [
+        { account_id: a.accountId, org_id: orgXId },
+        { account_id: a.accountId, org_id: orgYId },
+      ],
+    });
+  },
+);
+
+Given(
+  /^(\w+) has signed up and belongs to organization "([^"]+)" named "([^"]+)" with project "([^"]+)" named "([^"]+)" and organization "([^"]+)" named "([^"]+)" with project "([^"]+)" named "([^"]+)"$/,
+  async (
+    { world },
+    name: string,
+    orgXId: string,
+    orgXName: string,
+    projXId: string,
+    projXName: string,
+    orgYId: string,
+    orgYName: string,
+    projYId: string,
+    projYName: string,
+  ) => {
+    const a = actor(world, name);
+    if (!a.accountId) {
+      throw new Error(
+        `actor ${name} must have signed up before org fixture steps`,
+      );
+    }
+    await seedFixtures({
+      organizations: [
+        { org_id: orgXId, name: orgXName },
+        { org_id: orgYId, name: orgYName },
+      ],
+      memberships: [
+        { account_id: a.accountId, org_id: orgXId },
+        { account_id: a.accountId, org_id: orgYId },
+      ],
+      projects: [
+        { project_id: projXId, org_id: orgXId, name: projXName },
+        { project_id: projYId, org_id: orgYId, name: projYName },
+      ],
+    });
   },
 );
 
@@ -551,8 +584,10 @@ Given(
         `actor ${name} must have signed up before org fixture steps`,
       );
     }
-    await seedOrganization(orgId, orgName);
-    await seedMembership(a.accountId, orgId);
+    await seedFixtures({
+      organizations: [{ org_id: orgId, name: orgName }],
+      memberships: [{ account_id: a.accountId, org_id: orgId }],
+    });
   },
 );
 
@@ -564,7 +599,9 @@ Given(
     projectId: string,
     projectName: string,
   ) => {
-    await seedProject(projectId, orgId, projectName);
+    await seedFixtures({
+      projects: [{ project_id: projectId, org_id: orgId, name: projectName }],
+    });
   },
 );
 

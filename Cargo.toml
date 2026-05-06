@@ -84,6 +84,11 @@ missing_panics_doc = "allow"
 # cannot edit. Suppressing inline would violate the
 # `allow_attributes_without_reason` rule, so the relaxation lives here.
 needless_for_each = "allow"
+# BDD step definitions derive their parameter count from the Gherkin
+# step expression; cucumber-rs extracts every `{string}`/`{word}` as a
+# function argument.  Complex fixture steps like the two-org-two-project
+# combined seeder necessarily exceed the 7-argument threshold.
+too_many_arguments = "allow"
 
 # Guardrail lints are enabled selectively at crate roots where needed.
 disallowed_types = "allow"

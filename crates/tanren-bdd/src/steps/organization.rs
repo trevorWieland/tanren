@@ -67,6 +67,73 @@ async fn given_account_with_two_orgs(
         .expect("seed membership org Y");
 }
 
+#[given(
+    expr = "{word} has signed up and belongs to organization {string} named {string} with project {string} named {string} and organization {string} named {string} with project {string} named {string}"
+)]
+async fn given_account_with_two_orgs_and_projects(
+    world: &mut TanrenWorld,
+    actor: String,
+    first_org_id: String,
+    first_org_name: String,
+    first_project_id: String,
+    first_project_name: String,
+    second_org_id: String,
+    second_org_name: String,
+    second_project_id: String,
+    second_project_name: String,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    let entry = ctx.actors.entry(actor.clone()).or_default();
+    let account_id = entry
+        .sign_up
+        .as_ref()
+        .map(|s| s.account_id)
+        .or_else(|| entry.sign_in.as_ref().map(|s| s.account_id))
+        .expect("actor must have signed up before org fixture steps");
+
+    let org_x = parse_org_id(&first_org_id);
+    let org_y = parse_org_id(&second_org_id);
+
+    ctx.harness
+        .seed_organization(HarnessOrganization {
+            org_id: org_x,
+            org_name: first_org_name,
+        })
+        .await
+        .expect("seed org X");
+    ctx.harness
+        .seed_organization(HarnessOrganization {
+            org_id: org_y,
+            org_name: second_org_name,
+        })
+        .await
+        .expect("seed org Y");
+    ctx.harness
+        .seed_membership(account_id, org_x)
+        .await
+        .expect("seed membership org X");
+    ctx.harness
+        .seed_membership(account_id, org_y)
+        .await
+        .expect("seed membership org Y");
+    ctx.harness
+        .seed_project(HarnessProject {
+            project_id: parse_project_id(&first_project_id),
+            org_id: org_x,
+            project_name: first_project_name,
+        })
+        .await
+        .expect("seed project X");
+    ctx.harness
+        .seed_project(HarnessProject {
+            project_id: parse_project_id(&second_project_id),
+            org_id: org_y,
+            project_name: second_project_name,
+        })
+        .await
+        .expect("seed project Y");
+}
+
 #[given(expr = "{word} has signed up and belongs to organization {string} named {string}")]
 async fn given_account_with_one_org(
     world: &mut TanrenWorld,

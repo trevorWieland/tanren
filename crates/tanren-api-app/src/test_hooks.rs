@@ -25,7 +25,7 @@ use axum::extract::State;
 use axum::http::StatusCode;
 use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId, ProjectId};
 use tanren_store::{AccountStore, NewInvitation, NewOrganization, NewProject, Store};
 use uuid::Uuid;
@@ -65,92 +65,88 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
-/// Request body for `POST /test-hooks/organizations`.
+/// Single organization entry inside [`SeedFixturesBody`].
 #[derive(Debug, Deserialize)]
-pub(crate) struct SeedOrganizationBody {
-    /// Organization id. Omit to let the seeder allocate a fresh `OrgId`.
-    #[serde(default = "default_org_id")]
+pub(crate) struct FixtureOrganization {
+    #[serde(default)]
     pub org_id: Option<Uuid>,
-    /// Human-readable organization name.
     pub name: String,
 }
 
-fn default_org_id() -> Option<Uuid> {
-    None
-}
-
-pub(crate) async fn seed_organization_route(
-    State(store): State<Arc<Store>>,
-    Json(body): Json<SeedOrganizationBody>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    let org_id = body.org_id.map_or_else(OrgId::fresh, OrgId::new);
-    store
-        .seed_organization(NewOrganization {
-            id: org_id,
-            name: body.name,
-            created_at: Utc::now(),
-        })
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
-    Ok(StatusCode::CREATED)
-}
-
-/// Request body for `POST /test-hooks/memberships`.
+/// Single membership entry inside [`SeedFixturesBody`].
 #[derive(Debug, Deserialize)]
-pub(crate) struct SeedMembershipBody {
-    /// Account to add to the organization.
+pub(crate) struct FixtureMembership {
     pub account_id: Uuid,
-    /// Organization the account joins.
     pub org_id: Uuid,
 }
 
-pub(crate) async fn seed_membership_route(
-    State(store): State<Arc<Store>>,
-    Json(body): Json<SeedMembershipBody>,
-) -> Result<StatusCode, (StatusCode, String)> {
-    store
-        .seed_membership(
-            AccountId::new(body.account_id),
-            OrgId::new(body.org_id),
-            Utc::now(),
-        )
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
-    Ok(StatusCode::CREATED)
-}
-
-/// Request body for `POST /test-hooks/projects`.
+/// Single project entry inside [`SeedFixturesBody`].
 #[derive(Debug, Deserialize)]
-pub(crate) struct SeedProjectBody {
-    /// Project id. Omit to let the seeder allocate a fresh `ProjectId`.
-    #[serde(default = "default_project_id")]
+pub(crate) struct FixtureProject {
+    #[serde(default)]
     pub project_id: Option<Uuid>,
-    /// Owning organization.
     pub org_id: Uuid,
-    /// Human-readable project name.
     pub name: String,
 }
 
-fn default_project_id() -> Option<Uuid> {
-    None
+/// Request body for `POST /test-hooks/seed-fixtures`.
+///
+/// Accepts organizations, memberships, and projects in one payload so
+/// the Playwright BDD runner avoids per-entity HTTP round trips.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedFixturesBody {
+    #[serde(default)]
+    pub organizations: Vec<FixtureOrganization>,
+    #[serde(default)]
+    pub memberships: Vec<FixtureMembership>,
+    #[serde(default)]
+    pub projects: Vec<FixtureProject>,
 }
 
-pub(crate) async fn seed_project_route(
+pub(crate) async fn seed_fixtures_route(
     State(store): State<Arc<Store>>,
-    Json(body): Json<SeedProjectBody>,
+    Json(body): Json<SeedFixturesBody>,
 ) -> Result<StatusCode, (StatusCode, String)> {
-    let project_id = body
-        .project_id
-        .map_or_else(ProjectId::fresh, ProjectId::new);
-    store
-        .seed_project(NewProject {
-            id: project_id,
-            org_id: OrgId::new(body.org_id),
-            name: body.name,
-            created_at: Utc::now(),
-        })
-        .await
-        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let now = Utc::now();
+
+    for org in &body.organizations {
+        let org_id = org.org_id.map_or_else(OrgId::fresh, OrgId::new);
+        store
+            .seed_organization(NewOrganization {
+                id: org_id,
+                name: org.name.clone(),
+                created_at: now,
+            })
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    }
+
+    for membership in &body.memberships {
+        store
+            .seed_membership(
+                AccountId::new(membership.account_id),
+                OrgId::new(membership.org_id),
+                now,
+            )
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    }
+
+    for project in &body.projects {
+        let project_id = project
+            .project_id
+            .map_or_else(ProjectId::fresh, ProjectId::new);
+        store
+            .seed_project(NewProject {
+                id: project_id,
+                org_id: OrgId::new(project.org_id),
+                name: project.name.clone(),
+                created_at: now,
+            })
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    }
+
     Ok(StatusCode::CREATED)
 }
 
@@ -161,7 +157,7 @@ pub(crate) struct LookupAccountQuery {
 }
 
 /// Response body for `GET /test-hooks/accounts`.
-#[derive(Debug, Serialize)]
+#[derive(Debug, serde::Serialize)]
 pub(crate) struct AccountLookupResponse {
     pub id: Uuid,
 }
@@ -193,8 +189,6 @@ pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/accounts", get(lookup_account_route))
         .route("/test-hooks/invitations", post(seed_invitation_route))
-        .route("/test-hooks/organizations", post(seed_organization_route))
-        .route("/test-hooks/memberships", post(seed_membership_route))
-        .route("/test-hooks/projects", post(seed_project_route))
+        .route("/test-hooks/seed-fixtures", post(seed_fixtures_route))
         .with_state(store)
 }
