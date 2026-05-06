@@ -1,4 +1,5 @@
 @B-0045
+# R-0007 departure events pending full BDD scenarios: 'membership_departed' event, 'member_removed_notification' event, 'departure_failed' event
 Feature: Join an organization with an existing account
   A person with an existing Tanren account can accept an invitation
   to join an organization. The account gains org-level permissions

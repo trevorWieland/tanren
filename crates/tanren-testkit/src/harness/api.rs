@@ -106,7 +106,7 @@ impl ApiHarness {
             .build()
             .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
 
-        wait_for_http_ready(&client, &base_url).await;
+        wait_for_http_ready(&client, &base_url).await?;
 
         Ok(Self {
             base_url,

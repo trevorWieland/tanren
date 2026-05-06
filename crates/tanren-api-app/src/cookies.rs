@@ -103,9 +103,10 @@ pub(crate) async fn build_cookie_store(database_url: &str) -> Result<CookieStore
     } else {
         let opts = sqlx::sqlite::SqliteConnectOptions::from_str(database_url)
             .context("parse sqlite connect options")?
-            .create_if_missing(true);
+            .create_if_missing(true)
+            .busy_timeout(std::time::Duration::from_secs(5));
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(5)
+            .max_connections(1)
             .connect_with(opts)
             .await
             .context("connect tower-sessions sqlite pool")?;

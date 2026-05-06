@@ -64,12 +64,25 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
     })
 }
 
-pub(crate) async fn wait_for_http_ready(client: &reqwest::Client, base_url: &str) {
+pub(crate) async fn wait_for_http_ready(
+    client: &reqwest::Client,
+    base_url: &str,
+) -> Result<(), HarnessError> {
     let url = format!("{base_url}/health");
-    for _ in 0..200 {
-        if client.get(&url).send().await.is_ok() {
-            break;
+    let mut last_err = String::new();
+    for _ in 0..500 {
+        match client.get(&url).send().await {
+            Ok(resp) if resp.status().is_success() => return Ok(()),
+            Ok(resp) => {
+                last_err = format!("health check returned {}", resp.status());
+            }
+            Err(e) => {
+                last_err = e.to_string();
+            }
         }
-        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
     }
+    Err(HarnessError::Transport(format!(
+        "server did not become ready within retry budget: {last_err}"
+    )))
 }

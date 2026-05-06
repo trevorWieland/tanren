@@ -8,13 +8,15 @@
 pub mod account;
 pub mod events;
 pub mod join;
+pub mod membership_departure;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    JoinOrganizationRequest, JoinOrganizationResponse, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse,
+    JoinOrganizationRequest, JoinOrganizationResponse, LeaveOrganizationRequest,
+    MembershipDepartureResponse, RemoveMemberRequest, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -226,6 +228,76 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         join::join_organization(store, &self.clock, account_id, request).await
+    }
+
+    /// Voluntary leave command: an authenticated member leaves an
+    /// organization. The member's other organization memberships are
+    /// unaffected. In-flight work is surfaced when
+    /// `acknowledge_in_flight_work` is `false` and the response
+    /// indicates preview-before-completion; setting the flag to
+    /// `true` completes the departure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::NotOrgMember`] when the caller is not
+    /// a member; [`AccountFailureReason::LastAdminPermissionHolder`]
+    /// when the caller is the sole admin; [`AppServiceError::Store`]
+    /// for unexpected database failures.
+    pub async fn leave_organization<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        request: LeaveOrganizationRequest,
+        acknowledge_in_flight_work: bool,
+    ) -> Result<MembershipDepartureResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        membership_departure::leave_organization(
+            store,
+            &self.clock,
+            account_id,
+            request,
+            acknowledge_in_flight_work,
+        )
+        .await
+    }
+
+    /// Admin-initiated member removal command: an authenticated admin
+    /// removes another account from an organization. The target
+    /// account and its other memberships are preserved. In-flight
+    /// work is surfaced when `acknowledge_in_flight_work` is `false`
+    /// and the response indicates preview-before-completion; setting
+    /// the flag to `true` completes the departure.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::PermissionDenied`] when the caller is
+    /// not an admin; [`AccountFailureReason::NotOrgMember`] when the
+    /// target is not a member;
+    /// [`AccountFailureReason::LastAdminPermissionHolder`] when the
+    /// target is the sole admin; [`AppServiceError::Store`] for
+    /// unexpected database failures.
+    pub async fn remove_member<S>(
+        &self,
+        store: &S,
+        actor_account_id: AccountId,
+        request: RemoveMemberRequest,
+        acknowledge_in_flight_work: bool,
+    ) -> Result<MembershipDepartureResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        membership_departure::remove_member(
+            store,
+            &self.clock,
+            actor_account_id,
+            request,
+            acknowledge_in_flight_work,
+        )
+        .await
     }
 }
 

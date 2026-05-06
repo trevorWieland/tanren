@@ -12,6 +12,16 @@ use serde::{Deserialize, Serialize};
 use tanren_contract::AccountFailureReason;
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
+/// Discriminator for the shared membership-departure lifecycle event.
+/// `Leave` = member-initiated voluntary departure; `Remove` = admin-
+/// initiated involuntary removal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DepartureMode {
+    Leave,
+    Remove,
+}
+
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
 pub const EVENT_FAMILY: &str = "account";
@@ -46,6 +56,16 @@ pub enum AccountEventKind {
     OrganizationJoined,
     /// An existing-account join attempt was rejected.
     JoinFailed,
+    /// A member departed an organization (voluntary leave or admin-
+    /// initiated removal). The shared lifecycle event carries actor,
+    /// target, org, mode, and timestamp.
+    MembershipDeparted,
+    /// A placeholder notification emitted for a removed account when
+    /// an admin-initiated removal completes.
+    MemberRemovedNotification,
+    /// A membership-departure attempt was rejected — not a member /
+    /// not an admin / last admin holder.
+    DepartureFailed,
 }
 
 impl AccountEventKind {
@@ -61,6 +81,9 @@ impl AccountEventKind {
             Self::InvitationAcceptFailed => "invitation_accept_failed",
             Self::OrganizationJoined => "organization_joined",
             Self::JoinFailed => "join_failed",
+            Self::MembershipDeparted => "membership_departed",
+            Self::MemberRemovedNotification => "member_removed_notification",
+            Self::DepartureFailed => "departure_failed",
         }
     }
 }
@@ -155,6 +178,52 @@ pub struct JoinFailed {
     pub account_id: AccountId,
     /// Token the caller submitted.
     pub token: InvitationToken,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// Shared membership-departure lifecycle event. Emitted for both
+/// voluntary leave and admin-initiated removal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MembershipDeparted {
+    /// Account that initiated the departure (the member for leave,
+    /// the admin for removal).
+    pub actor: AccountId,
+    /// Account that is departing the organization.
+    pub target: AccountId,
+    /// Organization the account departed.
+    pub org: OrgId,
+    /// Whether this was a voluntary leave or admin-initiated removal.
+    pub mode: DepartureMode,
+    /// Wall-clock time of the departure.
+    pub at: DateTime<Utc>,
+}
+
+/// Placeholder notification emitted for a removed account when an
+/// admin-initiated removal completes.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MemberRemovedNotification {
+    /// Account that was removed.
+    pub removed_account: AccountId,
+    /// Organization the account was removed from.
+    pub org: OrgId,
+    /// Admin who initiated the removal.
+    pub removed_by: AccountId,
+    /// Wall-clock time of the removal.
+    pub at: DateTime<Utc>,
+}
+
+/// A membership-departure attempt was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DepartureFailed {
+    /// Why the attempt was rejected.
+    pub reason: AccountFailureReason,
+    /// Account that initiated the attempt.
+    pub actor: AccountId,
+    /// Account that would have departed.
+    pub target: AccountId,
+    /// Organization involved.
+    pub org: OrgId,
     /// Wall-clock time the rejection was emitted.
     pub at: DateTime<Utc>,
 }
