@@ -5,8 +5,8 @@
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    JoinOrganizationResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, ValidationError};
 
@@ -142,11 +142,6 @@ pub(crate) fn parse_accept_invitation(
 ) -> Result<AcceptInvitationRequest, String> {
     let invitation_token =
         InvitationToken::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    // The user supplies the email directly; the previous implementation
-    // synthesised it from the invitation token, which broke any token
-    // containing `@` (the resulting "<token>@invitation.tanren" had two
-    // `@` characters and Email::parse rejected it before the request
-    // ever reached `accept_invitation`). Codex P2 review on PR #133.
     let email = Email::parse(state.value(1)).map_err(|e| validation_message(&e))?;
     let password = SecretString::from(state.value(2).to_owned());
     let display_name = state.value(3).to_owned();
@@ -156,4 +151,27 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+pub(crate) fn join_organization_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Invitation token",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+pub(crate) fn join_organization_outcome(response: &JoinOrganizationResponse) -> OutcomeView {
+    OutcomeView {
+        title: "Joined organization",
+        lines: vec![
+            format!("joined org: {}", response.joined_org),
+            format!("permissions: {}", response.membership_permissions),
+            "project access: (none)".to_owned(),
+        ],
+    }
+}
+
+pub(crate) fn parse_join_invitation(state: &FormState) -> Result<InvitationToken, String> {
+    InvitationToken::parse(state.value(0)).map_err(|e| validation_message(&e))
 }

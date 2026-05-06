@@ -15,11 +15,14 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::JoinOrganizationRequest;
+use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
+    accept_invitation_fields, accept_invitation_outcome, join_organization_fields,
+    join_organization_outcome, parse_accept_invitation, parse_join_invitation, parse_sign_in,
     parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
 };
 use crate::{FormState, MenuChoice};
@@ -32,6 +35,7 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    JoinOrganization(FormState),
     Outcome(OutcomeView),
 }
 
@@ -48,6 +52,7 @@ pub(crate) struct App {
     store: Option<Arc<Store>>,
     store_error: Option<String>,
     screen: Screen,
+    account_id: Option<AccountId>,
 }
 
 impl App {
@@ -72,6 +77,7 @@ impl App {
             store,
             store_error,
             screen: Screen::Menu { selected: 0 },
+            account_id: None,
         })
     }
 
@@ -134,6 +140,10 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::JoinOrganization(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::JoinOrganization),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -191,7 +201,10 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_up(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+                    Ok(response) => {
+                        self.account_id = Some(response.account.id);
+                        self.screen = Screen::Outcome(sign_up_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignUp(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -219,7 +232,10 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_in(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+                    Ok(response) => {
+                        self.account_id = Some(response.account.id);
+                        self.screen = Screen::Outcome(sign_in_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignIn(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -227,34 +243,78 @@ impl App {
                     }
                 }
             }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+            FormKind::AcceptInvitation => self.submit_accept_invitation(&store),
+            FormKind::JoinOrganization => self.submit_join(&store),
+        }
+    }
+
+    fn submit_accept_invitation(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::AcceptInvitation(state) = &self.screen else {
+                return;
+            };
+            parse_accept_invitation(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(self.handlers.accept_invitation(store.as_ref(), request));
+        match result {
+            Ok(response) => {
+                self.account_id = Some(response.account.id);
+                self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_join(&mut self, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::JoinOrganization(state) = &self.screen else {
+                return;
+            };
+            parse_join_invitation(state)
+        };
+        let invitation_token = match parsed {
+            Ok(token) => token,
+            Err(message) => {
+                if let Screen::JoinOrganization(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let Some(account_id) = self.account_id else {
+            if let Screen::JoinOrganization(state) = &mut self.screen {
+                state.error = Some("No active session. Sign in or sign up first.".to_owned());
+            }
+            return;
+        };
+        let request = JoinOrganizationRequest { invitation_token };
+        let result = self.runtime.block_on(self.handlers.join_organization(
+            store.as_ref(),
+            account_id,
+            request,
+        ));
+        match result {
+            Ok(response) => {
+                self.screen = Screen::Outcome(join_organization_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::JoinOrganization(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
         }
@@ -262,7 +322,10 @@ impl App {
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::JoinOrganization(s) => Some(s),
             _ => None,
         }
     }
@@ -276,6 +339,9 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::JoinOrganization(state) => {
+                draw::draw_form(frame, area, "Join organization", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -286,6 +352,7 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    JoinOrganization,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -322,6 +389,9 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::JoinOrganization => {
+                    Screen::JoinOrganization(FormState::new(join_organization_fields()))
                 }
             });
         }

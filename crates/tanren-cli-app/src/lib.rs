@@ -19,11 +19,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_app_services::{AccountStore, AppServiceError, Handlers, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountFailureReason, JoinOrganizationRequest, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::{Email, InvitationToken, SessionToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -109,6 +113,15 @@ enum AccountAction {
         /// Password.
         #[arg(long)]
         password: String,
+    },
+    /// Join an organization using a persisted session token.
+    Join {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Invitation token for the organization to join.
+        #[arg(long)]
+        invitation: String,
     },
 }
 
@@ -267,7 +280,39 @@ async fn run_account(action: AccountAction) -> Result<()> {
             )
             .context("write sign-in result")?;
         }
+        AccountAction::Join {
+            database_url,
+            invitation,
+        } => run_join(&handlers, &database_url, &invitation).await?,
     }
+    Ok(())
+}
+
+async fn run_join(handlers: &Handlers, database_url: &str, invitation: &str) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let session_token = load_session()?;
+    let account_id = resolve_account_id(&store, &session_token).await?;
+    let invitation_token =
+        InvitationToken::parse(invitation).context("parse --invitation as invitation token")?;
+    let response = handlers
+        .join_organization(
+            &store,
+            account_id,
+            JoinOrganizationRequest { invitation_token },
+        )
+        .await
+        .map_err(account_error)?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(
+        handle,
+        "joined_org={org} permissions={perms} project_access=[]",
+        org = response.joined_org,
+        perms = response.membership_permissions,
+    )
+    .context("write join-organization result")?;
     Ok(())
 }
 
@@ -315,4 +360,32 @@ fn persist_session(token: &str) -> Result<()> {
     }
     fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
+}
+
+fn load_session() -> Result<SessionToken> {
+    let path = session_path();
+    let raw = fs::read_to_string(&path)
+        .with_context(|| format!("read session from {}", path.display()))?;
+    Ok(SessionToken::from_secret(SecretString::from(raw)))
+}
+
+async fn resolve_account_id(
+    store: &Store,
+    token: &SessionToken,
+) -> Result<tanren_identity_policy::AccountId> {
+    let session = store
+        .find_session_by_token(token)
+        .await
+        .context("lookup session")?
+        .ok_or_else(|| {
+            account_error(AppServiceError::Account(
+                AccountFailureReason::Unauthenticated,
+            ))
+        })?;
+    if session.expires_at <= Utc::now() {
+        return Err(account_error(AppServiceError::Account(
+            AccountFailureReason::Unauthenticated,
+        )));
+    }
+    Ok(session.account_id)
 }
