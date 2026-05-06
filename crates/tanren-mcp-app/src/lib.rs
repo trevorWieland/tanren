@@ -1,14 +1,10 @@
 //! Tanren MCP (Model Context Protocol) server — runtime library.
 //!
-//! R-0001 (sub-8) promotes the runtime out of `bin/tanren-mcp/src/main.rs`
-//! per the thin-binary-crate profile. The binary shrinks to a wiring shell
-//! that initializes tracing and calls [`serve`]; the rmcp tool surface,
-//! API-key middleware, and host-header allowlist live here so the BDD
-//! harness can exercise this code via the rmcp client crate without
-//! spinning up a child process.
-//!
-//! The MCP surface continues to return bearer-mode `SessionView`
-//! responses — there is no cookie jar between the rmcp client and server.
+//! Promoted from `bin/tanren-mcp/src/main.rs` per the thin-binary-crate
+//! profile. The rmcp tool surface, API-key middleware, and host-header
+//! allowlist live here so the BDD harness can exercise this code without
+//! spinning up a child process. Returns bearer-mode `SessionView`
+//! responses (no cookie jar).
 
 use anyhow::{Context, Result};
 use axum::Router;
@@ -30,10 +26,10 @@ use std::sync::Arc;
 use support::{API_KEY_ENV, AuthConfig, health, require_api_key};
 use tanren_app_services::{AccountStore, AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, JoinOrganizationRequest, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, JoinOrganizationRequest,
+    LeaveOrganizationRequest, RemoveMemberRequest, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{InvitationToken, SessionToken};
+use tanren_identity_policy::{AccountId, InvitationToken, OrgId, SessionToken};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -44,19 +40,15 @@ mod support;
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
-/// Comma-separated extra hostnames / `host:port` authorities to add to
-/// rmcp's `allowed_hosts` Host-header allowlist.
+/// Comma-separated extra hostnames to add to rmcp's `allowed_hosts`.
 const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
 
-/// Configuration for the tanren-mcp runtime. R-0001 sub-8 keeps it
-/// env-driven; downstream PRs may swap in a typed config crate without
-/// changing the [`serve`] signature.
+/// Configuration for the tanren-mcp runtime. Env-driven.
 #[derive(Debug, Default)]
 pub struct Config;
 
 impl Config {
-    /// Construct the default config; bind address, allowed hosts, and
-    /// API key continue to come from environment variables.
+    /// Construct the default config.
     #[must_use]
     pub const fn from_env() -> Self {
         Self
@@ -64,10 +56,8 @@ impl Config {
 }
 
 /// MCP tool surface. Holds the shared `Handlers` facade and a `Store`
-/// handle; behaviour tools delegate through the facade so the api / mcp /
-/// cli / tui surfaces all resolve to the same logic per the
-/// equivalent-operations rule in
-/// `docs/architecture/subsystems/interfaces.md`.
+/// handle; tools delegate through the facade per the
+/// equivalent-operations rule in `docs/architecture/subsystems/interfaces.md`.
 #[derive(Clone)]
 pub(crate) struct TanrenMcp {
     handlers: Handlers,
@@ -93,8 +83,6 @@ impl TanrenMcp {
         }
     }
 
-    /// Self-signup tool. Mirrors the api `POST /accounts` shape via
-    /// `tanren_contract::SignUpRequest` / `SignUpResponse`.
     #[rmcp::tool(
         name = "account.create",
         description = "Create a new Tanren account via self-signup. Returns the new account view and an opaque session token. Failures use the shared {code, summary} taxonomy: duplicate_identifier, invalid_credential."
@@ -109,8 +97,6 @@ impl TanrenMcp {
         }
     }
 
-    /// Sign-in tool. Mirrors the api `POST /sessions` shape via
-    /// `tanren_contract::SignInRequest` / `SignInResponse`.
     #[rmcp::tool(
         name = "account.sign_in",
         description = "Sign in to an existing Tanren account. Returns the account view and an opaque session token. Failure code: invalid_credential."
@@ -125,10 +111,6 @@ impl TanrenMcp {
         }
     }
 
-    /// Invitation-acceptance tool. Mirrors the api
-    /// `POST /invitations/{token}/accept` shape via
-    /// `tanren_contract::AcceptInvitationRequest` /
-    /// `AcceptInvitationResponse`.
     #[rmcp::tool(
         name = "account.accept_invitation",
         description = "Accept an organization invitation and create a Tanren account in the inviting org. Failure codes: invitation_not_found, invitation_already_consumed, invitation_expired, invalid_credential."
@@ -147,8 +129,6 @@ impl TanrenMcp {
         }
     }
 
-    /// Existing-account join tool. An authenticated account accepts an
-    /// invitation to join an organization.
     #[rmcp::tool(
         name = "account.join_organization",
         description = "Join an organization with an existing account using a bearer session token. Failure codes: wrong_account, invitation_not_found, invitation_expired, invitation_already_consumed, unauthenticated."
@@ -176,6 +156,65 @@ impl TanrenMcp {
                 JoinOrganizationRequest {
                     invitation_token: request.invitation_token,
                 },
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "account.leave_organization",
+        description = "Leave an organization with the authenticated account. Set acknowledge_in_flight_work to true to complete the departure; false previews in-flight work. Failure codes: unauthenticated, not_org_member, last_admin_permission_holder."
+    )]
+    async fn account_leave_organization(
+        &self,
+        Parameters(request): Parameters<LeaveToolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match resolve_session(&self.store, &request.session_token).await {
+            Ok(id) => id,
+            Err(result) => return Ok(result),
+        };
+        match self
+            .handlers
+            .leave_organization(
+                self.store.as_ref(),
+                account_id,
+                LeaveOrganizationRequest {
+                    org_id: request.org_id,
+                },
+                request.acknowledge_in_flight_work,
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "account.remove_member",
+        description = "Remove another account from an organization. Requires admin permissions. Set acknowledge_in_flight_work to true to complete the removal; false previews in-flight work. Failure codes: unauthenticated, permission_denied, not_org_member, last_admin_permission_holder."
+    )]
+    async fn account_remove_member(
+        &self,
+        Parameters(request): Parameters<RemoveMemberToolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match resolve_session(&self.store, &request.session_token).await {
+            Ok(id) => id,
+            Err(result) => return Ok(result),
+        };
+        match self
+            .handlers
+            .remove_member(
+                self.store.as_ref(),
+                account_id,
+                RemoveMemberRequest {
+                    org_id: request.org_id,
+                    member_account_id: request.member_account_id,
+                },
+                request.acknowledge_in_flight_work,
             )
             .await
         {
@@ -230,14 +269,71 @@ impl std::fmt::Debug for JoinToolRequest {
     }
 }
 
+#[derive(Clone, Serialize, Deserialize, schemars::JsonSchema)]
+struct LeaveToolRequest {
+    #[schemars(with = "String")]
+    session_token: String,
+    org_id: OrgId,
+    acknowledge_in_flight_work: bool,
+}
+
+impl std::fmt::Debug for LeaveToolRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("LeaveToolRequest")
+            .field("session_token", &"<redacted>")
+            .field("org_id", &self.org_id)
+            .field(
+                "acknowledge_in_flight_work",
+                &self.acknowledge_in_flight_work,
+            )
+            .finish()
+    }
+}
+
+#[derive(Clone, Serialize, Deserialize, schemars::JsonSchema)]
+struct RemoveMemberToolRequest {
+    #[schemars(with = "String")]
+    session_token: String,
+    org_id: OrgId,
+    member_account_id: AccountId,
+    acknowledge_in_flight_work: bool,
+}
+
+impl std::fmt::Debug for RemoveMemberToolRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("RemoveMemberToolRequest")
+            .field("session_token", &"<redacted>")
+            .field("org_id", &self.org_id)
+            .field("member_account_id", &self.member_account_id)
+            .field(
+                "acknowledge_in_flight_work",
+                &self.acknowledge_in_flight_work,
+            )
+            .finish()
+    }
+}
+
+async fn resolve_session(
+    store: &Store,
+    raw_token: &str,
+) -> std::result::Result<AccountId, CallToolResult> {
+    let session_token =
+        SessionToken::from_secret(secrecy::SecretString::from(raw_token.to_owned()));
+    match store.find_session_by_token(&session_token).await {
+        Ok(Some(s)) if s.expires_at > Utc::now() => Ok(s.account_id),
+        Ok(_) => Err(map_failure(AppServiceError::Account(
+            AccountFailureReason::Unauthenticated,
+        ))),
+        Err(err) => Err(map_failure(AppServiceError::Store(err))),
+    }
+}
+
 /// Encode a successful handler response as a JSON-text `CallToolResult`.
 fn success<T: Serialize>(value: &T) -> CallToolResult {
     let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::success(vec![Content::text(text)])
 }
 
-/// Encode an [`AppServiceError`] as the shared `{code, summary}` error
-/// body and surface it as an MCP tool failure result.
 fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
@@ -288,8 +384,6 @@ fn build_router(
         .layer(cors)
 }
 
-/// Build rmcp's `StreamableHttpServerConfig` honouring the
-/// `TANREN_MCP_ALLOWED_HOSTS` env var.
 fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServerConfig {
     let base = StreamableHttpServerConfig::default().with_cancellation_token(cancellation);
     let raw = env::var(ALLOWED_HOSTS_ENV).ok().filter(|s| !s.is_empty());
@@ -319,13 +413,7 @@ fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServ
     base.with_allowed_hosts(hosts)
 }
 
-/// Build the MCP axum router around a caller-supplied `Arc<Store>` and a
-/// caller-supplied bootstrap API key. Intended for the BDD wire-harness
-/// in `tanren-testkit`: the harness owns the database, seeds
-/// invitations + reads events directly, and spawns this router on an
-/// ephemeral port. Returns the router plus the `CancellationToken`
-/// callers can flip to drive graceful shutdown of the rmcp streaming
-/// service.
+/// Build the MCP axum router for the BDD wire-harness in `tanren-testkit`.
 #[cfg(any(test, feature = "test-hooks"))]
 pub fn build_router_with_store(
     store: Arc<Store>,
@@ -339,13 +427,11 @@ pub fn build_router_with_store(
     (router, cancellation)
 }
 
-/// Serve the tanren-mcp surface to completion. Honours `SIGTERM`/`SIGINT`
-/// for graceful shutdown.
+/// Serve the tanren-mcp surface to completion with graceful shutdown.
 ///
 /// # Errors
 ///
-/// Returns an error if the database connection cannot be established,
-/// the listener cannot bind, or `axum::serve` returns an error.
+/// Returns an error if the database connection or listener bind fails.
 pub async fn serve(_config: Config) -> Result<()> {
     let bind = env::var(BIND_ADDRESS_ENV).unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned());
     let auth_config = Arc::new(AuthConfig::from_env());

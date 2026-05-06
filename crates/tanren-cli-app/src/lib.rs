@@ -1,16 +1,10 @@
 //! Tanren scriptable command-line client — runtime library.
 //!
-//! R-0001 (sub-8) promotes the runtime out of `bin/tanren-cli/src/main.rs`
-//! per the thin-binary-crate profile
-//! (`profiles/rust-cargo/architecture/thin-binary-crate.md`). The binary
-//! shrinks to a wiring shell that initializes tracing and calls [`run`];
-//! everything below — `clap` parsing, account-flow dispatch, session
-//! persistence — lives here so the BDD harness can depend on it directly
-//! without spinning up a child process.
-//!
-//! The CLI continues to receive bearer-mode `SessionView` responses from
-//! `tanren-app-services` (no cookie jar to use); the cookie envelope
-//! lives only on the api-app surface.
+//! Promoted from `bin/tanren-cli/src/main.rs` per the thin-binary-crate
+//! profile. The binary shrinks to a wiring shell that initializes tracing
+//! and calls [`run`]; everything below lives here so the BDD harness can
+//! depend on it without spinning up a child process. The CLI receives
+//! bearer-mode `SessionView` responses (no cookie jar).
 
 use std::env;
 use std::fs;
@@ -24,17 +18,16 @@ use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AccountStore, AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, JoinOrganizationRequest, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, JoinOrganizationRequest,
+    LeaveOrganizationRequest, RemoveMemberRequest, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, SessionToken};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, SessionToken};
+use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
-/// Top-level CLI shape. Equivalent to the historical `Cli` struct in
-/// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
-/// the thin-binary-crate convention (`bin/X/src/main.rs` parses a
-/// `Config` and calls `tanren_X_app::run(config)`).
+/// Top-level CLI shape, renamed to `Config` per the thin-binary-crate
+/// convention.
 #[derive(Debug, Parser)]
 #[command(
     name = "tanren-cli",
@@ -56,9 +49,7 @@ impl Config {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Print a liveness report. Mirrors the api `/health` endpoint.
     Health,
-    /// Database migration commands.
     Migrate {
         #[command(subcommand)]
         action: MigrateAction,
@@ -82,51 +73,53 @@ enum MigrateAction {
 
 #[derive(Debug, Subcommand)]
 enum AccountAction {
-    /// Create a personal account (or, with `--invitation`, accept an
-    /// invitation and join the inviting org).
     Create {
-        /// Database URL.
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
-        /// Email to register.
         #[arg(long)]
         identifier: String,
-        /// Password.
         #[arg(long)]
         password: String,
-        /// Display name.
         #[arg(long, default_value_t = String::from("Tanren user"))]
         display_name: String,
-        /// Optional invitation token. When supplied, the new account
-        /// joins the inviting org instead of being a personal account.
         #[arg(long)]
         invitation: Option<String>,
     },
-    /// Sign in to an existing account and persist the session.
     SignIn {
-        /// Database URL.
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
-        /// Email to sign in with.
         #[arg(long)]
         identifier: String,
-        /// Password.
         #[arg(long)]
         password: String,
     },
-    /// Join an organization using a persisted session token.
     Join {
-        /// Database URL.
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
-        /// Invitation token for the organization to join.
         #[arg(long)]
         invitation: String,
     },
+    Leave {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        acknowledge_in_flight_work: bool,
+    },
+    /// Remove another account from an organization (admin-initiated).
+    RemoveMember {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        org: String,
+        #[arg(long)]
+        account: String,
+        #[arg(long)]
+        acknowledge_in_flight_work: bool,
+    },
 }
 
-/// Run the CLI to completion. Returns an [`ExitCode`] so the binary
-/// `main` can return it directly without re-encoding error context.
 #[must_use]
 pub fn run(config: Config) -> ExitCode {
     let result = match config.command {
@@ -197,94 +190,132 @@ async fn run_account(action: AccountAction) -> Result<()> {
             display_name,
             invitation,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            match invitation {
-                None => {
-                    let response = handlers
-                        .sign_up(
-                            &store,
-                            SignUpRequest {
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
-                }
-                Some(token) => {
-                    let invitation_token = InvitationToken::parse(&token)
-                        .context("parse --invitation as invitation token")?;
-                    let response = handlers
-                        .accept_invitation(
-                            &store,
-                            AcceptInvitationRequest {
-                                invitation_token,
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
-                }
-            }
+            run_create(
+                &handlers,
+                &database_url,
+                &identifier,
+                &password,
+                &display_name,
+                invitation,
+            )
+            .await?;
         }
         AccountAction::SignIn {
             database_url,
             identifier,
             password,
-        } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            let response = handlers
-                .sign_in(&store, SignInRequest { email, password })
-                .await
-                .map_err(account_error)?;
-            persist_session(response.session.token.expose_secret())?;
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
-            writeln!(
-                handle,
-                "account_id={id} session={token}",
-                id = response.account.id,
-                token = response.session.token.expose_secret(),
-            )
-            .context("write sign-in result")?;
-        }
+        } => run_sign_in(&handlers, &database_url, &identifier, &password).await?,
         AccountAction::Join {
             database_url,
             invitation,
         } => run_join(&handlers, &database_url, &invitation).await?,
+        AccountAction::Leave {
+            database_url,
+            org,
+            acknowledge_in_flight_work,
+        } => run_leave(&handlers, &database_url, &org, acknowledge_in_flight_work).await?,
+        AccountAction::RemoveMember {
+            database_url,
+            org,
+            account,
+            acknowledge_in_flight_work,
+        } => {
+            run_remove_member(
+                &handlers,
+                &database_url,
+                &org,
+                &account,
+                acknowledge_in_flight_work,
+            )
+            .await?;
+        }
     }
+    Ok(())
+}
+
+async fn run_create(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: &str,
+    display_name: &str,
+    invitation: Option<String>,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let email = Email::parse(identifier).context("parse --identifier as email")?;
+    let password = SecretString::from(password.to_owned());
+    match invitation {
+        None => {
+            let resp = handlers
+                .sign_up(
+                    &store,
+                    SignUpRequest {
+                        email,
+                        password,
+                        display_name: display_name.to_owned(),
+                    },
+                )
+                .await
+                .map_err(account_error)?;
+            write_account_session(&resp.account.id, resp.session.token.expose_secret())?;
+        }
+        Some(token) => {
+            let inv =
+                InvitationToken::parse(&token).context("parse --invitation as invitation token")?;
+            let resp = handlers
+                .accept_invitation(
+                    &store,
+                    AcceptInvitationRequest {
+                        invitation_token: inv,
+                        email,
+                        password,
+                        display_name: display_name.to_owned(),
+                    },
+                )
+                .await
+                .map_err(account_error)?;
+            persist_session(resp.session.token.expose_secret())?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(
+                handle,
+                "account_id={} session={} joined_org={}",
+                resp.account.id,
+                resp.session.token.expose_secret(),
+                resp.joined_org,
+            )
+            .context("write invitation-acceptance result")?;
+        }
+    }
+    Ok(())
+}
+
+async fn run_sign_in(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: &str,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let email = Email::parse(identifier).context("parse --identifier as email")?;
+    let password = SecretString::from(password.to_owned());
+    let resp = handlers
+        .sign_in(&store, SignInRequest { email, password })
+        .await
+        .map_err(account_error)?;
+    write_account_session(&resp.account.id, resp.session.token.expose_secret())?;
+    Ok(())
+}
+
+fn write_account_session(account_id: &AccountId, token: &str) -> Result<()> {
+    persist_session(token)?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(handle, "account_id={account_id} session={token}").context("write account result")?;
     Ok(())
 }
 
@@ -314,6 +345,87 @@ async fn run_join(handlers: &Handlers, database_url: &str, invitation: &str) -> 
     )
     .context("write join-organization result")?;
     Ok(())
+}
+
+async fn run_leave(
+    handlers: &Handlers,
+    database_url: &str,
+    org: &str,
+    acknowledge_in_flight_work: bool,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let session_token = load_session()?;
+    let account_id = resolve_account_id(&store, &session_token).await?;
+    let org_id = parse_uuid(org, "org")?;
+    let response = handlers
+        .leave_organization(
+            &store,
+            account_id,
+            LeaveOrganizationRequest { org_id },
+            acknowledge_in_flight_work,
+        )
+        .await
+        .map_err(account_error)?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    write_departure_result(&mut handle, &response)
+}
+
+async fn run_remove_member(
+    handlers: &Handlers,
+    database_url: &str,
+    org: &str,
+    account: &str,
+    acknowledge_in_flight_work: bool,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let session_token = load_session()?;
+    let actor_account_id = resolve_account_id(&store, &session_token).await?;
+    let org_id = parse_uuid(org, "org")?;
+    let member_account_id = parse_uuid(account, "account")?;
+    let response = handlers
+        .remove_member(
+            &store,
+            actor_account_id,
+            RemoveMemberRequest {
+                org_id,
+                member_account_id,
+            },
+            acknowledge_in_flight_work,
+        )
+        .await
+        .map_err(account_error)?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    write_departure_result(&mut handle, &response)
+}
+
+fn parse_uuid<T>(raw: &str, label: &str) -> Result<T>
+where
+    T: From<Uuid>,
+{
+    let uuid = Uuid::parse_str(raw).with_context(|| format!("parse --{label} as UUID"))?;
+    Ok(T::from(uuid))
+}
+
+fn write_departure_result(
+    handle: &mut std::io::StdoutLock<'_>,
+    response: &tanren_contract::MembershipDepartureResponse,
+) -> Result<()> {
+    let departed = response
+        .departed_org
+        .map_or_else(|| "none".into(), |id| id.to_string());
+    writeln!(
+        handle,
+        "completed={} in_flight_work={} departed_org={departed}",
+        response.completed,
+        response.in_flight_work.len(),
+    )
+    .context("write departure result")
 }
 
 fn account_error(err: AppServiceError) -> anyhow::Error {
@@ -369,10 +481,7 @@ fn load_session() -> Result<SessionToken> {
     Ok(SessionToken::from_secret(SecretString::from(raw)))
 }
 
-async fn resolve_account_id(
-    store: &Store,
-    token: &SessionToken,
-) -> Result<tanren_identity_policy::AccountId> {
+async fn resolve_account_id(store: &Store, token: &SessionToken) -> Result<AccountId> {
     let session = store
         .find_session_by_token(token)
         .await
