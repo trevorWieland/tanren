@@ -20,6 +20,7 @@ use tanren_contract::{
     CreateProjectRequest, ProjectView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
+use tanren_policy::ActorContext;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -41,6 +42,7 @@ pub struct McpHarness {
     provider: FixtureSourceControlProvider,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    actor_handle: Option<tanren_mcp_app::ActorContextHandle>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -80,7 +82,7 @@ impl McpHarness {
 
         let provider_for_server: Arc<dyn tanren_app_services::SourceControlProvider> =
             Arc::new(provider.clone());
-        let (router, cancellation) = tanren_mcp_app::build_router_with_store(
+        let (router, cancellation, actor_handle) = tanren_mcp_app::build_router_with_store(
             store.clone(),
             SecretString::from(TEST_API_KEY.to_owned()),
             Some(provider_for_server),
@@ -108,6 +110,7 @@ impl McpHarness {
             provider,
             client: Some(client),
             server: Some(server),
+            actor_handle: Some(actor_handle),
         })
     }
 
@@ -137,6 +140,21 @@ impl McpHarness {
             return Err(failure_from_payload(&payload));
         }
         Ok(payload)
+    }
+
+    fn ensure_actor(&self, account_id: AccountId) -> HarnessResult<()> {
+        match self.actor_handle {
+            Some(ref handle) => {
+                handle.set(ActorContext {
+                    account_id,
+                    org: None,
+                });
+                Ok(())
+            }
+            None => Err(HarnessError::Transport(
+                "actor handle not available".to_owned(),
+            )),
+        }
     }
 }
 
@@ -220,8 +238,8 @@ impl AccountHarness for McpHarness {
         account_id: AccountId,
         request: ConnectProjectRequest,
     ) -> HarnessResult<ProjectView> {
+        self.ensure_actor(account_id)?;
         let body = serde_json::json!({
-            "account_id": account_id.to_string(),
             "name": request.name,
             "repository_url": request.repository_url,
         });
@@ -235,8 +253,8 @@ impl AccountHarness for McpHarness {
         account_id: AccountId,
         request: CreateProjectRequest,
     ) -> HarnessResult<ProjectView> {
+        self.ensure_actor(account_id)?;
         let body = serde_json::json!({
-            "account_id": account_id.to_string(),
             "name": request.name,
             "provider_host": request.provider_host,
         });
@@ -249,10 +267,10 @@ impl AccountHarness for McpHarness {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<Option<ActiveProjectView>> {
-        let body = serde_json::json!({
-            "account_id": account_id.to_string(),
-        });
-        let payload = self.call_tool("project.active", body).await?;
+        self.ensure_actor(account_id)?;
+        let payload = self
+            .call_tool("project.active", serde_json::json!({}))
+            .await?;
         if payload.is_null() {
             return Ok(None);
         }
