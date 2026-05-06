@@ -9,6 +9,7 @@ pub mod account;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
+    JoinOrganizationRequest, JoinOrganizationResponse, OrgMembershipView, ProjectAccessGrant,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 

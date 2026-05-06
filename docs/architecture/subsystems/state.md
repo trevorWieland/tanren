@@ -413,7 +413,8 @@ type.
 
 The trait is intentionally one trait, not split per aggregate. Sign-up
 writes account + session + event in one logical unit; accept-invitation
-writes account + membership + invitation update + session + two events.
+writes account + membership + invitation update + session + two events;
+join-organization writes membership + invitation update + one event.
 Splitting the port forces handlers to take a fistful of trait objects
 per call without making the boundary cleaner.
 
@@ -434,6 +435,24 @@ find→check→update sequence is forbidden because it admits a race.
 A partial-unique constraint
 `UNIQUE (token) WHERE consumed_at IS NULL` on the `invitations` table
 provides belt-and-braces protection at the SQL layer.
+
+### Atomic existing-account invitation acceptance
+
+R-0006 adds `accept_existing_invitation_atomic` to the `AccountStore`
+trait. Inside one transaction the method verifies the invitation is
+pending, unexpired, not revoked, and addressed to the accepting account's
+identifier; inserts a membership carrying the invitation's org-level
+permissions; consumes the invitation; and appends a caller-supplied
+`organization_joined` event envelope. The unique index
+`idx_memberships_account_org_unique` prevents duplicate memberships. On
+failure the transaction rolls back and the invitation remains pending so
+the user can retry.
+
+The event taxonomy for the join path adds two event kinds to the
+`account` event family: `organization_joined` (success) and `join_failed`
+(failure with taxonomy reason). These are distinct from
+`invitation_accepted` / `invitation_accept_failed` which belong to the
+new-account path (R-0001).
 
 ### `account_sessions` table
 

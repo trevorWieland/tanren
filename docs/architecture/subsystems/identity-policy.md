@@ -483,6 +483,53 @@ workspace lint denies `uuid::Uuid::new_v4` in `tanren-app-services` and
 the `tanren-{api,cli,mcp,tui}-app` lib crates so a future contributor
 cannot regress to a UUID session token.
 
+## Canonical Existing-Account Join Decisions
+
+These decisions land with R-0006 ("Join an organization with an existing
+account") and apply to every feature that handles existing-account
+invitation acceptance.
+
+### Existing-account join flow
+
+An authenticated Tanren account can accept an invitation to join an
+organization without creating a new account. The flow is:
+
+1. The caller presents a valid session (resolving to an `AccountId`) and
+   an invitation token.
+2. The handler looks up the account and resolves its identifier.
+3. The handler delegates to the store's atomic
+   `accept_existing_invitation_atomic` path, which inside one transaction:
+   verifies the invitation is pending, unexpired, not revoked, and
+   addressed to the accepting account's identifier; inserts a membership
+   carrying the invitation's org-level permissions; consumes the
+   invitation; and appends an `organization_joined` event.
+4. The account's other organization memberships are unaffected.
+5. Project access is NOT granted automatically — project access is
+   governed by M-0031.
+
+### Join failure taxonomy
+
+`AccountFailureReason` includes two stable codes specific to the join
+path:
+
+- `wrong_account` (HTTP 403): the invitation is addressed to a different
+  account's identifier.
+- `unauthenticated` (HTTP 401): the caller attempted a join without a
+  valid session.
+
+Other join-path failures reuse existing invitation codes
+(`invitation_not_found`, `invitation_expired`,
+`invitation_already_consumed`).
+
+### Response shape
+
+`JoinOrganizationResponse` carries the joined org, the membership's
+org-level permissions, the full list of selectable organization
+memberships (so the caller can offer org switching via R-0004), and an
+explicitly empty `project_access_grants` list. The empty list makes
+project-level access visibly absent without introducing grant types owned
+by the project-access subsystem (M-0031).
+
 ## Rejected Alternatives
 
 - **Personas as authorization subjects.** Rejected because personas describe

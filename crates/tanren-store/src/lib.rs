@@ -127,6 +127,16 @@ impl From<entity::events::Model> for EventEnvelope {
 
 #[async_trait]
 impl AccountStore for Store {
+    async fn find_account_by_id(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<AccountRecord>, StoreError> {
+        let row = entity::accounts::Entity::find_by_id(account_id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        row.map(AccountRecord::try_from).transpose()
+    }
+
     async fn find_account_by_identifier(
         &self,
         identifier: &Identifier,

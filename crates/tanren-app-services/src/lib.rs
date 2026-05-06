@@ -7,14 +7,16 @@
 
 pub mod account;
 pub mod events;
+pub mod join;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    JoinOrganizationRequest, JoinOrganizationResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -198,6 +200,32 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Existing-account join command: an authenticated account accepts an
+    /// invitation to join an organization. Unlike [`Handlers::accept_invitation`]
+    /// (which creates a new account), this flow operates on an existing
+    /// account identified by `account_id`. On success the account gains a
+    /// membership in the inviting organization carrying the invitation's
+    /// org-level permissions; the account's other memberships are
+    /// unaffected. Project access is NOT granted automatically.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with the matching taxonomy
+    /// variant when the token is unknown / expired / already consumed /
+    /// addressed to a different account, or when the account is already a
+    /// member; [`AppServiceError::Store`] for unexpected database failures.
+    pub async fn join_organization<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        request: JoinOrganizationRequest,
+    ) -> Result<JoinOrganizationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        join::join_organization(store, &self.clock, account_id, request).await
     }
 }
 

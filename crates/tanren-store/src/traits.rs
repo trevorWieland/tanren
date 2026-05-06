@@ -155,6 +155,12 @@ pub enum AcceptInvitationError {
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
 pub trait AccountStore: Send + Sync + std::fmt::Debug {
+    /// Look up an account by its stable id.
+    async fn find_account_by_id(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<AccountRecord>, StoreError>;
+
     /// Look up an account by its case-sensitive identifier.
     async fn find_account_by_identifier(
         &self,

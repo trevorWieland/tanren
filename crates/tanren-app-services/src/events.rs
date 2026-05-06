@@ -41,6 +41,11 @@ pub enum AccountEventKind {
     /// An invitation acceptance was rejected — not found / expired /
     /// already consumed / validation failure.
     InvitationAcceptFailed,
+    /// An existing account joined an organization by accepting an
+    /// invitation.
+    OrganizationJoined,
+    /// An existing-account join attempt was rejected.
+    JoinFailed,
 }
 
 impl AccountEventKind {
@@ -54,6 +59,8 @@ impl AccountEventKind {
             Self::SignUpRejected => "sign_up_rejected",
             Self::SignInFailed => "sign_in_failed",
             Self::InvitationAcceptFailed => "invitation_accept_failed",
+            Self::OrganizationJoined => "organization_joined",
+            Self::JoinFailed => "join_failed",
         }
     }
 }
@@ -122,6 +129,30 @@ pub struct SignInFailed {
 pub struct InvitationAcceptFailed {
     /// Why the attempt was rejected.
     pub reason: AccountFailureReason,
+    /// Token the caller submitted.
+    pub token: InvitationToken,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// An existing account joined an organization by accepting an invitation.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationJoined {
+    /// Account that joined the organization.
+    pub account_id: AccountId,
+    /// Organization the account joined.
+    pub joined_org: OrgId,
+    /// Wall-clock time of the join.
+    pub at: DateTime<Utc>,
+}
+
+/// An existing-account join attempt was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct JoinFailed {
+    /// Why the attempt was rejected.
+    pub reason: AccountFailureReason,
+    /// Account that attempted the join.
+    pub account_id: AccountId,
     /// Token the caller submitted.
     pub token: InvitationToken,
     /// Wall-clock time the rejection was emitted.

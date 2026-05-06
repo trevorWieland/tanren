@@ -11,7 +11,9 @@ use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::secret_serde;
-use tanren_identity_policy::{AccountId, Email, Identifier, InvitationToken, OrgId, SessionToken};
+use tanren_identity_policy::{
+    AccountId, Email, Identifier, InvitationToken, OrgId, OrgPermissions, SessionToken,
+};
 use utoipa::ToSchema;
 
 /// Self-signup request.
@@ -98,6 +100,52 @@ pub struct AcceptInvitationResponse {
     /// Organization the new account joined as a result of this acceptance.
     pub joined_org: OrgId,
 }
+
+/// Existing-account join request. An authenticated account accepts an
+/// invitation to join an organization. Unlike [`AcceptInvitationRequest`]
+/// (which creates a new account via R-0001), this flow operates on an
+/// existing account identified by the caller's session.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct JoinOrganizationRequest {
+    /// Invitation token issued by the inviting organization.
+    pub invitation_token: InvitationToken,
+}
+
+/// Successful existing-account join response. Carries the joined org,
+/// the membership's organization-level permissions, the full set of
+/// selectable organizations (so the caller can offer org switching via
+/// R-0004), and an explicitly empty project-access grant list.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct JoinOrganizationResponse {
+    /// Organization the account just joined.
+    pub joined_org: OrgId,
+    /// Organization-level permissions granted by the new membership.
+    pub membership_permissions: OrgPermissions,
+    /// All organization memberships selectable by this account after the
+    /// join. The caller can use this list to offer org switching.
+    pub selectable_organizations: Vec<OrgMembershipView>,
+    /// Project-level access grants. Always empty on join — project access
+    /// is governed by M-0031 and is not automatically granted by
+    /// invitation acceptance.
+    pub project_access_grants: Vec<ProjectAccessGrant>,
+}
+
+/// View of one organization membership for the selectable-org list
+/// returned by [`JoinOrganizationResponse`].
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrgMembershipView {
+    /// Organization the account is a member of.
+    pub org_id: OrgId,
+    /// Organization-level permissions for this membership.
+    pub permissions: OrgPermissions,
+}
+
+/// Placeholder for a project-level access grant. Populated by the
+/// project-access subsystem (M-0031); always empty during invitation
+/// acceptance. The struct is intentionally a stub — fields will be added
+/// by the project-access work that owns M-0031.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectAccessGrant {}
 
 /// External-facing view of a Tanren account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -212,6 +260,14 @@ pub enum AccountFailureReason {
     InvitationExpired,
     /// Invitation token has already been accepted or revoked.
     InvitationAlreadyConsumed,
+    /// The invitation is addressed to a different account. The
+    /// authenticated account does not match the invitation's target
+    /// identifier.
+    WrongAccount,
+    /// The caller attempted a join operation without presenting a valid
+    /// session. Interface layers map missing or expired sessions to this
+    /// code before calling the handler.
+    Unauthenticated,
 }
 
 impl AccountFailureReason {
@@ -225,6 +281,8 @@ impl AccountFailureReason {
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
+            Self::WrongAccount => "wrong_account",
+            Self::Unauthenticated => "unauthenticated",
         }
     }
 
@@ -244,6 +302,8 @@ impl AccountFailureReason {
             Self::InvitationAlreadyConsumed => {
                 "The invitation has already been accepted or was revoked."
             }
+            Self::WrongAccount => "The invitation is addressed to a different account.",
+            Self::Unauthenticated => "Authentication is required to join an organization.",
         }
     }
 
@@ -254,10 +314,11 @@ impl AccountFailureReason {
     pub const fn http_status(self) -> u16 {
         match self {
             Self::DuplicateIdentifier => 409,
-            Self::InvalidCredential => 401,
+            Self::InvalidCredential | Self::Unauthenticated => 401,
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
+            Self::WrongAccount => 403,
         }
     }
 }
