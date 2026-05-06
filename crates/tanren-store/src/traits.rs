@@ -33,7 +33,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, MembershipRecord, NewAccount, SessionRecord,
+    StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -253,6 +254,33 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    /// Look up a session by its token value.
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
+    /// List all memberships for an account.
+    async fn list_memberships_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<MembershipRecord>, StoreError>;
+
+    /// Atomically accept an invitation for an existing account. Inside a
+    /// single transaction the implementation verifies the invitation is
+    /// pending (`consumed_at IS NULL`), unexpired (`expires_at > now`),
+    /// not revoked (`revoked_at IS NULL`), and addressed to the accepting
+    /// account's identifier, then inserts a membership carrying the
+    /// invitation's org-level permissions and consumes the invitation.
+    /// Re-accepting the same invitation cannot create a duplicate
+    /// membership — the `idx_memberships_account_org_unique` unique
+    /// index prevents it and the method returns
+    /// [`AcceptExistingInvitationError::AlreadyMember`].
+    async fn accept_existing_invitation_atomic(
+        &self,
+        request: AcceptExistingInvitationRequest,
+    ) -> Result<AcceptExistingInvitationOutput, AcceptExistingInvitationError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].
@@ -286,6 +314,79 @@ pub enum ConsumeInvitationError {
     #[error("invitation expired")]
     Expired,
     /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Context the store passes back to the caller's event-builder so the
+/// caller can stamp the joined org id and account identity into the
+/// success-path event payloads for the existing-account invitation
+/// acceptance flow.
+#[derive(Debug, Clone)]
+pub struct AcceptExistingInvitationEventContext {
+    pub account_id: AccountId,
+    pub identifier: Identifier,
+    pub token: InvitationToken,
+    pub joined_org: OrgId,
+    pub now: DateTime<Utc>,
+}
+
+/// Closure the store invokes inside the existing-account transaction to
+/// build the success-path event envelopes. Mirrors
+/// [`AcceptInvitationEventsBuilder`] for the existing-account path.
+pub type AcceptExistingInvitationEventsBuilder =
+    Box<dyn FnOnce(&AcceptExistingInvitationEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`AccountStore::accept_existing_invitation_atomic`].
+/// Bundles every input the atomic flow needs so the trait method runs as
+/// a single unit. The caller pre-derives the membership id and `now`
+/// because the id allocator and the clock live in the app-service layer.
+pub struct AcceptExistingInvitationRequest {
+    pub token: InvitationToken,
+    pub account_id: AccountId,
+    pub identifier: Identifier,
+    pub membership_id: MembershipId,
+    pub now: DateTime<Utc>,
+    pub events_builder: AcceptExistingInvitationEventsBuilder,
+}
+
+impl std::fmt::Debug for AcceptExistingInvitationRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AcceptExistingInvitationRequest")
+            .field("token", &self.token)
+            .field("account_id", &self.account_id)
+            .field("identifier", &self.identifier)
+            .field("membership_id", &self.membership_id)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Successful return from [`AccountStore::accept_existing_invitation_atomic`].
+#[derive(Debug, Clone)]
+pub struct AcceptExistingInvitationOutput {
+    pub membership: MembershipRecord,
+    pub joined_org: OrgId,
+}
+
+/// Failure taxonomy for [`AccountStore::accept_existing_invitation_atomic`].
+/// The app-service layer maps each variant to the matching
+/// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB
+/// errors through unchanged.
+#[derive(Debug, thiserror::Error)]
+pub enum AcceptExistingInvitationError {
+    #[error("invitation not found")]
+    InvitationNotFound,
+    #[error("invitation already consumed")]
+    InvitationAlreadyConsumed,
+    #[error("invitation expired")]
+    InvitationExpired,
+    #[error("invitation revoked")]
+    InvitationRevoked,
+    #[error("invitation addressed to a different account")]
+    WrongAccount,
+    #[error("account is already a member of this organization")]
+    AlreadyMember,
     #[error(transparent)]
     Store(#[from] StoreError),
 }

@@ -7,6 +7,7 @@
 //! (`entity/` is a private module) so that row shape changes never leak
 //! across the dependency boundary.
 
+mod accept_existing_invitation;
 mod accept_invitation;
 mod entity;
 mod migration;
@@ -18,9 +19,11 @@ pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
 };
 pub use traits::{
-    AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
-    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    AcceptExistingInvitationError, AcceptExistingInvitationEventContext,
+    AcceptExistingInvitationEventsBuilder, AcceptExistingInvitationOutput,
+    AcceptExistingInvitationRequest, AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest,
+    AcceptInvitationError, AcceptInvitationEventContext, AcceptInvitationEventsBuilder,
+    AccountStore, ConsumeInvitationError, ConsumedInvitation,
 };
 
 use async_trait::async_trait;
@@ -302,10 +305,6 @@ impl AccountStore for Store {
     }
 
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
-        // tie-breaker. Without the secondary key, events landing inside the
-        // same timestamp bucket can come back in different orders across
-        // reads — replay correctness demands a total order.
         let rows = entity::events::Entity::find()
             .order_by_desc(entity::events::Column::OccurredAt)
             .order_by_desc(entity::events::Column::Id)
@@ -313,6 +312,34 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
+    }
+
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
+
+    async fn list_memberships_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<MembershipRecord>, StoreError> {
+        let rows = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .all(&self.conn)
+            .await?;
+        rows.into_iter().map(MembershipRecord::try_from).collect()
+    }
+
+    async fn accept_existing_invitation_atomic(
+        &self,
+        request: AcceptExistingInvitationRequest,
+    ) -> Result<AcceptExistingInvitationOutput, AcceptExistingInvitationError> {
+        accept_existing_invitation::run(&self.conn, request).await
     }
 }
 
