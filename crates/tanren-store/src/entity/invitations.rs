@@ -10,6 +10,11 @@ pub struct Model {
     pub inviting_org_id: Uuid,
     pub expires_at: DateTimeUtc,
     pub consumed_at: Option<DateTimeUtc>,
+    pub target_identifier: Option<String>,
+    pub org_permissions: Option<String>,
+    pub revoked_at: Option<DateTimeUtc>,
+    pub revoked_by: Option<Uuid>,
+    pub consumed_by: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

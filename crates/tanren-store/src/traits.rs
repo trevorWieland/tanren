@@ -28,7 +28,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrgPermissions,
+    SessionToken,
 };
 
 use crate::{
@@ -263,6 +264,10 @@ pub struct ConsumedInvitation {
     pub expires_at: DateTime<Utc>,
     /// Wall-clock time the invitation was consumed (the `now` passed in).
     pub consumed_at: DateTime<Utc>,
+    /// Organization-level permissions from the invitation row. `None`
+    /// means the membership should default to
+    /// [`OrgPermissions::member`].
+    pub org_permissions: Option<OrgPermissions>,
 }
 
 /// Failure taxonomy for [`AccountStore::consume_invitation`]. The

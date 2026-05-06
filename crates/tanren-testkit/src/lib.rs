@@ -119,6 +119,8 @@ pub async fn seed_invitation(store: &Store, fixture: &InvitationFixture) -> Resu
             token: fixture.token.clone(),
             inviting_org_id: fixture.inviting_org,
             expires_at: fixture.expires_at,
+            target_identifier: None,
+            org_permissions: None,
         })
         .await?;
     Ok(())

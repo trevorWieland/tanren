@@ -209,6 +209,8 @@ impl AccountHarness for CliHarness {
                 token: fixture.token,
                 inviting_org_id: fixture.inviting_org,
                 expires_at: fixture.expires_at,
+                target_identifier: None,
+                org_permissions: None,
             })
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;

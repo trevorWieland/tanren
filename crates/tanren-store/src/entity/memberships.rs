@@ -10,6 +10,7 @@ pub struct Model {
     pub account_id: Uuid,
     pub org_id: Uuid,
     pub created_at: DateTimeUtc,
+    pub org_permissions: Option<String>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

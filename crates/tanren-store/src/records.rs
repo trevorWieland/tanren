@@ -9,11 +9,11 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, OrgPermissions, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{StoreError, parse_db_identifier, parse_db_invitation_token, parse_db_org_permissions};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -55,7 +55,8 @@ impl TryFrom<entity::accounts::Model> for AccountRecord {
     }
 }
 
-/// Persisted invitation row.
+/// Persisted invitation row. Carries enough state to represent pending,
+/// expired, revoked, and consumed (addressed) invitations.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InvitationRecord {
     /// Opaque invitation token (PK).
@@ -64,8 +65,19 @@ pub struct InvitationRecord {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
-    /// Set when the invitation has been accepted (or revoked).
+    /// Set when the invitation has been consumed (or revoked).
     pub consumed_at: Option<DateTime<Utc>>,
+    /// Target identifier (email) for addressed invitations. `None` for
+    /// open (new-account) invitations.
+    pub target_identifier: Option<Identifier>,
+    /// Organization-level permissions granted on acceptance.
+    pub org_permissions: Option<OrgPermissions>,
+    /// When the invitation was revoked, if applicable.
+    pub revoked_at: Option<DateTime<Utc>>,
+    /// Account that revoked the invitation, if applicable.
+    pub revoked_by: Option<AccountId>,
+    /// Account that consumed the invitation, if tracked.
+    pub consumed_by: Option<AccountId>,
 }
 
 impl TryFrom<entity::invitations::Model> for InvitationRecord {
@@ -73,11 +85,26 @@ impl TryFrom<entity::invitations::Model> for InvitationRecord {
 
     fn try_from(model: entity::invitations::Model) -> Result<Self, Self::Error> {
         let token = parse_db_invitation_token(&model.token)?;
+        let target_identifier = model
+            .target_identifier
+            .as_deref()
+            .map(parse_db_identifier)
+            .transpose()?;
+        let org_permissions = model
+            .org_permissions
+            .as_deref()
+            .map(parse_db_org_permissions)
+            .transpose()?;
         Ok(Self {
             token,
             inviting_org_id: OrgId::new(model.inviting_org_id),
             expires_at: model.expires_at,
             consumed_at: model.consumed_at,
+            target_identifier,
+            org_permissions,
+            revoked_at: model.revoked_at,
+            revoked_by: model.revoked_by.map(AccountId::new),
+            consumed_by: model.consumed_by.map(AccountId::new),
         })
     }
 }
@@ -93,16 +120,26 @@ pub struct MembershipRecord {
     pub org_id: OrgId,
     /// Wall-clock time the membership was created.
     pub created_at: DateTime<Utc>,
+    /// Organization-level permissions for this membership.
+    pub org_permissions: Option<OrgPermissions>,
 }
 
-impl From<entity::memberships::Model> for MembershipRecord {
-    fn from(model: entity::memberships::Model) -> Self {
-        Self {
+impl TryFrom<entity::memberships::Model> for MembershipRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::memberships::Model) -> Result<Self, Self::Error> {
+        let org_permissions = model
+            .org_permissions
+            .as_deref()
+            .map(parse_db_org_permissions)
+            .transpose()?;
+        Ok(Self {
             id: MembershipId::new(model.id),
             account_id: AccountId::new(model.account_id),
             org_id: OrgId::new(model.org_id),
             created_at: model.created_at,
-        }
+            org_permissions,
+        })
     }
 }
 
@@ -164,4 +201,10 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+    /// Target identifier for addressed invitations. `None` for open
+    /// (new-account) invitations — the token is the only selector.
+    pub target_identifier: Option<Identifier>,
+    /// Organization-level permissions granted on acceptance. `None`
+    /// defaults to [`OrgPermissions::member`] at the service layer.
+    pub org_permissions: Option<OrgPermissions>,
 }

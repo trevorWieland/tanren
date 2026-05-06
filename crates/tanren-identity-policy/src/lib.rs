@@ -8,10 +8,12 @@
 //! [`Argon2idVerifier`] as the canonical local-password implementation.
 
 mod argon2_verifier;
+mod org_permissions;
 pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
+pub use org_permissions::OrgPermissions;
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};
@@ -488,4 +490,7 @@ pub enum ValidationError {
     /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
+    /// The supplied org permissions string was empty after trimming.
+    #[error("org permissions string is empty")]
+    EmptyOrgPermissions,
 }

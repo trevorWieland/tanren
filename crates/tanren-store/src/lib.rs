@@ -33,8 +33,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrgPermissions,
+    SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -168,6 +168,7 @@ impl AccountStore for Store {
             account_id: Set(account_id.as_uuid()),
             org_id: Set(org_id.as_uuid()),
             created_at: Set(now),
+            org_permissions: Set(None),
         };
         model.insert(&self.conn).await?;
         Ok(id)
@@ -224,6 +225,11 @@ impl AccountStore for Store {
                 inviting_org_id: OrgId::new(row.inviting_org_id),
                 expires_at: row.expires_at,
                 consumed_at: row.consumed_at.unwrap_or(now),
+                org_permissions: row
+                    .org_permissions
+                    .as_deref()
+                    .map(OrgPermissions::parse)
+                    .and_then(Result::ok),
             });
         }
 
@@ -331,6 +337,14 @@ impl Store {
             inviting_org_id: Set(new.inviting_org_id.as_uuid()),
             expires_at: Set(new.expires_at),
             consumed_at: Set(None),
+            target_identifier: Set(new
+                .target_identifier
+                .as_ref()
+                .map(|i| i.as_str().to_owned())),
+            org_permissions: Set(new.org_permissions.as_ref().map(|p| p.as_str().to_owned())),
+            revoked_at: Set(None),
+            revoked_by: Set(None),
+            consumed_by: Set(None),
         };
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
@@ -353,6 +367,14 @@ pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
 pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, StoreError> {
     InvitationToken::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "invitation_token",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored org permissions string into [`OrgPermissions`].
+pub(crate) fn parse_db_org_permissions(raw: &str) -> Result<OrgPermissions, StoreError> {
+    OrgPermissions::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "org_permissions",
         cause: err,
     })
 }

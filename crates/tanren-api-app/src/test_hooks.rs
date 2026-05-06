@@ -58,6 +58,8 @@ pub(crate) async fn seed_invitation_route(
             token,
             inviting_org_id,
             expires_at: body.expires_at,
+            target_identifier: None,
+            org_permissions: None,
         })
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
