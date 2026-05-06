@@ -15,7 +15,8 @@ pub use account::{
 
 pub use project_uninstall::{
     FileOwnership, InstallManifest, MANIFEST_V1_PATH, MANIFEST_V1_VERSION, ManifestEntry,
-    PreserveReason, PreservedFile, UninstallPreview, UninstallResult,
+    PreserveReason, PreservedFile, UninstallApplyRequest, UninstallPreview,
+    UninstallPreviewRequest, UninstallResult,
 };
 
 use serde::{Deserialize, Serialize};

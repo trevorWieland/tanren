@@ -4259,6 +4259,7 @@ dependencies = [
  "chrono",
  "cucumber",
  "reqwest",
+ "rmcp",
  "secrecy",
  "serde",
  "serde_json",
@@ -4267,6 +4268,7 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-mcp-app",
  "tanren-testkit",
  "tokio",
 ]

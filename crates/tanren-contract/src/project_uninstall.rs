@@ -89,6 +89,22 @@ pub enum PreserveReason {
     AlreadyRemoved,
 }
 
+/// Request to preview which Tanren-generated assets would be removed.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct UninstallPreviewRequest {
+    /// Absolute or relative path to the local repository root.
+    pub repo_path: String,
+}
+
+/// Request to apply an uninstall operation.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct UninstallApplyRequest {
+    /// Absolute or relative path to the local repository root.
+    pub repo_path: String,
+    /// Must be `true` to confirm the destructive operation.
+    pub confirm: bool,
+}
+
 /// Result of applying an uninstall.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UninstallResult {
