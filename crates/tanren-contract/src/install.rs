@@ -8,6 +8,7 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use tanren_identity_policy::ProjectId;
 use utoipa::ToSchema;
 
 /// Kind of install asset being checked for drift.
@@ -60,12 +61,8 @@ pub enum DriftPolicy {
 /// Request to check an installed repository for drift.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct InstallDriftRequest {
-    /// Repository root path to check.
-    pub repo_path: String,
-    /// Policy for evaluating preserved standards.
-    pub preservation_policy: PreservationPolicy,
-    /// Policy for what asset categories to include in the check.
-    pub drift_policy: DriftPolicy,
+    /// Project to check for drift.
+    pub project_id: ProjectId,
 }
 
 /// Single entry in a drift report, describing one asset's state.
@@ -79,6 +76,15 @@ pub struct InstallDriftEntry {
     pub state: InstallDriftState,
 }
 
+/// Describes the effective drift configuration applied during the check.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DriftConfigSource {
+    /// The drift policy that was applied.
+    pub drift_policy: DriftPolicy,
+    /// The preservation policy that was applied.
+    pub preservation_policy: PreservationPolicy,
+}
+
 /// Response from an install drift check.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct InstallDriftResponse {
@@ -86,4 +92,6 @@ pub struct InstallDriftResponse {
     pub has_drift: bool,
     /// Entries for every asset checked.
     pub entries: Vec<InstallDriftEntry>,
+    /// Description of the effective drift configuration that was applied.
+    pub config_source: DriftConfigSource,
 }

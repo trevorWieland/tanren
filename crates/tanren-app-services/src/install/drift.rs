@@ -2,18 +2,22 @@ use std::fs;
 use std::path::Path;
 
 use tanren_contract::{
-    DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftResponse, InstallDriftState,
-    PreservationPolicy,
+    DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftState, PreservationPolicy,
 };
 
 use super::{EntryDriftPolicy, PROJECTION_MANIFEST};
 use crate::AppServiceError;
 
+pub(crate) struct DriftEvalResult {
+    pub has_drift: bool,
+    pub entries: Vec<InstallDriftEntry>,
+}
+
 pub(crate) fn evaluate_drift(
     repo_path: &Path,
     drift_policy: DriftPolicy,
     preservation_policy: PreservationPolicy,
-) -> Result<InstallDriftResponse, AppServiceError> {
+) -> Result<DriftEvalResult, AppServiceError> {
     let repo_meta = fs::symlink_metadata(repo_path).map_err(|e| {
         AppServiceError::InvalidInput(format!(
             "repository path inaccessible: {}: {e}",
@@ -57,7 +61,7 @@ pub(crate) fn evaluate_drift(
 
     entries.sort_by(|a, b| a.relative_path.cmp(&b.relative_path));
 
-    Ok(InstallDriftResponse { has_drift, entries })
+    Ok(DriftEvalResult { has_drift, entries })
 }
 
 fn classify_entry(

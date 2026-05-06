@@ -14,7 +14,7 @@ pub use account::{
 };
 
 pub use install::{
-    DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftRequest,
+    DriftConfigSource, DriftPolicy, InstallDriftAssetKind, InstallDriftEntry, InstallDriftRequest,
     InstallDriftResponse, InstallDriftState, PreservationPolicy,
 };
 

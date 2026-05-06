@@ -11,11 +11,10 @@ pub mod install;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use std::path::Path;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    InstallDriftRequest, InstallDriftResponse, SignInRequest, SignInResponse, SignUpRequest,
-    SignUpResponse,
+    DriftConfigSource, InstallDriftRequest, InstallDriftResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -134,20 +133,39 @@ impl Handlers {
 
     /// Read-only drift check against an installed repository.
     ///
-    /// Compares every asset in the projection manifest against the
-    /// filesystem at `request.repo_path` and reports drift without
-    /// modifying anything.
+    /// Resolves the repository location and effective drift/preservation
+    /// policies from the supplied [`install::ProjectDriftContext`] using
+    /// the project identity carried on the request, then compares every
+    /// asset in the projection manifest against the filesystem and reports
+    /// drift without modifying anything.
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::InvalidInput`] when the repository path
+    /// Returns [`AppServiceError::ProjectDrift`] when the project context
+    /// cannot resolve the repository path. Returns
+    /// [`AppServiceError::InvalidInput`] when the resolved repository path
     /// does not exist or is not a directory.
     pub fn install_drift(
         &self,
+        ctx: &dyn install::ProjectDriftContext,
         request: &InstallDriftRequest,
     ) -> Result<InstallDriftResponse, AppServiceError> {
-        let repo_path = Path::new(&request.repo_path);
-        install::drift::evaluate_drift(repo_path, request.drift_policy, request.preservation_policy)
+        let repo_path = ctx
+            .resolve_repo_path(request.project_id)
+            .map_err(AppServiceError::ProjectDrift)?;
+        let drift_policy = ctx.effective_drift_policy(request.project_id);
+        let preservation_policy = ctx.effective_preservation_policy(request.project_id);
+
+        let result = install::drift::evaluate_drift(&repo_path, drift_policy, preservation_policy)?;
+
+        Ok(InstallDriftResponse {
+            has_drift: result.has_drift,
+            entries: result.entries,
+            config_source: DriftConfigSource {
+                drift_policy,
+                preservation_policy,
+            },
+        })
     }
 
     /// Apply all pending database migrations against the supplied URL.
@@ -236,4 +254,8 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// Project drift context resolution failed (unknown project,
+    /// unresolved repository path, etc.).
+    #[error("project drift: {0}")]
+    ProjectDrift(#[from] install::ProjectDriftError),
 }

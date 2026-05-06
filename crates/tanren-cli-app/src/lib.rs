@@ -21,12 +21,13 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
+use tanren_app_services::install::{ProjectDriftContext, ProjectDriftError};
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, DriftPolicy, InstallDriftRequest, PreservationPolicy, SignInRequest,
     SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_identity_policy::{Email, InvitationToken, ProjectId};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -348,17 +349,14 @@ fn dispatch_install(action: InstallAction) -> Result<()> {
 }
 
 fn run_install_drift(repo: &Path, kind: ReportKind) -> Result<()> {
-    let repo_path = repo
-        .to_str()
-        .ok_or_else(|| anyhow::anyhow!("repository path is not valid UTF-8: {}", repo.display()))
-        .context("resolve repo path")?;
+    let ctx = CliProjectDriftContext {
+        repo_path: repo.to_path_buf(),
+    };
     let request = InstallDriftRequest {
-        repo_path: repo_path.to_owned(),
-        preservation_policy: PreservationPolicy::AcceptUserEdits,
-        drift_policy: DriftPolicy::AllAssets,
+        project_id: ProjectId::fresh(),
     };
     let response = Handlers::new()
-        .install_drift(&request)
+        .install_drift(&ctx, &request)
         .map_err(|err| match err {
             AppServiceError::InvalidInput(msg) => {
                 anyhow::anyhow!("error: validation_failed — {msg}")
@@ -377,6 +375,25 @@ fn run_install_drift(repo: &Path, kind: ReportKind) -> Result<()> {
         anyhow::bail!("drift detected");
     }
     Ok(())
+}
+
+#[derive(Debug)]
+struct CliProjectDriftContext {
+    repo_path: PathBuf,
+}
+
+impl ProjectDriftContext for CliProjectDriftContext {
+    fn resolve_repo_path(&self, _project_id: ProjectId) -> Result<PathBuf, ProjectDriftError> {
+        Ok(self.repo_path.clone())
+    }
+
+    fn effective_drift_policy(&self, _project_id: ProjectId) -> DriftPolicy {
+        DriftPolicy::AllAssets
+    }
+
+    fn effective_preservation_policy(&self, _project_id: ProjectId) -> PreservationPolicy {
+        PreservationPolicy::AcceptUserEdits
+    }
 }
 
 fn persist_session(token: &str) -> Result<()> {
