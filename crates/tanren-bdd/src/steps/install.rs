@@ -85,21 +85,37 @@ fn then_install_fails_with_message(world: &mut TanrenWorld, fragment: String) {
 }
 
 #[given(expr = "a file {string} exists in the repository with content")]
-fn given_file_with_content(world: &mut TanrenWorld, path: String, content: String) {
+fn given_file_with_content(world: &mut TanrenWorld, step: &cucumber::gherkin::Step, path: String) {
     let ctx = world.ensure_install_ctx();
+    let content = step
+        .docstring
+        .as_deref()
+        .expect("step must have a docstring");
     ctx.harness
-        .write_file(&path, &content)
+        .write_file(&path, content)
         .expect("write file must succeed");
-    drop((path, content));
+    drop(path);
 }
 
 #[when(expr = "the file {string} is modified to contain")]
-fn when_file_modified(world: &mut TanrenWorld, path: String, content: String) {
+fn when_file_modified(world: &mut TanrenWorld, step: &cucumber::gherkin::Step, path: String) {
     let ctx = world.ensure_install_ctx();
+    let content = step
+        .docstring
+        .as_deref()
+        .expect("step must have a docstring");
     ctx.harness
-        .write_file(&path, &content)
+        .write_file(&path, content)
         .expect("modify file must succeed");
-    drop((path, content));
+    drop(path);
+}
+
+#[when(expr = "the file {string} is deleted")]
+fn when_file_deleted(world: &mut TanrenWorld, path: String) {
+    let ctx = world.ensure_install_ctx();
+    let full_path = ctx.harness.repo_dir().join(&path);
+    std::fs::remove_file(&full_path).expect("delete file must succeed");
+    drop(path);
 }
 
 #[then(expr = "the file {string} exists in the repository")]
@@ -123,12 +139,16 @@ fn then_file_not_exists(world: &mut TanrenWorld, path: String) {
 }
 
 #[then(expr = "the file {string} in the repository contains")]
-fn then_file_contains(world: &mut TanrenWorld, path: String, expected: String) {
+fn then_file_contains(world: &mut TanrenWorld, step: &cucumber::gherkin::Step, path: String) {
     let ctx = world.ensure_install_ctx();
     let content = ctx.harness.read_file(&path).expect("file must be readable");
+    let expected = step
+        .docstring
+        .as_deref()
+        .expect("step must have a docstring");
     assert!(
-        content.contains(&expected),
+        content.contains(expected),
         "expected file '{path}' to contain '{expected}', got: {content}"
     );
-    drop((path, expected));
+    drop(path);
 }
