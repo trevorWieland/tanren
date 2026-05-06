@@ -138,6 +138,14 @@ pub(crate) struct JoinOrganizationResponseCookie {
 )]
 pub(crate) struct ApiDoc;
 
+/// Return the utoipa-generated `OpenAPI` document. Used by the
+/// `export-openapi` binary and the drift-check gate to produce the
+/// canonical `OpenAPI` 3.1.x artifact consumed by the web client
+/// generator.
+pub fn openapi_spec() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
+}
+
 /// Liveness probe.
 #[utoipa::path(
     get,

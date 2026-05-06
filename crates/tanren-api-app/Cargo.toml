@@ -11,6 +11,10 @@ description = "Library crate that hosts the tanren-api runtime — axum router, 
 [lints]
 workspace = true
 
+[[bin]]
+name = "export-openapi"
+path = "src/bin/export-openapi.rs"
+
 [features]
 # Enables test-only constructors used by the BDD wire-harness in
 # `tanren-testkit` (per-interface harnesses spawn the api server on an

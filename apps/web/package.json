@@ -19,7 +19,7 @@
     "bddgen": "bddgen",
     "e2e": "bddgen && playwright test",
     "e2e:install": "playwright install --with-deps chromium",
-    "generate-client": "openapi-typescript openapi.json -o src/generated/api.d.ts --alphabetize"
+    "generate-client": "openapi-typescript ../../artifacts/openapi.json -o src/generated/api.d.ts --alphabetize"
   },
   "dependencies": {
     "@inlang/paraglide-js": "catalog:default",

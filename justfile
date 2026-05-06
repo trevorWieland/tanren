@@ -346,6 +346,7 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "openapi drift" just check-openapi-drift
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
@@ -743,6 +744,19 @@ check-orphan-traits:
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
 
+# Fail when the committed OpenAPI artifact has diverged from the
+# Rust-generated spec. Wired into `check` by PR 13.
+check-openapi-drift:
+    @{{ cargo }} run -q -p tanren-xtask -- check-openapi-drift
+
+# Generate the Rust-owned OpenAPI 3.1.x artifact from the utoipa derives.
+# Writes to `artifacts/openapi.json`. Run this after changing api routes
+# or contract schemas, then run `just web-generate-client` to refresh the
+# TypeScript types.
+export-openapi:
+    @mkdir -p artifacts
+    @{{ cargo }} run -p tanren-api-app --bin export-openapi --locked --quiet > artifacts/openapi.json
+
 # Run the regression-fixture test suite that proves each guard rejects
 # its synthetic regression. Each fixture under
 # `xtask/tests/fixtures/<guard>/` is a synthetic minimal source tree
@@ -844,6 +858,11 @@ ci:
 # Install pnpm workspace dependencies. Lockfile must be up to date.
 web-install:
     pnpm install --frozen-lockfile
+
+# Regenerate the web TypeScript API client from the Rust-owned OpenAPI
+# artifact. Requires `just export-openapi` to have been run first.
+web-generate-client:
+    pnpm --filter @tanren/web run generate-client
 
 # Build the web frontend (Next.js + Turbopack).
 web-build:

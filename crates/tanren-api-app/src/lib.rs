@@ -65,7 +65,7 @@ use crate::routes::build_router;
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
-    SignUpResponseCookie,
+    SignUpResponseCookie, openapi_spec,
 };
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";

@@ -13,7 +13,8 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Self-signup: create a new personal account and mint a cookie-bound session. */
+    /** Self-signup: create a new personal account and mint a cookie-bound
+     *     session. */
     post: operations["sign_up_route"];
     delete?: never;
     options?: never;
@@ -64,7 +65,8 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Join an organization with an existing account. Reads the signed-in account from the cookie session; no request body required. */
+    /** Join an organization with an existing account. Reads the signed-in
+     *     account from the cookie session; no request body required. */
     post: operations["join_organization_route"];
     delete?: never;
     options?: never;
@@ -98,7 +100,8 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /** Revoke (sign out) the current session. Clears the cookie via `Session::flush` and returns 204. */
+    /** Revoke (sign out) the current session. Clears the cookie via
+     *     `Session::flush` and returns 204. */
     post: operations["revoke_route"];
     delete?: never;
     options?: never;
@@ -110,12 +113,15 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /** @description Path body for `POST /invitations/{token}/accept`. */
+    /** @description Path body for `POST /invitations/{token}/accept`. Splits the password
+     *     into a `String` here (then re-wraps as `SecretString` before handing
+     *     off to app-services) so utoipa can document the schema; the secret
+     *     stays in memory only for the lifetime of this function. */
     AcceptInvitationBody: {
       /** @description Display name. */
       display_name: string;
       /** @description Email the invitee chose. */
-      email: string;
+      email: components["schemas"]["Email"];
       /**
        * Format: password
        * @description Plaintext password.
@@ -124,38 +130,60 @@ export interface components {
     };
     /** @description Cookie-transport projection of an invitation-acceptance response. */
     AcceptInvitationResponseCookie: {
+      /** @description View of the newly created account. */
       account: components["schemas"]["AccountView"];
-      /**
-       * Format: uuid
-       * @description Organization the new account joined.
-       */
-      joined_org: string;
+      /** @description Organization the new account joined. */
+      joined_org: components["schemas"]["OrgId"];
+      /** @description Cookie-projected session envelope. */
       session: components["schemas"]["SessionEnvelope"];
     };
-    /** @description Shared {code, summary} failure body. */
+    /** @description Shared `{code, summary}` failure body. */
     AccountFailureBody: {
       /** @description Stable error code from the closed taxonomy. */
       code: string;
       /** @description Human-readable summary. */
       summary: string;
     };
+    /**
+     * Format: uuid
+     * @description Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
+     */
+    AccountId: string;
     /** @description External-facing view of a Tanren account. */
     AccountView: {
       /** @description Display name. */
       display_name: string;
-      /**
-       * Format: uuid
-       * @description Stable account id.
-       */
-      id: string;
+      /** @description Stable account id. */
+      id: components["schemas"]["AccountId"];
       /** @description User-facing identifier (email). */
-      identifier: string;
-      /**
-       * Format: uuid
-       * @description Owning organization id — null for personal accounts.
-       */
-      org?: string | null;
+      identifier: components["schemas"]["Identifier"];
+      org?: null | components["schemas"]["OrgId"];
     };
+    /**
+     * Format: email
+     * @description Validated email address. Constructed via [`Email::parse`] which:
+     *     trims surrounding whitespace, validates against RFC 5322 syntax via
+     *     the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
+     *     quoted local parts), additionally requires a TLD-style domain (no
+     *     dotless or IP-literal domains), and canonicalises to lower-case so
+     *     case variants of the same address compare equal.
+     *
+     *     # Wire-input contract
+     *
+     *     `Email` does NOT derive `Deserialize` — the custom impl below routes
+     *     every wire input through [`parse`](Self::parse). Without this,
+     *     `#[serde(transparent)]` would let HTTP/MCP/CLI requests carry
+     *     untrimmed/un-lowercased/RFC-invalid addresses, which would persist
+     *     verbatim via `Identifier::from_email` and let two case variants of
+     *     the same logical email register as separate accounts. Codex P1
+     *     review on PR #133.
+     *
+     *     Validation invariants are exercised end-to-end by the @api / @web
+     *     scenarios in `tests/bdd/features/B-0043-create-account.feature` —
+     *     case-variant rejection and malformed-email rejection both run
+     *     through the live wire surface, not through Rust unit tests.
+     */
+    Email: string;
     /** @description Liveness response. */
     HealthResponse: {
       /**
@@ -168,40 +196,75 @@ export interface components {
       /** @description Build-time package version. */
       version: string;
     };
-    /** @description Response shape for `POST /invitations/{token}/join`. */
+    /** @description User-facing identifier for an account. R-0001's chosen mechanism is
+     *     identifier+password where the identifier is the canonical email; the
+     *     type wraps the raw string so future mechanisms can lift constraints
+     *     in one place.
+     *
+     *     `Identifier` does NOT derive `Deserialize` — the custom impl below
+     *     routes every wire input through [`parse`](Self::parse) so untrimmed
+     *     or differently-cased identifiers cannot bypass canonicalisation.
+     *     Validation invariants are exercised end-to-end by the @api / @web
+     *     scenarios in `tests/bdd/features/B-0043-create-account.feature`
+     *     (case-variant rejection, malformed-input rejection); per the
+     *     BDD-only test surface policy there are no Rust unit or doc-tests
+     *     for these rules. */
+    Identifier: string;
+    /** @description Response shape for `POST /invitations/{token}/join`. The account is
+     *     already authenticated (session set by a prior sign-in), so no
+     *     session projection is needed — the response carries only the join
+     *     result. */
     JoinOrganizationResponseCookie: {
-      /**
-       * Format: uuid
-       * @description Organization the account joined.
-       */
-      joined_org: string;
+      /** @description Organization the account joined. */
+      joined_org: components["schemas"]["OrgId"];
       /** @description Organization-level permissions granted by the new membership. */
-      membership_permissions: string;
+      membership_permissions: components["schemas"]["OrgPermissions"];
       /** @description Project-level access grants (always empty on join). */
       project_access_grants: components["schemas"]["ProjectAccessGrant"][];
       /** @description All organization memberships selectable by this account. */
       selectable_organizations: components["schemas"]["OrgMembershipView"][];
     };
-    /** @description View of one organization membership. */
+    /**
+     * Format: uuid
+     * @description Stable identifier for a Tanren organization.
+     */
+    OrgId: string;
+    /** @description View of one organization membership for the selectable-org list
+     *     returned by [`JoinOrganizationResponse`]. */
     OrgMembershipView: {
-      /**
-       * Format: uuid
-       * @description Organization the account is a member of.
-       */
-      org_id: string;
+      /** @description Organization the account is a member of. */
+      org_id: components["schemas"]["OrgId"];
       /** @description Organization-level permissions for this membership. */
-      permissions: string;
+      permissions: components["schemas"]["OrgPermissions"];
     };
-    /** @description Placeholder for a project-level access grant. */
+    /** @description Organization-level permissions for a membership or invitation.
+     *     Represents the permission level a member holds within an organization.
+     *     Stored as a string tag (e.g. `"member"`, `"admin"`); the taxonomy is
+     *     owned by `tanren-identity-policy` and extended by later behavior slices. */
+    OrgPermissions: string;
+    /** @description Placeholder for a project-level access grant. Populated by the
+     *     project-access subsystem (M-0031); always empty during invitation
+     *     acceptance. The struct is intentionally a stub — fields will be added
+     *     by the project-access work that owns M-0031. */
     ProjectAccessGrant: Record<string, never>;
-    /** @description Transport-aware projection of a freshly minted session. */
+    /** @description Transport-aware projection of a freshly minted session.
+     *
+     *     The `@web` and `@api` surfaces deliver session tokens via an
+     *     `HttpOnly + Secure + SameSite=Strict` cookie set by the API; the body
+     *     only exposes `account_id` + `expires_at` (`Cookie` variant). The
+     *     `@cli`, `@mcp`, and `@tui` surfaces have no cookie jar — they receive
+     *     the token in the response body (`Bearer` variant). Subsequent PRs map
+     *     `SessionView` → `SessionEnvelope` per surface inside each binary
+     *     (cookie session lands in PR 8). The discriminator is the transport,
+     *     not the user.
+     *
+     *     See `docs/architecture/subsystems/interfaces.md` § "Canonical session,
+     *     error, `OpenAPI`, and design-token decisions" and
+     *     `profiles/rust-cargo/architecture/cookie-session.md`. */
     SessionEnvelope:
       | {
-          /**
-           * Format: uuid
-           * @description Account this session is bound to.
-           */
-          account_id: string;
+          /** @description Account this session is bound to. */
+          account_id: components["schemas"]["AccountId"];
           /**
            * Format: date-time
            * @description Wall-clock time at which the session expires.
@@ -211,25 +274,23 @@ export interface components {
           transport: "cookie";
         }
       | {
-          /**
-           * Format: uuid
-           * @description Account this session is bound to.
-           */
-          account_id: string;
+          /** @description Account this session is bound to. */
+          account_id: components["schemas"]["AccountId"];
           /**
            * Format: date-time
            * @description Wall-clock time at which the session expires.
            */
           expires_at: string;
           /** @description Opaque session token. */
-          token: string;
+          token: components["schemas"]["SessionToken"];
           /** @enum {string} */
           transport: "bearer";
         };
+    SessionToken: string;
     /** @description Sign-in request. */
     SignInRequest: {
       /** @description Email of the account being signed in to. */
-      email: string;
+      email: components["schemas"]["Email"];
       /**
        * Format: password
        * @description Plaintext password — verified against the stored hash.
@@ -238,24 +299,34 @@ export interface components {
     };
     /** @description Cookie-transport projection of a sign-in response. */
     SignInResponseCookie: {
+      /** @description View of the signed-in account. */
       account: components["schemas"]["AccountView"];
+      /** @description Cookie-projected session envelope. */
       session: components["schemas"]["SessionEnvelope"];
     };
     /** @description Self-signup request. */
     SignUpRequest: {
       /** @description Human-readable display name for the new account. */
       display_name: string;
-      /** @description Email address that will own the new account. */
-      email: string;
+      /** @description Email address that will own the new account. Lower-cased + trimmed
+       *     during validation. */
+      email: components["schemas"]["Email"];
       /**
        * Format: password
-       * @description Plaintext password.
+       * @description Plaintext password. Hashed by the handler before persistence.
+       *     Wrapped in `SecretString` so accidental `Debug` / `Serialize`
+       *     calls do not leak the credential.
        */
       password: string;
     };
-    /** @description Cookie-transport response shape for the api surface. */
+    /** @description Cookie-transport response shape for the api surface. Mirrors
+     *     `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
+     *     projects the session into [`SessionEnvelope::Cookie`] (no token in
+     *     body — it ships in the `Set-Cookie` header). */
     SignUpResponseCookie: {
+      /** @description View of the freshly created account. */
       account: components["schemas"]["AccountView"];
+      /** @description Cookie-projected session envelope. */
       session: components["schemas"]["SessionEnvelope"];
     };
   };

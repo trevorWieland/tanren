@@ -10,6 +10,7 @@ mod check_profiles;
 mod check_secrets;
 mod check_test_hooks;
 mod check_tracing_init;
+mod export_openapi;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -123,6 +124,10 @@ enum Command {
     /// `profiles/rust-cargo/architecture/openapi-generation.md`.
     #[command(name = "check-openapi-handcraft")]
     OpenapiHandcraft(RootArg),
+    /// Fail when the committed `OpenAPI` artifact has diverged from the
+    /// Rust-generated spec. See `profiles/rust-cargo/architecture/openapi-generation.md`.
+    #[command(name = "check-openapi-drift")]
+    OpenapiDrift(RootArg),
 }
 
 fn main() -> Result<()> {
@@ -140,6 +145,7 @@ fn main() -> Result<()> {
         Command::Profiles(r) => check_profiles::run(&r.resolve()?),
         Command::OrphanTraits(r) => check_orphan_traits::run(&r.resolve()?),
         Command::OpenapiHandcraft(r) => check_openapi_handcraft::run(&r.resolve()?),
+        Command::OpenapiDrift(r) => export_openapi::run(&r.resolve()?),
     }
 }
 
