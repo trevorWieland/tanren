@@ -83,13 +83,11 @@ pub(crate) async fn seed_invitation_route(
 /// Request body for `POST /test-hooks/memberships`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SeedMembershipBody {
-    /// Account to add to the organization.
     pub account_id: AccountId,
-    /// Organization the account joins. When omitted a fresh `OrgId` is
-    /// allocated — the BDD scenario only cares about membership count,
-    /// not which specific org.
     #[serde(default)]
     pub org_id: Option<OrgId>,
+    #[serde(default)]
+    pub org_permissions: Option<OrgPermissions>,
 }
 
 pub(crate) async fn seed_membership_route(
@@ -98,7 +96,25 @@ pub(crate) async fn seed_membership_route(
 ) -> Result<StatusCode, (StatusCode, String)> {
     let org_id = body.org_id.unwrap_or_else(OrgId::fresh);
     store
-        .insert_membership(body.account_id, org_id, Utc::now())
+        .seed_membership(body.account_id, org_id, body.org_permissions, Utc::now())
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedInFlightWorkBody {
+    pub account_id: AccountId,
+    pub org_id: OrgId,
+    pub description: String,
+}
+
+pub(crate) async fn seed_in_flight_work_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedInFlightWorkBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    store
+        .seed_in_flight_work(body.account_id, body.org_id, body.description, Utc::now())
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
     Ok(StatusCode::CREATED)
@@ -151,6 +167,10 @@ pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
         .route("/test-hooks/memberships", post(seed_membership_route))
+        .route(
+            "/test-hooks/in-flight-work",
+            post(seed_in_flight_work_route),
+        )
         .route("/test-hooks/events", get(recent_events_route))
         .with_state(store)
 }

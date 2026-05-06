@@ -37,6 +37,7 @@
 //!   `Session::flush` and returns 204.
 
 mod cookies;
+mod departure;
 mod errors;
 mod routes;
 // test_hooks must be visible in any compilation that exposes

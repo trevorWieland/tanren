@@ -13,14 +13,20 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{AppServiceError, Handlers};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, JoinOrganizationRequest,
-    OrgMembershipView, ProjectAccessGrant, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, InFlightWorkItem,
+    JoinOrganizationRequest, MembershipDepartureResponse, OrgMembershipView, ProjectAccessGrant,
+    SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId, OrgPermissions};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+
+use crate::departure::{
+    __path_leave_organization_route, __path_remove_member_route, DepartureBody,
+    leave_organization_route, remove_member_route,
+};
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session, read_cookie_session};
@@ -115,6 +121,8 @@ pub(crate) struct JoinOrganizationResponseCookie {
         sign_in_route,
         accept_invitation_route,
         join_organization_route,
+        leave_organization_route,
+        remove_member_route,
         revoke_route,
     ),
     components(schemas(
@@ -126,6 +134,9 @@ pub(crate) struct JoinOrganizationResponseCookie {
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
         JoinOrganizationResponseCookie,
+        DepartureBody,
+        MembershipDepartureResponse,
+        InFlightWorkItem,
         OrgMembershipView,
         ProjectAccessGrant,
         AccountFailureBody,
@@ -405,6 +416,8 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(join_organization_route))
+        .routes(routes!(leave_organization_route))
+        .routes(routes!(remove_member_route))
         .routes(routes!(revoke_route))
         .with_state(state)
 }
