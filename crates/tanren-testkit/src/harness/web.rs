@@ -21,13 +21,19 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, CreateOrgInvitationRequest, OrgInvitationView, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::{
+    AccountId, Identifier, InvitationToken, OrgId, OrganizationPermission,
+};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessMembershipSeed,
+    HarnessOrgInvitationSeed, HarnessResult, HarnessSession,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -77,7 +83,68 @@ impl AccountHarness for WebHarness {
         self.inner.seed_invitation(fixture).await
     }
 
+    async fn seed_org_invitation(
+        &mut self,
+        fixture: HarnessOrgInvitationSeed,
+    ) -> HarnessResult<()> {
+        self.inner.seed_org_invitation(fixture).await
+    }
+
+    async fn seed_membership(&mut self, fixture: HarnessMembershipSeed) -> HarnessResult<()> {
+        self.inner.seed_membership(fixture).await
+    }
+
+    async fn create_org_invitation(
+        &mut self,
+        caller_account_id: AccountId,
+        caller_org_context: Option<OrgId>,
+        request: CreateOrgInvitationRequest,
+    ) -> HarnessResult<OrgInvitationView> {
+        self.inner
+            .create_org_invitation(caller_account_id, caller_org_context, request)
+            .await
+    }
+
+    async fn list_org_invitations(
+        &mut self,
+        caller_account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<Vec<OrgInvitationView>> {
+        self.inner
+            .list_org_invitations(caller_account_id, org_id)
+            .await
+    }
+
+    async fn list_recipient_invitations(
+        &mut self,
+        identifier: &Identifier,
+    ) -> HarnessResult<Vec<OrgInvitationView>> {
+        self.inner.list_recipient_invitations(identifier).await
+    }
+
+    async fn revoke_invitation(
+        &mut self,
+        caller_account_id: AccountId,
+        caller_org_context: Option<OrgId>,
+        org_id: OrgId,
+        token: InvitationToken,
+    ) -> HarnessResult<OrgInvitationView> {
+        self.inner
+            .revoke_invitation(caller_account_id, caller_org_context, org_id, token)
+            .await
+    }
+
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn find_membership_permissions(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<Vec<OrganizationPermission>> {
+        self.inner
+            .find_membership_permissions(account_id, org_id)
+            .await
     }
 }

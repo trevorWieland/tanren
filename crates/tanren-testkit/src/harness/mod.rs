@@ -57,9 +57,12 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, CreateOrgInvitationRequest,
+    OrgInvitationView, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, Identifier, InvitationToken, OrgId, OrganizationPermission,
+};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -187,6 +190,41 @@ pub struct HarnessInvitation {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Specification for a full organization invitation seeded into the
+/// harness's backing store. Unlike [`HarnessInvitation`] (which is
+/// the basic R-0001 seed shape), this carries the recipient identifier,
+/// granted permissions, and the creator account — the fields R-0005
+/// BDD scenarios need to assert against.
+#[derive(Debug, Clone)]
+pub struct HarnessOrgInvitationSeed {
+    /// Opaque token.
+    pub token: InvitationToken,
+    /// Organization issuing the invitation.
+    pub org_id: OrgId,
+    /// Recipient identifier (email / handle).
+    pub recipient_identifier: Identifier,
+    /// Permissions granted on acceptance.
+    pub permissions: Vec<OrganizationPermission>,
+    /// Account that created the invitation.
+    pub created_by: AccountId,
+    /// Expiry instant.
+    pub expires_at: DateTime<Utc>,
+}
+
+/// Specification for a membership seeded into the harness's backing
+/// store. Used by `Given <actor> is an org admin of ...` steps to
+/// establish org-context and permission state without routing through
+/// the invitation-acceptance flow.
+#[derive(Debug, Clone)]
+pub struct HarnessMembershipSeed {
+    /// Account to add to the organization.
+    pub account_id: AccountId,
+    /// Target organization.
+    pub org_id: OrgId,
+    /// Permissions to grant (e.g. `["admin"]` or `["member"]`).
+    pub permissions: Vec<OrganizationPermission>,
+}
+
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -236,8 +274,57 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
 
+    /// Seed a full organization invitation with recipient identifier,
+    /// permissions, and creator.
+    async fn seed_org_invitation(&mut self, fixture: HarnessOrgInvitationSeed)
+    -> HarnessResult<()>;
+
+    /// Seed a membership linking an account to an organization with the
+    /// given permissions.
+    async fn seed_membership(&mut self, fixture: HarnessMembershipSeed) -> HarnessResult<()>;
+
+    /// Create an organization invitation. The caller must be an org admin.
+    async fn create_org_invitation(
+        &mut self,
+        caller_account_id: AccountId,
+        caller_org_context: Option<OrgId>,
+        request: CreateOrgInvitationRequest,
+    ) -> HarnessResult<OrgInvitationView>;
+
+    /// List all invitations for an organization. The caller must be an
+    /// org admin.
+    async fn list_org_invitations(
+        &mut self,
+        caller_account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<Vec<OrgInvitationView>>;
+
+    /// List pending invitations addressed to a recipient identifier.
+    async fn list_recipient_invitations(
+        &mut self,
+        identifier: &Identifier,
+    ) -> HarnessResult<Vec<OrgInvitationView>>;
+
+    /// Revoke a pending organization invitation. The caller must be an
+    /// org admin.
+    async fn revoke_invitation(
+        &mut self,
+        caller_account_id: AccountId,
+        caller_org_context: Option<OrgId>,
+        org_id: OrgId,
+        token: InvitationToken,
+    ) -> HarnessResult<OrgInvitationView>;
+
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// Look up the permissions an account holds within an organization.
+    /// Returns an empty vec if the account is not a member.
+    async fn find_membership_permissions(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<Vec<OrganizationPermission>>;
 }
 
 /// Default short-window timeout used by the wire harnesses.
@@ -278,6 +365,12 @@ pub enum HarnessOutcome {
     SignedIn(HarnessSession),
     /// Successful invitation acceptance.
     AcceptedInvitation(HarnessAcceptance),
+    /// Successful org invitation creation.
+    InvitationCreated(OrgInvitationView),
+    /// Successful org invitation listing.
+    InvitationsListed(Vec<OrgInvitationView>),
+    /// Successful org invitation revocation.
+    InvitationRevoked(OrgInvitationView),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
     /// Non-taxonomy infrastructure failure.
@@ -295,6 +388,9 @@ impl HarnessOutcome {
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
+            | Self::InvitationCreated(_)
+            | Self::InvitationsListed(_)
+            | Self::InvitationRevoked(_)
             | Self::Other(_) => None,
         }
     }

@@ -15,15 +15,21 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateOrgInvitationRequest, OrgInvitationView,
+    SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{
+    AccountId, Identifier, InvitationToken, OrgId, OrganizationPermission,
+};
+use tanren_store::{AccountStore, CreateInvitation, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessMembershipSeed, HarnessOrgInvitationSeed, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -202,6 +208,106 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn seed_org_invitation(
+        &mut self,
+        fixture: HarnessOrgInvitationSeed,
+    ) -> HarnessResult<()> {
+        self.store
+            .seed_organization_invitation(CreateInvitation {
+                token: fixture.token,
+                inviting_org_id: fixture.org_id,
+                recipient_identifier: fixture.recipient_identifier,
+                granted_permissions: fixture.permissions,
+                created_by_account_id: fixture.created_by,
+                created_at: chrono::Utc::now(),
+                expires_at: fixture.expires_at,
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_org_invitation: {e}")))?;
+        Ok(())
+    }
+
+    async fn seed_membership(&mut self, fixture: HarnessMembershipSeed) -> HarnessResult<()> {
+        self.store
+            .insert_membership(
+                fixture.account_id,
+                fixture.org_id,
+                fixture.permissions,
+                chrono::Utc::now(),
+            )
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_membership: {e}")))?;
+        Ok(())
+    }
+
+    async fn create_org_invitation(
+        &mut self,
+        caller_account_id: AccountId,
+        caller_org_context: Option<OrgId>,
+        request: CreateOrgInvitationRequest,
+    ) -> HarnessResult<OrgInvitationView> {
+        let body = serde_json::json!({
+            "caller_account_id": caller_account_id.as_uuid().to_string(),
+            "org_id": request.org_id.as_uuid().to_string(),
+            "recipient_identifier": request.recipient_identifier.as_str(),
+            "permissions": request.permissions.iter().map(OrganizationPermission::as_str).collect::<Vec<_>>(),
+            "expires_at": request.expires_at.to_rfc3339(),
+        });
+        let payload = self.call_tool("invitation.create", body).await?;
+        let caller_org = caller_org_context.unwrap_or(request.org_id);
+        decode_invitation_view(&payload, caller_org)
+    }
+
+    async fn list_org_invitations(
+        &mut self,
+        caller_account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<Vec<OrgInvitationView>> {
+        let body = serde_json::json!({
+            "caller_account_id": caller_account_id.as_uuid().to_string(),
+            "org_id": org_id.as_uuid().to_string(),
+        });
+        let payload = self.call_tool("invitation.list_org", body).await?;
+        decode_invitation_list(&payload)
+    }
+
+    async fn list_recipient_invitations(
+        &mut self,
+        identifier: &Identifier,
+    ) -> HarnessResult<Vec<OrgInvitationView>> {
+        let body = serde_json::json!({
+            "recipient_identifier": identifier.as_str(),
+        });
+        let payload = self.call_tool("invitation.list_recipient", body).await?;
+        decode_invitation_list(&payload)
+    }
+
+    async fn revoke_invitation(
+        &mut self,
+        caller_account_id: AccountId,
+        caller_org_context: Option<OrgId>,
+        org_id: OrgId,
+        token: InvitationToken,
+    ) -> HarnessResult<OrgInvitationView> {
+        let body = serde_json::json!({
+            "caller_account_id": caller_account_id.as_uuid().to_string(),
+            "org_id": org_id.as_uuid().to_string(),
+            "token": token.as_str(),
+        });
+        let payload = self.call_tool("invitation.revoke", body).await?;
+        decode_invitation_view(&payload, caller_org_context.unwrap_or(org_id))
+    }
+
+    async fn find_membership_permissions(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<Vec<OrganizationPermission>> {
+        AccountStore::find_organization_permissions(self.store.as_ref(), account_id, org_id)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("find_membership_permissions: {e}")))
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {
@@ -248,4 +354,17 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
+}
+
+fn decode_invitation_view(payload: &Value, _org_id: OrgId) -> HarnessResult<OrgInvitationView> {
+    serde_json::from_value(payload.clone())
+        .map_err(|e| HarnessError::Transport(format!("decode invitation view: {e}")))
+}
+
+fn decode_invitation_list(payload: &Value) -> HarnessResult<Vec<OrgInvitationView>> {
+    let invitations = payload
+        .get("invitations")
+        .ok_or_else(|| HarnessError::Transport("missing invitations field".to_owned()))?;
+    serde_json::from_value(invitations.clone())
+        .map_err(|e| HarnessError::Transport(format!("decode invitations list: {e}")))
 }

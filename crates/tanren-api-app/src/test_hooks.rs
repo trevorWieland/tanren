@@ -20,13 +20,13 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, OrgId, OrganizationPermission,
+    AccountId, Email, Identifier, InvitationToken, OrgId, OrganizationPermission,
 };
 use tanren_store::{AccountStore, CreateInvitation, NewInvitation, Store};
 use uuid::Uuid;
@@ -145,6 +145,69 @@ pub(crate) async fn seed_org_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+/// Query parameters for `GET /test-hooks/membership-permissions`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct MembershipPermissionsQuery {
+    /// Account id to look up.
+    pub account_id: Uuid,
+    /// Organization id to look up.
+    pub org_id: Uuid,
+}
+
+/// Response body for `GET /test-hooks/membership-permissions`.
+#[derive(Debug, Serialize)]
+pub(crate) struct MembershipPermissionsResponse {
+    /// Permission names the account holds in the organization.
+    pub permissions: Vec<String>,
+}
+
+pub(crate) async fn membership_permissions_route(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<MembershipPermissionsQuery>,
+) -> Result<Json<MembershipPermissionsResponse>, (StatusCode, String)> {
+    let account_id = AccountId::new(query.account_id);
+    let org_id = OrgId::new(query.org_id);
+    let permissions = store
+        .find_organization_permissions(account_id, org_id)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(MembershipPermissionsResponse {
+        permissions: permissions.iter().map(|p| p.as_str().to_owned()).collect(),
+    }))
+}
+
+/// Query parameters for `GET /test-hooks/account-by-email`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct AccountByEmailQuery {
+    /// Email address to look up.
+    pub email: String,
+}
+
+/// Response body for `GET /test-hooks/account-by-email`.
+#[derive(Debug, Serialize)]
+pub(crate) struct AccountByEmailResponse {
+    /// Stable account id.
+    pub account_id: Uuid,
+    /// Owning organization id, if any.
+    pub org_id: Option<Uuid>,
+}
+
+pub(crate) async fn account_by_email_route(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<AccountByEmailQuery>,
+) -> Result<Json<AccountByEmailResponse>, (StatusCode, String)> {
+    let email = Email::parse(&query.email).map_err(|e| (StatusCode::BAD_REQUEST, e.to_string()))?;
+    let record = store
+        .find_account_by_email(&email)
+        .await
+        .map_err(|e| (StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?
+        .ok_or_else(|| (StatusCode::NOT_FOUND, "account not found".to_owned()))?;
+    Ok(Json(AccountByEmailResponse {
+        account_id: record.id.as_uuid(),
+        org_id: record.org_id.map(OrgId::as_uuid),
+    }))
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
@@ -155,5 +218,10 @@ pub(crate) fn router(store: Arc<Store>) -> Router {
             post(seed_org_invitation_route),
         )
         .route("/test-hooks/memberships", post(seed_membership_route))
+        .route(
+            "/test-hooks/membership-permissions",
+            get(membership_permissions_route),
+        )
+        .route("/test-hooks/account-by-email", get(account_by_email_route))
         .with_state(store)
 }

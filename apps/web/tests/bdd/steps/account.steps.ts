@@ -35,6 +35,8 @@ interface ActorState {
   hasSession?: boolean;
   lastFailureCode?: string;
   lastInvitationToken?: string;
+  accountId?: string;
+  joinedOrgId?: string;
 }
 
 interface WebWorld {
@@ -570,6 +572,52 @@ Then(/^the recipient sees no invitations$/, async ({ page }) => {
     timeout: 10_000,
   });
 });
+
+Then(
+  /^(\w+) holds permission "([^"]+)" in the joined organization$/,
+  async ({ world: _world }, name: string, permission: string) => {
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const a = actor(_world, name);
+    if (!a.email) {
+      throw new Error(`actor ${name} has no email recorded`);
+    }
+    const lookupRes = await fetch(
+      `${apiUrl}/test-hooks/account-by-email?email=${encodeURIComponent(a.email)}`,
+    );
+    if (!lookupRes.ok) {
+      throw new Error(
+        `account lookup for ${a.email} failed: ${lookupRes.status}`,
+      );
+    }
+    const accountInfo = (await lookupRes.json()) as {
+      account_id: string;
+      org_id: string | null;
+    };
+    const accountId = accountInfo.account_id;
+    const orgId = accountInfo.org_id;
+    if (!orgId) {
+      throw new Error(
+        `account ${accountId} for ${name} has no org — expected a joined org`,
+      );
+    }
+    const permRes = await fetch(
+      `${apiUrl}/test-hooks/membership-permissions?account_id=${encodeURIComponent(accountId)}&org_id=${encodeURIComponent(orgId)}`,
+    );
+    if (!permRes.ok) {
+      throw new Error(
+        `membership permissions lookup failed: ${permRes.status}`,
+      );
+    }
+    const permResult = (await permRes.json()) as { permissions: string[] };
+    const found = permResult.permissions.includes(permission);
+    if (!found) {
+      throw new Error(
+        `expected permission '${permission}' on membership, got: ${JSON.stringify(permResult.permissions)}`,
+      );
+    }
+  },
+);
 
 // ============================================================================
 // Helpers

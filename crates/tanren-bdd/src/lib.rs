@@ -16,6 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::OrgInvitationView;
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -69,6 +70,10 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Last org invitation list returned by a list step.
+    pub last_invitation_list: Vec<OrgInvitationView>,
+    /// Last org invitation created or revoked.
+    pub last_invitation_view: Option<OrgInvitationView>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -81,6 +86,8 @@ impl std::fmt::Debug for AccountContext {
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
             )
+            .field("last_invitation_list", &self.last_invitation_list.len())
+            .field("last_invitation_view", &self.last_invitation_view.is_some())
             .finish()
     }
 }
@@ -119,6 +126,8 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            last_invitation_list: Vec::new(),
+            last_invitation_view: None,
         }
     }
 }
@@ -128,6 +137,9 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedUp(_) => "SignedUp",
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
+        HarnessOutcome::InvitationCreated(_) => "InvitationCreated",
+        HarnessOutcome::InvitationsListed(_) => "InvitationsListed",
+        HarnessOutcome::InvitationRevoked(_) => "InvitationRevoked",
         HarnessOutcome::Failure(_) => "Failure",
         HarnessOutcome::Other(_) => "Other",
     }
