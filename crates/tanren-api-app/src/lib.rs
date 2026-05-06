@@ -54,6 +54,7 @@ use axum::Json;
 use axum::http::{HeaderValue, header};
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
+use tanren_provider_integrations::SourceControlProvider;
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -140,6 +141,7 @@ fn parse_cors_origins(raw: Option<&str>) -> Result<Vec<HeaderValue>> {
 pub(crate) struct AppState {
     pub(crate) handlers: Handlers,
     pub(crate) store: Arc<Store>,
+    pub(crate) provider: Option<Arc<dyn SourceControlProvider>>,
 }
 
 /// Build the axum router and the `OpenAPI` document. Exposed for the BDD
@@ -160,6 +162,7 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
+        provider: None,
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
@@ -240,6 +243,7 @@ pub async fn build_app_with_store(
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
+        provider: None,
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;

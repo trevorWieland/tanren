@@ -13,9 +13,10 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ActiveProjectView, ConnectProjectRequest,
+    CreateProjectRequest, ProjectView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -98,6 +99,9 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        connect_project_route,
+        create_project_route,
+        active_project_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +113,15 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        ConnectProjectRequest,
+        CreateProjectRequest,
+        ProjectView,
+        ActiveProjectView,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "projects", description = "Project registration: connect existing repository, create new project, active-project readback."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +317,148 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+async fn require_account_id(session: &Session) -> Result<AccountId, Response> {
+    match session.get::<AccountId>("account_id").await {
+        Ok(Some(id)) => Ok(id),
+        Ok(None) => Err((
+            StatusCode::UNAUTHORIZED,
+            Json(AccountFailureBody {
+                code: "auth_required".to_owned(),
+                summary: "Authentication required.".to_owned(),
+            }),
+        )
+            .into_response()),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read");
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response())
+        }
+    }
+}
+
+fn provider_not_configured() -> Response {
+    (
+        StatusCode::SERVICE_UNAVAILABLE,
+        Json(AccountFailureBody {
+            code: "provider_not_configured".to_owned(),
+            summary: "SCM provider is not configured.".to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+/// Connect an existing repository as a new project (B-0025).
+#[utoipa::path(
+    post,
+    path = "/projects/connect",
+    request_body = ConnectProjectRequest,
+    responses(
+        (status = 201, body = ProjectView, description = "Project connected"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 403, body = AccountFailureBody, description = "access_denied"),
+        (status = 409, body = AccountFailureBody, description = "duplicate_repository"),
+        (status = 502, body = AccountFailureBody, description = "provider_failure"),
+        (status = 503, body = AccountFailureBody, description = "provider_not_configured"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn connect_project_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<ConnectProjectRequest>,
+) -> Response {
+    let account_id = match require_account_id(&session).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let Some(provider) = state.provider.as_deref() else {
+        return provider_not_configured();
+    };
+    match state
+        .handlers
+        .connect_project(state.store.as_ref(), provider, account_id, request)
+        .await
+    {
+        Ok(project) => (StatusCode::CREATED, Json(project)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Create a new project and its backing repository (B-0026).
+#[utoipa::path(
+    post,
+    path = "/projects/create",
+    request_body = CreateProjectRequest,
+    responses(
+        (status = 201, body = ProjectView, description = "Project created"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 403, body = AccountFailureBody, description = "access_denied"),
+        (status = 409, body = AccountFailureBody, description = "duplicate_repository"),
+        (status = 502, body = AccountFailureBody, description = "provider_failure"),
+        (status = 503, body = AccountFailureBody, description = "provider_not_configured"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn create_project_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<CreateProjectRequest>,
+) -> Response {
+    let account_id = match require_account_id(&session).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    let Some(provider) = state.provider.as_deref() else {
+        return provider_not_configured();
+    };
+    match state
+        .handlers
+        .create_project(state.store.as_ref(), provider, account_id, request)
+        .await
+    {
+        Ok(project) => (StatusCode::CREATED, Json(project)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Read back the caller's currently active project.
+#[utoipa::path(
+    get,
+    path = "/projects/active",
+    responses(
+        (status = 200, body = ActiveProjectView, description = "Active project"),
+        (status = 204, description = "No active project"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn active_project_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let account_id = match require_account_id(&session).await {
+        Ok(id) => id,
+        Err(resp) => return resp,
+    };
+    match state
+        .handlers
+        .active_project(state.store.as_ref(), account_id)
+        .await
+    {
+        Ok(Some(view)) => Json(view).into_response(),
+        Ok(None) => StatusCode::NO_CONTENT.into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +471,8 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(connect_project_route))
+        .routes(routes!(create_project_route))
+        .routes(routes!(active_project_route))
         .with_state(state)
 }
