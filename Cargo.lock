@@ -4497,9 +4497,11 @@ dependencies = [
  "ratatui",
  "secrecy",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

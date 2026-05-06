@@ -1,10 +1,3 @@
-//! TUI screen state machine and submit dispatch.
-//!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
-
 use std::env;
 use std::io::Stdout;
 use std::sync::Arc;
@@ -15,23 +8,29 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_identity_policy::SessionToken;
 use tokio::runtime::Runtime;
 
 use crate::draw;
-use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
-};
-use crate::{FormState, MenuChoice};
+use crate::ui::{accept_invitation_fields, sign_in_fields, sign_up_fields};
+use crate::{FormState, MenuChoice, SubmenuKind};
+
+mod submit;
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
 #[derive(Debug)]
 pub(crate) enum Screen {
     Menu { selected: usize },
+    Submenu { kind: SubmenuKind, selected: usize },
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    UserConfigSet(FormState),
+    UserConfigRemove(FormState),
+    CredentialAdd(FormState),
+    CredentialUpdate(FormState),
+    CredentialRemove(FormState),
     Outcome(OutcomeView),
 }
 
@@ -47,6 +46,7 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    session_token: Option<SessionToken>,
     screen: Screen,
 }
 
@@ -71,6 +71,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            session_token: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -112,6 +113,20 @@ impl App {
                     Effect::None
                 }
             }
+            Screen::Submenu { kind, selected } => {
+                let mut next: Option<Screen> = None;
+                let mut direct: Option<DirectAction> = None;
+                let exit = handle_submenu_key(*kind, selected, key, &mut next, &mut direct);
+                if exit {
+                    Effect::Exit
+                } else if let Some(screen) = next {
+                    Effect::ReplaceScreen(screen)
+                } else if let Some(action) = direct {
+                    Effect::DirectAction(action)
+                } else {
+                    Effect::None
+                }
+            }
             Screen::Outcome(_) => {
                 if matches!(
                     key.code,
@@ -134,6 +149,26 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::UserConfigSet(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::UserConfigSet),
+                None => Effect::None,
+            },
+            Screen::UserConfigRemove(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::UserConfigRemove),
+                None => Effect::None,
+            },
+            Screen::CredentialAdd(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CredentialAdd),
+                None => Effect::None,
+            },
+            Screen::CredentialUpdate(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CredentialUpdate),
+                None => Effect::None,
+            },
+            Screen::CredentialRemove(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CredentialRemove),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -144,6 +179,10 @@ impl App {
             }
             Effect::Form(action, kind) => {
                 self.dispatch_form_action(action, kind);
+                false
+            }
+            Effect::DirectAction(action) => {
+                self.execute_direct_action(action);
                 false
             }
         }
@@ -169,100 +208,47 @@ impl App {
             }
             return;
         };
-        let handlers = &self.handlers;
-        match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-        }
+        submit::dispatch(
+            &self.runtime,
+            &self.handlers,
+            &store,
+            &mut self.session_token,
+            &mut self.screen,
+            kind,
+        );
+    }
+
+    fn execute_direct_action(&mut self, action: DirectAction) {
+        let Some(store) = self.store.clone() else {
+            self.screen = Screen::Outcome(OutcomeView {
+                title: "Error",
+                lines: vec![
+                    self.store_error
+                        .clone()
+                        .unwrap_or_else(|| "store unavailable".to_owned()),
+                ],
+            });
+            return;
+        };
+        self.screen = submit::dispatch_direct(
+            &self.runtime,
+            &self.handlers,
+            &store,
+            self.session_token.as_ref(),
+            action,
+        );
     }
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::UserConfigSet(s)
+            | Screen::UserConfigRemove(s)
+            | Screen::CredentialAdd(s)
+            | Screen::CredentialUpdate(s)
+            | Screen::CredentialRemove(s) => Some(s),
             _ => None,
         }
     }
@@ -271,10 +257,24 @@ impl App {
         let area = frame.area();
         match &self.screen {
             Screen::Menu { selected } => draw::draw_menu(frame, area, *selected),
+            Screen::Submenu { kind, selected } => {
+                draw::draw_submenu(frame, area, *kind, *selected);
+            }
             Screen::SignUp(state) => draw::draw_form(frame, area, "Sign up", state),
             Screen::SignIn(state) => draw::draw_form(frame, area, "Sign in", state),
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
+            }
+            Screen::UserConfigSet(state) => draw::draw_form(frame, area, "Set config value", state),
+            Screen::UserConfigRemove(state) => {
+                draw::draw_form(frame, area, "Remove config value", state);
+            }
+            Screen::CredentialAdd(state) => draw::draw_form(frame, area, "Add credential", state),
+            Screen::CredentialUpdate(state) => {
+                draw::draw_form(frame, area, "Update credential", state);
+            }
+            Screen::CredentialRemove(state) => {
+                draw::draw_form(frame, area, "Remove credential", state);
             }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
@@ -286,6 +286,11 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    UserConfigSet,
+    UserConfigRemove,
+    CredentialAdd,
+    CredentialUpdate,
+    CredentialRemove,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -294,12 +299,19 @@ enum FormAction {
     Cancel,
 }
 
+#[derive(Debug, Clone, Copy)]
+enum DirectAction {
+    ListUserConfig,
+    ListCredentials,
+}
+
 #[derive(Debug)]
 enum Effect {
     None,
     Exit,
     ReplaceScreen(Screen),
     Form(FormAction, FormKind),
+    DirectAction(DirectAction),
 }
 
 fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
@@ -323,7 +335,56 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
                 }
+                MenuChoice::UserConfig => Screen::Submenu {
+                    kind: SubmenuKind::UserConfig,
+                    selected: 0,
+                },
+                MenuChoice::Credentials => Screen::Submenu {
+                    kind: SubmenuKind::Credentials,
+                    selected: 0,
+                },
             });
+        }
+        _ => {}
+    }
+    false
+}
+
+fn handle_submenu_key(
+    kind: SubmenuKind,
+    selected: &mut usize,
+    key: KeyEvent,
+    next: &mut Option<Screen>,
+    direct: &mut Option<DirectAction>,
+) -> bool {
+    match key.code {
+        KeyCode::Char('q' | 'Q') | KeyCode::Esc => {
+            *next = Some(Screen::Menu { selected: 0 });
+            return false;
+        }
+        KeyCode::Up => {
+            if *selected == 0 {
+                *selected = kind.choice_count() - 1;
+            } else {
+                *selected -= 1;
+            }
+        }
+        KeyCode::Down | KeyCode::Tab => {
+            *selected = (*selected + 1) % kind.choice_count();
+        }
+        KeyCode::Enter => {
+            if let Some(screen) = submit::submenu_screen(kind, *selected) {
+                *next = Some(screen);
+            } else {
+                match kind {
+                    SubmenuKind::UserConfig => {
+                        *direct = Some(DirectAction::ListUserConfig);
+                    }
+                    SubmenuKind::Credentials => {
+                        *direct = Some(DirectAction::ListCredentials);
+                    }
+                }
+            }
         }
         _ => {}
     }

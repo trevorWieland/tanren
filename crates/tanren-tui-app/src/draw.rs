@@ -6,7 +6,7 @@ use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 
-use crate::{FormState, MenuChoice, OutcomeView};
+use crate::{FormState, MenuChoice, OutcomeView, SubmenuKind};
 
 pub(crate) fn draw_menu(frame: &mut ratatui::Frame<'_>, area: Rect, selected: usize) {
     let mut lines = vec![
@@ -92,6 +92,42 @@ pub(crate) fn draw_form(
             chunks[error_idx],
         );
     }
+}
+
+pub(crate) fn draw_submenu(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    kind: SubmenuKind,
+    selected: usize,
+) {
+    let mut lines = vec![
+        Line::from(kind.title()),
+        Line::from(""),
+        Line::from("Choose an action:"),
+        Line::from(""),
+    ];
+    let count = kind.choice_count();
+    for idx in 0..count {
+        let marker = if idx == selected { "> " } else { "  " };
+        let style = if idx == selected {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!("{marker}{}", kind.choice_label(idx)),
+            style,
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from("↑/↓ select   Enter confirm   Esc back"));
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(format!(" {} ", kind.title()));
+    let para = Paragraph::new(lines)
+        .alignment(Alignment::Left)
+        .block(block);
+    frame.render_widget(para, area);
 }
 
 pub(crate) fn draw_outcome(frame: &mut ratatui::Frame<'_>, area: Rect, view: &OutcomeView) {

@@ -19,6 +19,7 @@
 //! `tanren-app-services` (no cookie jar to use).
 
 mod app;
+mod config_ui;
 mod draw;
 mod ui;
 
@@ -92,16 +93,68 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    UserConfig,
+    Credentials,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::UserConfig,
+        Self::Credentials,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::UserConfig => "User configuration",
+            Self::Credentials => "Credentials",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SubmenuKind {
+    UserConfig,
+    Credentials,
+}
+
+impl SubmenuKind {
+    pub(crate) const fn choice_count(self) -> usize {
+        match self {
+            Self::UserConfig => 4,
+            Self::Credentials => 5,
+        }
+    }
+
+    pub(crate) fn choice_label(self, idx: usize) -> &'static str {
+        match self {
+            Self::UserConfig => match idx {
+                0 => "List config",
+                1 => "Set config value",
+                2 => "Remove config value",
+                3 => "Back to menu",
+                _ => "",
+            },
+            Self::Credentials => match idx {
+                0 => "List credentials",
+                1 => "Add credential",
+                2 => "Update credential",
+                3 => "Remove credential",
+                4 => "Back to menu",
+                _ => "",
+            },
+        }
+    }
+
+    pub(crate) const fn title(self) -> &'static str {
+        match self {
+            Self::UserConfig => "User Configuration",
+            Self::Credentials => "Credentials",
         }
     }
 }
