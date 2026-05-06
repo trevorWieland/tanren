@@ -16,6 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::{ActiveProjectView, ProjectView};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -60,15 +61,14 @@ impl TanrenWorld {
 /// outcomes plus the active wire harness — all transport-specific
 /// state lives inside the harness implementation.
 pub struct AccountContext {
-    /// Active wire harness for the current scenario.
     pub harness: Box<dyn AccountHarness>,
-    /// Registry of actors by display name.
     pub actors: HashMap<String, ActorState>,
-    /// The most recent action's outcome.
     pub last_outcome: Option<HarnessOutcome>,
-    /// Per-scenario invitation tokens recorded by `Given a pending
-    /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    pub last_project: Option<ProjectView>,
+    pub last_project_account_id: Option<tanren_identity_policy::AccountId>,
+    pub last_active_project: Option<Option<ActiveProjectView>>,
+    pub captured_repository_identity: Option<String>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -81,7 +81,14 @@ impl std::fmt::Debug for AccountContext {
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
             )
-            .finish()
+            .field("has_last_project", &self.last_project.is_some())
+            .field("last_project_account_id", &self.last_project_account_id)
+            .field("last_active_project", &self.last_active_project)
+            .field(
+                "captured_repository_identity",
+                &self.captured_repository_identity,
+            )
+            .finish_non_exhaustive()
     }
 }
 
@@ -109,9 +116,6 @@ impl AccountContext {
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
@@ -119,6 +123,10 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            last_project: None,
+            last_project_account_id: None,
+            last_active_project: None,
+            captured_repository_identity: None,
         }
     }
 }
@@ -128,7 +136,11 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedUp(_) => "SignedUp",
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
+        HarnessOutcome::ProjectConnected(_) => "ProjectConnected",
+        HarnessOutcome::ProjectCreated(_) => "ProjectCreated",
+        HarnessOutcome::ActiveProject(_) => "ActiveProject",
         HarnessOutcome::Failure(_) => "Failure",
+        HarnessOutcome::ProjectFailure(_) => "ProjectFailure",
         HarnessOutcome::Other(_) => "Other",
     }
 }

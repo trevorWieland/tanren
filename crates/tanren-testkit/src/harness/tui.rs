@@ -16,7 +16,11 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ActiveProjectView, ConnectProjectRequest, CreateProjectRequest,
+    ProjectView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
@@ -73,5 +77,44 @@ impl AccountHarness for TuiHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn connect_project(
+        &mut self,
+        account_id: AccountId,
+        request: ConnectProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        self.inner.connect_project(account_id, request).await
+    }
+
+    async fn create_project(
+        &mut self,
+        account_id: AccountId,
+        request: CreateProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        self.inner.create_project(account_id, request).await
+    }
+
+    async fn active_project(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Option<ActiveProjectView>> {
+        self.inner.active_project(account_id).await
+    }
+
+    async fn seed_accessible_repository(&mut self, host: &str, url: &str) -> HarnessResult<()> {
+        self.inner.seed_accessible_repository(host, url).await
+    }
+
+    async fn seed_inaccessible_host(&mut self, host: &str) -> HarnessResult<()> {
+        self.inner.seed_inaccessible_host(host).await
+    }
+
+    async fn seed_inaccessible_repository(&mut self, url: &str) -> HarnessResult<()> {
+        self.inner.seed_inaccessible_repository(url).await
+    }
+
+    async fn seed_accessible_host(&mut self, host: &str) -> HarnessResult<()> {
+        self.inner.seed_accessible_host(host).await
     }
 }

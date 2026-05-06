@@ -305,11 +305,18 @@ fn build_router(
     handlers: Handlers,
     store: Arc<Store>,
     cancellation: CancellationToken,
+    provider: Option<Arc<dyn SourceControlProvider>>,
 ) -> Router {
     let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
         StreamableHttpService::new(
-            move || Ok(TanrenMcp::new(handlers.clone(), store.clone(), None)),
+            move || {
+                Ok(TanrenMcp::new(
+                    handlers.clone(),
+                    store.clone(),
+                    provider.clone(),
+                ))
+            },
             Arc::new(LocalSessionManager::default()),
             config,
         );
@@ -365,12 +372,19 @@ fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServ
 pub fn build_router_with_store(
     store: Arc<Store>,
     api_key: secrecy::SecretString,
+    provider: Option<Arc<dyn SourceControlProvider>>,
 ) -> (Router, CancellationToken) {
     let auth_config = Arc::new(AuthConfig {
         bootstrap_key: Some(api_key),
     });
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, Handlers::new(), store, cancellation.clone());
+    let router = build_router(
+        auth_config,
+        Handlers::new(),
+        store,
+        cancellation.clone(),
+        provider,
+    );
     (router, cancellation)
 }
 
@@ -396,7 +410,7 @@ pub async fn serve(_config: Config) -> Result<()> {
     let handlers = Handlers::new();
 
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, handlers, store, cancellation.clone());
+    let router = build_router(auth_config, handlers, store, cancellation.clone(), None);
 
     let listener = TcpListener::bind(&bind)
         .await

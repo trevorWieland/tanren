@@ -15,12 +15,18 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ActiveProjectView, ConnectProjectRequest,
+    CreateProjectRequest, ProjectView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use crate::FixtureSourceControlProvider;
+
+use super::api::{code_to_project_reason, code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -32,6 +38,7 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    provider: FixtureSourceControlProvider,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
@@ -62,6 +69,7 @@ impl McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("migrate store: {e}")))?;
         let store = Arc::new(store);
+        let provider = FixtureSourceControlProvider::new();
 
         let listener = TcpListener::bind("127.0.0.1:0")
             .await
@@ -70,9 +78,12 @@ impl McpHarness {
             .local_addr()
             .map_err(|e| HarnessError::Transport(format!("local addr: {e}")))?;
 
+        let provider_for_server: Arc<dyn tanren_app_services::SourceControlProvider> =
+            Arc::new(provider.clone());
         let (router, cancellation) = tanren_mcp_app::build_router_with_store(
             store.clone(),
             SecretString::from(TEST_API_KEY.to_owned()),
+            Some(provider_for_server),
         );
 
         let server = tokio::spawn(async move {
@@ -94,6 +105,7 @@ impl McpHarness {
         Ok(Self {
             store,
             db_path,
+            provider,
             client: Some(client),
             server: Some(server),
         })
@@ -202,6 +214,74 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn connect_project(
+        &mut self,
+        account_id: AccountId,
+        request: ConnectProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        let body = serde_json::json!({
+            "account_id": account_id.to_string(),
+            "name": request.name,
+            "repository_url": request.repository_url,
+        });
+        let payload = self.call_tool("project.connect", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project: {e}")))
+    }
+
+    async fn create_project(
+        &mut self,
+        account_id: AccountId,
+        request: CreateProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        let body = serde_json::json!({
+            "account_id": account_id.to_string(),
+            "name": request.name,
+            "provider_host": request.provider_host,
+        });
+        let payload = self.call_tool("project.create", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project: {e}")))
+    }
+
+    async fn active_project(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Option<ActiveProjectView>> {
+        let body = serde_json::json!({
+            "account_id": account_id.to_string(),
+        });
+        let payload = self.call_tool("project.active", body).await?;
+        if payload.is_null() {
+            return Ok(None);
+        }
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode active: {e}")))
+    }
+
+    async fn seed_accessible_repository(&mut self, host: &str, url: &str) -> HarnessResult<()> {
+        self.provider = self
+            .provider
+            .clone()
+            .with_accessible_host(host)
+            .with_existing_repository(url);
+        Ok(())
+    }
+
+    async fn seed_inaccessible_host(&mut self, _host: &str) -> HarnessResult<()> {
+        Ok(())
+    }
+
+    async fn seed_inaccessible_repository(&mut self, url: &str) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_existing_repository(url);
+        Ok(())
+    }
+
+    async fn seed_accessible_host(&mut self, host: &str) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_accessible_host(host);
+        Ok(())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {
@@ -245,6 +325,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = code_to_project_reason(&code) {
+        HarnessError::Project(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

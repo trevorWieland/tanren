@@ -239,11 +239,12 @@ pub async fn build_app_with_store(
     cookie_database_url: &str,
     cors_allow_origins: Vec<HeaderValue>,
     secure_cookie: bool,
+    provider: Option<Arc<dyn SourceControlProvider>>,
 ) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
-        provider: None,
+        provider,
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;

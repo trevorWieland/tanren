@@ -21,18 +21,30 @@ const FORBIDDEN_PATH_FRAGMENTS: &[&str] = &[
     "Handlers :: sign_up",
     "Handlers :: sign_in",
     "Handlers :: accept_invitation",
+    "Handlers :: connect_project",
+    "Handlers :: create_project",
+    "Handlers :: active_project",
     "Handlers::sign_up",
     "Handlers::sign_in",
     "Handlers::accept_invitation",
+    "Handlers::connect_project",
+    "Handlers::create_project",
+    "Handlers::active_project",
 ];
 
 const FORBIDDEN_METHOD_RECEIVERS: &[&str] = &[
     "handlers . sign_up",
     "handlers . sign_in",
     "handlers . accept_invitation",
+    "handlers . connect_project",
+    "handlers . create_project",
+    "handlers . active_project",
     "handlers.sign_up",
     "handlers.sign_in",
     "handlers.accept_invitation",
+    "handlers.connect_project",
+    "handlers.create_project",
+    "handlers.active_project",
 ];
 
 pub(crate) fn run(root: &Path) -> Result<()> {

@@ -9,9 +9,14 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, ActiveProjectView, ConnectProjectRequest, CreateProjectRequest,
+    ProjectView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+
+use crate::FixtureSourceControlProvider;
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
@@ -25,6 +30,7 @@ use super::{
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
+    provider: FixtureSourceControlProvider,
     kind: HarnessKind,
 }
 
@@ -62,6 +68,7 @@ impl InProcessHarness {
         Ok(Self {
             store,
             handlers,
+            provider: FixtureSourceControlProvider::new(),
             kind,
         })
     }
@@ -141,12 +148,77 @@ impl AccountHarness for InProcessHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn connect_project(
+        &mut self,
+        account_id: AccountId,
+        request: ConnectProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        match self
+            .handlers
+            .connect_project(&self.store, &self.provider, account_id, request)
+            .await
+        {
+            Ok(view) => Ok(view),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn create_project(
+        &mut self,
+        account_id: AccountId,
+        request: CreateProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        match self
+            .handlers
+            .create_project(&self.store, &self.provider, account_id, request)
+            .await
+        {
+            Ok(view) => Ok(view),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn active_project(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Option<ActiveProjectView>> {
+        match self.handlers.active_project(&self.store, account_id).await {
+            Ok(view) => Ok(view),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn seed_accessible_repository(&mut self, host: &str, url: &str) -> HarnessResult<()> {
+        self.provider = self
+            .provider
+            .clone()
+            .with_accessible_host(host)
+            .with_existing_repository(url);
+        Ok(())
+    }
+
+    async fn seed_inaccessible_host(&mut self, host: &str) -> HarnessResult<()> {
+        let _ = host;
+        Ok(())
+    }
+
+    async fn seed_inaccessible_repository(&mut self, url: &str) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_existing_repository(url);
+        Ok(())
+    }
+
+    async fn seed_accessible_host(&mut self, host: &str) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_accessible_host(host);
+        Ok(())
+    }
 }
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.code().to_owned()),
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }

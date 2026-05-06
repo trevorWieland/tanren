@@ -15,14 +15,19 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
-use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_app_services::{Clock, Handlers, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ActiveProjectView, ConnectProjectRequest,
+    CreateProjectRequest, ProjectView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use crate::FixtureSourceControlProvider;
+
+use super::api::{code_to_project_reason, code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -34,6 +39,8 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    handlers: Handlers,
+    provider: FixtureSourceControlProvider,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -68,11 +75,19 @@ impl CliHarness {
 
         let binary = locate_workspace_binary("tanren-cli")?;
 
+        let handlers = Handlers::with_verifier(
+            Clock::from_fn(Utc::now),
+            Arc::new(Argon2idVerifier::fast_for_tests()),
+        );
+        let provider = FixtureSourceControlProvider::new();
+
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            handlers,
+            provider,
         })
     }
 }
@@ -220,6 +235,73 @@ impl AccountHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn connect_project(
+        &mut self,
+        account_id: AccountId,
+        request: ConnectProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        match self
+            .handlers
+            .connect_project(self.store.as_ref(), &self.provider, account_id, request)
+            .await
+        {
+            Ok(view) => Ok(view),
+            Err(err) => Err(translate_cli_app_error(err)),
+        }
+    }
+
+    async fn create_project(
+        &mut self,
+        account_id: AccountId,
+        request: CreateProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        match self
+            .handlers
+            .create_project(self.store.as_ref(), &self.provider, account_id, request)
+            .await
+        {
+            Ok(view) => Ok(view),
+            Err(err) => Err(translate_cli_app_error(err)),
+        }
+    }
+
+    async fn active_project(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Option<ActiveProjectView>> {
+        match self
+            .handlers
+            .active_project(self.store.as_ref(), account_id)
+            .await
+        {
+            Ok(view) => Ok(view),
+            Err(err) => Err(translate_cli_app_error(err)),
+        }
+    }
+
+    async fn seed_accessible_repository(&mut self, host: &str, url: &str) -> HarnessResult<()> {
+        self.provider = self
+            .provider
+            .clone()
+            .with_accessible_host(host)
+            .with_existing_repository(url);
+        Ok(())
+    }
+
+    async fn seed_inaccessible_host(&mut self, _host: &str) -> HarnessResult<()> {
+        Ok(())
+    }
+
+    async fn seed_inaccessible_repository(&mut self, url: &str) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_existing_repository(url);
+        Ok(())
+    }
+
+    async fn seed_accessible_host(&mut self, host: &str) -> HarnessResult<()> {
+        self.provider = self.provider.clone().with_accessible_host(host);
+        Ok(())
+    }
 }
 
 /// Locate a workspace binary by name. The BDD runner is at
@@ -270,8 +352,6 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
@@ -279,8 +359,24 @@ fn translate_cli_error(stderr: &[u8]) -> HarnessError {
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
         }
+        if let Some(reason) = code_to_project_reason(code) {
+            return HarnessError::Project(reason, summary);
+        }
     }
     HarnessError::Transport(text.into_owned())
+}
+
+fn translate_cli_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
+    use tanren_app_services::AppServiceError;
+    match err {
+        AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.code().to_owned()),
+        AppServiceError::InvalidInput(msg) => {
+            HarnessError::Transport(format!("invalid_input: {msg}"))
+        }
+        AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
+        _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+    }
 }
 
 fn parse_session(

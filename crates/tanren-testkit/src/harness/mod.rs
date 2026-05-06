@@ -57,7 +57,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ActiveProjectView,
+    ConnectProjectRequest, CreateProjectRequest, ProjectFailureReason, ProjectView, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -147,13 +149,16 @@ pub struct HarnessAcceptance {
 }
 
 /// Failure surface — every harness collapses transport-specific
-/// failures down to a [`AccountFailureReason`] (matched on the wire
-/// `code`) plus an opaque message used for diagnostic output.
+/// failures down to a taxonomy reason (matched on the wire `code`)
+/// plus an opaque message used for diagnostic output.
 #[derive(Debug, thiserror::Error)]
 pub enum HarnessError {
-    /// A taxonomy failure with a known `code`.
+    /// An account-flow taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A project-flow taxonomy failure with a known `code`.
+    #[error("project {0:?}: {1}")]
+    Project(ProjectFailureReason, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +171,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::Project(reason, _) => reason.code().to_owned(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -238,6 +244,72 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    // -- Project-flow methods (B-0025 / B-0026) --
+
+    /// Connect an existing repository as a new project (B-0025).
+    async fn connect_project(
+        &mut self,
+        account_id: AccountId,
+        request: ConnectProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        let _ = (account_id, request);
+        Err(HarnessError::Transport(
+            "connect_project not supported on this harness".to_owned(),
+        ))
+    }
+
+    /// Create a new project and its backing repository (B-0026).
+    async fn create_project(
+        &mut self,
+        account_id: AccountId,
+        request: CreateProjectRequest,
+    ) -> HarnessResult<ProjectView> {
+        let _ = (account_id, request);
+        Err(HarnessError::Transport(
+            "create_project not supported on this harness".to_owned(),
+        ))
+    }
+
+    /// Read the caller's currently active project.
+    async fn active_project(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<Option<ActiveProjectView>> {
+        let _ = account_id;
+        Err(HarnessError::Transport(
+            "active_project not supported on this harness".to_owned(),
+        ))
+    }
+
+    /// Register a repository as accessible on the given host for the
+    /// harness's fixture provider. Steps call this before connect/create
+    /// to set up the SCM access check.
+    async fn seed_accessible_repository(&mut self, _host: &str, _url: &str) -> HarnessResult<()> {
+        Ok(())
+    }
+
+    /// Register a host as inaccessible (no provider connection) for the
+    /// harness's fixture provider.
+    async fn seed_inaccessible_host(&mut self, _host: &str) -> HarnessResult<()> {
+        Ok(())
+    }
+
+    /// Register a repository as existing but not accessible — the host
+    /// is not registered as having a provider connection, so any
+    /// access check against this repository will produce an
+    /// access-denied outcome.
+    async fn seed_inaccessible_repository(&mut self, _url: &str) -> HarnessResult<()> {
+        Ok(())
+    }
+
+    /// Register a host as accessible (the caller has an active SCM
+    /// provider connection for it) without seeding any specific
+    /// repository. Used for B-0026 create-project scenarios where the
+    /// repository does not exist yet and will be created by the handler.
+    async fn seed_accessible_host(&mut self, _host: &str) -> HarnessResult<()> {
+        Ok(())
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.
@@ -278,8 +350,16 @@ pub enum HarnessOutcome {
     SignedIn(HarnessSession),
     /// Successful invitation acceptance.
     AcceptedInvitation(HarnessAcceptance),
+    /// Successful project connect (B-0025).
+    ProjectConnected(ProjectView),
+    /// Successful project create (B-0026).
+    ProjectCreated(ProjectView),
+    /// Active project readback.
+    ActiveProject(Option<ActiveProjectView>),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
+    /// Project-flow taxonomy failure.
+    ProjectFailure(ProjectFailureReason),
     /// Non-taxonomy infrastructure failure.
     Other(String),
 }
@@ -292,9 +372,13 @@ impl HarnessOutcome {
     pub fn failure_code(&self) -> Option<String> {
         match self {
             Self::Failure(reason) => Some(reason.code().to_owned()),
+            Self::ProjectFailure(reason) => Some(reason.code().to_owned()),
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
+            | Self::ProjectConnected(_)
+            | Self::ProjectCreated(_)
+            | Self::ActiveProject(_)
             | Self::Other(_) => None,
         }
     }
@@ -309,6 +393,7 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::Project(reason, _) => HarnessOutcome::ProjectFailure(reason),
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -329,6 +414,24 @@ pub fn event_kinds(events: &[EventEnvelope]) -> Vec<String> {
         .collect()
 }
 
+/// Normalize a repository URL into a canonical byte identity string.
+/// Steps use this to compute the expected identity before/after connect
+/// and to assert the one-project-per-repository invariant. Mirrors the
+/// private `normalize_repository_identity` in `tanren_app_services::project`.
+#[must_use]
+pub fn normalize_repository_identity(url: &str) -> String {
+    let stripped = url
+        .strip_prefix("https://")
+        .or_else(|| url.strip_prefix("http://"))
+        .or_else(|| url.strip_prefix("ssh://"))
+        .or_else(|| url.strip_prefix("git@"))
+        .unwrap_or(url);
+    let replaced = stripped.replace(':', "/");
+    let trimmed = replaced.strip_suffix(".git").unwrap_or(replaced.as_str());
+    let trimmed = trimmed.strip_suffix('/').unwrap_or(trimmed);
+    trimmed.to_lowercase()
+}
+
 /// Track concurrent invitation-acceptance outcomes for the falsification
 /// race scenario (`When 20 actors concurrently accept invitation ...`).
 #[derive(Debug, Default)]
@@ -347,6 +450,10 @@ impl ConcurrentAcceptanceTally {
         match outcome {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
+                let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::Project(reason, _)) => {
                 let code = reason.code().to_owned();
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
