@@ -1,15 +1,14 @@
 "use client";
 
-import { useId, useState, useTransition } from "react";
+import { useId, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 import * as v from "valibot";
 
-import {
-  AccountRequestError,
-  createOrganization,
-  describeFailure,
-  type CreateOrganizationResult,
-} from "@/app/lib/account-client";
+import { AccountRequestError, describeFailure } from "@/app/lib/account-client";
+import type { CreateOrganizationResponse } from "@/lib/contract-types";
+import { useCreateOrganization } from "@/lib/use-organization-queries";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
 import * as m from "@/i18n/paraglide/messages";
 
 const OrganizationNameInput = v.object({
@@ -17,14 +16,8 @@ const OrganizationNameInput = v.object({
 });
 
 export interface OrganizationCreateFormProps {
-  onSuccess?: ((result: CreateOrganizationResult) => void) | undefined;
+  onSuccess?: ((result: CreateOrganizationResponse) => void) | undefined;
 }
-
-const inputClass =
-  "rounded-md border border-[--color-border] bg-[--color-bg-surface] px-3 py-2 text-base text-[--color-fg-default] focus:outline-none focus:ring-2 focus:ring-[--color-accent]";
-
-const buttonClass =
-  "rounded-md border border-[--color-border] bg-[--color-accent] px-4 py-2 text-base font-medium text-[--color-accent-fg] transition-colors hover:bg-[--color-accent-hover] disabled:opacity-60";
 
 export function OrganizationCreateForm({
   onSuccess,
@@ -35,7 +28,9 @@ export function OrganizationCreateForm({
 
   const [name, setName] = useState("");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+
+  const createMutation = useCreateOrganization();
+  const pending = createMutation.isPending;
 
   function onSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
@@ -45,11 +40,11 @@ export function OrganizationCreateForm({
       setErrorMessage(m.orgCreate_required());
       return;
     }
-    startTransition(async () => {
-      try {
-        const result = await createOrganization(parsed.output.name);
+    createMutation.mutate(parsed.output.name, {
+      onSuccess(result) {
         onSuccess?.(result);
-      } catch (cause: unknown) {
+      },
+      onError(cause: Error) {
         if (cause instanceof AccountRequestError) {
           setErrorMessage(describeFailure(cause.failure));
         } else if (cause instanceof Error) {
@@ -57,7 +52,7 @@ export function OrganizationCreateForm({
         } else {
           setErrorMessage(m.orgCreate_failed());
         }
-      }
+      },
     });
   }
 
@@ -74,7 +69,7 @@ export function OrganizationCreateForm({
         <label htmlFor={nameId} className="text-sm font-medium">
           {m.orgCreate_name()}
         </label>
-        <input
+        <Input
           id={nameId}
           name="name"
           type="text"
@@ -85,12 +80,11 @@ export function OrganizationCreateForm({
           }}
           aria-describedby={errorActive ? errorId : undefined}
           aria-invalid={errorActive ? true : undefined}
-          className={inputClass}
         />
       </div>
-      <button type="submit" disabled={pending} className={buttonClass}>
+      <Button type="submit" disabled={pending}>
         {pending ? m.orgCreate_submitting() : m.orgCreate_submit()}
-      </button>
+      </Button>
       {errorActive && (
         <p
           id={errorId}

@@ -81,7 +81,6 @@ export const Success: Story = {
           organization: {
             id: orgId,
             name: "Test Org",
-            project_count: 0,
             created_at: new Date(Date.now()).toISOString(),
           },
           membership: {

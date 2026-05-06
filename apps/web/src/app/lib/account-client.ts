@@ -1,4 +1,10 @@
 import * as m from "@/i18n/paraglide/messages";
+import type {
+  CreateOrganizationResponse,
+  ListOrganizationsResponse,
+} from "@/lib/contract-types";
+
+export type { CreateOrganizationResponse, ListOrganizationsResponse };
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
@@ -51,37 +57,6 @@ export interface AcceptInvitationResult {
   account: AccountView;
   session: SessionView;
   joined_org: string;
-}
-
-export interface OrganizationView {
-  id: string;
-  name: string;
-  project_count: number;
-  created_at: string;
-}
-
-export type OrgPermission =
-  | "invite_members"
-  | "manage_access"
-  | "configure"
-  | "set_policy"
-  | "delete";
-
-export interface OrganizationMembershipView {
-  id: string;
-  account_id: string;
-  org_id: string;
-  permissions: OrgPermission[];
-  created_at: string;
-}
-
-export interface CreateOrganizationResult {
-  organization: OrganizationView;
-  membership: OrganizationMembershipView;
-}
-
-export interface ListOrganizationsResult {
-  organizations: OrganizationView[];
 }
 
 /**
@@ -240,12 +215,12 @@ async function postEmpty(path: string): Promise<void> {
 
 export function createOrganization(
   name: string,
-): Promise<CreateOrganizationResult> {
-  return postJson<CreateOrganizationResult>("/organizations", { name });
+): Promise<CreateOrganizationResponse> {
+  return postJson<CreateOrganizationResponse>("/organizations", { name });
 }
 
-export function listAccountOrganizations(): Promise<ListOrganizationsResult> {
-  return getJson<ListOrganizationsResult>("/account/organizations");
+export function listAccountOrganizations(): Promise<ListOrganizationsResponse> {
+  return getJson<ListOrganizationsResponse>("/account/organizations");
 }
 
 export function authorizeAdminOperation(

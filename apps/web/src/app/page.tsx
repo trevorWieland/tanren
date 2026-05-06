@@ -5,8 +5,7 @@ import type { ReactNode } from "react";
 import Link from "next/link";
 
 import * as m from "@/i18n/paraglide/messages";
-import type { OrganizationView } from "@/app/lib/account-client";
-import { listAccountOrganizations } from "@/app/lib/account-client";
+import { useOrganizationList } from "@/lib/use-organization-queries";
 
 interface HealthReport {
   status: string;
@@ -19,9 +18,9 @@ const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 export default function Home(): ReactNode {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [organizations, setOrganizations] = useState<OrganizationView[] | null>(
-    null,
-  );
+
+  const orgQuery = useOrganizationList();
+  const organizations = orgQuery.data?.organizations ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -40,24 +39,6 @@ export default function Home(): ReactNode {
       .catch((reason: unknown) => {
         if (!cancelled) {
           setError(reason instanceof Error ? reason.message : String(reason));
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  useEffect(() => {
-    let cancelled = false;
-    listAccountOrganizations()
-      .then((result) => {
-        if (!cancelled) {
-          setOrganizations(result.organizations);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setOrganizations(null);
         }
       });
     return () => {
@@ -88,14 +69,6 @@ export default function Home(): ReactNode {
                   className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-3"
                 >
                   <span className="font-medium">{org.name}</span>
-                  <span
-                    className="ml-2 text-sm text-[--color-fg-muted]"
-                    data-org-project-count={org.project_count ?? 0}
-                  >
-                    {m.orgDashboard_projectCount({
-                      count: org.project_count ?? 0,
-                    })}
-                  </span>
                 </li>
               ))}
             </ul>
