@@ -11,9 +11,11 @@ pub mod install;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::path::Path;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    InstallDriftRequest, InstallDriftResponse, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -128,6 +130,24 @@ impl Handlers {
             version,
             contract_version: ContractVersion::CURRENT,
         }
+    }
+
+    /// Read-only drift check against an installed repository.
+    ///
+    /// Compares every asset in the projection manifest against the
+    /// filesystem at `request.repo_path` and reports drift without
+    /// modifying anything.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::InvalidInput`] when the repository path
+    /// does not exist or is not a directory.
+    pub fn install_drift(
+        &self,
+        request: &InstallDriftRequest,
+    ) -> Result<InstallDriftResponse, AppServiceError> {
+        let repo_path = Path::new(&request.repo_path);
+        install::drift::evaluate_drift(repo_path, request.drift_policy, request.preservation_policy)
     }
 
     /// Apply all pending database migrations against the supplied URL.
