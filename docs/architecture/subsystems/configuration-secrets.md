@@ -429,3 +429,64 @@ without exposing secret values.
 - **Manual wiring for every intended credential use.** Rejected because
   configured subsystem credentials should be usable for their declared purpose
   without forcing brittle per-workflow setup.
+
+## R-0008 — Initial User-Tier Setting Keys
+
+R-0008 (Manage user-tier configuration and credentials) introduces the first
+user-tier setting keys and the user-owned credential surface. This section is
+the authoritative list of setting keys and their malformed-value rules proven
+by R-0008's BDD scenarios.
+
+### Setting keys
+
+| Key | Purpose |
+|---|---|
+| `preferred_harness` | Preferred execution harness name (e.g. `"claude"`, `"codex"`). |
+| `preferred_provider` | Preferred provider integration name (e.g. `"openai"`, `"anthropic"`). |
+
+Notification preferences are owned by R-0010 and intentionally absent from this
+table.
+
+### Malformed-value rules
+
+All user-tier setting values share the same validation, enforced at the
+contract boundary by `UserSettingValue::parse` in `tanren-configuration-secrets`:
+
+1. **Empty or whitespace-only** — rejected. The input is trimmed before
+   checking; a string that is empty after trimming is invalid.
+2. **Exceeds maximum length** — rejected. Values longer than 128 bytes after
+   trimming are invalid.
+3. **Control characters** — rejected. Values containing any Unicode control
+   characters (`\0`–`\x1F`, `\x7F`, C1 range) are invalid.
+
+Valid values are the trimmed string (leading and trailing whitespace removed,
+not internal whitespace).
+
+### Wire-level validation
+
+`UserSettingValue` does not derive `Deserialize` directly. A custom
+`Deserialize` impl routes every wire input through `parse`, matching the same
+boundary-validation pattern as `tanren-identity-policy`'s `Email` and
+`Identifier` types. Invalid values surface as
+`ConfigurationFailureReason::InvalidSettingValue` (HTTP 400).
+
+### Credential kinds
+
+R-0008 introduces the initial credential-kind registry entries. Each kind
+declares allowed ownership scopes:
+
+| Kind | Allowed scopes | Description |
+|---|---|---|
+| `api_key` | User, Project, Organization, ServiceAccount | Generic API key |
+| `source_control_token` | User | Source-control personal access token |
+| `webhook_signing_key` | Project, Organization | Webhook signing secret |
+| `oidc_client_secret` | Organization, ServiceAccount | OIDC client configuration |
+| `opaque_secret` | User, Project, Organization, ServiceAccount | Unstructured secret |
+
+### Redacted credential metadata
+
+The `RedactedCredentialMetadata` type carries all metadata a user needs to
+identify, govern, and audit a credential. It intentionally omits the stored
+secret value — the value is write-only/use-only after storage (core invariant
+2). No response or view type in the R-0008 contract surface exposes a raw
+secret-value field.

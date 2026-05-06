@@ -5,9 +5,16 @@
 //! recorded in event payloads, projection files, or proof artifacts; only
 //! non-secret metadata is event-replayable.
 
+use chrono::{DateTime, Utc};
+use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use utoipa::ToSchema;
+use uuid::Uuid;
+
+/// Maximum accepted byte length for a user-setting value.
+const USER_SETTING_MAX_LEN: usize = 128;
 
 /// Configuration tiers in inheritance order, from most-specific to most-general.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -21,6 +28,169 @@ pub enum Tier {
     Account,
     /// Organization-tier configuration. Most general.
     Organization,
+}
+
+/// Closed set of user-tier configuration setting keys proven by R-0008.
+///
+/// Each variant maps to one setting whose value is validated through
+/// [`UserSettingValue::parse`]. Notification preferences are owned by
+/// R-0010 and intentionally absent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum UserSettingKey {
+    /// Preferred execution harness name (e.g. `"claude"`, `"codex"`).
+    PreferredHarness,
+    /// Preferred provider integration name (e.g. `"openai"`, `"anthropic"`).
+    PreferredProvider,
+}
+
+impl UserSettingKey {
+    /// All known user-tier setting keys.
+    pub fn all() -> &'static [Self] {
+        &[Self::PreferredHarness, Self::PreferredProvider]
+    }
+}
+
+/// Validated user-tier setting value.
+///
+/// Constructed through [`UserSettingValue::parse`] which trims surrounding
+/// whitespace, rejects empty / whitespace-only input, rejects values
+/// exceeding [`USER_SETTING_MAX_LEN`] bytes, and rejects values containing
+/// control characters. The inner string is the trimmed, validated form.
+///
+/// Does NOT derive `Deserialize` directly — the custom impl below routes
+/// every wire input through `parse`.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
+pub struct UserSettingValue(String);
+
+impl UserSettingValue {
+    /// Parse a raw user-supplied setting value.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`SettingValidationError`] when the input is empty after
+    /// trimming, exceeds the maximum length, or contains control
+    /// characters.
+    pub fn parse(raw: &str) -> Result<Self, SettingValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(SettingValidationError::Empty);
+        }
+        if trimmed.len() > USER_SETTING_MAX_LEN {
+            return Err(SettingValidationError::TooLong {
+                max: USER_SETTING_MAX_LEN,
+            });
+        }
+        if trimmed.chars().any(char::is_control) {
+            return Err(SettingValidationError::ContainsControlCharacters);
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    /// Borrow the validated inner string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for UserSettingValue {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+impl std::fmt::Display for UserSettingValue {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
+/// Stable identifier for a stored credential. `UUIDv7` — sortable + unique.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(transparent)]
+#[schema(value_type = String, format = "uuid")]
+pub struct CredentialId(Uuid);
+
+impl CredentialId {
+    /// Wrap a raw UUID.
+    #[must_use]
+    pub const fn new(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    /// Allocate a fresh time-ordered id.
+    #[must_use]
+    pub fn fresh() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// The underlying UUID.
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl From<Uuid> for CredentialId {
+    fn from(value: Uuid) -> Self {
+        Self(value)
+    }
+}
+
+impl AsRef<Uuid> for CredentialId {
+    fn as_ref(&self) -> &Uuid {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for CredentialId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
+/// Typed credential-kind registry.
+///
+/// Each variant declares a stable kind identifier. Core Tanren defines
+/// common kinds; provider and secret-store adapters may register
+/// additional kinds through the registry contract described in
+/// `docs/architecture/subsystems/configuration-secrets.md`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CredentialKind {
+    /// Generic API key (provider, service, ...).
+    ApiKey,
+    /// Source-control personal access token.
+    SourceControlToken,
+    /// Webhook signing secret.
+    WebhookSigningKey,
+    /// OIDC client secret.
+    OidcClientSecret,
+    /// Opaque secret with no structured interpretation.
+    OpaqueSecret,
+}
+
+/// Ownership scope for a credential.
+///
+/// Each credential kind declares which scopes are valid. User-owned
+/// credentials are the focus of R-0008; project and organization scopes
+/// are owned by R-0011.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum CredentialScope {
+    /// Tied to one user login identity.
+    User,
+    /// Scoped to one project.
+    Project,
+    /// Shared at organization level.
+    Organization,
+    /// Belongs to a service account.
+    ServiceAccount,
 }
 
 /// Replayable metadata for a stored secret. The secret value itself is held
@@ -37,6 +207,33 @@ pub struct SecretMetadata {
     pub present: bool,
 }
 
+/// Redacted credential metadata view.
+///
+/// Contains every piece of metadata a user needs to identify, govern, and
+/// audit a credential. The stored secret value is **never** included — it
+/// is write-only/use-only after storage per core invariant 2.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RedactedCredentialMetadata {
+    /// Stable credential identifier.
+    pub id: CredentialId,
+    /// Credential kind from the typed registry.
+    pub kind: CredentialKind,
+    /// Ownership scope.
+    pub scope: CredentialScope,
+    /// Human-readable name chosen by the user.
+    pub name: String,
+    /// Optional longer description.
+    pub description: Option<String>,
+    /// Provider or adapter this credential is associated with.
+    pub provider: Option<String>,
+    /// Wall-clock time the credential was first stored.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the credential value was last replaced.
+    pub updated_at: Option<DateTime<Utc>>,
+    /// True once a value has been written; false until the first set.
+    pub present: bool,
+}
+
 /// Holder for a freshly-resolved secret value. The wrapper zeroes on drop.
 #[derive(Debug, Clone)]
 pub struct ResolvedSecret {
@@ -46,6 +243,21 @@ pub struct ResolvedSecret {
     pub value: SecretString,
 }
 
+/// Errors raised when a user-tier setting value fails validation.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum SettingValidationError {
+    /// The value was empty after trimming surrounding whitespace.
+    #[error("setting value is empty")]
+    Empty,
+    /// The value exceeded the maximum accepted byte length.
+    #[error("setting value exceeds {max} bytes")]
+    TooLong { max: usize },
+    /// The value contained one or more control characters.
+    #[error("setting value contains control characters")]
+    ContainsControlCharacters,
+}
+
 /// Errors raised by configuration and secrets operations.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -53,4 +265,14 @@ pub enum ConfigSecretsError {
     /// Lookup found no value at any tier.
     #[error("no value found for key '{0}'")]
     NotFound(String),
+    /// A credential with the given id does not exist.
+    #[error("credential not found: {0}")]
+    CredentialNotFound(CredentialId),
+    /// A credential with the same name and kind already exists for this
+    /// owner.
+    #[error("a credential named '{0}' of this kind already exists")]
+    DuplicateCredentialName(String),
+    /// Setting-value validation failed.
+    #[error(transparent)]
+    SettingValidation(#[from] SettingValidationError),
 }

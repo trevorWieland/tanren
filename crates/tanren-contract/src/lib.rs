@@ -6,10 +6,19 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod configuration;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use configuration::{
+    ConfigurationFailureReason, CreateCredentialRequest, CreateCredentialResponse,
+    CredentialOwnershipView, GetUserConfigRequest, GetUserConfigResponse, ListCredentialsResponse,
+    ListUserConfigResponse, RemoveCredentialRequest, RemoveCredentialResponse,
+    RemoveUserConfigRequest, RemoveUserConfigResponse, SetUserConfigRequest, SetUserConfigResponse,
+    UpdateCredentialRequest, UpdateCredentialResponse, UserConfigEntry,
 };
 
 use serde::{Deserialize, Serialize};

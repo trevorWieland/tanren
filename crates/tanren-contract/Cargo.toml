@@ -23,6 +23,7 @@ chrono = { workspace = true }
 schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
+tanren-configuration-secrets = { path = "../tanren-configuration-secrets" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
 # `ToSchema` derives let `utoipa` generate the OpenAPI components from

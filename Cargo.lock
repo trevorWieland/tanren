@@ -4262,9 +4262,13 @@ dependencies = [
 name = "tanren-configuration-secrets"
 version = "0.0.0"
 dependencies = [
+ "chrono",
+ "schemars",
  "secrecy",
  "serde",
  "thiserror 2.0.18",
+ "utoipa",
+ "uuid",
 ]
 
 [[package]]
@@ -4275,6 +4279,7 @@ dependencies = [
  "schemars",
  "secrecy",
  "serde",
+ "tanren-configuration-secrets",
  "tanren-identity-policy",
  "thiserror 2.0.18",
  "utoipa",
