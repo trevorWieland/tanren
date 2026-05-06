@@ -1,5 +1,6 @@
 mod apply;
 mod assets;
+mod manifest;
 mod model;
 mod profile;
 mod render;
@@ -41,7 +42,7 @@ pub(crate) fn run_install(args: InstallArgs) -> Result<()> {
     let resolved = profile::resolve(&input.profile.to_string());
     let commands = assets::command_files();
     let rendered = render::render_all_integrations(&effective);
-    let manifest = apply::apply(
+    let result = apply::apply(
         &input.repo,
         &input.profile.to_string(),
         &commands,
@@ -54,12 +55,34 @@ pub(crate) fn run_install(args: InstallArgs) -> Result<()> {
     writeln!(
         handle,
         "install: profile={} commands={} integrations={} standards={}",
-        manifest.profile,
+        result.manifest.profile,
         commands.len(),
         effective.len(),
-        manifest.standards.len(),
+        result.manifest.standards.len(),
     )
     .context("write install result")?;
+
+    let outcome = &result.outcome;
+    if !outcome.created.is_empty() {
+        writeln!(handle, "  created: {}", outcome.created.join(", "))
+            .context("write created summary")?;
+    }
+    if !outcome.updated.is_empty() {
+        writeln!(handle, "  updated: {}", outcome.updated.join(", "))
+            .context("write updated summary")?;
+    }
+    if !outcome.removed.is_empty() {
+        writeln!(handle, "  removed: {}", outcome.removed.join(", "))
+            .context("write removed summary")?;
+    }
+    if !outcome.restored.is_empty() {
+        writeln!(handle, "  restored: {}", outcome.restored.join(", "))
+            .context("write restored summary")?;
+    }
+    if !outcome.preserved.is_empty() {
+        writeln!(handle, "  preserved: {}", outcome.preserved.join(", "))
+            .context("write preserved summary")?;
+    }
     Ok(())
 }
 
