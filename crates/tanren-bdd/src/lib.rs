@@ -18,41 +18,35 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, InstallHarness, McpHarness, TuiHarness, WebHarness,
 };
 
-/// Cucumber `World` shared across all Tanren BDD scenarios.
 #[derive(Debug, Default, CucumberWorld)]
 pub struct TanrenWorld {
-    /// Deterministic fixture seed.
     pub seed: FixtureSeed,
-    /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    pub install: Option<InstallContext>,
+    pub tags: Vec<String>,
 }
 
 impl TanrenWorld {
-    /// Construct (or return) the lazy account context.
     pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
         if self.account.is_none() {
-            self.account = Some(AccountContext::new_in_process().await);
+            let kind = HarnessKind::from_tags(&self.tags);
+            self.account = Some(AccountContext::new_for(kind).await);
         }
         self.account
             .as_mut()
             .expect("account context just initialized")
     }
 
-    /// Refresh the account context with the harness chosen for the
-    /// supplied scenario tags. Cucumber-rs does not give step bodies
-    /// access to the active scenario's tags, so the BDD bin invokes
-    /// this from a `Before` hook.
-    pub async fn install_harness_for_tags<I, S>(&mut self, tags: I)
-    where
-        I: IntoIterator<Item = S>,
-        S: AsRef<str>,
-    {
-        let kind = HarnessKind::from_tags(tags);
-        let ctx = AccountContext::new_for(kind).await;
-        self.account = Some(ctx);
+    pub fn ensure_install_ctx(&mut self) -> &mut InstallContext {
+        if self.install.is_none() {
+            self.install = Some(InstallContext::new());
+        }
+        self.install
+            .as_mut()
+            .expect("install context just initialized")
     }
 }
 
@@ -123,6 +117,31 @@ impl AccountContext {
     }
 }
 
+pub struct InstallContext {
+    pub harness: InstallHarness,
+}
+
+impl std::fmt::Debug for InstallContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("InstallContext")
+            .field("harness", &self.harness)
+            .finish()
+    }
+}
+
+impl Default for InstallContext {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InstallContext {
+    pub fn new() -> Self {
+        let harness = InstallHarness::new().expect("InstallHarness::new must succeed for BDD");
+        Self { harness }
+    }
+}
+
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
     match outcome {
         HarnessOutcome::SignedUp(_) => "SignedUp",
@@ -139,10 +158,8 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
 pub async fn run_features(features_dir: impl Into<PathBuf>) {
     TanrenWorld::cucumber()
         .before(|_feature, _rule, scenario, world| {
-            let tags = scenario.tags.clone();
-            Box::pin(async move {
-                world.install_harness_for_tags(tags).await;
-            })
+            world.tags.clone_from(&scenario.tags);
+            Box::pin(async {})
         })
         .fail_on_skipped()
         .run_and_exit(features_dir.into())
@@ -167,6 +184,8 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            install: None,
+            tags: Vec::new(),
         };
         assert_eq!(world.seed.value(), 42);
     }
