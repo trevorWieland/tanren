@@ -1250,7 +1250,8 @@
       "title": "Connect an existing repository or create a new project",
       "completes_behaviors": [
         "B-0025",
-        "B-0026"
+        "B-0026",
+        "B-0310"
       ],
       "supports_behaviors": [],
       "depends_on": [
@@ -1290,6 +1291,19 @@
             "falsification"
           ],
           "description": "Per declared interface \u2014 Positive: create a new project from scratch; a new repository is created at the designated host AND registered as a project in one action; project is selectable as active and starts empty. Falsification: creating a new project at a host the user lacks access to is rejected. Falsification: the new project does not start with seeded specs, milestones, or initiatives."
+        },
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0310",
+          "interfaces": [
+            "api",
+            "mcp"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Per declared interface \u2014 Positive: personal-scope project registration succeeds for an authenticated account. Falsification: org-scoped registration is denied when the actor is not a member of the target org."
         }
       ],
       "playbook": [

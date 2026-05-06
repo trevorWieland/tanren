@@ -500,3 +500,24 @@ cannot regress to a UUID session token.
 - **External policy engine as a baseline dependency.** Rejected because Tanren
   can express v1 policy needs through typed application policy over
   event-sourced state.
+
+## V1 Project Registration Policy (B-0310)
+
+The first typed authorization decision in the project-registration path. V1
+is intentionally conservative and lives in `tanren-policy`:
+
+- **Personal scope** (`org: None`): any authenticated account may register a
+  project under their personal scope.
+- **Organization scope** (`org: Some(id)`): allowed only when the actor's
+  organization matches the requested org. A mismatched org or an account with
+  no org produces `access_denied`.
+- The policy function is pure: it takes `ActorContext` (account_id + org) and
+  `ScopeTarget` (personal or org id) and returns a typed `Decision`.
+- The actor context is derived from authenticated credentials at each
+  interface boundary (API session, MCP capability context), never from
+  caller-supplied parameters.
+- Policy denial maps to `ProjectFailureReason::AccessDenied` in the shared
+  project failure taxonomy — no internal policy state leaks to callers.
+- The full permissions, roles, and grants model (M-0004) will subsume this
+  v1 function; the `tanren-policy` crate and `Decision` type are designed to
+  grow into that richer model without changing the interface-layer call sites.

@@ -27,6 +27,7 @@ use tanren_contract::{
     normalize_repository_identity,
 };
 use tanren_identity_policy::{AccountId, ProjectId, RepositoryId};
+use tanren_policy::{ActorContext, Decision, ScopeTarget, authorize_project_registration};
 use tanren_provider_integrations::{
     HostId, ProviderAction, ProviderConnectionContext, SourceControlProvider,
 };
@@ -37,6 +38,37 @@ use crate::events::{
     ProjectEventKinds, project_envelope,
 };
 use crate::{AppServiceError, Clock};
+
+async fn resolve_actor_context<S>(
+    store: &S,
+    account_id: AccountId,
+) -> Result<ActorContext, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    let account = store
+        .find_account_by_id(account_id)
+        .await?
+        .ok_or_else(|| AppServiceError::Project(ProjectFailureReason::AccessDenied))?;
+    Ok(ActorContext {
+        account_id,
+        org: account.org_id,
+    })
+}
+
+fn check_project_policy(
+    actor: &ActorContext,
+    requested_org: Option<tanren_identity_policy::OrgId>,
+) -> Result<(), AppServiceError> {
+    let target = match requested_org {
+        Some(org) => ScopeTarget::Org(org),
+        None => ScopeTarget::Personal,
+    };
+    match authorize_project_registration(actor, &target) {
+        Decision::Allow => Ok(()),
+        Decision::Deny(_) => Err(AppServiceError::Project(ProjectFailureReason::AccessDenied)),
+    }
+}
 
 pub(crate) async fn connect_project<S, P>(
     store: &S,
@@ -49,6 +81,9 @@ where
     S: ProjectStore + AccountStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
+    let actor = resolve_actor_context(store, account_id).await?;
+    check_project_policy(&actor, request.org)?;
+
     let name = ProjectName::parse(&request.name)
         .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
     let url = RepositoryUrl::parse(&request.repository_url)
@@ -145,6 +180,9 @@ where
     S: ProjectStore + AccountStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
+    let actor = resolve_actor_context(store, account_id).await?;
+    check_project_policy(&actor, request.org)?;
+
     let name = ProjectName::parse(&request.name)
         .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
     let host = ProviderHost::parse(&request.provider_host)

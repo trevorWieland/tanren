@@ -10,7 +10,9 @@
 //! The MCP surface continues to return bearer-mode `SessionView`
 //! responses — there is no cookie jar between the rmcp client and server.
 
+mod actor;
 mod auth;
+mod response;
 
 use std::env;
 use std::sync::Arc;
@@ -24,18 +26,18 @@ use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
+use rmcp::model::{CallToolResult, ServerCapabilities, ServerInfo};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ActiveProjectView, ConnectProjectRequest, CreateProjectRequest,
     ProjectFailureReason, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, OrgId};
+use tanren_identity_policy::OrgId;
+use tanren_policy::{ActorContext, Decision, ScopeTarget, authorize_project_registration};
 use tanren_provider_integrations::SourceControlProvider;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -43,6 +45,7 @@ use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::auth::AuthConfig;
+use crate::response::{map_failure, success};
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
@@ -66,6 +69,7 @@ pub(crate) struct TanrenMcp {
     store: Arc<Store>,
     provider: Option<Arc<dyn SourceControlProvider>>,
     tool_router: ToolRouter<Self>,
+    actor_context: Option<ActorContext>,
 }
 
 impl std::fmt::Debug for TanrenMcp {
@@ -76,7 +80,6 @@ impl std::fmt::Debug for TanrenMcp {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 struct ProjectConnectParams {
-    account_id: AccountId,
     name: String,
     repository_url: String,
     #[serde(default)]
@@ -85,16 +88,10 @@ struct ProjectConnectParams {
 
 #[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
 struct ProjectCreateParams {
-    account_id: AccountId,
     name: String,
     provider_host: String,
     #[serde(default)]
     org: Option<OrgId>,
-}
-
-#[derive(Debug, Deserialize, Serialize, schemars::JsonSchema)]
-struct ProjectActiveParams {
-    account_id: AccountId,
 }
 
 #[rmcp::tool_router]
@@ -103,12 +100,36 @@ impl TanrenMcp {
         handlers: Handlers,
         store: Arc<Store>,
         provider: Option<Arc<dyn SourceControlProvider>>,
+        actor_context: Option<ActorContext>,
     ) -> Self {
         Self {
             handlers,
             store,
             provider,
+            actor_context,
             tool_router: Self::tool_router(),
+        }
+    }
+
+    fn require_actor(&self) -> Result<&ActorContext, CallToolResult> {
+        self.actor_context.as_ref().ok_or_else(|| {
+            map_failure(AppServiceError::Project(ProjectFailureReason::AccessDenied))
+        })
+    }
+
+    fn check_scope_policy(
+        actor: &ActorContext,
+        requested_org: Option<OrgId>,
+    ) -> Result<(), CallToolResult> {
+        let target = match requested_org {
+            Some(org) => ScopeTarget::Org(org),
+            None => ScopeTarget::Personal,
+        };
+        match authorize_project_registration(actor, &target) {
+            Decision::Allow => Ok(()),
+            Decision::Deny(_) => Err(map_failure(AppServiceError::Project(
+                ProjectFailureReason::AccessDenied,
+            ))),
         }
     }
 
@@ -166,6 +187,13 @@ impl TanrenMcp {
         &self,
         Parameters(params): Parameters<ProjectConnectParams>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = match self.require_actor() {
+            Ok(a) => a,
+            Err(result) => return Ok(result),
+        };
+        if let Err(result) = Self::check_scope_policy(actor, params.org) {
+            return Ok(result);
+        }
         let Some(provider) = self.provider.as_deref() else {
             return Ok(map_failure(AppServiceError::Project(
                 ProjectFailureReason::ProviderNotConfigured,
@@ -178,7 +206,7 @@ impl TanrenMcp {
         };
         match self
             .handlers
-            .connect_project(self.store.as_ref(), provider, params.account_id, request)
+            .connect_project(self.store.as_ref(), provider, actor.account_id, request)
             .await
         {
             Ok(project) => Ok(success(&project)),
@@ -194,6 +222,13 @@ impl TanrenMcp {
         &self,
         Parameters(params): Parameters<ProjectCreateParams>,
     ) -> Result<CallToolResult, McpError> {
+        let actor = match self.require_actor() {
+            Ok(a) => a,
+            Err(result) => return Ok(result),
+        };
+        if let Err(result) = Self::check_scope_policy(actor, params.org) {
+            return Ok(result);
+        }
         let Some(provider) = self.provider.as_deref() else {
             return Ok(map_failure(AppServiceError::Project(
                 ProjectFailureReason::ProviderNotConfigured,
@@ -206,7 +241,7 @@ impl TanrenMcp {
         };
         match self
             .handlers
-            .create_project(self.store.as_ref(), provider, params.account_id, request)
+            .create_project(self.store.as_ref(), provider, actor.account_id, request)
             .await
         {
             Ok(project) => Ok(success(&project)),
@@ -218,13 +253,14 @@ impl TanrenMcp {
         name = "project.active",
         description = "Read back the caller's currently active project. Returns the active project view or null when no project is active."
     )]
-    async fn project_active(
-        &self,
-        Parameters(params): Parameters<ProjectActiveParams>,
-    ) -> Result<CallToolResult, McpError> {
+    async fn project_active(&self) -> Result<CallToolResult, McpError> {
+        let actor = match self.require_actor() {
+            Ok(a) => a,
+            Err(result) => return Ok(result),
+        };
         match self
             .handlers
-            .active_project(self.store.as_ref(), params.account_id)
+            .active_project(self.store.as_ref(), actor.account_id)
             .await
         {
             Ok(Some(view)) => Ok(success(&view)),
@@ -252,33 +288,6 @@ impl ServerHandler for TanrenMcp {
     }
 }
 
-fn success<T: Serialize>(value: &T) -> CallToolResult {
-    let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::success(vec![Content::text(text)])
-}
-
-fn map_failure(err: AppServiceError) -> CallToolResult {
-    let (code, summary) = match err {
-        AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::Project(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
-            "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
-        ),
-    };
-    let body = json!({
-        "code": code,
-        "summary": summary,
-    });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
@@ -301,6 +310,7 @@ fn build_router(
     store: Arc<Store>,
     cancellation: CancellationToken,
     provider: Option<Arc<dyn SourceControlProvider>>,
+    actor_context: Option<ActorContext>,
 ) -> Router {
     let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
@@ -310,6 +320,7 @@ fn build_router(
                     handlers.clone(),
                     store.clone(),
                     provider.clone(),
+                    actor_context,
                 ))
             },
             Arc::new(LocalSessionManager::default()),
@@ -369,6 +380,16 @@ pub fn build_router_with_store(
     api_key: secrecy::SecretString,
     provider: Option<Arc<dyn SourceControlProvider>>,
 ) -> (Router, CancellationToken) {
+    build_router_with_actor(store, api_key, provider, None)
+}
+
+#[cfg(any(test, feature = "test-hooks"))]
+pub fn build_router_with_actor(
+    store: Arc<Store>,
+    api_key: secrecy::SecretString,
+    provider: Option<Arc<dyn SourceControlProvider>>,
+    actor_context: Option<ActorContext>,
+) -> (Router, CancellationToken) {
     let auth_config = Arc::new(AuthConfig {
         bootstrap_key: Some(api_key),
     });
@@ -379,6 +400,7 @@ pub fn build_router_with_store(
         store,
         cancellation.clone(),
         provider,
+        actor_context,
     );
     (router, cancellation)
 }
@@ -404,8 +426,17 @@ pub async fn serve(_config: Config) -> Result<()> {
     );
     let handlers = Handlers::new();
 
+    let actor_context = actor::resolve_serve_actor_context(&database_url).await;
+
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, handlers, store, cancellation.clone(), None);
+    let router = build_router(
+        auth_config,
+        handlers,
+        store,
+        cancellation.clone(),
+        None,
+        actor_context,
+    );
 
     let listener = TcpListener::bind(&bind)
         .await
