@@ -36,12 +36,16 @@ pub(crate) enum IntegrationName {
 
 impl IntegrationName {
     pub(crate) fn parse(input: &str) -> Result<Self, InstallValidationError> {
-        match input {
+        let trimmed = input.trim();
+        if trimmed.is_empty() {
+            return Err(InstallValidationError::EmptyIntegrationName);
+        }
+        match trimmed {
             "claude" => Ok(Self::Claude),
             "codex" => Ok(Self::Codex),
             "opencode" => Ok(Self::Opencode),
             _ => Err(InstallValidationError::UnknownIntegration {
-                input: input.to_owned(),
+                input: trimmed.to_owned(),
                 supported: SUPPORTED_INTEGRATIONS.join(", "),
             }),
         }
@@ -74,6 +78,8 @@ pub(crate) enum InstallValidationError {
     UnknownProfile { input: String, supported: String },
     #[error("unknown integration '{input}' — supported integrations: {supported}")]
     UnknownIntegration { input: String, supported: String },
+    #[error("integration name must not be empty")]
+    EmptyIntegrationName,
     #[error("repository path does not exist: {0}")]
     RepoNotFound(PathBuf),
     #[error("repository path is not a directory: {0}")]
