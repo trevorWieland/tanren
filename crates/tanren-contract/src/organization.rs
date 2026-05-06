@@ -84,6 +84,31 @@ pub enum OrganizationAdminOperation {
     Delete,
 }
 
+impl OrganizationAdminOperation {
+    /// Stable wire name for this operation (`snake_case`).
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InviteMembers => "invite_members",
+            Self::ManageAccess => "manage_access",
+            Self::Configure => "configure",
+            Self::SetPolicy => "set_policy",
+            Self::Delete => "delete",
+        }
+    }
+
+    /// Resolve the [`OrgPermission`] required to perform this operation.
+    ///
+    /// Delegates to the authoritative policy function
+    /// [`tanren_identity_policy::resolve_admin_operation_permission`].
+    /// Returns `None` for unknown or future operations, which callers
+    /// must treat as "permission denied."
+    #[must_use]
+    pub fn required_permission(self) -> Option<OrgPermission> {
+        tanren_identity_policy::resolve_admin_operation_permission(self.as_str())
+    }
+}
+
 /// Closed taxonomy of organization-flow failures.
 ///
 /// Maps onto the shared `{code, summary}` error body documented in

@@ -1,8 +1,14 @@
-//! Organization domain types.
+//! Organization domain types and authorization policy.
 //!
 //! [`OrganizationName`] and [`OrgPermission`] are the domain primitives used
 //! by the organization-creation flow (R-0002) and the bootstrap admin grants
 //! held by the creator.
+//!
+//! Authorization policy functions ([`resolve_admin_operation_permission`],
+//! [`bootstrap_permissions`], [`would_violate_last_admin`]) are the
+//! authoritative decision rules consumed by app-service handlers. Interface
+//! binaries and the contract layer delegate here instead of embedding their
+//! own mapping logic.
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -82,4 +88,58 @@ pub enum OrgPermission {
     SetPolicy,
     /// Delete the organization.
     Delete,
+}
+
+/// Resolve the [`OrgPermission`] required to perform an admin operation
+/// identified by its wire-level `snake_case` name.
+///
+/// This is the **authoritative** mapping consumed by app-service handlers
+/// and by the contract layer's `OrganizationAdminOperation::required_permission`.
+/// Unknown operation names return `None`, which callers must treat as
+/// "permission denied" — there is no silent fallback to a default
+/// permission.
+#[must_use]
+pub fn resolve_admin_operation_permission(operation_name: &str) -> Option<OrgPermission> {
+    match operation_name {
+        "invite_members" => Some(OrgPermission::InviteMembers),
+        "manage_access" => Some(OrgPermission::ManageAccess),
+        "configure" => Some(OrgPermission::Configure),
+        "set_policy" => Some(OrgPermission::SetPolicy),
+        "delete" => Some(OrgPermission::Delete),
+        _ => None,
+    }
+}
+
+/// The canonical set of bootstrap admin permissions granted to the creator
+/// of a new organization.
+///
+/// Callers should use this instead of building their own list so the
+/// authoritative source stays in the policy layer.
+#[must_use]
+pub fn bootstrap_permissions() -> &'static [OrgPermission] {
+    &[
+        OrgPermission::InviteMembers,
+        OrgPermission::ManageAccess,
+        OrgPermission::Configure,
+        OrgPermission::SetPolicy,
+        OrgPermission::Delete,
+    ]
+}
+
+/// Pure decision rule for the last-admin-holder invariant.
+///
+/// Returns `true` when revoking the specified permission from the subject
+/// would leave the organization with zero holders of that permission,
+/// violating the invariant that every organization must retain at least
+/// one admin-capable member.
+///
+/// # Parameters
+///
+/// - `holder_count` — number of distinct accounts that currently hold
+///   the permission in the organization (from `count_permission_holders`).
+/// - `subject_holds_permission` — whether the account under consideration
+///   currently holds the permission (from `has_organization_permission`).
+#[must_use]
+pub fn would_violate_last_admin(holder_count: u64, subject_holds_permission: bool) -> bool {
+    holder_count <= 1 && subject_holds_permission
 }

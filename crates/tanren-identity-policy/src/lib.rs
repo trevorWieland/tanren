@@ -13,7 +13,10 @@ pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
-pub use organization::{OrgPermission, OrganizationName};
+pub use organization::{
+    OrgPermission, OrganizationName, bootstrap_permissions, resolve_admin_operation_permission,
+    would_violate_last_admin,
+};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};

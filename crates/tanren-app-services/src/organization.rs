@@ -12,13 +12,6 @@ use crate::organization_events::{
     OrganizationCreatedEvent, OrganizationCreationRejectedEvent, OrganizationEventKind, envelope,
 };
 use crate::{AppServiceError, Clock};
-const BOOTSTRAP_PERMISSIONS: [OrgPermission; 5] = [
-    OrgPermission::InviteMembers,
-    OrgPermission::ManageAccess,
-    OrgPermission::Configure,
-    OrgPermission::SetPolicy,
-    OrgPermission::Delete,
-];
 
 #[derive(Debug)]
 pub struct CreateOrganizationOutput {
@@ -46,6 +39,7 @@ where
 
     let org_id = OrgId::fresh();
     let membership_id = MembershipId::fresh();
+    let bootstrap = tanren_identity_policy::bootstrap_permissions();
 
     let event_payload = envelope(
         OrganizationEventKind::OrganizationCreated,
@@ -53,7 +47,7 @@ where
             org_id,
             creator_account_id: account_id,
             canonical_name: canonical_name.clone(),
-            granted_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
+            granted_permissions: bootstrap.to_vec(),
             at: now,
         },
     );
@@ -68,7 +62,7 @@ where
                 created_at: now,
             },
             membership_id,
-            bootstrap_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
+            bootstrap_permissions: bootstrap.to_vec(),
             now,
             request_id: idempotency_key,
             event_payload,
@@ -108,8 +102,8 @@ where
 
     Ok(CreateOrganizationOutput {
         organization: org_record_to_view(&outcome.organization)?,
-        membership: membership_record_to_view(&outcome.membership, BOOTSTRAP_PERMISSIONS.to_vec()),
-        granted_permissions: BOOTSTRAP_PERMISSIONS.to_vec(),
+        membership: membership_record_to_view(&outcome.membership, bootstrap.to_vec()),
+        granted_permissions: bootstrap.to_vec(),
         project_count: 0,
         available_organizations,
     })
@@ -163,7 +157,7 @@ where
             OrganizationFailureReason::PermissionDenied,
         ));
     }
-    let Some(permission) = admin_operation_to_permission(operation) else {
+    let Some(permission) = operation.required_permission() else {
         return Err(AppServiceError::Organization(
             OrganizationFailureReason::PermissionDenied,
         ));
@@ -190,30 +184,15 @@ where
     S: OrganizationStore + ?Sized,
 {
     let count = store.count_permission_holders(org_id, permission).await?;
-    if count <= 1 {
-        let has = store
-            .has_organization_permission(org_id, account_id, permission)
-            .await?;
-        if has {
-            return Err(AppServiceError::Organization(
-                OrganizationFailureReason::LastAdminHolder,
-            ));
-        }
+    let has = store
+        .has_organization_permission(org_id, account_id, permission)
+        .await?;
+    if tanren_identity_policy::would_violate_last_admin(count, has) {
+        return Err(AppServiceError::Organization(
+            OrganizationFailureReason::LastAdminHolder,
+        ));
     }
     Ok(())
-}
-
-pub(crate) fn admin_operation_to_permission(
-    operation: OrganizationAdminOperation,
-) -> Option<OrgPermission> {
-    match operation {
-        OrganizationAdminOperation::InviteMembers => Some(OrgPermission::InviteMembers),
-        OrganizationAdminOperation::ManageAccess => Some(OrgPermission::ManageAccess),
-        OrganizationAdminOperation::Configure => Some(OrgPermission::Configure),
-        OrganizationAdminOperation::SetPolicy => Some(OrgPermission::SetPolicy),
-        OrganizationAdminOperation::Delete => Some(OrgPermission::Delete),
-        _ => None,
-    }
 }
 
 fn org_record_to_view(record: &OrganizationRecord) -> Result<OrganizationView, AppServiceError> {
