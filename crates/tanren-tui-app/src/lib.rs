@@ -92,16 +92,23 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    Uninstall,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::Uninstall,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::Uninstall => "Uninstall",
         }
     }
 }
@@ -156,6 +163,13 @@ impl FormState {
     pub(crate) fn value(&self, idx: usize) -> &str {
         self.fields.get(idx).map_or("", |f| f.value.as_str())
     }
+}
+
+#[derive(Debug)]
+pub(crate) struct UninstallPreviewState {
+    pub(crate) repo_path: String,
+    pub(crate) preview: tanren_contract::UninstallPreview,
+    pub(crate) error: Option<String>,
 }
 
 // Re-export OutcomeView at crate root so `draw.rs`'s

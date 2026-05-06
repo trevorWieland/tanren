@@ -7,6 +7,7 @@
 
 use std::env;
 use std::io::Stdout;
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -14,15 +15,17 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use tanren_app_services::project_uninstall;
 use tanren_app_services::{Handlers, Store};
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
     accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    parse_sign_up, render_error, render_uninstall_error, sign_in_fields, sign_in_outcome,
+    sign_up_fields, sign_up_outcome, uninstall_apply_outcome, uninstall_repo_fields,
 };
-use crate::{FormState, MenuChoice};
+use crate::{FormState, MenuChoice, UninstallPreviewState};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -32,6 +35,8 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    UninstallRepo(FormState),
+    UninstallPreview(UninstallPreviewState),
     Outcome(OutcomeView),
 }
 
@@ -134,6 +139,17 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::UninstallRepo(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::UninstallRepo),
+                None => Effect::None,
+            },
+            Screen::UninstallPreview(_) => match key.code {
+                KeyCode::Esc | KeyCode::Char('q' | 'Q') => {
+                    Effect::ReplaceScreen(Screen::Menu { selected: 0 })
+                }
+                KeyCode::Enter => Effect::ApplyUninstall,
+                _ => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -144,6 +160,10 @@ impl App {
             }
             Effect::Form(action, kind) => {
                 self.dispatch_form_action(action, kind);
+                false
+            }
+            Effect::ApplyUninstall => {
+                self.apply_uninstall();
                 false
             }
         }
@@ -159,6 +179,10 @@ impl App {
     }
 
     fn submit(&mut self, kind: FormKind) {
+        if matches!(kind, FormKind::UninstallRepo) {
+            self.submit_uninstall_preview();
+            return;
+        }
         let Some(store) = self.store.clone() else {
             let message = self
                 .store_error
@@ -169,92 +193,103 @@ impl App {
             }
             return;
         };
-        let handlers = &self.handlers;
+        self.submit_store_action(kind, &store);
+    }
+
+    fn submit_store_action(&mut self, kind: FormKind, store: &Arc<Store>) {
+        let handlers = self.handlers.clone();
         match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+            FormKind::SignUp => self.submit_sign_up(&handlers, store),
+            FormKind::SignIn => self.submit_sign_in(&handlers, store),
+            FormKind::AcceptInvitation => self.submit_accept_invitation(&handlers, store),
+            FormKind::UninstallRepo => {}
+        }
+    }
+
+    fn submit_sign_up(&mut self, handlers: &Handlers, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::SignUp(state) = &self.screen else {
+                return;
+            };
+            parse_sign_up(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(handlers.sign_up(store.as_ref(), request));
+        match result {
+            Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+            Err(reason) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+        }
+    }
+
+    fn submit_sign_in(&mut self, handlers: &Handlers, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::SignIn(state) = &self.screen else {
+                return;
+            };
+            parse_sign_in(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(handlers.sign_in(store.as_ref(), request));
+        match result {
+            Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+            Err(reason) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+        }
+    }
+
+    fn submit_accept_invitation(&mut self, handlers: &Handlers, store: &Arc<Store>) {
+        let parsed = {
+            let Screen::AcceptInvitation(state) = &self.screen else {
+                return;
+            };
+            parse_accept_invitation(state)
+        };
+        let request = match parsed {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        let result = self
+            .runtime
+            .block_on(handlers.accept_invitation(store.as_ref(), request));
+        match result {
+            Ok(response) => {
+                self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
         }
@@ -262,8 +297,61 @@ impl App {
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::UninstallRepo(s) => Some(s),
             _ => None,
+        }
+    }
+
+    fn submit_uninstall_preview(&mut self) {
+        let repo_path = {
+            let Screen::UninstallRepo(state) = &self.screen else {
+                return;
+            };
+            state.value(0).to_owned()
+        };
+        if repo_path.is_empty() {
+            if let Screen::UninstallRepo(state) = &mut self.screen {
+                state.error = Some("repo path is required".to_owned());
+            }
+            return;
+        }
+        let path = Path::new(&repo_path);
+        match project_uninstall::preview(path) {
+            Ok(preview) => {
+                self.screen = Screen::UninstallPreview(UninstallPreviewState {
+                    repo_path,
+                    preview,
+                    error: None,
+                });
+            }
+            Err(err) => {
+                if let Screen::UninstallRepo(state) = &mut self.screen {
+                    state.error = Some(render_uninstall_error(&err));
+                }
+            }
+        }
+    }
+
+    fn apply_uninstall(&mut self) {
+        let repo_path = {
+            let Screen::UninstallPreview(state) = &self.screen else {
+                return;
+            };
+            state.repo_path.clone()
+        };
+        let path = Path::new(&repo_path);
+        match project_uninstall::apply(path) {
+            Ok(result) => {
+                self.screen = Screen::Outcome(uninstall_apply_outcome(&result));
+            }
+            Err(err) => {
+                if let Screen::UninstallPreview(state) = &mut self.screen {
+                    state.error = Some(render_uninstall_error(&err));
+                }
+            }
         }
     }
 
@@ -276,6 +364,12 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::UninstallRepo(state) => {
+                draw::draw_form(frame, area, "Uninstall — enter repo path", state);
+            }
+            Screen::UninstallPreview(state) => {
+                draw::draw_uninstall_preview(frame, area, state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -286,6 +380,7 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    UninstallRepo,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -300,6 +395,7 @@ enum Effect {
     Exit,
     ReplaceScreen(Screen),
     Form(FormAction, FormKind),
+    ApplyUninstall,
 }
 
 fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
@@ -322,6 +418,9 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::Uninstall => {
+                    Screen::UninstallRepo(FormState::new(uninstall_repo_fields()))
                 }
             });
         }

@@ -32,8 +32,11 @@ workspace = true
    "test-hooks",
  ] }
  tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
- tanren-testkit = { path = "../tanren-testkit" }
- tokio = { workspace = true }
+  tanren-testkit = { path = "../tanren-testkit" }
+  tokio = { workspace = true }
+
+[dev-dependencies]
+  expectrl = { workspace = true }
 
 [[bin]]
 name = "tanren-bdd-runner"

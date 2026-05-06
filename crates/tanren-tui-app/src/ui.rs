@@ -4,9 +4,10 @@
 
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
+use tanren_app_services::project_uninstall::UninstallError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, PreserveReason,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UninstallResult,
 };
 use tanren_identity_policy::{Email, InvitationToken, ValidationError};
 
@@ -156,4 +157,48 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+pub(crate) fn uninstall_repo_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Repo path",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+fn preserve_reason_text(reason: PreserveReason) -> &'static str {
+    match reason {
+        PreserveReason::UserOwned => "user-owned",
+        PreserveReason::ModifiedSinceInstall => "modified since install",
+        PreserveReason::AlreadyRemoved => "already removed",
+    }
+}
+
+pub(crate) fn uninstall_apply_outcome(result: &UninstallResult) -> OutcomeView {
+    let mut lines = vec![format!("Removed {} file(s):", result.removed.len())];
+    for path in &result.removed {
+        lines.push(format!("  - {path}"));
+    }
+    lines.push(String::new());
+    lines.push(format!("Preserved {} file(s):", result.preserved.len()));
+    for file in &result.preserved {
+        lines.push(format!(
+            "  - {} ({})",
+            file.path,
+            preserve_reason_text(file.reason)
+        ));
+    }
+    lines.push(String::new());
+    lines.push(format!("Manifest removed: {}", result.manifest_removed));
+    lines.push(String::new());
+    lines.push("Hosted account/project history is NOT changed.".to_owned());
+    OutcomeView {
+        title: "Uninstall applied",
+        lines,
+    }
+}
+
+pub(crate) fn render_uninstall_error(err: &UninstallError) -> String {
+    format!("uninstall error: {err}")
 }
