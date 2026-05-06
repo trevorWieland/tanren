@@ -52,6 +52,15 @@ impl UserSettingKey {
     }
 }
 
+impl std::fmt::Display for UserSettingKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::PreferredHarness => f.write_str("preferred_harness"),
+            Self::PreferredProvider => f.write_str("preferred_provider"),
+        }
+    }
+}
+
 /// Validated user-tier setting value.
 ///
 /// Constructed through [`UserSettingValue::parse`] which trims surrounding
@@ -143,6 +152,29 @@ impl From<Uuid> for CredentialId {
 impl AsRef<Uuid> for CredentialId {
     fn as_ref(&self) -> &Uuid {
         &self.0
+    }
+}
+
+impl std::fmt::Display for CredentialKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::ApiKey => f.write_str("api_key"),
+            Self::SourceControlToken => f.write_str("source_control_token"),
+            Self::WebhookSigningKey => f.write_str("webhook_signing_key"),
+            Self::OidcClientSecret => f.write_str("oidc_client_secret"),
+            Self::OpaqueSecret => f.write_str("opaque_secret"),
+        }
+    }
+}
+
+impl std::fmt::Display for CredentialScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::User => f.write_str("user"),
+            Self::Project => f.write_str("project"),
+            Self::Organization => f.write_str("organization"),
+            Self::ServiceAccount => f.write_str("service_account"),
+        }
     }
 }
 

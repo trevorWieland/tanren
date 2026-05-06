@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod commands;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -20,17 +22,9 @@ use std::process::ExitCode;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
-/// Top-level CLI shape. Equivalent to the historical `Cli` struct in
-/// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
-/// the thin-binary-crate convention (`bin/X/src/main.rs` parses a
-/// `Config` and calls `tanren_X_app::run(config)`).
 #[derive(Debug, Parser)]
 #[command(
     name = "tanren-cli",
@@ -43,7 +37,6 @@ pub struct Config {
 }
 
 impl Config {
-    /// Parse a [`Config`] from the process arguments.
     #[must_use]
     pub fn parse_from_env() -> Self {
         Self::parse()
@@ -52,68 +45,127 @@ impl Config {
 
 #[derive(Debug, Subcommand)]
 enum Command {
-    /// Print a liveness report. Mirrors the api `/health` endpoint.
     Health,
-    /// Database migration commands.
     Migrate {
         #[command(subcommand)]
         action: MigrateAction,
     },
-    /// Account flow: self-signup, sign-in, accept-invitation.
     Account {
         #[command(subcommand)]
         action: AccountAction,
     },
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    Credential {
+        #[command(subcommand)]
+        action: CredentialAction,
+    },
 }
 
 #[derive(Debug, Subcommand)]
-enum MigrateAction {
-    /// Apply all pending migrations.
+pub(crate) enum MigrateAction {
     Up {
-        /// Database URL (defaults to `$DATABASE_URL`).
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
     },
 }
 
 #[derive(Debug, Subcommand)]
-enum AccountAction {
-    /// Create a personal account (or, with `--invitation`, accept an
-    /// invitation and join the inviting org).
+pub(crate) enum AccountAction {
     Create {
-        /// Database URL.
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
-        /// Email to register.
         #[arg(long)]
         identifier: String,
-        /// Password.
         #[arg(long)]
         password: String,
-        /// Display name.
         #[arg(long, default_value_t = String::from("Tanren user"))]
         display_name: String,
-        /// Optional invitation token. When supplied, the new account
-        /// joins the inviting org instead of being a personal account.
         #[arg(long)]
         invitation: Option<String>,
     },
-    /// Sign in to an existing account and persist the session.
     SignIn {
-        /// Database URL.
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
-        /// Email to sign in with.
         #[arg(long)]
         identifier: String,
-        /// Password.
         #[arg(long)]
         password: String,
     },
 }
 
-/// Run the CLI to completion. Returns an [`ExitCode`] so the binary
-/// `main` can return it directly without re-encoding error context.
+#[derive(Debug, Subcommand)]
+pub(crate) enum ConfigAction {
+    User {
+        #[command(subcommand)]
+        action: UserConfigAction,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum UserConfigAction {
+    List {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+    Set {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        key: String,
+        #[arg(long)]
+        value: String,
+    },
+    Remove {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        key: String,
+    },
+}
+
+#[derive(Debug, Subcommand)]
+pub(crate) enum CredentialAction {
+    Add {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        kind: String,
+        #[arg(long)]
+        name: String,
+        #[arg(long)]
+        value: String,
+        #[arg(long)]
+        description: Option<String>,
+        #[arg(long)]
+        provider: Option<String>,
+    },
+    Update {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        id: String,
+        #[arg(long)]
+        value: String,
+        #[arg(long)]
+        name: Option<String>,
+        #[arg(long)]
+        description: Option<String>,
+    },
+    List {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+    Remove {
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        #[arg(long)]
+        id: String,
+    },
+}
+
 #[must_use]
 pub fn run(config: Config) -> ExitCode {
     let result = match config.command {
@@ -121,175 +173,51 @@ pub fn run(config: Config) -> ExitCode {
         Some(Command::Migrate {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
-        Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Account { action }) => commands::dispatch_account(action),
+        Some(Command::Config {
+            action: ConfigAction::User { action },
+        }) => commands::dispatch_user_config(action),
+        Some(Command::Credential { action }) => commands::dispatch_credential(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
-            let stderr = std::io::stderr();
-            let mut handle = stderr.lock();
-            let _ = writeln!(handle, "{err}");
+            let _ = writeln!(std::io::stderr().lock(), "{err}");
             ExitCode::from(1)
         }
     }
 }
 
 fn print_health() -> Result<()> {
-    let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    let r = tanren_app_services::Handlers::new().health(env!("CARGO_PKG_VERSION"));
     writeln!(
-        handle,
+        std::io::stdout().lock(),
         "status={status} version={version} contract_version={contract}",
-        status = report.status,
-        version = report.version,
-        contract = report.contract_version.value(),
+        status = r.status,
+        version = r.version,
+        contract = r.contract_version.value(),
     )
-    .context("write health report to stdout")?;
-    Ok(())
+    .context("write health report")
 }
 
 fn run_migrate_up(database_url: &str) -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
+    let rt = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
         .context("build tokio runtime")?;
-    runtime.block_on(async {
-        Handlers::new()
+    rt.block_on(async {
+        tanren_app_services::Handlers::new()
             .migrate(database_url)
             .await
             .context("apply pending migrations")
     })?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-    writeln!(handle, "migrations: applied").context("write migrate report to stdout")?;
-    Ok(())
+    writeln!(std::io::stdout().lock(), "migrations: applied").context("write migrate report")
 }
 
-fn dispatch_account(action: AccountAction) -> Result<()> {
-    let runtime = tokio::runtime::Builder::new_current_thread()
-        .enable_all()
-        .build()
-        .context("build tokio runtime")?;
-    runtime.block_on(run_account(action))
-}
-
-async fn run_account(action: AccountAction) -> Result<()> {
-    let handlers = Handlers::new();
-    match action {
-        AccountAction::Create {
-            database_url,
-            identifier,
-            password,
-            display_name,
-            invitation,
-        } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            match invitation {
-                None => {
-                    let response = handlers
-                        .sign_up(
-                            &store,
-                            SignUpRequest {
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
-                }
-                Some(token) => {
-                    let invitation_token = InvitationToken::parse(&token)
-                        .context("parse --invitation as invitation token")?;
-                    let response = handlers
-                        .accept_invitation(
-                            &store,
-                            AcceptInvitationRequest {
-                                invitation_token,
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
-                }
-            }
-        }
-        AccountAction::SignIn {
-            database_url,
-            identifier,
-            password,
-        } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            let response = handlers
-                .sign_in(&store, SignInRequest { email, password })
-                .await
-                .map_err(account_error)?;
-            persist_session(response.session.token.expose_secret())?;
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
-            writeln!(
-                handle,
-                "account_id={id} session={token}",
-                id = response.account.id,
-                token = response.session.token.expose_secret(),
-            )
-            .context("write sign-in result")?;
-        }
-    }
-    Ok(())
-}
-
-fn account_error(err: AppServiceError) -> anyhow::Error {
-    match err {
-        AppServiceError::Account(reason) => {
-            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
-        }
-        AppServiceError::InvalidInput(message) => {
-            anyhow::anyhow!("error: validation_failed — {message}")
-        }
-        AppServiceError::Store(err) => {
-            anyhow::anyhow!("error: internal_error — {err}")
-        }
-        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
-    }
-}
-
-fn session_path() -> PathBuf {
-    if let Ok(explicit) = env::var(SESSION_FILE_ENV) {
-        if !explicit.is_empty() {
-            return PathBuf::from(explicit);
+pub(crate) fn session_path() -> PathBuf {
+    if let Ok(v) = env::var(SESSION_FILE_ENV) {
+        if !v.is_empty() {
+            return PathBuf::from(v);
         }
     }
     let base = env::var("XDG_STATE_HOME")
@@ -299,7 +227,7 @@ fn session_path() -> PathBuf {
             || {
                 env::var("HOME").ok().map_or_else(
                     || PathBuf::from("."),
-                    |home| PathBuf::from(home).join(".local/state"),
+                    |h| PathBuf::from(h).join(".local/state"),
                 )
             },
             PathBuf::from,
@@ -307,7 +235,7 @@ fn session_path() -> PathBuf {
     base.join("tanren").join("session")
 }
 
-fn persist_session(token: &str) -> Result<()> {
+pub(crate) fn persist_session(token: &str) -> Result<()> {
     let path = session_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
