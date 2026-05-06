@@ -277,6 +277,14 @@ pub enum AccountFailureReason {
     InvitationAlreadyConsumed,
     /// Caller is not a member of the target organization.
     OrganizationNotMember,
+    /// The request lacks a valid authenticated session.
+    Unauthenticated,
+    /// The session store could not be read.
+    SessionReadFailed,
+    /// The session could not be persisted to the session store.
+    SessionInstallFailed,
+    /// The session could not be cleared from the session store.
+    SessionFlushFailed,
 }
 
 impl AccountFailureReason {
@@ -291,6 +299,10 @@ impl AccountFailureReason {
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
             Self::OrganizationNotMember => "organization-not-member",
+            Self::Unauthenticated => "unauthenticated",
+            Self::SessionReadFailed => "session_read_failed",
+            Self::SessionInstallFailed => "session_install_failed",
+            Self::SessionFlushFailed => "session_flush_failed",
         }
     }
 
@@ -313,6 +325,10 @@ impl AccountFailureReason {
             Self::OrganizationNotMember => {
                 "The account is not a member of the target organization."
             }
+            Self::Unauthenticated => "Authentication required.",
+            Self::SessionReadFailed => "Failed to read the authenticated session.",
+            Self::SessionInstallFailed => "Failed to persist the authenticated session.",
+            Self::SessionFlushFailed => "Failed to clear the authenticated session.",
         }
     }
 
@@ -323,11 +339,12 @@ impl AccountFailureReason {
     pub const fn http_status(self) -> u16 {
         match self {
             Self::DuplicateIdentifier => 409,
-            Self::InvalidCredential => 401,
+            Self::InvalidCredential | Self::Unauthenticated => 401,
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
             Self::OrganizationNotMember => 403,
+            Self::SessionReadFailed | Self::SessionInstallFailed | Self::SessionFlushFailed => 500,
         }
     }
 }

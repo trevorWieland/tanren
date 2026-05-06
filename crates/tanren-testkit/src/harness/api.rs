@@ -275,6 +275,32 @@ impl AccountHarness for ApiHarness {
     async fn seed_project(&mut self, fixture: HarnessProject) -> HarnessResult<()> {
         super::seed_project_via_store(&self.store, &fixture).await
     }
+    async fn unauthenticated_request(&mut self, method: &str, path: &str) -> HarnessResult<Value> {
+        let client = Client::builder()
+            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+            .build()
+            .map_err(|e| HarnessError::Transport(format!("build client: {e}")))?;
+        let url = format!("{}{path}", self.base_url);
+        let response = match method {
+            "GET" => client.get(&url),
+            "POST" => client.post(&url),
+            "PUT" => client.put(&url),
+            "DELETE" => client.delete(&url),
+            _ => {
+                return Err(HarnessError::Transport(format!(
+                    "unsupported method: {method}"
+                )));
+            }
+        }
+        .send()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("{method} {path}: {e}")))?;
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        Err(failure_from_body(&json))
+    }
 }
 
 impl ApiHarness {
@@ -428,6 +454,10 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_expired" => AccountFailureReason::InvitationExpired,
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
         "organization-not-member" => AccountFailureReason::OrganizationNotMember,
+        "unauthenticated" => AccountFailureReason::Unauthenticated,
+        "session_read_failed" => AccountFailureReason::SessionReadFailed,
+        "session_install_failed" => AccountFailureReason::SessionInstallFailed,
+        "session_flush_failed" => AccountFailureReason::SessionFlushFailed,
         _ => return None,
     })
 }

@@ -4172,6 +4172,7 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-observability",
  "tanren-store",
  "tokio",
  "tower-http",

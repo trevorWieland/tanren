@@ -25,7 +25,10 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, map_app_error, missing_session_error, session_flush_error,
+    session_install_error, session_read_error,
+};
 
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 
@@ -95,27 +98,8 @@ async fn require_account_id(session: &Session) -> Result<AccountId, Response> {
     session
         .get::<AccountId>(SESSION_KEY_ACCOUNT)
         .await
-        .map_err(|err| {
-            tracing::error!(target: "tanren_api", error = %err, "session read");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
-                    code: "internal_error".to_owned(),
-                    summary: "Tanren encountered an internal error.".to_owned(),
-                }),
-            )
-                .into_response()
-        })?
-        .ok_or_else(|| {
-            (
-                StatusCode::UNAUTHORIZED,
-                Json(AccountFailureBody {
-                    code: "unauthenticated".to_owned(),
-                    summary: "Authentication required.".to_owned(),
-                }),
-            )
-                .into_response()
-        })
+        .map_err(|err| session_read_error(&err))?
+        .ok_or_else(missing_session_error)
 }
 
 /// Top-level `OpenAPI` doc. Each handler is annotated with
@@ -338,15 +322,7 @@ pub(crate) async fn accept_invitation_route(
 )]
 pub(crate) async fn revoke_route(session: Session) -> Response {
     if let Err(err) = session.flush().await {
-        tracing::error!(target: "tanren_api", error = %err, "session flush");
-        return (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
-                code: "internal_error".to_owned(),
-                summary: "Tanren encountered an internal error.".to_owned(),
-            }),
-        )
-            .into_response();
+        return session_flush_error(&err);
     }
     StatusCode::NO_CONTENT.into_response()
 }

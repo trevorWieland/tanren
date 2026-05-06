@@ -118,7 +118,6 @@ impl HarnessKind {
         Self::InProcess
     }
 }
-
 /// Outcome of a successful sign-up / sign-in / accept-invitation call
 /// against any harness. The `session.has_token` field aggregates
 /// "received a session token" across cookie + bearer transports —
@@ -137,7 +136,6 @@ pub struct HarnessSession {
     /// response body (cli/mcp/tui/in-process).
     pub has_token: bool,
 }
-
 /// Outcome of a successful invitation-acceptance call.
 #[derive(Debug, Clone)]
 pub struct HarnessAcceptance {
@@ -146,7 +144,6 @@ pub struct HarnessAcceptance {
     /// Organization the new account joined.
     pub joined_org: OrgId,
 }
-
 /// Failure surface — every harness collapses transport-specific
 /// failures down to a [`AccountFailureReason`] (matched on the wire
 /// `code`) plus an opaque message used for diagnostic output.
@@ -171,7 +168,6 @@ impl HarnessError {
         }
     }
 }
-
 /// Convenient alias for harness fallibility.
 pub type HarnessResult<T> = Result<T, HarnessError>;
 
@@ -187,7 +183,6 @@ pub struct HarnessInvitation {
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
 }
-
 /// Specification for an organization seeded into the harness's backing
 /// store. Used by `Given ... organization ...` fixture steps.
 #[derive(Debug, Clone)]
@@ -197,7 +192,6 @@ pub struct HarnessOrganization {
     /// Human-readable organization name.
     pub org_name: String,
 }
-
 /// Specification for a project seeded into the harness's backing store.
 /// Used by `Given ... project ...` fixture steps.
 #[derive(Debug, Clone)]
@@ -209,7 +203,6 @@ pub struct HarnessProject {
     /// Human-readable project name.
     pub project_name: String,
 }
-
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -255,7 +248,6 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         }
         out
     }
-
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
 
@@ -272,7 +264,6 @@ pub trait AccountHarness: Send + std::fmt::Debug {
             "org operations not implemented for this harness".to_owned(),
         ))
     }
-
     /// Switch the active organization for the given account.
     async fn switch_active_org(
         &mut self,
@@ -316,6 +307,15 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     async fn seed_project(&mut self, _fixture: HarnessProject) -> HarnessResult<()> {
         Err(HarnessError::Transport(
             "org seeding not implemented for this harness".to_owned(),
+        ))
+    }
+    async fn unauthenticated_request(
+        &mut self,
+        _method: &str,
+        _path: &str,
+    ) -> HarnessResult<Value> {
+        Err(HarnessError::Transport(
+            "unauthenticated requests not implemented for this harness".to_owned(),
         ))
     }
 }

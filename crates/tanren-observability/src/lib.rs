@@ -71,3 +71,18 @@ pub enum ObservabilityError {
     #[error("failed to install tracing subscriber: {0}")]
     SubscriberInstall(String),
 }
+
+/// Emit a structured error event when the session store fails to read.
+pub fn emit_session_read_failed(error: &(impl std::fmt::Display + ?Sized)) {
+    tracing::error!(target: "tanren_session", error = %error, "session read failed");
+}
+
+/// Emit a structured error event when the session store fails to persist.
+pub fn emit_session_install_failed(error: &(impl std::fmt::Display + ?Sized)) {
+    tracing::error!(target: "tanren_session", error = %error, "session install failed");
+}
+
+/// Emit a structured error event when the session store fails to flush.
+pub fn emit_session_flush_failed(error: &(impl std::fmt::Display + ?Sized)) {
+    tracing::error!(target: "tanren_session", error = %error, "session flush failed");
+}

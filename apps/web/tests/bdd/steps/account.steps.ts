@@ -334,6 +334,19 @@ When(
 );
 
 When(
+  /^(\w+) lists the active organization projects$/,
+  async ({ page, world }, name: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const heading = page
+      .getByRole("heading", { level: 3 })
+      .filter({ hasText: /projects/i });
+    await expect(heading).toBeVisible({ timeout: 5_000 });
+  },
+);
+
+When(
   /^(\w+) switches active organization to "([^"]+)"$/,
   async ({ page, world }, name: string, _orgName: string) => {
     const a = actor(world, name);
@@ -351,6 +364,17 @@ When(
 
 Then(
   /^(\w+) sees no organization-scoped actions$/,
+  async ({ page, world }, name: string) => {
+    actor(world, name);
+    await page.goto("/");
+    await waitForHydration(page);
+    const personalLabel = page.getByText(/personal account/i);
+    await expect(personalLabel).toBeVisible({ timeout: 5_000 });
+  },
+);
+
+Then(
+  /^(\w+) sees the organization switcher is empty or disabled$/,
   async ({ page, world }, name: string) => {
     actor(world, name);
     await page.goto("/");

@@ -14,6 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
 use tanren_contract::AccountFailureReason;
+use tanren_observability::{emit_session_install_failed, emit_session_read_failed};
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -28,15 +29,22 @@ pub struct AccountFailureBody {
 /// writes. Shared between the sign-up / sign-in / accept-invitation
 /// routes.
 pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
-    tracing::error!(target: "tanren_api", error = %err, "session install");
-    (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(AccountFailureBody {
-            code: "internal_error".to_owned(),
-            summary: "Tanren encountered an internal error.".to_owned(),
-        }),
-    )
-        .into_response()
+    emit_session_install_failed(err);
+    failure_body(AccountFailureReason::SessionInstallFailed)
+}
+
+pub(crate) fn session_read_error(err: &(impl std::fmt::Display + ?Sized)) -> Response {
+    emit_session_read_failed(err);
+    failure_body(AccountFailureReason::SessionReadFailed)
+}
+
+pub(crate) fn missing_session_error() -> Response {
+    failure_body(AccountFailureReason::Unauthenticated)
+}
+
+pub(crate) fn session_flush_error(err: &(impl std::fmt::Display + ?Sized)) -> Response {
+    tanren_observability::emit_session_flush_failed(err);
+    failure_body(AccountFailureReason::SessionFlushFailed)
 }
 
 /// Map an [`AppServiceError`] to the matching HTTP response.
@@ -70,7 +78,7 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     }
 }
 
-fn failure_body(reason: AccountFailureReason) -> Response {
+pub(crate) fn failure_body(reason: AccountFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
