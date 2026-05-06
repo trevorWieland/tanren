@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod project;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -24,6 +26,8 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
+
+use project::{ProjectAction, dispatch_project};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +67,12 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Project flow: connect existing repo, create new project, read
+    /// active project.
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
     },
 }
 
@@ -122,6 +132,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Project { action }) => dispatch_project(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -201,7 +212,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
                             },
                         )
                         .await
-                        .map_err(account_error)?;
+                        .map_err(service_error)?;
                     persist_session(response.session.token.expose_secret())?;
                     let stdout = std::io::stdout();
                     let mut handle = stdout.lock();
@@ -227,7 +238,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
                             },
                         )
                         .await
-                        .map_err(account_error)?;
+                        .map_err(service_error)?;
                     persist_session(response.session.token.expose_secret())?;
                     let stdout = std::io::stdout();
                     let mut handle = stdout.lock();
@@ -255,7 +266,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
             let response = handlers
                 .sign_in(&store, SignInRequest { email, password })
                 .await
-                .map_err(account_error)?;
+                .map_err(service_error)?;
             persist_session(response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
@@ -271,9 +282,12 @@ async fn run_account(action: AccountAction) -> Result<()> {
     Ok(())
 }
 
-fn account_error(err: AppServiceError) -> anyhow::Error {
+pub(crate) fn service_error(err: AppServiceError) -> anyhow::Error {
     match err {
         AppServiceError::Account(reason) => {
+            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
+        }
+        AppServiceError::Project(reason) => {
             anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
         }
         AppServiceError::InvalidInput(message) => {

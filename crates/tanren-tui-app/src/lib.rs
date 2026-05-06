@@ -92,16 +92,29 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    ConnectProject,
+    CreateProject,
+    ActiveProject,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 6] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::ConnectProject,
+        Self::CreateProject,
+        Self::ActiveProject,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::ConnectProject => "Connect project",
+            Self::CreateProject => "Create project",
+            Self::ActiveProject => "Active project",
         }
     }
 }

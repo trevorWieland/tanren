@@ -3,7 +3,10 @@
 //! Split out of `lib.rs` so the tui-app crate stays under the workspace
 //! 500-line line-budget. Keeps the screen enum, the `App` struct, and
 //! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
+//! `draw.rs`, form factories + outcome adapters in `ui.rs`, submit
+//! methods in `submit.rs`.
+
+mod submit;
 
 use std::env;
 use std::io::Stdout;
@@ -11,16 +14,18 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use async_trait::async_trait;
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{Handlers, SourceControlProvider, Store};
+use tanren_provider_integrations::{HostId, ProviderError, RepositoryInfo};
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, active_project_fields, connect_project_fields, create_project_fields,
+    sign_in_fields, sign_up_fields,
 };
 use crate::{FormState, MenuChoice};
 
@@ -32,6 +37,9 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    ConnectProject(FormState),
+    CreateProject(FormState),
+    ActiveProject(FormState),
     Outcome(OutcomeView),
 }
 
@@ -134,6 +142,18 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::ConnectProject(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ConnectProject),
+                None => Effect::None,
+            },
+            Screen::CreateProject(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CreateProject),
+                None => Effect::None,
+            },
+            Screen::ActiveProject(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ActiveProject),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -158,115 +178,6 @@ impl App {
         }
     }
 
-    fn submit(&mut self, kind: FormKind) {
-        let Some(store) = self.store.clone() else {
-            let message = self
-                .store_error
-                .clone()
-                .unwrap_or_else(|| "store unavailable".to_owned());
-            if let Some(state) = self.active_form_mut() {
-                state.error = Some(message);
-            }
-            return;
-        };
-        let handlers = &self.handlers;
-        match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn active_form_mut(&mut self) -> Option<&mut FormState> {
-        match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
-            _ => None,
-        }
-    }
-
     fn draw(&self, frame: &mut ratatui::Frame<'_>) {
         let area = frame.area();
         match &self.screen {
@@ -276,16 +187,28 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::ConnectProject(state) => {
+                draw::draw_form(frame, area, "Connect project", state);
+            }
+            Screen::CreateProject(state) => {
+                draw::draw_form(frame, area, "Create project", state);
+            }
+            Screen::ActiveProject(state) => {
+                draw::draw_form(frame, area, "Active project", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
 }
 
 #[derive(Debug, Clone, Copy)]
-enum FormKind {
+pub(crate) enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    ConnectProject,
+    CreateProject,
+    ActiveProject,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -323,6 +246,15 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
                 }
+                MenuChoice::ConnectProject => {
+                    Screen::ConnectProject(FormState::new(connect_project_fields()))
+                }
+                MenuChoice::CreateProject => {
+                    Screen::CreateProject(FormState::new(create_project_fields()))
+                }
+                MenuChoice::ActiveProject => {
+                    Screen::ActiveProject(FormState::new(active_project_fields()))
+                }
             });
         }
         _ => {}
@@ -357,4 +289,28 @@ fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
 fn is_press(key: &KeyEvent) -> bool {
     use crossterm::event::KeyEventKind;
     matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
+}
+
+pub(super) struct StubProvider;
+
+#[async_trait]
+impl SourceControlProvider for StubProvider {
+    async fn check_repo_access(
+        &self,
+        host: &HostId,
+        _url: &str,
+    ) -> Result<RepositoryInfo, ProviderError> {
+        Err(ProviderError::Call(format!(
+            "no SCM provider configured for {host}"
+        )))
+    }
+    async fn create_repository(
+        &self,
+        host: &HostId,
+        _name: &str,
+    ) -> Result<RepositoryInfo, ProviderError> {
+        Err(ProviderError::Call(format!(
+            "no SCM provider configured for {host}"
+        )))
+    }
 }

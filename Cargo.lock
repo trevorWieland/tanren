@@ -4244,12 +4244,15 @@ name = "tanren-cli-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "clap",
  "secrecy",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4485,13 +4488,16 @@ name = "tanren-tui-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "crossterm",
  "ratatui",
  "secrecy",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
