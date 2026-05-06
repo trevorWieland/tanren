@@ -15,9 +15,9 @@ pub mod harness;
 
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
-    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
-    HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    record_failure,
+    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult, HarnessKind,
+    HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, McpHarness, TuiHarness,
+    WebHarness, event_kinds, record_failure,
 };
 
 use chrono::{DateTime, Duration, Utc};
@@ -121,6 +121,7 @@ pub async fn seed_invitation(store: &Store, fixture: &InvitationFixture) -> Resu
             expires_at: fixture.expires_at,
             target_identifier: None,
             org_permissions: None,
+            revoked: false,
         })
         .await?;
     Ok(())

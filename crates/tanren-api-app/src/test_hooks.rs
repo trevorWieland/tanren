@@ -20,14 +20,13 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
-use sea_orm::{ConnectionTrait, Statement};
-use serde::Deserialize;
-use tanren_identity_policy::{Identifier, InvitationToken, OrgId, OrgPermissions};
-use tanren_store::{NewInvitation, Store};
+use serde::{Deserialize, Serialize};
+use tanren_identity_policy::{AccountId, Identifier, InvitationToken, OrgId, OrgPermissions};
+use tanren_store::{AccountStore, NewInvitation, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -73,26 +72,77 @@ pub(crate) async fn seed_invitation_route(
             expires_at: body.expires_at,
             target_identifier: body.target_identifier,
             org_permissions: body.org_permissions,
+            revoked: body.revoked_at.is_some(),
         })
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
-    if let Some(revoked_at) = body.revoked_at {
-        let conn = store.connection();
-        let backend = conn.get_database_backend();
-        conn.execute(Statement::from_string(
-            backend,
-            format!(
-                "UPDATE invitations SET revoked_at = '{}' WHERE token = '{}'",
-                revoked_at.to_rfc3339(),
-                body.token,
-            ),
-        ))
+    Ok(StatusCode::CREATED)
+}
+
+/// Request body for `POST /test-hooks/memberships`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedMembershipBody {
+    /// Account to add to the organization.
+    pub account_id: AccountId,
+    /// Organization the account joins. When omitted a fresh `OrgId` is
+    /// allocated — the BDD scenario only cares about membership count,
+    /// not which specific org.
+    #[serde(default)]
+    pub org_id: Option<OrgId>,
+}
+
+pub(crate) async fn seed_membership_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedMembershipBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let org_id = body.org_id.unwrap_or_else(OrgId::fresh);
+    store
+        .insert_membership(body.account_id, org_id, Utc::now())
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
-    }
-
     Ok(StatusCode::CREATED)
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct RecentEventsQuery {
+    #[serde(default = "default_limit")]
+    pub limit: u64,
+}
+
+fn default_limit() -> u64 {
+    20
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct EventEntry {
+    pub kind: String,
+    pub payload: serde_json::Value,
+}
+
+pub(crate) async fn recent_events_route(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<RecentEventsQuery>,
+) -> Result<Json<Vec<EventEntry>>, (StatusCode, String)> {
+    let events = AccountStore::recent_events(store.as_ref(), query.limit)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let entries: Vec<EventEntry> = events
+        .into_iter()
+        .map(|e| {
+            let kind = e
+                .payload
+                .get("kind")
+                .and_then(|v| v.as_str())
+                .unwrap_or("unknown")
+                .to_owned();
+            EventEntry {
+                kind,
+                payload: e.payload,
+            }
+        })
+        .collect();
+    Ok(Json(entries))
 }
 
 /// Build the `/test-hooks/*` router. The state is the shared
@@ -100,5 +150,7 @@ pub(crate) async fn seed_invitation_route(
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route("/test-hooks/memberships", post(seed_membership_route))
+        .route("/test-hooks/events", get(recent_events_route))
         .with_state(store)
 }

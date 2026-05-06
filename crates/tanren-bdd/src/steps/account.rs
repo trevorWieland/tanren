@@ -35,6 +35,9 @@ async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
         token: parsed,
         inviting_org: OrgId::fresh(),
         expires_at: now + ChronoDuration::days(1),
+        target_identifier: None,
+        org_permissions: None,
+        revoked: false,
     };
     ctx.harness
         .seed_invitation(fixture)
@@ -52,6 +55,9 @@ async fn given_expired_invitation(world: &mut TanrenWorld, token: String) {
         token: parsed,
         inviting_org: OrgId::fresh(),
         expires_at: now - ChronoDuration::seconds(1),
+        target_identifier: None,
+        org_permissions: None,
+        revoked: false,
     };
     ctx.harness
         .seed_invitation(fixture)
@@ -315,6 +321,9 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
         Some(HarnessOutcome::SignedIn(_)) => "signed_in_unexpectedly".to_owned(),
         Some(HarnessOutcome::AcceptedInvitation(_)) => {
             "accepted_invitation_unexpectedly".to_owned()
+        }
+        Some(HarnessOutcome::JoinedOrganization(_)) => {
+            "joined_organization_unexpectedly".to_owned()
         }
         Some(HarnessOutcome::Other(s)) => format!("other:{s}"),
         None => "no_outcome".to_owned(),

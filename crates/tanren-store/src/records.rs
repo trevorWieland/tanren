@@ -207,4 +207,7 @@ pub struct NewInvitation {
     /// Organization-level permissions granted on acceptance. `None`
     /// defaults to [`OrgPermissions::member`] at the service layer.
     pub org_permissions: Option<OrgPermissions>,
+    /// When `true`, the invitation is seeded in a revoked state so BDD
+    /// scenarios can exercise the revoked-invitation rejection path.
+    pub revoked: bool,
 }

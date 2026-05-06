@@ -21,18 +21,45 @@ impl MigrationTrait for Migration {
                 Table::alter()
                     .table(Invitations::Table)
                     .add_column(ColumnDef::new(Invitations::TargetIdentifier).text().null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(ColumnDef::new(Invitations::OrgPermissions).text().null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(
                         ColumnDef::new(Invitations::RevokedAt)
                             .timestamp_with_time_zone()
                             .null(),
                     )
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(ColumnDef::new(Invitations::RevokedBy).uuid().null())
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .add_column(ColumnDef::new(Invitations::ConsumedBy).uuid().null())
                     .to_owned(),
             )
             .await?;
-
         manager
             .alter_table(
                 Table::alter()
@@ -54,15 +81,42 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
-
         manager
             .alter_table(
                 Table::alter()
                     .table(Invitations::Table)
                     .drop_column(Invitations::ConsumedBy)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::RevokedBy)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::RevokedAt)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::OrgPermissions)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .alter_table(
+                Table::alter()
+                    .table(Invitations::Table)
                     .drop_column(Invitations::TargetIdentifier)
                     .to_owned(),
             )

@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,15 +16,18 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, JoinOrganizationRequest, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::support::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult,
+    HarnessKind, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -34,6 +38,7 @@ pub struct McpHarness {
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    sessions: HashMap<AccountId, String>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -96,6 +101,7 @@ impl McpHarness {
             db_path,
             client: Some(client),
             server: Some(server),
+            sessions: HashMap::new(),
         })
     }
 
@@ -153,7 +159,13 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        let raw_token = payload["session"]["token"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        self.sessions.insert(session.account_id, raw_token);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +174,13 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        let raw_token = payload["session"]["token"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        self.sessions.insert(session.account_id, raw_token);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -177,6 +195,11 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        let raw_token = payload["session"]["token"]
+            .as_str()
+            .unwrap_or("")
+            .to_owned();
+        self.sessions.insert(session.account_id, raw_token);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -191,12 +214,61 @@ impl AccountHarness for McpHarness {
                 token: fixture.token,
                 inviting_org_id: fixture.inviting_org,
                 expires_at: fixture.expires_at,
-                target_identifier: None,
-                org_permissions: None,
+                target_identifier: fixture.target_identifier,
+                org_permissions: fixture.org_permissions,
+                revoked: fixture.revoked,
             })
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        let now = chrono::Utc::now();
+        self.store
+            .insert_membership(account_id, org_id, now)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_membership: {e}")))?;
+        Ok(())
+    }
+
+    async fn join_organization(
+        &mut self,
+        account_id: AccountId,
+        req: JoinOrganizationRequest,
+    ) -> HarnessResult<HarnessJoinResult> {
+        let session_token = self
+            .sessions
+            .get(&account_id)
+            .ok_or_else(|| {
+                HarnessError::Transport(format!("no session stored for account {account_id}"))
+            })?
+            .clone();
+        let body = serde_json::json!({
+            "session_token": session_token,
+            "invitation_token": req.invitation_token.as_str(),
+        });
+        let payload = self.call_tool("account.join_organization", body).await?;
+        let joined_org = serde_json::from_value(payload["joined_org"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
+        let membership_permissions =
+            serde_json::from_value(payload["membership_permissions"].clone()).map_err(|e| {
+                HarnessError::Transport(format!("decode membership_permissions: {e}"))
+            })?;
+        let selectable_organizations =
+            serde_json::from_value(payload["selectable_organizations"].clone()).map_err(|e| {
+                HarnessError::Transport(format!("decode selectable_organizations: {e}"))
+            })?;
+        let project_access_grants =
+            serde_json::from_value(payload["project_access_grants"].clone()).map_err(|e| {
+                HarnessError::Transport(format!("decode project_access_grants: {e}"))
+            })?;
+        Ok(HarnessJoinResult {
+            joined_org,
+            membership_permissions,
+            selectable_organizations,
+            project_access_grants,
+        })
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

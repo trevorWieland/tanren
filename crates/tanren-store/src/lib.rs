@@ -369,6 +369,7 @@ impl Store {
         &self,
         new: NewInvitation,
     ) -> Result<InvitationRecord, StoreError> {
+        let now = Utc::now();
         let model = entity::invitations::ActiveModel {
             token: Set(new.token.as_str().to_owned()),
             inviting_org_id: Set(new.inviting_org_id.as_uuid()),
@@ -379,8 +380,8 @@ impl Store {
                 .as_ref()
                 .map(|i| i.as_str().to_owned())),
             org_permissions: Set(new.org_permissions.as_ref().map(|p| p.as_str().to_owned())),
-            revoked_at: Set(None),
-            revoked_by: Set(None),
+            revoked_at: Set(new.revoked.then_some(now)),
+            revoked_by: Set(new.revoked.then_some(AccountId::fresh().as_uuid())),
             consumed_by: Set(None),
         };
         let inserted = model.insert(&self.conn).await?;

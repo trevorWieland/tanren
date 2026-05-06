@@ -9,6 +9,7 @@
 //! goes through the harness's own `Store` handle (the api app's
 //! `Arc<Store>` is a clone of the same `Store`).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,15 +19,17 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, JoinOrganizationRequest, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::{AccountId, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+use super::support::{failure_from_body, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult,
+    HarnessKind, HarnessResult, HarnessSession,
 };
 
 /// `@api` wire harness.
@@ -37,6 +40,10 @@ pub struct ApiHarness {
     server: Option<JoinHandle<()>>,
     /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
+    /// Per-actor tower-sessions cookie values, keyed by `AccountId`.
+    /// Populated during `sign_up`/`sign_in` so `join_organization`
+    /// can re-authenticate the correct actor in multi-actor scenarios.
+    session_cookies: HashMap<AccountId, String>,
 }
 
 impl std::fmt::Debug for ApiHarness {
@@ -50,14 +57,12 @@ impl std::fmt::Debug for ApiHarness {
 
 impl ApiHarness {
     /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file. Returns a harness ready to
-    /// drive sign-up / sign-in / accept-invitation calls.
+    /// per-scenario `SQLite` database file.
     ///
     /// # Errors
     ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
+    /// Returns an error if the database cannot be connected/migrated,
+    /// the listener cannot bind, or the api app cannot be constructed.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -105,6 +110,7 @@ impl ApiHarness {
             store,
             server: Some(server),
             db_path,
+            session_cookies: HashMap::new(),
         })
     }
 }
@@ -129,23 +135,20 @@ impl AccountHarness for ApiHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let body = sign_up_body(&req);
         let url = format!("{}/accounts", self.base_url);
-        let response = self
-            .client
+        let client = Client::builder()
+            .cookie_store(false)
+            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+            .build()
+            .map_err(|e| HarnessError::Transport(format!("build sign-up client: {e}")))?;
+        let response = client
             .post(&url)
             .json(&body)
             .send()
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /accounts: {e}")))?;
         let status = response.status();
-        let cookies_set = response
-            .headers()
-            .get_all(reqwest::header::SET_COOKIE)
-            .iter()
-            .any(|v| {
-                v.to_str()
-                    .ok()
-                    .is_some_and(|s| s.starts_with("tanren_session="))
-            });
+        let cookie_value = extract_session_cookie(&response);
+        let cookies_set = cookie_value.is_some();
         let json: Value = response
             .json()
             .await
@@ -160,6 +163,9 @@ impl AccountHarness for ApiHarness {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
+        if let Some(cv) = &cookie_value {
+            self.session_cookies.insert(account.id, cv.clone());
+        }
         Ok(HarnessSession {
             account_id: account.id,
             account,
@@ -171,23 +177,20 @@ impl AccountHarness for ApiHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let body = sign_in_body(&req);
         let url = format!("{}/sessions", self.base_url);
-        let response = self
-            .client
+        let client = Client::builder()
+            .cookie_store(false)
+            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+            .build()
+            .map_err(|e| HarnessError::Transport(format!("build sign-in client: {e}")))?;
+        let response = client
             .post(&url)
             .json(&body)
             .send()
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /sessions: {e}")))?;
         let status = response.status();
-        let cookies_set = response
-            .headers()
-            .get_all(reqwest::header::SET_COOKIE)
-            .iter()
-            .any(|v| {
-                v.to_str()
-                    .ok()
-                    .is_some_and(|s| s.starts_with("tanren_session="))
-            });
+        let cookie_value = extract_session_cookie(&response);
+        let cookies_set = cookie_value.is_some();
         let json: Value = response
             .json()
             .await
@@ -202,6 +205,9 @@ impl AccountHarness for ApiHarness {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
+        if let Some(cv) = &cookie_value {
+            self.session_cookies.insert(account.id, cv.clone());
+        }
         Ok(HarnessSession {
             account_id: account.id,
             account,
@@ -267,17 +273,10 @@ impl AccountHarness for ApiHarness {
         &mut self,
         requests: Vec<AcceptInvitationRequest>,
     ) -> Vec<HarnessResult<HarnessAcceptance>> {
-        // Fan out via `tokio::spawn` so each acceptance issues its own
-        // POST against the live api server in parallel. Each task gets
-        // its own `reqwest::Client` (built fresh from a default
-        // configuration) so cookie state from one task doesn't bleed
-        // into another. The shared base URL is cheap to clone.
-        //
-        // Without this override, the trait's default impl would await
-        // each request serially — defeating the @falsification @api
-        // race scenario which is supposed to prove that
-        // `consume_invitation` serializes concurrent acceptances at
-        // the store layer (Codex P2 review on PR #133).
+        // Fan out via `tokio::spawn` so each acceptance hits the live
+        // api server in parallel with its own `reqwest::Client`.
+        // Without this override the trait default awaits serially,
+        // defeating the @falsification race scenario.
         let base_url = self.base_url.clone();
         let mut handles = Vec::with_capacity(requests.len());
         for req in requests {
@@ -359,12 +358,58 @@ impl AccountHarness for ApiHarness {
                 token: fixture.token,
                 inviting_org_id: fixture.inviting_org,
                 expires_at: fixture.expires_at,
-                target_identifier: None,
-                org_permissions: None,
+                target_identifier: fixture.target_identifier,
+                org_permissions: fixture.org_permissions,
+                revoked: fixture.revoked,
             })
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        let now = chrono::Utc::now();
+        self.store
+            .insert_membership(account_id, org_id, now)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_membership: {e}")))?;
+        Ok(())
+    }
+
+    async fn join_organization(
+        &mut self,
+        account_id: AccountId,
+        req: JoinOrganizationRequest,
+    ) -> HarnessResult<HarnessJoinResult> {
+        let token = req.invitation_token.as_str();
+        let url = format!("{}/invitations/{token}/join", self.base_url);
+        let cookie = self.session_cookies.get(&account_id).ok_or_else(|| {
+            HarnessError::Transport(format!(
+                "no session cookie for account {account_id:?} — actor must sign up or sign in first"
+            ))
+        })?;
+        let client = Client::builder()
+            .cookie_store(false)
+            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+            .build()
+            .map_err(|e| HarnessError::Transport(format!("build join client: {e}")))?;
+        let response = client
+            .post(&url)
+            .header("Cookie", format!("tanren_session={cookie}"))
+            .send()
+            .await
+            .map_err(|e| {
+                HarnessError::Transport(format!("POST /invitations/{{token}}/join: {e}"))
+            })?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        decode_join_result(&json)
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
@@ -372,20 +417,6 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
-}
-
-pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!(
-        "tanren-bdd-{prefix}-{}-{}.db",
-        std::process::id(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    p
-}
-
-pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
-    format!("sqlite://{}?mode=rwc", path.display())
 }
 
 fn sign_up_body(req: &SignUpRequest) -> Value {
@@ -414,32 +445,32 @@ fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
     })
 }
 
-pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
-    let code = json
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("transport_error")
-        .to_owned();
-    let summary = json
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown failure")
-        .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
-        HarnessError::Account(reason, summary)
-    } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
-    }
+fn extract_session_cookie(response: &reqwest::Response) -> Option<String> {
+    response
+        .headers()
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .find_map(|v| {
+            let s = v.to_str().ok()?;
+            let prefix = "tanren_session=";
+            let start = s.find(prefix)?;
+            let rest = &s[start + prefix.len()..];
+            Some(rest[..rest.find(';').unwrap_or(rest.len())].to_owned())
+        })
 }
 
-pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
-    Some(match code {
-        "duplicate_identifier" => AccountFailureReason::DuplicateIdentifier,
-        "invalid_credential" => AccountFailureReason::InvalidCredential,
-        "validation_failed" => AccountFailureReason::ValidationFailed,
-        "invitation_not_found" => AccountFailureReason::InvitationNotFound,
-        "invitation_expired" => AccountFailureReason::InvitationExpired,
-        "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
-        _ => return None,
+fn decode_join_result(json: &Value) -> HarnessResult<HarnessJoinResult> {
+    let v =
+        |key: &str| -> HarnessResult<Value> { Ok(json.get(key).cloned().unwrap_or(Value::Null)) };
+    Ok(HarnessJoinResult {
+        joined_org: serde_json::from_value(v("joined_org")?)
+            .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?,
+        membership_permissions: serde_json::from_value(v("membership_permissions")?)
+            .map_err(|e| HarnessError::Transport(format!("decode membership_permissions: {e}")))?,
+        selectable_organizations: serde_json::from_value(v("selectable_organizations")?).map_err(
+            |e| HarnessError::Transport(format!("decode selectable_organizations: {e}")),
+        )?,
+        project_access_grants: serde_json::from_value(v("project_access_grants")?)
+            .map_err(|e| HarnessError::Transport(format!("decode project_access_grants: {e}")))?,
     })
 }

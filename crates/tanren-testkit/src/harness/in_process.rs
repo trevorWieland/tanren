@@ -9,13 +9,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, JoinOrganizationRequest, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessJoinResult,
+    HarnessKind, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -130,12 +132,41 @@ impl AccountHarness for InProcessHarness {
                 token: fixture.token,
                 inviting_org_id: fixture.inviting_org,
                 expires_at: fixture.expires_at,
-                target_identifier: None,
-                org_permissions: None,
+                target_identifier: fixture.target_identifier,
+                org_permissions: fixture.org_permissions,
+                revoked: fixture.revoked,
             })
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        self.store
+            .insert_membership(account_id, org_id, Utc::now())
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_membership: {e}")))?;
+        Ok(())
+    }
+
+    async fn join_organization(
+        &mut self,
+        account_id: AccountId,
+        req: JoinOrganizationRequest,
+    ) -> HarnessResult<HarnessJoinResult> {
+        match self
+            .handlers
+            .join_organization(&self.store, account_id, req)
+            .await
+        {
+            Ok(response) => Ok(HarnessJoinResult {
+                joined_org: response.joined_org,
+                membership_permissions: response.membership_permissions,
+                selectable_organizations: response.selectable_organizations,
+                project_access_grants: response.project_access_grants,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

@@ -1,13 +1,14 @@
 /* eslint-disable */
-// playwright-bdd step definitions for the `@web` slice of B-0043.
+// playwright-bdd step definitions for the `@web` slice of B-0043 + B-0045.
 //
-// The Gherkin in `tests/bdd/features/B-0043-create-account.feature` is
-// the single source of truth for both the Rust `tanren-bdd` runner and
-// this Node `playwright-bdd` runner — the `apps/web/tests/bdd/features`
-// path is a symlink into the canonical directory.
+// The Gherkin in `tests/bdd/features/` is the single source of truth for
+// both the Rust `tanren-bdd` runner and this Node `playwright-bdd` runner
+// — the `apps/web/tests/bdd/features` path is a symlink into the canonical
+// directory.
 //
 // Coverage:
 //
+// B-0043 (create account):
 // - Self-signup → sign-in (`@positive @web`).
 // - Self-signed-up account belongs to no organization (`@positive @web`).
 // - Sign-in with a wrong credential (`@falsification @web`).
@@ -15,6 +16,12 @@
 // - Invitation acceptance positive (`@positive @web`).
 // - Multi-account positive (`@positive @web`).
 // - Expired-invitation falsification (`@falsification @web`).
+//
+// B-0045 (join organization with existing account):
+// - Existing account joins an organization (`@positive @web`).
+// - Other org memberships are unaffected (`@positive @web`).
+// - Wrong-account invitation rejection (`@falsification @web`).
+// - Expired invitation rejection (`@falsification @web`).
 //
 // Invitation-related scenarios depend on a fixture-seeding seam: the
 // Playwright runner cannot reach `Store::seed_invitation` directly the
@@ -26,20 +33,31 @@
 
 import { createBdd, test as base } from "playwright-bdd";
 
+interface JoinResult {
+  joined_org: string;
+  membership_permissions: string;
+  selectable_organizations: Array<{ org_id: string; permissions: string }>;
+  project_access_grants: Array<Record<string, never>>;
+}
+
 interface ActorState {
   email?: string;
   password?: string;
   hasSession?: boolean;
   lastFailureCode?: string;
+  accountId?: string;
+  joinOrgId?: string;
+  joinedOrgs?: string[];
+  joinPermissions?: string;
+  joinResult?: JoinResult;
 }
 
 interface WebWorld {
   actors: Map<string, ActorState>;
+  orgId?: string;
+  permissions?: string;
 }
 
-// Per-scenario `WebWorld` fixture. playwright-bdd consumes its own `test`
-// (re-exported from `playwright-bdd`); we extend it to thread an
-// actor-state map through every step without leaning on a global.
 export const test = base.extend<{ world: WebWorld }>({
   world: async ({}, use) => {
     await use({ actors: new Map() });
@@ -58,10 +76,6 @@ function actor(world: WebWorld, name: string): ActorState {
 }
 
 Given("a clean Tanren environment", async ({ page, world }) => {
-  // Per-scenario state; the API DB is shared across the run (one ephemeral
-  // SQLite file spawned in global-setup), so we use email-prefix
-  // isolation in the feature file (`alice-web@example.com` vs
-  // `alice-web-dup@example.com`) to keep scenarios disjoint.
   world.actors.clear();
   await page.context().clearCookies();
 });
@@ -77,8 +91,15 @@ When(
     await page.getByLabel(/email/i).fill(email);
     await page.getByLabel(/password/i).fill(password);
     await page.getByLabel(/display name/i).fill(name);
+    const responsePromise = page
+      .waitForResponse(
+        (resp) =>
+          resp.url().includes("/accounts") &&
+          resp.request().method() === "POST",
+        { timeout: 10_000 },
+      )
+      .catch(() => null);
     await page.getByRole("button", { name: /create account/i }).click();
-    // The form's onSuccess pushes to "/"; failure surfaces an alert.
     const result = await Promise.race([
       page.waitForURL("/").then(() => "ok" as const),
       page
@@ -89,6 +110,15 @@ When(
     ]);
     if (result === "ok") {
       a.hasSession = true;
+      const resp = await responsePromise;
+      if (resp && resp.ok()) {
+        try {
+          const body = await resp.json();
+          a.accountId = body.account?.id;
+        } catch {
+          /* ignore parse errors */
+        }
+      }
     } else {
       a.hasSession = false;
       a.lastFailureCode = await classifyFailureFromAlert(page);
@@ -107,11 +137,26 @@ Given(
     await page.getByLabel(/email/i).fill(email);
     await page.getByLabel(/password/i).fill(password);
     await page.getByLabel(/display name/i).fill(name);
+    const responsePromise = page
+      .waitForResponse(
+        (resp) =>
+          resp.url().includes("/accounts") &&
+          resp.request().method() === "POST",
+        { timeout: 10_000 },
+      )
+      .catch(() => null);
     await page.getByRole("button", { name: /create account/i }).click();
     await page.waitForURL("/", { timeout: 10_000 });
     a.hasSession = true;
-    // Sign out for the next step by clearing cookies — the alternative
-    // (a real sign-out UI) lives in a future PR.
+    const resp = await responsePromise;
+    if (resp && resp.ok()) {
+      try {
+        const body = await resp.json();
+        a.accountId = body.account?.id;
+      } catch {
+        /* ignore parse errors */
+      }
+    }
     await page.context().clearCookies();
   },
 );
@@ -184,11 +229,6 @@ Then(
   /^(\w+)'s account belongs to no organization$/,
   async ({ world }, name: string) => {
     const a = actor(world, name);
-    // The web UI does not yet render the account's org affinity in PR 11
-    // (the next R-0001 sub introduces a profile page). The session-token
-    // existence is the proof we have: a self-signup over the public
-    // /sign-up route never assigns an org. We assert that signal as a
-    // proxy until the profile surface lands.
     if (a.hasSession !== true) {
       throw new Error(`actor ${name} should hold a session`);
     }
@@ -198,8 +238,6 @@ Then(
 Then(
   /^the request fails with code "([^"]+)"$/,
   async ({ world }, code: string) => {
-    // Find the most recently active actor — the last one whose
-    // hasSession === false. Falsification scenarios always set it.
     const failing = [...world.actors.values()].find(
       (a) => a.hasSession === false,
     );
@@ -244,7 +282,6 @@ async function seedInvitation(
 Given(
   /^a pending invitation token "([^"]+)"$/,
   async ({ world: _world }, token: string) => {
-    // Far-future expiry so the acceptance flow sees a live row.
     const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
     await seedInvitation(token, expiresAt, { kind: "valid" });
   },
@@ -262,11 +299,6 @@ When(
   /^(\w+) accepts invitation "([^"]+)" with password "([^"]+)"$/,
   async ({ page, world }, name: string, token: string, password: string) => {
     const a = actor(world, name);
-    // Mirror the Rust step's email-synthesis convention so the @web
-    // slice creates accounts that don't collide with @api ones (the
-    // api/web BDD runs share an api process per-runner — Playwright
-    // owns its own ephemeral DB via globalSetup, but using the same
-    // shape keeps the ergonomics aligned).
     const email = `${name}-${token}@invitation.tanren`;
     const displayName = `${name} via ${token}`;
     a.email = email;
@@ -296,14 +328,6 @@ When(
 );
 
 Then(/^(\w+) has joined an organization$/, async ({ world }, name: string) => {
-  // The wire surface does not yet expose org affinity to the web UI; the
-  // proxy assertion is "the actor obtained a session via the
-  // accept-invitation endpoint", which (per the @api Rust harness) only
-  // happens when the invitation was applied and a membership row was
-  // written. The api-side Rust BDD harness covers the same witness
-  // against `Store::find_membership_for_account`. When the profile
-  // surface lands (R-0001 sub-15+), this step will assert the rendered
-  // org name instead.
   const a = actor(world, name);
   if (a.hasSession !== true) {
     throw new Error(`${name} should hold a session after accepting invitation`);
@@ -313,12 +337,6 @@ Then(/^(\w+) has joined an organization$/, async ({ world }, name: string) => {
 Then(
   /^(\w+) now holds (\d+) accounts?$/,
   async ({ world }, name: string, _count: string) => {
-    // Per the equivalent @api Rust step, the assertion is that the
-    // actor performed N successful sign-up / accept-invitation flows.
-    // The web UI doesn't yet enumerate accounts in a single view, so we
-    // use the session-presence proxy: the most-recent flow for this
-    // actor must have ended in `/`. The accept-invitation flow above
-    // sets `hasSession` only on success.
     const a = actor(world, name);
     if (a.hasSession !== true) {
       throw new Error(
@@ -329,29 +347,274 @@ Then(
 );
 
 // ============================================================================
+// B-0045 steps — existing-account join-organization
+// ============================================================================
+
+async function seedAddressedInvitation(
+  email: string,
+  token: string,
+  kind: "valid" | "expired",
+  permissions?: string,
+): Promise<string> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const orgId = crypto.randomUUID();
+  const expiresAt =
+    kind === "valid"
+      ? new Date(Date.now() + 365 * 24 * 60 * 60 * 1000)
+      : new Date(Date.now() - 24 * 60 * 60 * 1000);
+  const payload: Record<string, unknown> = {
+    token,
+    expires_at: expiresAt.toISOString(),
+    target_identifier: email,
+    inviting_org_id: orgId,
+  };
+  if (permissions) {
+    payload["org_permissions"] = permissions;
+  }
+  const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `seed ${kind} addressed invitation '${token}' failed: ${res.status} ${body}`,
+    );
+  }
+  return orgId;
+}
+
+async function seedMembership(accountId: string, orgId: string): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(`${apiUrl}/test-hooks/memberships`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ account_id: accountId, org_id: orgId }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(`seed membership failed: ${res.status} ${body}`);
+  }
+}
+
+Given(
+  /^a pending invitation for "([^"]+)" with token "([^"]+)"$/,
+  async ({ world }, email: string, token: string) => {
+    const orgId = await seedAddressedInvitation(email, token, "valid");
+    world.orgId = orgId;
+  },
+);
+
+Given(
+  /^an expired invitation for "([^"]+)" with token "([^"]+)"$/,
+  async ({ world }, email: string, token: string) => {
+    const orgId = await seedAddressedInvitation(email, token, "expired");
+    world.orgId = orgId;
+  },
+);
+
+Given(
+  /^(\w+) is already a member of organization "([^"]+)"$/,
+  async ({ world }, name: string, _orgLabel: string) => {
+    const a = actor(world, name);
+    if (!a.accountId) {
+      throw new Error(`actor ${name} has no recorded account id`);
+    }
+    const orgId = crypto.randomUUID();
+    await seedMembership(a.accountId, orgId);
+    if (!a.joinedOrgs) a.joinedOrgs = [];
+    a.joinedOrgs.push(orgId);
+  },
+);
+
+When(
+  /^(\w+) joins organization with invitation "([^"]+)"$/,
+  async ({ page, world }, name: string, token: string) => {
+    const a = actor(world, name);
+    if (!a.email || !a.password) {
+      throw new Error(`actor ${name} has no recorded credentials`);
+    }
+    await page.context().clearCookies();
+    await page.goto(`/invitations/${token}`);
+    await waitForHydration(page);
+    await page.getByLabel(/email/i).fill(a.email);
+    await page.getByLabel(/password/i).fill(a.password);
+    const joinResponsePromise = page
+      .waitForResponse(
+        (resp) =>
+          resp.url().includes("/join") && resp.request().method() === "POST",
+        { timeout: 10_000 },
+      )
+      .catch(() => null);
+    await page.getByRole("button", { name: /join organization/i }).click();
+    const result = await Promise.race([
+      page.waitForURL("/").then(() => "ok" as const),
+      page
+        .locator('form [role="alert"]')
+        .first()
+        .waitFor({ state: "visible" })
+        .then(() => "alert" as const),
+    ]);
+    if (result === "ok") {
+      a.hasSession = true;
+      const resp = await joinResponsePromise;
+      if (resp && resp.ok()) {
+        try {
+          const body: JoinResult = await resp.json();
+          a.joinResult = body;
+          a.joinOrgId = body.joined_org;
+          a.joinPermissions = body.membership_permissions;
+          if (!a.joinedOrgs) a.joinedOrgs = [];
+          a.joinedOrgs.push(body.joined_org);
+        } catch {
+          /* ignore parse errors */
+        }
+      }
+    } else {
+      a.hasSession = false;
+      a.lastFailureCode = await classifyFailureFromAlert(page);
+    }
+  },
+);
+
+Then(
+  /^(\w+) is a member of the inviting organization$/,
+  async ({ world }, name: string) => {
+    const a = actor(world, name);
+    if (!a.joinResult) {
+      throw new Error(`${name} has no join result recorded`);
+    }
+    if (!world.orgId) {
+      throw new Error("no org id recorded in world");
+    }
+    if (a.joinResult.joined_org !== world.orgId) {
+      throw new Error(
+        `expected joined org ${world.orgId}, got ${a.joinResult.joined_org}`,
+      );
+    }
+    const found = a.joinResult.selectable_organizations.some(
+      (m: { org_id: string }) => m.org_id === world.orgId,
+    );
+    if (!found) {
+      throw new Error(
+        `joined org ${world.orgId} not in selectable organizations`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) has no project access grants$/,
+  async ({ world }, name: string) => {
+    const a = actor(world, name);
+    if (!a.joinResult) {
+      throw new Error(`${name} has no join result recorded`);
+    }
+    if (a.joinResult.project_access_grants.length !== 0) {
+      throw new Error(
+        `expected no project access grants, got ${a.joinResult.project_access_grants.length}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) is a member of (\d+) organizations$/,
+  async ({ world }, name: string, count: string) => {
+    const a = actor(world, name);
+    if (!a.joinResult) {
+      throw new Error(`${name} has no join result recorded`);
+    }
+    const expected = parseInt(count, 10);
+    const actual = a.joinResult.selectable_organizations.length;
+    if (actual !== expected) {
+      throw new Error(
+        `expected ${expected} selectable organizations, got ${actual}`,
+      );
+    }
+  },
+);
+
+Given(
+  /^a pending invitation for "([^"]+)" with token "([^"]+)" and "([^"]+)" permissions$/,
+  async ({ world }, email: string, token: string, permissions: string) => {
+    const orgId = await seedAddressedInvitation(
+      email,
+      token,
+      "valid",
+      permissions,
+    );
+    world.orgId = orgId;
+  },
+);
+
+Given(
+  /^a revoked invitation for "([^"]+)" with token "([^"]+)"$/,
+  async ({ world: _world }, email: string, token: string) => {
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        token,
+        expires_at: new Date(
+          Date.now() + 365 * 24 * 60 * 60 * 1000,
+        ).toISOString(),
+        target_identifier: email,
+        inviting_org_id: crypto.randomUUID(),
+        revoked_at: new Date().toISOString(),
+      }),
+    });
+    if (!res.ok) {
+      const body = await res.text();
+      throw new Error(
+        `seed revoked invitation '${token}' failed: ${res.status} ${body}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) has been granted "([^"]+)" organization permissions$/,
+  async ({ world }, name: string, permissions: string) => {
+    const a = actor(world, name);
+    if (!a.joinResult) {
+      throw new Error(`${name} has no join result recorded`);
+    }
+    if (a.joinResult.membership_permissions !== permissions) {
+      throw new Error(
+        `expected permissions '${permissions}', got '${a.joinResult.membership_permissions}'`,
+      );
+    }
+  },
+);
+
+Then(/^a "([^"]+)" event is recorded$/, async ({}, kind: string) => {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const res = await fetch(`${apiUrl}/test-hooks/events?limit=20`);
+  if (!res.ok) {
+    throw new Error(`failed to query events: ${res.status}`);
+  }
+  const events: Array<{ kind: string }> = await res.json();
+  const found = events.some((e) => e.kind === kind);
+  if (!found) {
+    throw new Error(
+      `expected event '${kind}' not found among: ${events.map((e) => e.kind).join(", ")}`,
+    );
+  }
+});
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
-// Wait for React hydration to complete on a Next.js page. The Page-level
-// navigation event (`page.goto`) returns once the document fires `load`,
-// but the React-side `onSubmit` listener is attached only after the
-// client bundle hydrates. Without this wait, the submit button click
-// race-conditions with hydration: a too-early click submits the form as
-// a native HTML GET (the URL ends up with the email/password as query
-// params), which we observed empirically before adding `allowedDevOrigins`
-// to `next.config.ts`.
-//
-// React 19's event delegation lives on the document root, so we sniff
-// for the synthetic-event listener flag the runtime sets up post-mount.
-// A 5s timeout is enough for the turbopack dev bundle on cold-start.
 async function waitForHydration(
   page: import("@playwright/test").Page,
 ): Promise<void> {
   await page.waitForFunction(
     () => {
-      // React 19 sets a sentinel property on document once `hydrateRoot`
-      // has scheduled its first commit. The exact key has bled across
-      // versions, so we fall back to a delegation-table sniff.
       const root = document as unknown as Record<string, unknown>;
       const keys = Object.keys(root).filter(
         (k) =>
@@ -359,9 +622,6 @@ async function waitForHydration(
           k.startsWith("_reactRootContainer"),
       );
       if (keys.length > 0) return true;
-      // Last-resort heuristic: the synthetic-event listener installs
-      // itself on document; if at least one element has a __reactProps$
-      // marker, the runtime has booted.
       return Array.from(document.querySelectorAll("*")).some((el) =>
         Object.keys(el).some((k) => k.startsWith("__reactProps$")),
       );
@@ -373,20 +633,19 @@ async function waitForHydration(
 async function classifyFailureFromAlert(
   page: import("@playwright/test").Page,
 ): Promise<string> {
-  // The Next route announcer also has role=alert; scope to the form's
-  // own alert region to avoid the strict-mode locator collision.
   const text = (
     await page.locator('form [role="alert"]').first().innerText()
   ).toLowerCase();
-  // The failure-taxonomy strings come from
-  // apps/web/src/i18n/messages/en.json (`failure_*` keys). Order matters:
-  // invitation-related substrings are checked before generic "already".
   if (text.includes("invitation") && text.includes("expired"))
     return "invitation_expired";
   if (text.includes("invitation") && text.includes("not recognized"))
     return "invitation_not_found";
   if (text.includes("invitation") && text.includes("already been accepted"))
     return "invitation_already_consumed";
+  if (text.includes("invitation") && text.includes("revoked"))
+    return "invitation_already_consumed";
+  if (text.includes("wrong account") || text.includes("not addressed to you"))
+    return "wrong_account";
   if (text.includes("account already exists")) return "duplicate_identifier";
   if (text.includes("email or password is invalid"))
     return "invalid_credential";

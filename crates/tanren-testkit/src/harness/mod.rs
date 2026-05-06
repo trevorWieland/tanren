@@ -46,6 +46,7 @@ mod api;
 mod cli;
 mod in_process;
 mod mcp;
+mod support;
 mod tui;
 mod web;
 
@@ -57,9 +58,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, JoinOrganizationRequest,
+    OrgMembershipView, ProjectAccessGrant, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, Identifier, InvitationToken, OrgId, OrgPermissions};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -146,6 +148,22 @@ pub struct HarnessAcceptance {
     pub joined_org: OrgId,
 }
 
+/// Outcome of a successful join-organization call. An authenticated
+/// existing account accepted an invitation to join an organization.
+#[derive(Debug, Clone)]
+pub struct HarnessJoinResult {
+    /// Organization the account joined.
+    pub joined_org: OrgId,
+    /// Organization-level permissions granted by the membership.
+    pub membership_permissions: OrgPermissions,
+    /// All organization memberships selectable by this account after
+    /// the join.
+    pub selectable_organizations: Vec<OrgMembershipView>,
+    /// Project-level access grants (always empty on join — project
+    /// access is governed by M-0031).
+    pub project_access_grants: Vec<ProjectAccessGrant>,
+}
+
 /// Failure surface — every harness collapses transport-specific
 /// failures down to a [`AccountFailureReason`] (matched on the wire
 /// `code`) plus an opaque message used for diagnostic output.
@@ -185,6 +203,14 @@ pub struct HarnessInvitation {
     pub inviting_org: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+    /// Target identifier for addressed invitations. `None` for open
+    /// (new-account) invitations — the token is the only selector.
+    pub target_identifier: Option<Identifier>,
+    /// Organization-level permissions granted on acceptance. `None`
+    /// defaults to `OrgPermissions::member()` at the service layer.
+    pub org_permissions: Option<OrgPermissions>,
+    /// When `true`, the invitation is seeded in a revoked state.
+    pub revoked: bool,
 }
 
 /// Per-interface seam used by the BDD step-definition crate. Every
@@ -236,6 +262,21 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
 
+    /// Seed a membership linking an existing account to an organization.
+    /// Used by the `Given <actor> is already a member of organization
+    /// "..."` step to establish prior-membership preconditions.
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()>;
+
+    /// Existing-account join against the underlying surface. The
+    /// `account_id` identifies the authenticated account; the harness
+    /// implementation looks up the session state it captured during
+    /// the actor's prior sign-up / sign-in.
+    async fn join_organization(
+        &mut self,
+        account_id: AccountId,
+        req: JoinOrganizationRequest,
+    ) -> HarnessResult<HarnessJoinResult>;
+
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
 }
@@ -265,6 +306,8 @@ pub struct ActorState {
     pub sign_in: Option<HarnessSession>,
     /// Last successful invitation acceptance.
     pub accept_invitation: Option<HarnessAcceptance>,
+    /// Last successful join-organization result.
+    pub join_organization: Option<HarnessJoinResult>,
     /// Last failure (taxonomy code), if any.
     pub last_failure: Option<AccountFailureReason>,
 }
@@ -276,8 +319,10 @@ pub enum HarnessOutcome {
     SignedUp(HarnessSession),
     /// Successful sign-in.
     SignedIn(HarnessSession),
-    /// Successful invitation acceptance.
+    /// Successful invitation acceptance (new account).
     AcceptedInvitation(HarnessAcceptance),
+    /// Successful join-organization (existing account).
+    JoinedOrganization(HarnessJoinResult),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
     /// Non-taxonomy infrastructure failure.
@@ -295,6 +340,7 @@ impl HarnessOutcome {
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
+            | Self::JoinedOrganization(_)
             | Self::Other(_) => None,
         }
     }

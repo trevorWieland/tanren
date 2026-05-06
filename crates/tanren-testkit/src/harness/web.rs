@@ -21,13 +21,16 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, JoinOrganizationRequest, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, OrgId};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessJoinResult, HarnessKind,
+    HarnessResult, HarnessSession,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -75,6 +78,18 @@ impl AccountHarness for WebHarness {
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.inner.seed_invitation(fixture).await
+    }
+
+    async fn seed_membership(&mut self, account_id: AccountId, org_id: OrgId) -> HarnessResult<()> {
+        self.inner.seed_membership(account_id, org_id).await
+    }
+
+    async fn join_organization(
+        &mut self,
+        account_id: AccountId,
+        req: JoinOrganizationRequest,
+    ) -> HarnessResult<HarnessJoinResult> {
+        self.inner.join_organization(account_id, req).await
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
