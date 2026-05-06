@@ -19,6 +19,7 @@
 //! `tanren-app-services` (no cookie jar to use).
 
 mod app;
+mod dispatch;
 mod draw;
 mod ui;
 
@@ -92,16 +93,29 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    CreateOrganization,
+    ListOrganizations,
+    OrgAdminProbe,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 6] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::CreateOrganization,
+        Self::ListOrganizations,
+        Self::OrgAdminProbe,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::CreateOrganization => "Create organization",
+            Self::ListOrganizations => "List organizations",
+            Self::OrgAdminProbe => "Authorize admin operation",
         }
     }
 }

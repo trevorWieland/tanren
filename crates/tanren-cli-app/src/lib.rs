@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod organization;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -24,6 +26,8 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
+
+use organization::OrganizationAction;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +67,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Organization flow: create, list, authorize-admin-operation.
+    Organization {
+        #[command(subcommand)]
+        action: OrganizationAction,
     },
 }
 
@@ -122,6 +131,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Organization { action }) => organization::dispatch(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -315,4 +325,15 @@ fn persist_session(token: &str) -> Result<()> {
     }
     fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
+}
+
+fn load_session() -> Result<String> {
+    let path = session_path();
+    let raw = fs::read_to_string(&path)
+        .map_err(|_| anyhow::anyhow!("error: auth_required — no session found (sign in first)"))?;
+    let trimmed = raw.trim().to_owned();
+    if trimmed.is_empty() {
+        anyhow::bail!("error: auth_required — session is empty (sign in first)");
+    }
+    Ok(trimmed)
 }

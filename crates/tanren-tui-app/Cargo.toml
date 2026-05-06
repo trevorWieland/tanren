@@ -13,6 +13,7 @@ workspace = true
 
 [dependencies]
 anyhow = { workspace = true }
+chrono = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
 secrecy = { workspace = true }
@@ -20,3 +21,4 @@ tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 tokio = { workspace = true }
+uuid = { workspace = true }
