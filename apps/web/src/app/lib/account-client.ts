@@ -187,3 +187,168 @@ export async function signOut(): Promise<void> {
     });
   }
 }
+
+// ---------------------------------------------------------------------------
+// User-tier configuration
+// ---------------------------------------------------------------------------
+
+export type UserSettingKey = "preferred_harness" | "preferred_provider";
+
+export interface UserConfigEntry {
+  key: UserSettingKey;
+  value: string;
+  updated_at: string;
+}
+
+export interface ListUserConfigResponse {
+  entries: UserConfigEntry[];
+}
+
+export interface SetUserConfigResponse {
+  entry: UserConfigEntry;
+}
+
+export interface RemoveResult {
+  removed: boolean;
+}
+
+export function listUserConfig(): Promise<ListUserConfigResponse> {
+  return getJson<ListUserConfigResponse>("/me/config");
+}
+
+export function setUserConfig(
+  key: UserSettingKey,
+  value: string,
+): Promise<SetUserConfigResponse> {
+  return postJson<SetUserConfigResponse>("/me/config", { key, value });
+}
+
+export function removeUserConfig(key: UserSettingKey): Promise<RemoveResult> {
+  return deleteJson<RemoveResult>(`/me/config/${encodeURIComponent(key)}`);
+}
+
+// ---------------------------------------------------------------------------
+// User-owned credentials
+// ---------------------------------------------------------------------------
+
+export type CredentialKind =
+  | "api_key"
+  | "source_control_token"
+  | "webhook_signing_key"
+  | "oidc_client_secret"
+  | "opaque_secret";
+
+export interface RedactedCredentialMetadata {
+  id: string;
+  name: string;
+  kind: CredentialKind;
+  scope: string;
+  description: string | null;
+  provider: string | null;
+  created_at: string;
+  updated_at: string | null;
+  present: boolean;
+}
+
+export interface ListCredentialsResponse {
+  credentials: RedactedCredentialMetadata[];
+}
+
+export interface CreateCredentialInput {
+  kind: CredentialKind;
+  name: string;
+  description?: string;
+  provider?: string;
+  value: string;
+}
+
+export interface CreateCredentialResponse {
+  credential: RedactedCredentialMetadata;
+}
+
+export interface UpdateCredentialInput {
+  name?: string;
+  description?: string;
+  value: string;
+}
+
+export interface UpdateCredentialResponse {
+  credential: RedactedCredentialMetadata;
+}
+
+export function listCredentials(): Promise<ListCredentialsResponse> {
+  return getJson<ListCredentialsResponse>("/me/credentials");
+}
+
+export function createCredential(
+  input: CreateCredentialInput,
+): Promise<CreateCredentialResponse> {
+  return postJson<CreateCredentialResponse>("/me/credentials", input);
+}
+
+export function updateCredential(
+  id: string,
+  input: UpdateCredentialInput,
+): Promise<UpdateCredentialResponse> {
+  return patchJson<UpdateCredentialResponse>(
+    `/me/credentials/${encodeURIComponent(id)}`,
+    input,
+  );
+}
+
+export function removeCredential(id: string): Promise<RemoveResult> {
+  return deleteJson<RemoveResult>(`/me/credentials/${encodeURIComponent(id)}`);
+}
+
+// ---------------------------------------------------------------------------
+// Generic authenticated fetch helpers
+// ---------------------------------------------------------------------------
+
+async function getJson<T>(path: string): Promise<T> {
+  return requestJson<T>(path, { method: "GET" });
+}
+
+async function patchJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, {
+    method: "PATCH",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+}
+
+async function deleteJson<T>(path: string): Promise<T> {
+  return requestJson<T>(path, { method: "DELETE" });
+}
+
+async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      credentials: "include",
+    });
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "unavailable",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
+
+  if (!response.ok) {
+    let parsed: FailureBody = {};
+    try {
+      parsed = (await response.json()) as FailureBody;
+    } catch {
+      parsed = {};
+    }
+    const code =
+      typeof parsed.code === "string" ? parsed.code : "internal_error";
+    const summary =
+      typeof parsed.summary === "string"
+        ? parsed.summary
+        : `HTTP ${response.status}`;
+    throw new AccountRequestError({ code, summary });
+  }
+
+  return (await response.json()) as T;
+}
