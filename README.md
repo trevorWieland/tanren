@@ -145,10 +145,10 @@ not prove product progress.
 
 This repo currently has the real spec-loop commands installed and temporary
 project-method bootstrap commands for `plan-product`, `define-surfaces`,
-`identify-behaviors`, `design-experience`, `architect-system`,
-`assess-implementation`, and `craft-roadmap`. The project-method commands write
-owned planning projections for now; they are not yet native typed Tanren
-phases.
+`define-design-system`, `identify-behaviors`, `design-experience`,
+`architect-system`, `assess-implementation`, and `craft-roadmap`. The
+project-method commands write owned planning projections for now; they are not
+yet native typed Tanren phases.
 
 The first major product milestone is Tanren-in-Tanren: using Tanren to plan,
 shape, execute, prove, walk, and update Tanren itself, including harness and
@@ -325,6 +325,7 @@ Rust CI runs `just ci`. Protected development branches are governed by the
 - [docs/architecture/delivery.md](docs/architecture/delivery.md) - stack installation and delivery contract
 - [docs/architecture/system.md](docs/architecture/system.md) - architecture overview
 - [docs/architecture/subsystems/quality-controls.md](docs/architecture/subsystems/quality-controls.md) - gates, audit, adherence, and quality controls
+- [docs/experience/design-system/README.md](docs/experience/design-system/README.md) - cross-surface design system index
 
 > The roadmap (`docs/roadmap/`) and implementation readiness
 > (`docs/implementation/`) docs were cleared as part of the architecture

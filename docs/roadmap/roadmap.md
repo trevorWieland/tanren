@@ -20,11 +20,11 @@ human-friendly rendering.
 | | |
 |---|---|
 | Milestones | 27 |
-| Spec nodes | 233 (2 foundation + 231 behavior) |
-| Accepted behaviors | 282 |
-| Behaviors covered | 282 (100%) |
+| Spec nodes | 239 (2 foundation + 237 behavior) |
+| Accepted behaviors | 288 |
+| Behaviors covered | 288 (100%) |
 | Longest dependency path | 16 nodes |
-| Max parallel width | 70 nodes |
+| Max parallel width | 71 nodes |
 
 Validate with: `python3 scripts/roadmap_check.py`
 
@@ -69,7 +69,7 @@ Bootstrapping the system and the people who use it.
 The plan-product / identify-behaviors / architect-system / craft-roadmap loop
 that Tanren uses on itself and on adopting projects.
 
-- **M-0005** Product Planning Method (20 behaviors)
+- **M-0005** Product Planning Method (26 behaviors)
 - **M-0006** Implementation Assessment (2 behaviors)
 - **M-0007** Spec Shaping & Lifecycle (14 behaviors)
 - **M-0008** Spec Readiness & Quality Gates (5 behaviors)
@@ -196,5 +196,8 @@ python3 scripts/roadmap_check.py --reduce
 - **`experience_risk`** optionally records `low`, `medium`, or `high` based on
   interaction complexity, proof-adapter uncertainty, accessibility risk, and
   whether the node changes a critical user path.
+- **`design_pattern_refs`** optionally lists design-system pattern IDs from
+  `docs/experience/design-system/patterns.yml`. Validators reject unknown IDs
+  on nodes and expected-evidence records.
 - **`playbook`** is the human-walked acceptance sequence. Subjective; one
   reviewer signs off.

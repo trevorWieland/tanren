@@ -1,0 +1,79 @@
+schema: tanren.design_tokens.v0
+status: draft
+owner_command: define-design-system
+updated_at: 2026-05-07
+token_families:
+  - id: surface
+    purpose: Shared background and foreground roles for human-facing surfaces.
+    tokens:
+      - id: surface.canvas
+        purpose: Base area behind primary content.
+      - id: surface.default
+        purpose: Primary content area.
+      - id: surface.elevated
+        purpose: Raised or emphasized content area.
+      - id: surface.border
+        purpose: Boundary between related regions.
+
+  - id: content
+    purpose: Text and symbol emphasis roles.
+    tokens:
+      - id: content.default
+        purpose: Main readable content.
+      - id: content.muted
+        purpose: Secondary detail and helper text.
+      - id: content.inverse
+        purpose: Text placed on strong intent backgrounds.
+      - id: content.code
+        purpose: Command, identifier, code, and machine-readable output.
+
+  - id: intent
+    purpose: Action and outcome status roles.
+    tokens:
+      - id: intent.primary
+        purpose: Main action or selected path.
+      - id: intent.success
+        purpose: Completed or healthy state.
+      - id: intent.warning
+        purpose: Risk, stale state, or pending attention.
+      - id: intent.danger
+        purpose: Destructive, invalid, or blocked state.
+      - id: intent.info
+        purpose: Neutral status or contextual notice.
+
+  - id: interaction
+    purpose: Focus, disabled, loading, and selection roles.
+    tokens:
+      - id: interaction.focus
+        purpose: Visible focus indication.
+      - id: interaction.disabled
+        purpose: Unavailable action that remains visible.
+      - id: interaction.loading
+        purpose: Bounded pending work.
+      - id: interaction.selected
+        purpose: Current item, row, screen, or option.
+
+  - id: density
+    purpose: Spacing and information-density modes.
+    tokens:
+      - id: density.compact
+        purpose: Repeated operational work and terminal surfaces.
+      - id: density.standard
+        purpose: Default product workflows.
+      - id: density.review
+        purpose: Human walk, proof review, and comparison views.
+
+surface_mappings:
+  web:
+    token_projection: CSS variables in Tailwind v4 `@theme`.
+    source: apps/web/src/app/globals.css
+  cli:
+    token_projection: Text labels, symbols, stream selection, and exit codes.
+  tui:
+    token_projection: Terminal attributes, symbols, focus state, and layout regions.
+  api:
+    token_projection: Machine-readable codes and response fields.
+  mcp:
+    token_projection: Tool result fields and structured errors.
+  gameplay:
+    token_projection: HUD labels, input feedback, timing, and replay assertions.

@@ -10,7 +10,10 @@ updated_at: 2026-05-07
 Surface-shared interaction rules (not per-behavior). Behaviors inherit the
 defaults below unless `flows.md` records an explicit deviation. Authoritative
 sources for each rule are cited so future audits can detect drift between
-this projection and accepted architecture.
+this projection and accepted architecture. Reusable interaction decisions that
+should guide implementation live in
+`docs/experience/design-system/patterns.yml`; this file describes how those
+patterns behave on each surface.
 
 ## `web`
 
@@ -119,3 +122,6 @@ this projection and accepted architecture.
   surface-specific personas are not allowed.
 - Behavior-level copy is owned by the behavior (intent + acceptance);
   surface-level copy tone is owned here.
+- Reusable tokens, vocabulary, and pattern IDs are owned by
+  `docs/experience/design-system/`; new local interaction rules should be
+  added there or recorded as explicit deviations before implementation.

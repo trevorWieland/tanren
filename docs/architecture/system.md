@@ -476,6 +476,8 @@ Required records:
   subscriptions, idempotency, and replay.
 - `subsystems/interfaces.md` - CLI, TUI, responsive web UI, API, MCP,
   validation errors, cross-interface continuity, and freshness.
+- `subsystems/design-system.md` - cross-surface design-system records,
+  tokens, vocabulary, patterns, adapters, and design drift enforcement.
 - `subsystems/identity-policy.md` - accounts, organizations, permissions,
   roles, service accounts, API keys, approvals, and policy evaluation.
 - `subsystems/configuration-secrets.md` - configuration tiers, effective

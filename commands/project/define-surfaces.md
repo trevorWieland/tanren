@@ -99,6 +99,8 @@ sizing can find them mechanically.
 ## Out of Scope
 
 - Editing behavior files. Use `identify-behaviors`.
+- Defining shared design tokens, vocabulary, or pattern IDs. Use
+  `define-design-system`.
 - Designing per-behavior flows and states. Use `design-experience`.
 - Choosing implementation architecture. Use `architect-system`.
 - Creating roadmap DAG nodes. Use `craft-roadmap`.

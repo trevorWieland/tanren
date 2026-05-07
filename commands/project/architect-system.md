@@ -79,6 +79,8 @@ This command owns:
 
 - Editing product vision, personas, or concepts. Use `plan-product`.
 - Defining project surface IDs. Use `define-surfaces`.
+- Defining shared design tokens, vocabulary, or pattern IDs. Use
+  `define-design-system`.
 - Designing behavior-surface flows and states. Use `design-experience`.
 - Editing behavior files. Use `identify-behaviors`.
 - Assessing whether current code already implements behaviors. Use

@@ -41,9 +41,11 @@ Every flow row records:
 | `success` | The state a user or client observes when the behavior completes. |
 | `key failures` | Surface-native failure modes a reviewer should expect. |
 | `recovery` | What the user or client does when a failure mode appears. |
+| `design pattern refs` | Pattern IDs from `docs/experience/design-system/patterns.yml`. |
 
 Cells use `;` as a list separator (Markdown tables treat `|` as a
-cell boundary).
+cell boundary). Pattern references are optional only when the contract records
+an explicit design-system deviation.
 
 ## Surface Defaults
 
@@ -94,7 +96,8 @@ otherwise suggest.
 
 `docs/behaviors/` contains 288 accepted behaviors.
 Each behavior's `surfaces:` frontmatter implicitly creates a flow
-contract row by inheriting the surface default. Explicit deviations
-live above; the implicit set is enumerated by
+contract row by inheriting the surface default and relevant design-system
+pattern defaults. Explicit deviations live above; the implicit set is
+enumerated by
 `scripts/roadmap_check.py` (or the eventual coverage validator
 tracked by `B-0291`).

@@ -160,6 +160,7 @@ The project method should become:
 ```text
 plan-product
 -> define-surfaces
+-> define-design-system
 -> identify-behaviors
 -> design-experience
 -> architect-system
@@ -171,6 +172,12 @@ plan-product
 `define-surfaces` may be a separate command, or it may initially be part of
 `architect-system`. It deserves a first-class phase because surface decisions
 change behavior reach, proof harnesses, generated files, and roadmap sizing.
+
+`define-design-system` follows `define-surfaces` and precedes
+`design-experience`. It records the shared tokens, vocabulary, pattern IDs,
+accessibility expectations, and surface adapters that generated work must
+follow so agents do not invent local interaction rules while implementing a
+behavior slice.
 
 `design-experience` should bridge behavior and implementation. It should not
 choose low-level component code before architecture is known, but it should
@@ -184,6 +191,14 @@ Portable Tanren projects should support an experience artifact root, likely:
 ```text
 docs/experience/
   surfaces.yml
+  design-system/
+    README.md
+    principles.md
+    tokens.yml
+    vocabulary.yml
+    patterns.yml
+    accessibility.md
+    surface-adapters/
   flows.md
   screens.md
   interaction-models.md
@@ -396,7 +411,8 @@ Paraglide requirements unless it explicitly selects that profile.
 
 ## Roadmap And Spec Changes
 
-Roadmap nodes should include surface and experience risk metadata.
+Roadmap nodes should include surface, design-pattern, and experience-risk
+metadata.
 
 Example:
 
@@ -406,11 +422,13 @@ Example:
   "completes_behaviors": ["B-0201"],
   "surface_scope": ["gameplay", "settings"],
   "experience_risk": "high",
+  "design_pattern_refs": ["gameplay.retry.preserve-progress"],
   "expected_evidence": [
     {
       "kind": "deterministic_replay",
       "behavior_id": "B-0201",
       "surfaces": ["gameplay"],
+      "design_pattern_refs": ["gameplay.retry.preserve-progress"],
       "witnesses": ["positive", "falsification"]
     },
     {
@@ -438,16 +456,17 @@ When generating work for a behavior slice, Tanren should:
 
 1. Read product intent, personas, concepts, accepted behavior, and surface
    registry.
-2. Read existing project UI, interaction, command, or game patterns.
-3. Create or update experience contracts for each behavior and surface pair.
-4. Select the right profile and proof adapter.
-5. Generate implementation scaffolding for the surface.
-6. Generate proof scaffolding at the same time.
-7. Generate review artifacts: screenshots, transcripts, replays, API examples,
+2. Read the design-system records and selected pattern IDs.
+3. Read existing project UI, interaction, command, or game patterns.
+4. Create or update experience contracts for each behavior and surface pair.
+5. Select the right profile and proof adapter.
+6. Generate implementation scaffolding for the surface.
+7. Generate proof scaffolding at the same time.
+8. Generate review artifacts: screenshots, transcripts, replays, API examples,
    or other surface-native evidence.
-8. Run full project gates.
-9. Present the result in a human walk that references the accepted behavior and
-   actual surface evidence.
+9. Run full project gates.
+10. Present the result in a human walk that references the accepted behavior,
+    surface, design pattern IDs, and actual surface evidence.
 
 Generated work should not stop at code. It should produce implementation,
 tests, proof evidence, and reviewable experience artifacts together.
@@ -479,17 +498,18 @@ The first bootstrap layer of the model is in place:
 
 - `docs/experience/surfaces.yml` declares Tanren's `web`, `api`, `mcp`, `cli`,
   and `tui` surfaces in the new schema.
-- Tanren's behavior catalog (282 accepted behaviors) and roadmap DAG (282
+- Tanren's behavior catalog (288 accepted behaviors) and roadmap DAG (288
   evidence entries) use `surfaces:` exclusively; there is no `interfaces:`
   compatibility field.
 - `xtask check-bdd-tags` loads allowed scenario surface tags from the
   registry. `scripts/roadmap_check.py` validates `surface_scope` and
-  `experience_risk` against the same registry.
-- `define-surfaces` and `design-experience` command sources define ownership
-  for the new planning phases. `B-0289`–`B-0292` are the user-facing
-  capabilities Tanren itself must implement to make these phases first-class
-  rather than method-only conventions; `R-0290`–`R-0293` are the completing
-  roadmap nodes.
+  `experience_risk` against the same registry and validates
+  `design_pattern_refs` against the design-system pattern registry.
+- `define-surfaces`, `define-design-system`, and `design-experience` command
+  sources define ownership for the new planning phases. `B-0289`–`B-0294` are
+  the user-facing capabilities Tanren itself must implement to make these
+  phases first-class rather than method-only conventions; `R-0290`–`R-0295`
+  are the completing roadmap nodes.
 - Terminal CLI, terminal TUI, and generic game profiles seed non-web
   experience generation.
 
@@ -500,6 +520,8 @@ The follow-on work tracked outside this PR:
 - Move the surface registry, experience contracts, proof adapter config, and
   walk evidence into typed Tanren state, with repo-local docs becoming
   projections from that state.
+- Move design-system tokens, vocabulary, pattern IDs, surface adapters, and
+  design drift decisions into typed Tanren state.
 - Add additional non-web profiles (`game-bevy`, `mobile-react-native`,
   `desktop-tauri`, `chat-agent`, `library-rust`, …) as adopting projects need
   them.
@@ -522,6 +544,7 @@ This proposal is complete when:
 - React, Storybook, Tailwind, and Playwright are profile-specific, not universal
   UX assumptions;
 - roadmap nodes can represent surface scope and experience risk;
+- roadmap nodes can reference registered design pattern IDs;
 - human walks review surface-native evidence rather than generic test status.
 
 ## Open Questions

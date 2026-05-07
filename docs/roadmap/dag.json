@@ -4,6 +4,7 @@
   "product_ref": "docs/product/vision.md",
   "behavior_root": "docs/behaviors",
   "surface_registry_ref": "docs/experience/surfaces.yml",
+  "design_system_ref": "docs/experience/design-system",
   "architecture_root": "docs/architecture",
   "implementation_ref": null,
   "foundation_spec_id": "F-0002",
@@ -9766,7 +9767,7 @@
         "B-0290"
       ],
       "depends_on": [
-        "R-0290",
+        "R-0294",
         "R-0059"
       ],
       "surface_scope": [
@@ -9777,7 +9778,14 @@
         "tui"
       ],
       "experience_risk": "high",
-      "scope": "Experience contract authoring: for each accepted behavior-surface pair the user can record entry, primary flow, success/failure/empty/loading/stale/permission-denied/unavailable states, copy and accessibility expectations, and the proof artifact required to make the behavior reviewable on that surface. Contracts are queryable independently of code and flag stale records when their behavior or surface changes. The design-experience command flow lives here.",
+      "design_pattern_refs": [
+        "action.primary.confirmed",
+        "feedback.validation.inline",
+        "feedback.empty.useful",
+        "feedback.stale.refresh",
+        "state.coverage.matrix"
+      ],
+      "scope": "Experience contract authoring: for each accepted behavior-surface pair the user can record entry, primary flow, success/failure/empty/loading/stale/permission-denied/unavailable states, copy and accessibility expectations, design pattern references, and the proof artifact required to make the behavior reviewable on that surface. Contracts are queryable independently of code and flag stale records when their behavior, surface, or design-system pattern changes. The design-experience command flow lives here.",
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -9792,6 +9800,11 @@
           "witnesses": [
             "positive",
             "falsification"
+          ],
+          "design_pattern_refs": [
+            "action.primary.confirmed",
+            "feedback.validation.inline",
+            "state.coverage.matrix"
           ],
           "description": "Per surface \u2014 Positive: author a contract for a behavior-surface pair with all required state fields; contract appears in the index. Positive: revising the underlying behavior marks dependent contracts stale. Falsification: contract referencing a behavior that does not exist is rejected. Falsification: contract referencing a surface not in the registry is rejected."
         }
@@ -9893,6 +9906,119 @@
         "Remove a surface while a behavior still references it; verify drift is reported."
       ],
       "rationale": "Drift enforcement is the user-facing outcome of the surface registry being the single source of truth. This node turns the existing xtask + roadmap_check enforcement into a behavior-completing slice rather than a method-only convention."
+    },
+    {
+      "id": "R-0294",
+      "milestone": "M-0005",
+      "title": "Define and maintain the cross-surface design system",
+      "completes_behaviors": [
+        "B-0293"
+      ],
+      "depends_on": [
+        "R-0290"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "medium",
+      "design_pattern_refs": [
+        "action.primary.confirmed",
+        "feedback.validation.inline",
+        "output.machine.error-envelope",
+        "layout.tui.status-bar"
+      ],
+      "scope": "Design-system maintenance: a solo-builder or team-builder can define and revise shared principles, semantic tokens, vocabulary terms, reusable pattern IDs, accessibility expectations, and surface adapters. The design system is cross-surface rather than web-only, and downstream roadmap nodes, experience contracts, proof artifacts, and walks can reference stable design pattern IDs. The define-design-system command flow lives here.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0293",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "design_pattern_refs": [
+            "action.primary.confirmed",
+            "feedback.validation.inline",
+            "output.machine.error-envelope",
+            "layout.tui.status-bar"
+          ],
+          "description": "Per surface \u2014 Positive: define or revise tokens, vocabulary, pattern IDs, accessibility expectations, and adapters; downstream consumers can read the same registry. Falsification: duplicate or malformed pattern IDs are rejected. Falsification: removing a referenced design pattern reports stale downstream references."
+        }
+      ],
+      "playbook": [
+        "Add a design pattern; verify it appears in the registry and can be referenced by roadmap work.",
+        "Revise a pattern; verify downstream contracts or nodes are marked stale when relevant.",
+        "Review adapters for web, CLI, TUI, API, MCP, and a non-web future surface.",
+        "Negative walks: duplicate pattern ID, malformed pattern ID, deleting a referenced pattern."
+      ],
+      "rationale": "The design system is the central canon that keeps agent-generated experience from drifting across surfaces. It belongs between surface definition and per-behavior experience design."
+    },
+    {
+      "id": "R-0295",
+      "milestone": "M-0005",
+      "title": "Reject experience drift from the design system",
+      "completes_behaviors": [
+        "B-0294"
+      ],
+      "depends_on": [
+        "R-0294",
+        "R-0059"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "low",
+      "design_pattern_refs": [
+        "feedback.validation.inline",
+        "output.machine.error-envelope",
+        "state.coverage.matrix"
+      ],
+      "scope": "Design-system drift enforcement: roadmap DAG edits and expected-evidence edits that reference an unknown design pattern ID are rejected by the validator the user runs. Removing or renaming a design pattern that active roadmap or experience records still reference is reported as drift rather than silently dropping the design obligation.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0294",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "design_pattern_refs": [
+            "feedback.validation.inline",
+            "output.machine.error-envelope",
+            "state.coverage.matrix"
+          ],
+          "description": "Per surface \u2014 Positive: node and evidence records that cite registered design patterns validate. Falsification: node-level or evidence-level design_pattern_refs with an unknown ID are rejected with a message naming the node and ID. Falsification: deleting a referenced design pattern reports drift."
+        }
+      ],
+      "playbook": [
+        "Reference a registered design pattern from a roadmap node; verify validation passes.",
+        "Reference an unknown pattern; verify validation names the node and bad ID.",
+        "Reference an unknown pattern inside expected evidence; verify validation names the behavior and node.",
+        "Remove a referenced pattern; verify drift is reported."
+      ],
+      "rationale": "A design system only prevents agent drift if generated work and roadmap obligations are mechanically checked against it."
     }
   ],
   "wave_b_deferred": {}

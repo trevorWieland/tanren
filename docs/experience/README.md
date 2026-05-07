@@ -12,6 +12,9 @@ projections.
 
 - `surfaces.yml` is owned by `define-surfaces` and declares the active public
   surfaces a project can prove behavior through.
+- `design-system/` is owned by `define-design-system` and declares the
+  cross-surface tokens, vocabulary, patterns, accessibility expectations, and
+  surface adapters agents should use when generating experience.
 - `state-matrix.md` is owned by `design-experience` and lists the states each
   behavior-surface pair should consider before shaping work.
 - `proof-matrix.md` is owned by `design-experience` and maps each surface to

@@ -11,7 +11,10 @@ analysis, run logs, prompts, partial reports, and raw event streams belong under
 
 ```text
 plan-product
+-> define-surfaces
+-> define-design-system
 -> identify-behaviors
+-> design-experience
 -> architect-system
 -> assess-implementation
 -> craft-roadmap
@@ -31,6 +34,9 @@ source signals, and delivery plan change.
 | `product/concepts.md` | `plan-product` | Product vocabulary and high-level concepts used by behavior and roadmap work. |
 | `behaviors/index.md` | `identify-behaviors` | Behavior authoring rules and generated catalog index. |
 | `behaviors/B-*.md` | `identify-behaviors` | One accepted, draft, deprecated, or removed behavior per file. |
+| `experience/surfaces.yml` | `define-surfaces` | Project surface registry for human and machine-facing experience surfaces. |
+| `experience/design-system/**` | `define-design-system` | Cross-surface tokens, vocabulary, patterns, accessibility, and surface adapters. |
+| `experience/*.md` | `design-experience` | Behavior-surface flows, screens, states, proof expectations, and interaction models. |
 | `architecture/system.md` | `architect-system` | High-level system architecture and boundaries. |
 | `architecture/technology.md` | `architect-system` | Language, workspace, build, test, and toolchain decisions. |
 | `architecture/delivery.md` | `architect-system` | Installation, command rendering, MCP setup, distribution, and delivery posture. |

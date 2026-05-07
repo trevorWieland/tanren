@@ -14,7 +14,9 @@ applies_to_domains:
 
 Tanren's web surface styles via **Tailwind v4** with a **CSS-first `@theme`
 directive**. Design tokens are CSS variables in the oklch color space.
-Inline `style={{ ... }}` and hardcoded color hex codes are forbidden.
+Inline `style={{ ... }}` and hardcoded color hex codes are forbidden. The
+web tokens are the responsive-GUI projection of the cross-surface design
+system in `docs/experience/design-system/`.
 
 ```css
 /* ✓ Good: CSS-first theme tokens in apps/web/src/app/globals.css */

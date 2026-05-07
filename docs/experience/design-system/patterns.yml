@@ -1,0 +1,109 @@
+schema: tanren.design_patterns.v0
+status: draft
+owner_command: define-design-system
+updated_at: 2026-05-07
+patterns:
+  - id: feedback.validation.inline
+    name: Inline validation feedback
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Explain invalid input where the user or client can recover.
+    required_states: [validation_failed]
+    evidence: [screenshot, transcript, contract_case, tool_trace]
+
+  - id: feedback.permission.denied
+    name: Permission denial with safe recovery
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Deny an action without leaking hidden resources.
+    required_states: [permission_denied]
+    evidence: [screenshot, transcript, contract_case, tool_trace]
+
+  - id: feedback.unavailable.recovery
+    name: Unavailable dependency recovery
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Show dependency failure and the retry or escalation path.
+    required_states: [unavailable]
+    evidence: [screenshot, transcript, contract_case, tool_trace]
+
+  - id: feedback.stale.refresh
+    name: Stale projection refresh
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Distinguish stale state from empty or failed state.
+    required_states: [stale]
+    evidence: [screenshot, transcript, contract_case]
+
+  - id: feedback.empty.useful
+    name: Useful empty state
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Explain a successful no-results state and the next useful action.
+    required_states: [empty]
+    evidence: [screenshot, transcript, contract_case]
+
+  - id: action.primary.confirmed
+    name: Primary action with confirmed outcome
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Make the main action discoverable and show completion.
+    required_states: [entry, success]
+    evidence: [screenshot, transcript, contract_case, tool_trace]
+
+  - id: action.destructive.confirmation
+    name: Destructive action confirmation
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Prevent accidental removal, revocation, or irreversible change.
+    required_states: [entry, confirmation, success, cancellation]
+    evidence: [screenshot, transcript, contract_case, tool_trace]
+
+  - id: navigation.contextual.help
+    name: Contextual help and recovery
+    surfaces: [web, cli, tui]
+    intent: Provide surface-native help without interrupting the current task.
+    required_states: [entry, recovery]
+    evidence: [screenshot, transcript, pty_snapshot]
+
+  - id: state.coverage.matrix
+    name: Coverage matrix with filters
+    surfaces: [web, cli, tui, api, mcp]
+    intent: Show coverage by behavior, surface, state, risk, and freshness.
+    required_states: [success, empty, stale]
+    evidence: [screenshot, transcript, contract_case, tool_trace]
+
+  - id: status.progress.bounded
+    name: Bounded progress feedback
+    surfaces: [web, cli, tui, api, mcp, gameplay]
+    intent: Make work longer than the surface latency budget visible.
+    required_states: [loading, success, unavailable]
+    evidence: [screenshot, transcript, contract_case, replay]
+
+  - id: output.machine.error-envelope
+    name: Machine-readable error envelope
+    surfaces: [api, mcp, cli]
+    intent: Return stable error codes and safe details for automation.
+    required_states: [validation_failed, permission_denied, unavailable]
+    evidence: [contract_case, tool_trace, transcript]
+
+  - id: output.cli.json-envelope
+    name: CLI JSON output envelope
+    surfaces: [cli]
+    intent: Keep scriptable output stable and separate from diagnostics.
+    required_states: [success, validation_failed, unavailable]
+    evidence: [transcript, contract_case]
+
+  - id: layout.form.standard
+    name: Standard form layout
+    surfaces: [web, tui]
+    intent: Align labels, input order, validation, and submit state.
+    required_states: [entry, loading, validation_failed, success]
+    evidence: [screenshot, pty_snapshot]
+
+  - id: layout.tui.status-bar
+    name: Persistent TUI status bar
+    surfaces: [tui]
+    intent: Keep project, persona, and last command result visible.
+    required_states: [entry, success, unavailable, stale]
+    evidence: [pty_snapshot, transcript]
+
+  - id: gameplay.retry.preserve-progress
+    name: Gameplay retry with preserved progress
+    surfaces: [gameplay]
+    intent: Let the player retry a failed action without losing durable progress.
+    required_states: [failure, retry, success, persistence]
+    evidence: [replay, screenshot, telemetry]

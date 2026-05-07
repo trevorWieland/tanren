@@ -269,6 +269,8 @@ not in the behavior file.
 - [B-0290](B-0290-design-experience-contracts.md) — Design experience contracts for behavior-surface pairs
 - [B-0291](B-0291-see-experience-contract-coverage.md) — See experience contract coverage across behaviors and surfaces
 - [B-0292](B-0292-reject-surface-registry-drift.md) — Reject behavior or roadmap drift from the project surface registry
+- [B-0293](B-0293-define-design-system.md) — Define and maintain a cross-surface design system
+- [B-0294](B-0294-reject-design-system-drift.md) — Reject experience drift from the design system
 
 ### Architecture Planning
 

@@ -57,8 +57,9 @@ direction.
    product intent. Implementation, proof, assertion, and coverage are separate
    behavior-proof, assessment, or read-model state.
 5. **Bootstrapping order is strict.** A first project planning pass follows
-   `plan-product -> define-surfaces -> identify-behaviors ->
-   design-experience -> architect-system -> craft-roadmap`.
+   `plan-product -> define-surfaces -> define-design-system ->
+   identify-behaviors -> design-experience -> architect-system ->
+   craft-roadmap`.
 6. **Subsequent planning can revisit earlier layers.** After bootstrap, an
    authorized planning change may revise behaviors, architecture, or roadmap
    directly when upstream context is already sufficient.
@@ -87,7 +88,10 @@ into a buildable plan:
 
 ```text
 plan-product
+-> define-surfaces
+-> define-design-system
 -> identify-behaviors
+-> design-experience
 -> architect-system
 -> craft-roadmap
 ```
@@ -403,8 +407,9 @@ state subsystem.
 
 - Planning is project-scoped.
 - The first project bootstrap follows
-  `plan-product -> define-surfaces -> identify-behaviors ->
-  design-experience -> architect-system -> craft-roadmap`.
+  `plan-product -> define-surfaces -> define-design-system ->
+  identify-behaviors -> design-experience -> architect-system ->
+  craft-roadmap`.
 - Subsequent planning may revisit layers out of order when accepted context is
   already sufficient.
 - Project-defined planning vocabularies are allowed and expected.

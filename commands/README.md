@@ -26,6 +26,7 @@ Current project-method chain:
 ```text
 plan-product
 -> define-surfaces
+-> define-design-system
 -> identify-behaviors
 -> design-experience
 -> architect-system
@@ -36,9 +37,10 @@ Project commands directly edit owned planning projections for now:
 
 - `plan-product` owns `docs/product/**`.
 - `define-surfaces` owns `docs/experience/surfaces.yml`.
+- `define-design-system` owns `docs/experience/design-system/**`.
 - `identify-behaviors` owns `docs/behaviors/**`.
 - `design-experience` owns behavior-surface experience projections under
-  `docs/experience/**` except `surfaces.yml`.
+  `docs/experience/**` except `surfaces.yml` and `design-system/**`.
 - `architect-system` owns `docs/architecture/**`.
 - `craft-roadmap` owns `docs/roadmap/**`.
 

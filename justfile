@@ -335,6 +335,7 @@ check:
     run_stage "dependency boundaries" just check-deps
     run_stage "rust test surface" just check-rust-test-surface
     run_stage "bdd tags" just check-bdd-tags
+    run_stage "roadmap graph" just check-roadmap
     run_stage "test hooks" just check-test-hooks
     run_stage "newtype ids" just check-newtype-ids
     run_stage "secrets" just check-secrets
@@ -612,6 +613,11 @@ check-rust-test-surface:
 # Convention).
 check-bdd-tags:
     @{{ cargo }} run --quiet -p tanren-xtask -- check-bdd-tags
+
+# Validate the roadmap DAG against behavior, surface, and design-system
+# registries.
+check-roadmap:
+    @python3 scripts/roadmap_check.py
 
 # Verify active rustc/clippy match the pinned toolchain in rust-toolchain.toml.
 check-rust-toolchain-sync:

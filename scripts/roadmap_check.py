@@ -34,6 +34,8 @@ Checks:
     `surfaces:` declaration (catches drift between catalog and DAG)
   - Optional `surface_scope` and `experience_risk` fields use known surface
     IDs and the allowed risk vocabulary
+  - Optional `design_pattern_refs` fields on nodes and expected evidence use
+    known pattern IDs from docs/experience/design-system/patterns.yml
   - Each `tests/bdd/features/B-XXXX-*.feature` file references a behavior
     that has a corresponding R-* node `expected_evidence` entry
     (inverse of the `xtask check-bdd-tags` cross-check; catches deletes
@@ -58,6 +60,9 @@ DEFAULT_DAG_PATH = REPO_ROOT / "docs" / "roadmap" / "dag.json"
 BEHAVIORS_DIR = REPO_ROOT / "docs" / "behaviors"
 FEATURES_DIR = REPO_ROOT / "tests" / "bdd" / "features"
 SURFACES_PATH = REPO_ROOT / "docs" / "experience" / "surfaces.yml"
+DESIGN_PATTERNS_PATH = (
+    REPO_ROOT / "docs" / "experience" / "design-system" / "patterns.yml"
+)
 DEFAULT_SURFACES = {"web", "api", "mcp", "cli", "tui"}
 
 NODE_REQUIRED = (
@@ -79,6 +84,9 @@ def load_dag(path: Path) -> dict[str, Any]:
 
 
 _SURFACE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+_DESIGN_PATTERN_ID_RE = re.compile(
+    r"^[a-z][a-z0-9_-]*(?:\.[a-z][a-z0-9_-]*)+$"
+)
 
 
 def collect_surface_ids() -> set[str]:
@@ -113,6 +121,42 @@ def collect_surface_ids() -> set[str]:
         if m and _SURFACE_ID_RE.match(m.group(1)):
             ids.add(m.group(1))
     return ids or set(DEFAULT_SURFACES)
+
+
+def collect_design_pattern_ids() -> set[str]:
+    """Parse docs/experience/design-system/patterns.yml for pattern IDs.
+
+    Recognizes ``- id: foo.bar`` and multiline list-item forms under the
+    top-level ``patterns:`` block. Missing design-system files are allowed
+    during bootstrap; references will still fail if a roadmap node cites a
+    pattern that cannot be loaded.
+    """
+    if not DESIGN_PATTERNS_PATH.exists():
+        return set()
+    text = DESIGN_PATTERNS_PATH.read_text()
+    ids: set[str] = set()
+    in_patterns = False
+    patterns_indent: int | None = None
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        stripped = raw.lstrip()
+        indent = len(raw) - len(stripped)
+        if not in_patterns:
+            if stripped.startswith("patterns:"):
+                in_patterns = True
+                patterns_indent = indent
+            continue
+        if (
+            patterns_indent is not None
+            and indent <= patterns_indent
+            and not stripped.startswith("-")
+        ):
+            break
+        m = re.match(r"-?\s*id:\s*[\"']?([^\"'\s]+)[\"']?\s*$", stripped)
+        if m and _DESIGN_PATTERN_ID_RE.match(m.group(1)):
+            ids.add(m.group(1))
+    return ids
 
 
 def collect_behaviors() -> tuple[set[str], set[str], dict[str, set[str]]]:
@@ -190,6 +234,20 @@ def check_schema(dag: dict, errors: list[str]) -> tuple[set[str], set[str]]:
     return milestone_ids, node_ids
 
 
+def check_path_refs(dag: dict, errors: list[str]) -> None:
+    """Validate optional top-level path references point at existing files."""
+    for key in ("surface_registry_ref", "design_system_ref"):
+        raw = dag.get(key)
+        if raw is None:
+            continue
+        if not isinstance(raw, str) or not raw:
+            errors.append(f"top-level: {key} must be a non-empty string")
+            continue
+        path = REPO_ROOT / raw
+        if not path.exists():
+            errors.append(f"top-level: {key} points at missing path {raw!r}")
+
+
 def evidence_surfaces(ev: dict[str, Any]) -> set[str]:
     """Return the explicit `surfaces` list, treating a missing key and an
     empty list as distinct: an empty list means "intentionally no surface
@@ -245,9 +303,10 @@ def check_evidence_surfaces(
 def check_node_experience_metadata(
     dag: dict,
     surface_ids: set[str],
+    design_pattern_ids: set[str],
     errors: list[str],
 ) -> None:
-    """Validate optional roadmap surface-scope and experience-risk metadata."""
+    """Validate optional roadmap experience metadata."""
     for n in dag.get("nodes", []):
         nid = n.get("id", "<?>")
         raw_scope = n.get("surface_scope") or []
@@ -267,6 +326,42 @@ def check_node_experience_metadata(
                 f"{nid}: experience_risk must be one of "
                 f"{sorted(EXPERIENCE_RISKS)}, got {risk!r}"
             )
+        check_design_pattern_refs(
+            owner=nid,
+            raw=n.get("design_pattern_refs"),
+            design_pattern_ids=design_pattern_ids,
+            errors=errors,
+        )
+        for ev in n.get("expected_evidence", []) or []:
+            bid = ev.get("behavior_id", "<?>")
+            check_design_pattern_refs(
+                owner=f"{nid}: evidence for {bid}",
+                raw=ev.get("design_pattern_refs"),
+                design_pattern_ids=design_pattern_ids,
+                errors=errors,
+            )
+
+
+def check_design_pattern_refs(
+    owner: str,
+    raw: Any,
+    design_pattern_ids: set[str],
+    errors: list[str],
+) -> None:
+    if raw is None:
+        return
+    if not isinstance(raw, list):
+        errors.append(f"{owner}: design_pattern_refs must be a list")
+        return
+    refs = {item for item in raw if isinstance(item, str)}
+    if len(refs) != len(raw):
+        errors.append(f"{owner}: design_pattern_refs must contain only strings")
+    unknown = refs - design_pattern_ids
+    if unknown:
+        errors.append(
+            f"{owner}: design_pattern_refs references unknown patterns "
+            f"{sorted(unknown)}; registry allows {sorted(design_pattern_ids)}"
+        )
 
 
 def check_feature_files(
@@ -656,12 +751,14 @@ def main() -> int:
     dag = load_dag(path)
     accepted, deprecated, behavior_surfaces = collect_behaviors()
     surface_ids = collect_surface_ids()
+    design_pattern_ids = collect_design_pattern_ids()
 
     errors: list[str] = []
     milestone_ids, node_ids = check_schema(dag, errors)
+    check_path_refs(dag, errors)
     check_references(dag, accepted, deprecated, node_ids, errors)
     check_evidence_surfaces(dag, behavior_surfaces, surface_ids, errors)
-    check_node_experience_metadata(dag, surface_ids, errors)
+    check_node_experience_metadata(dag, surface_ids, design_pattern_ids, errors)
     check_feature_files(dag, accepted, errors)
 
     nodes_by_id = {n["id"]: n for n in dag.get("nodes", []) if "id" in n}

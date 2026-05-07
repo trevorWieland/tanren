@@ -44,6 +44,7 @@ behavior is actually observed.
 - Product projections from `docs/product/**`.
 - Accepted behavior catalog from `docs/behaviors/**`.
 - Surface registry from `docs/experience/surfaces.yml`.
+- Design-system records from `docs/experience/design-system/**`.
 - Architecture projections from `docs/architecture/**`.
 - Existing UI, command, game, SDK, API, or agent interaction patterns.
 - Human feedback, usability findings, support examples, and review notes.
@@ -64,7 +65,8 @@ authoritative surface registry is `docs/experience/surfaces.yml`. Inventory
 that is mechanically derivable from those two sources should not be
 duplicated here. The five files above own:
 
-- **`flows.md`** — row schema + surface defaults + explicit deviations.
+- **`flows.md`** — row schema + surface defaults + design-pattern refs +
+  explicit deviations.
   Per-behavior rows live in spec evidence when a roadmap node is shaped,
   not in this file.
 - **`screens.md`** — surface-keyed inventory of routes, endpoints, tools,
@@ -88,21 +90,26 @@ defaults + deviations.
 2. For each relevant behavior-surface pair, identify entry point, primary flow,
    success state, failure states, empty/loading/stale/unavailable states, and
    recovery paths.
-3. Define surface-native proof obligations: screenshots for GUI, transcripts
+3. Reference registered design pattern IDs from
+   `docs/experience/design-system/patterns.yml` when a known pattern applies;
+   record explicit deviations when no registered pattern fits.
+4. Define surface-native proof obligations: screenshots for GUI, transcripts
    for CLI/TUI/chat, deterministic replay for games, contract examples for
    APIs and libraries.
-4. Record accessibility, localization, latency, copy, and feedback expectations
+5. Record accessibility, localization, latency, copy, and feedback expectations
    at the surface level.
-5. Keep implementation choices out unless the architecture has already accepted
+6. Keep implementation choices out unless the architecture has already accepted
    them.
-6. Mark unknown proof adapters or high-risk interactions so `craft-roadmap` can
+7. Mark unknown proof adapters or high-risk interactions so `craft-roadmap` can
    size and sequence the work honestly.
-7. Summarize changed experience contracts, unresolved decisions, UX risks, and
+8. Summarize changed experience contracts, unresolved decisions, UX risks, and
    proof gaps.
 
 ## Out of Scope
 
 - Defining project surfaces. Use `define-surfaces`.
+- Defining shared design tokens, vocabulary, or pattern IDs. Use
+  `define-design-system`.
 - Editing product vision, personas, or concepts. Use `plan-product`.
 - Adding or removing accepted behaviors. Use `identify-behaviors`.
 - Choosing implementation architecture. Use `architect-system`.
