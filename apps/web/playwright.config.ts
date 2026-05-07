@@ -14,18 +14,23 @@ const testDir = defineBddConfig({
   tags: "@web",
 });
 
-const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3000";
+const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3100";
 const webBaseUrl = process.env["WEB_BASE_URL"] ?? `http://127.0.0.1:${webPort}`;
+const webServerCommand = [
+  "pnpm exec concurrently -n paraglide,next",
+  '"paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations --watch"',
+  `"next dev --turbopack --hostname 127.0.0.1 --port ${webPort}"`,
+].join(" ");
 
 // NOTE: NEXT_PUBLIC_API_URL is intentionally NOT captured here at
 // config-load. globalSetup (./tests/bdd/global-setup.ts) chooses the API
 // port at runtime — possibly falling back to a kernel-picked port when
 // 8081 is busy — and writes the resolved URL to BOTH process.env and
-// `apps/web/.env.local`. The webServer block below relies on
-// inheritance: `pnpm dev` reads .env.local automatically (Next.js
-// loads it ahead of .env), and any explicit `env:` here would override
-// that with a stale value. Keeping the block absent fixes the
-// nondeterministic-port bug Codex flagged on PR #133.
+// `apps/web/.env.local`. The webServer block below starts Next in this
+// package, and Next reads .env.local automatically (ahead of .env). Any
+// explicit `env:` here would override that with a stale value. Keeping
+// the block absent fixes the nondeterministic-port bug Codex flagged on
+// PR #133.
 
 export default defineConfig({
   testDir,
@@ -56,9 +61,9 @@ export default defineConfig({
           // resolves at runtime from .env.local (production builds
           // bake the value at build time, which is incompatible with
           // globalSetup picking an ephemeral API port).
-          command: "pnpm dev",
+          command: webServerCommand,
           url: webBaseUrl,
-          reuseExistingServer: process.env["CI"] !== "true",
+          reuseExistingServer: false,
           timeout: 240_000,
           // No `env` block — see comment above. NEXT_PUBLIC_API_URL is
           // sourced from .env.local, which globalSetup writes after

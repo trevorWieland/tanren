@@ -4,10 +4,9 @@ id: B-0195
 title: Route a blocker to an appropriate responder
 area: team-coordination
 personas: [team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

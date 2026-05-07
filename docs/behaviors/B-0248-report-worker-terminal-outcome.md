@@ -5,10 +5,9 @@ title: Report terminal worker outcomes
 area: runtime-actor-contract
 personas: [solo-builder, team-builder, observer, operator, integration-client]
 runtime_actors: [agent-worker]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

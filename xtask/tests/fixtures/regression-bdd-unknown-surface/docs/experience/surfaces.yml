@@ -1,0 +1,6 @@
+schema: tanren.experience_surfaces.v0
+surfaces:
+  - id: web
+    kind: responsive_gui
+  - id: cli
+    kind: command_line

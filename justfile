@@ -335,6 +335,7 @@ check:
     run_stage "dependency boundaries" just check-deps
     run_stage "rust test surface" just check-rust-test-surface
     run_stage "bdd tags" just check-bdd-tags
+    run_stage "roadmap graph" just check-roadmap
     run_stage "test hooks" just check-test-hooks
     run_stage "newtype ids" just check-newtype-ids
     run_stage "secrets" just check-secrets
@@ -606,12 +607,17 @@ check-rust-test-surface:
     @{{ cargo }} run --quiet -p tanren-xtask -- check-rust-test-surface
 
 # Enforce the F-0002 BDD `.feature` convention: filename↔@B-XXXX, closed
-# tag allowlist, strict-equality interface coverage against
-# docs/behaviors and docs/roadmap/dag.json. See
+# tag allowlist, strict-equality surface coverage against
+# docs/experience, docs/behaviors, and docs/roadmap/dag.json. See
 # docs/architecture/subsystems/behavior-proof.md (BDD Tagging And File
 # Convention).
 check-bdd-tags:
     @{{ cargo }} run --quiet -p tanren-xtask -- check-bdd-tags
+
+# Validate the roadmap DAG against behavior, surface, and design-system
+# registries.
+check-roadmap:
+    @python3 scripts/roadmap_check.py
 
 # Verify active rustc/clippy match the pinned toolchain in rust-toolchain.toml.
 check-rust-toolchain-sync:

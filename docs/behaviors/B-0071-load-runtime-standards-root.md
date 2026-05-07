@@ -4,10 +4,9 @@ id: B-0071
 title: Use the repository's installed standards
 area: project-setup
 personas: [solo-builder, team-builder]
-interfaces: [cli]
+surfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

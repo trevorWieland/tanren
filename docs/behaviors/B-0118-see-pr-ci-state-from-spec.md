@@ -4,10 +4,9 @@ id: B-0118
 title: See pull request and CI state from the spec
 area: review-merge
 personas: [solo-builder, team-builder, observer, integration-client]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

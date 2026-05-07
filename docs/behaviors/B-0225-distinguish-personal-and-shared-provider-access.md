@@ -4,10 +4,9 @@ id: B-0225
 title: Distinguish personal provider access from shared provider access
 area: integration-management
 personas: [solo-builder, team-builder, observer, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

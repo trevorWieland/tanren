@@ -4,10 +4,9 @@ id: B-0147
 title: Summarize architecture and major risk areas
 area: repo-understanding
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

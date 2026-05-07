@@ -5,10 +5,9 @@ title: See runtime failure source signals in a harness-neutral form
 area: runtime-substrate
 personas: [solo-builder, team-builder, observer, operator]
 runtime_actors: [agent-worker]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

@@ -4,10 +4,9 @@ id: B-0056
 title: See the current state of external issues referenced by a spec
 area: external-tracker
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

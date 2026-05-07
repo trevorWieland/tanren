@@ -36,6 +36,9 @@ graph.
 
 - Product projections from `docs/product/**`.
 - Accepted behavior catalog from `docs/behaviors/**`.
+- Surface registry and experience projections from `docs/experience/**`.
+- Design-system pattern registry from
+  `docs/experience/design-system/patterns.yml`.
 - Architecture projections from `docs/architecture/**`.
 - Implementation-readiness and verification projections from
   `docs/implementation/**`.
@@ -59,6 +62,9 @@ This command owns:
   "generated_at": "YYYY-MM-DD",
   "product_ref": "docs/product/vision.md",
   "behavior_root": "docs/behaviors",
+  "surface_registry_ref": "docs/experience/surfaces.yml",
+  "design_system_ref": "docs/experience/design-system",
+  "experience_root": "docs/experience",
   "architecture_root": "docs/architecture",
   "implementation_ref": "docs/implementation/readiness.json",
   "milestones": [
@@ -78,10 +84,16 @@ This command owns:
       "completes_behaviors": ["B-0140"],
       "supports_behaviors": [],
       "depends_on": [],
+      "surface_scope": ["web", "cli"],
+      "experience_risk": "medium",
+      "design_pattern_refs": ["action.primary.confirmed"],
       "expected_evidence": [
         {
           "kind": "bdd",
           "behavior_id": "B-0140",
+          "surfaces": ["web", "cli"],
+          "witnesses": ["positive", "falsification"],
+          "design_pattern_refs": ["action.primary.confirmed"],
           "description": "Positive and falsification scenarios assert product brief creation"
         }
       ],
@@ -101,6 +113,13 @@ This command owns:
   `completes_behaviors`.
 - Every node belongs to exactly one milestone.
 - Dependency edges must be explicit and acyclic.
+- `surface_scope`, when present, must use IDs from
+  `docs/experience/surfaces.yml`.
+- `experience_risk`, when present, must be `low`, `medium`, or `high`.
+- `design_pattern_refs`, when present on a node or evidence record, must use
+  pattern IDs from `docs/experience/design-system/patterns.yml`.
+- `expected_evidence[].surfaces` should match the completed behavior's declared
+  surfaces.
 - Nodes should be small enough to shape, orchestrate, walk, review, and merge
   independently.
 - Completed and in-flight nodes should be preserved during replanning.
@@ -108,13 +127,15 @@ This command owns:
 
 ## Responsibilities
 
-1. Read product intent, accepted behaviors, architecture, implementation state,
-   existing roadmap artifacts, and in-flight work.
+1. Read product intent, accepted behaviors, surfaces, design-system records,
+   experience contracts, architecture, implementation state, existing roadmap
+   artifacts, and in-flight work.
 2. Classify bugs, feedback, or analysis as missing behavior, misaligned
    behavior, implementation gap, evidence gap, architecture gap, roadmap
    dependency change, priority change, false report, or out-of-scope report.
 3. Propose milestones and graph-shaping assumptions before editing.
-4. Draft or revise the DAG with stable node IDs and explicit edges.
+4. Draft or revise the DAG with stable node IDs, explicit edges, surface scope,
+   design pattern references, experience risk, and expected evidence.
 5. Verify manually that every executable node completes at least one accepted
    behavior.
 6. Verify manually that dependencies are acyclic.
@@ -125,7 +146,11 @@ This command owns:
 ## Out of Scope
 
 - Editing product docs. Use `plan-product`.
+- Defining project surface IDs. Use `define-surfaces`.
+- Defining shared design tokens, vocabulary, or pattern IDs. Use
+  `define-design-system`.
 - Editing behavior docs or behavior status. Use `identify-behaviors`.
+- Designing behavior-surface flows and states. Use `design-experience`.
 - Choosing or revising architecture. Use `architect-system`.
 - Assessing current implementation state. Use `assess-implementation`.
 - Dispatching specs, creating tasks, opening pull requests, or mutating

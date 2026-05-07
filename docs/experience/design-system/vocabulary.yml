@@ -1,0 +1,52 @@
+schema: tanren.design_vocabulary.v0
+status: draft
+owner_command: define-design-system
+updated_at: 2026-05-07
+terms:
+  - id: validation_failed
+    kind: error_code
+    meaning: The submitted input is invalid and can be corrected by the caller.
+    human_tone: Direct, specific, and recoverable.
+    machine_contract: Stable code with field or argument details when available.
+
+  - id: permission_denied
+    kind: error_code
+    meaning: The actor is known but not allowed to perform the action.
+    human_tone: Safe denial with the next authorized path when known.
+    machine_contract: Stable code without leaking hidden resources.
+
+  - id: unavailable
+    kind: error_code
+    meaning: A required local or external dependency cannot currently serve the action.
+    human_tone: State what is unavailable and whether retry is reasonable.
+    machine_contract: Stable retryable or non-retryable detail.
+
+  - id: stale
+    kind: state
+    meaning: The visible projection may no longer reflect canonical state.
+    human_tone: Explain freshness and offer refresh or compare.
+    machine_contract: Cursor, version, or stale-projection code.
+
+  - id: empty
+    kind: state
+    meaning: The query or view succeeded but has no records to show.
+    human_tone: State the empty condition without implying failure.
+    machine_contract: Empty collection or typed no-content result.
+
+  - id: gap
+    kind: planning_state
+    meaning: Required experience, proof, or implementation coverage is missing.
+    human_tone: Name the missing item and the owner command.
+    machine_contract: Stable missing-reference field.
+
+  - id: out_of_scope
+    kind: planning_state
+    meaning: A behavior-surface pair is deliberately not supported.
+    human_tone: Provide the accepted rationale and alternate path when known.
+    machine_contract: Stable exclusion reason.
+
+  - id: destructive_action
+    kind: interaction
+    meaning: An action that removes, revokes, discards, or irreversibly changes state.
+    human_tone: Require explicit confirmation and show consequence.
+    machine_contract: Requires confirmation token or equivalent policy gate.

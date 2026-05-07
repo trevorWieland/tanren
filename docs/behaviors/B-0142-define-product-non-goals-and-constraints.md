@@ -4,10 +4,9 @@ id: B-0142
 title: Define product non-goals and constraints
 area: product-discovery
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

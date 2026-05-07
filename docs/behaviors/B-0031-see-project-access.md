@@ -4,10 +4,9 @@ id: B-0031
 title: See who has access to a project
 area: governance
 personas: [team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

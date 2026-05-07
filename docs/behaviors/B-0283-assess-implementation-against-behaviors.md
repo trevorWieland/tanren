@@ -4,10 +4,9 @@ id: B-0283
 title: Assess implementation against accepted behaviors
 area: implementation-assessment
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

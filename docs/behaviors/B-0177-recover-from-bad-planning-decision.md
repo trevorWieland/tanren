@@ -4,10 +4,9 @@ id: B-0177
 title: Recover from a bad planning decision without losing history
 area: undo-recovery
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

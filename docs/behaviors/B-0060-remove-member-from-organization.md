@@ -4,10 +4,9 @@ id: B-0060
 title: Remove a member from an organization
 area: governance
 personas: [team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

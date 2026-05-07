@@ -67,7 +67,7 @@ enum Command {
     Suppression(RootArg),
     /// Validate `tests/bdd/features/**/*.feature` against the F-0002 BDD
     /// convention: filename↔feature-tag match, closed tag allowlist,
-    /// strict-equality interface coverage, behavior-catalog cross-check,
+    /// strict-equality surface coverage, behavior-catalog cross-check,
     /// and DAG-evidence coverage. See
     /// `docs/architecture/subsystems/behavior-proof.md` for the full
     /// contract.

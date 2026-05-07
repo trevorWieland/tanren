@@ -4,10 +4,9 @@ id: B-0255
 title: Accept retry-safe client create and update requests
 area: integration-contract
 personas: [integration-client, operator]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

@@ -4,10 +4,9 @@ id: B-0002
 title: Automatically start eligible ready work when serial execution is configured
 area: implementation-loop
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

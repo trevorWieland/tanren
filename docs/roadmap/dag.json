@@ -3,10 +3,12 @@
   "generated_at": "2026-05-01",
   "product_ref": "docs/product/vision.md",
   "behavior_root": "docs/behaviors",
+  "surface_registry_ref": "docs/experience/surfaces.yml",
+  "design_system_ref": "docs/experience/design-system",
   "architecture_root": "docs/architecture",
   "implementation_ref": null,
   "foundation_spec_id": "F-0002",
-  "completion_definition": "A behavior spec node is complete IFF (a) BDD scenarios with positive and falsification witnesses exist and pass for every behavior listed in completes_behaviors on every interface declared by that behavior, and (b) the subjective playbook has been walked end-to-end with a human accepting each step on every declared interface. Foundation spec nodes are complete IFF the definition_of_done in the foundation spec passes; they intentionally complete zero behaviors.",
+  "completion_definition": "A behavior spec node is complete IFF (a) BDD scenarios with positive and falsification witnesses exist and pass for every behavior listed in completes_behaviors on every surface declared by that behavior, and (b) the subjective playbook has been walked end-to-end with a human accepting each step on every declared surface. Foundation spec nodes are complete IFF the definition_of_done in the foundation spec passes; they intentionally complete zero behaviors.",
   "parallelization_strategy": {
     "phase_1_foundation_sequential": [
       "M-0001",
@@ -394,7 +396,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0043",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -446,7 +448,7 @@
             "falsification"
           ],
           "description": "Positive: creating an org makes the creator a member with admin permissions and the org appears under their account. Positive: creator can invoke the admin-only operations referenced in B-0066 (invite, manage access, configure, set policy). Falsification: creating an org from an unsigned-in session fails. Falsification: a non-creator initially cannot perform admin-only operations on a fresh org.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -489,7 +491,7 @@
             "falsification"
           ],
           "description": "Positive: with two signed-in accounts, switching changes which projects/orgs are available. Positive: two windows can each have a different active account. Positive: returning to a prior account does not require re-authentication. Falsification: switching to an account the user is not signed into fails. Falsification: state from one account leaks into another window's view.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -530,7 +532,7 @@
             "falsification"
           ],
           "description": "Positive: with two-org membership, switching changes which projects are listed. Positive: phone interface offers the same switcher. Positive: a personal account (no orgs) sees no organization-scoped actions. Falsification: switching to an org the account doesn't belong to fails. Falsification: switching does not affect projects from a different organization.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -573,7 +575,7 @@
             "falsification"
           ],
           "description": "Positive: an admin sends an invitation with chosen permissions; the invitation is visible to admin and recipient. Positive: admin can revoke an unaccepted invitation. Positive: organization-level permissions on the invitation match what the invitee receives on acceptance. Falsification: a non-admin cannot send an invitation. Falsification: a revoked invitation cannot be accepted. Falsification: an invitation in a personal context (non-organizational) cannot be sent.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -616,7 +618,7 @@
             "falsification"
           ],
           "description": "Positive: an existing account accepts a valid invitation and becomes a member with the granted permissions. Positive: other organization memberships are unaffected. Positive: project-level access is not auto-granted. Falsification: accepting an invitation addressed to a different account fails. Falsification: accepting an expired or revoked invitation fails. Falsification: accepting twice produces no duplicate membership.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -659,7 +661,7 @@
             "falsification"
           ],
           "description": "Positive: a non-last-admin member voluntarily leaves; access ends; account remains. Positive: leaving surfaces in-flight work before completing. Falsification: the last admin cannot leave. Falsification: leaving an org the account is not a member of fails.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -675,7 +677,7 @@
             "falsification"
           ],
           "description": "Positive: an admin removes a non-last-admin member; access ends; account remains. Positive: removal surfaces in-flight work to the remover. Positive: the removed account is notified. Falsification: a non-admin cannot remove. Falsification: cannot remove the last holder of any administrative permission.",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -714,7 +716,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0048",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -730,7 +732,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0125",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -777,7 +779,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0051",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -828,7 +830,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0062",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -873,7 +875,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0126",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -919,7 +921,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0127",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -963,7 +965,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0128",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -979,7 +981,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0129",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1024,7 +1026,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0231",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1040,7 +1042,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0232",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1084,7 +1086,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0137",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1127,7 +1129,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0138",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1172,7 +1174,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0136",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1216,7 +1218,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0139",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1262,7 +1264,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0025",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1278,7 +1280,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0026",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1323,7 +1325,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0027",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1339,7 +1341,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0028",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1384,7 +1386,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0030",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1427,7 +1429,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0186",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1473,7 +1475,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0068",
-          "interfaces": [
+          "surfaces": [
             "cli"
           ],
           "witnesses": [
@@ -1485,7 +1487,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0070",
-          "interfaces": [
+          "surfaces": [
             "cli"
           ],
           "witnesses": [
@@ -1525,7 +1527,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0069",
-          "interfaces": [
+          "surfaces": [
             "cli"
           ],
           "witnesses": [
@@ -1564,7 +1566,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0071",
-          "interfaces": [
+          "surfaces": [
             "cli"
           ],
           "witnesses": [
@@ -1602,7 +1604,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0134",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1646,7 +1648,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0135",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1686,7 +1688,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0049",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1723,7 +1725,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0086",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1760,7 +1762,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0087",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1798,7 +1800,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0088",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1838,7 +1840,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0089",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1875,7 +1877,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0050",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1913,7 +1915,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0269",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1951,7 +1953,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0199",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -1988,7 +1990,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0031",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2025,7 +2027,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0202",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2063,7 +2065,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0065",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2100,7 +2102,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0203",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2136,7 +2138,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0039",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2173,7 +2175,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0038",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2213,7 +2215,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0042",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2250,7 +2252,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0040",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2287,7 +2289,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0238",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2325,7 +2327,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0239",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2363,7 +2365,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0233",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2400,7 +2402,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0220",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2439,7 +2441,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0221",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2455,7 +2457,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0274",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2493,7 +2495,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0222",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2532,7 +2534,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0067",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2548,7 +2550,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0272",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2586,7 +2588,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0140",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2622,7 +2624,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0141",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2658,7 +2660,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0142",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2694,7 +2696,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0143",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2730,7 +2732,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0144",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2766,7 +2768,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0079",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2802,7 +2804,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0092",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2838,7 +2840,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0098",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2875,7 +2877,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0276",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2911,7 +2913,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0277",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2947,7 +2949,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0288",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -2983,7 +2985,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0281",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3019,7 +3021,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0282",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3055,7 +3057,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0170",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3091,7 +3093,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0171",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3127,7 +3129,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0172",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3163,7 +3165,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0173",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3200,7 +3202,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0189",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3236,7 +3238,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0190",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3272,7 +3274,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0191",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3308,7 +3310,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0283",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3345,7 +3347,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0284",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3381,7 +3383,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0018",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3416,7 +3418,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0075",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3453,7 +3455,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0093",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3490,7 +3492,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0078",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3526,7 +3528,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0076",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3563,7 +3565,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0077",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3600,7 +3602,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0029",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3637,7 +3639,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0021",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3674,7 +3676,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0019",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3710,7 +3712,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0020",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3746,7 +3748,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0022",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3782,7 +3784,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0023",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3819,7 +3821,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0024",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3856,7 +3858,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0061",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3893,7 +3895,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0153",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3930,7 +3932,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0154",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -3966,7 +3968,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0155",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4003,7 +4005,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0156",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4043,7 +4045,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0157",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4079,7 +4081,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0223",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4115,7 +4117,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0224",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4152,7 +4154,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0225",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4188,7 +4190,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0226",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4225,7 +4227,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0227",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4261,7 +4263,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0228",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4298,7 +4300,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0229",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4337,7 +4339,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0099",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4353,7 +4355,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0100",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4369,7 +4371,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0101",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4404,7 +4406,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0102",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4439,7 +4441,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0103",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4475,7 +4477,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0104",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4510,7 +4512,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0105",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4546,7 +4548,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0106",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4582,7 +4584,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0107",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4619,7 +4621,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0108",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4654,7 +4656,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0109",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4692,7 +4694,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0234",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4708,7 +4710,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0235",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4744,7 +4746,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0241",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -4780,7 +4782,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0243",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4812,7 +4814,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0244",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4847,7 +4849,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0245",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4860,7 +4862,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0246",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4873,7 +4875,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0247",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4906,7 +4908,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0248",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4940,7 +4942,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0249",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -4973,7 +4975,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0250",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -5006,7 +5008,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0251",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -5039,7 +5041,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0252",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -5072,7 +5074,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0253",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -5105,7 +5107,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0254",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -5139,7 +5141,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0001",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5155,7 +5157,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0002",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5191,7 +5193,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0003",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5227,7 +5229,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0005",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5266,7 +5268,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0006",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5302,7 +5304,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0007",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5338,7 +5340,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0008",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5373,7 +5375,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0017",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5410,7 +5412,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0058",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5445,7 +5447,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0265",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5482,7 +5484,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0266",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5518,7 +5520,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0285",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5555,7 +5557,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0080",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5591,7 +5593,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0096",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5627,7 +5629,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0072",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5664,7 +5666,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0166",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5680,7 +5682,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0167",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5696,7 +5698,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0168",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5732,7 +5734,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0169",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5768,7 +5770,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0073",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5807,7 +5809,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0074",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5847,7 +5849,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0117",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5883,7 +5885,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0118",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5920,7 +5922,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0119",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5936,7 +5938,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0120",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -5972,7 +5974,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0121",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6007,7 +6009,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0122",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6043,7 +6045,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0123",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6079,7 +6081,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0124",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6119,7 +6121,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0081",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6135,7 +6137,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0082",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6151,7 +6153,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0083",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6167,7 +6169,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0084",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6204,7 +6206,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0085",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6240,7 +6242,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0267",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6256,7 +6258,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0268",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6294,7 +6296,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0052",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6310,7 +6312,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0091",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6346,7 +6348,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0053",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6382,7 +6384,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0054",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6398,7 +6400,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0271",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6433,7 +6435,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0055",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6469,7 +6471,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0056",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6485,7 +6487,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0057",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6521,7 +6523,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0255",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6534,7 +6536,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0264",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6566,7 +6568,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0256",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6598,7 +6600,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0257",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6630,7 +6632,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0259",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6661,7 +6663,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0260",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6694,7 +6696,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0261",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6727,7 +6729,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0262",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6760,7 +6762,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0263",
-          "interfaces": [
+          "surfaces": [
             "api",
             "mcp"
           ],
@@ -6791,7 +6793,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0240",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6825,7 +6827,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0258",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6861,7 +6863,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0275",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6898,7 +6900,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0009",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6914,7 +6916,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0187",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6951,7 +6953,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0010",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6967,7 +6969,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0011",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -6983,7 +6985,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0015",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7020,7 +7022,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0012",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7036,7 +7038,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0013",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7071,7 +7073,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0014",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7106,7 +7108,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0016",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7142,7 +7144,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0192",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7158,7 +7160,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0193",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7194,7 +7196,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0194",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7210,7 +7212,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0195",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7249,7 +7251,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0196",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7285,7 +7287,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0200",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7321,7 +7323,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0201",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7358,7 +7360,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0032",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7374,7 +7376,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0036",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7411,7 +7413,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0033",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7427,7 +7429,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0034",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7462,7 +7464,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0035",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7478,7 +7480,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0037",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7514,7 +7516,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0188",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7530,7 +7532,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0219",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7565,7 +7567,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0204",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7601,7 +7603,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0205",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7617,7 +7619,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0280",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7652,7 +7654,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0206",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7686,7 +7688,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0207",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7721,7 +7723,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0208",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7755,7 +7757,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0209",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7790,7 +7792,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0210",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7806,7 +7808,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0211",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7845,7 +7847,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0212",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7861,7 +7863,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0213",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7877,7 +7879,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0214",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7914,7 +7916,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0215",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7930,7 +7932,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0216",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -7968,7 +7970,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0217",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8006,7 +8008,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0110",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8022,7 +8024,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0111",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8064,7 +8066,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0112",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8080,7 +8082,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0113",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8121,7 +8123,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0114",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8161,7 +8163,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0116",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8196,7 +8198,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0063",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8212,7 +8214,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0064",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8246,7 +8248,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0130",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8283,7 +8285,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0131",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8299,7 +8301,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0132",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8335,7 +8337,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0133",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8369,7 +8371,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0230",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8403,7 +8405,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0236",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8438,7 +8440,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0237",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8473,7 +8475,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0242",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8508,7 +8510,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0004",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8542,7 +8544,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0183",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8583,7 +8585,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0184",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8617,7 +8619,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0185",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8654,7 +8656,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0145",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8670,7 +8672,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0146",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8686,7 +8688,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0147",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8720,7 +8722,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0148",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8754,7 +8756,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0149",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8789,7 +8791,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0150",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8825,7 +8827,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0151",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8841,7 +8843,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0152",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8876,7 +8878,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0270",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8911,7 +8913,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0178",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8945,7 +8947,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0179",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -8981,7 +8983,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0180",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9015,7 +9017,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0181",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9050,7 +9052,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0182",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9086,7 +9088,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0162",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9120,7 +9122,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0163",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9155,7 +9157,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0164",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9190,7 +9192,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0165",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9225,7 +9227,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0115",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9261,7 +9263,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0197",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9277,7 +9279,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0198",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9313,7 +9315,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0158",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9329,7 +9331,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0159",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9364,7 +9366,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0160",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9399,7 +9401,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0161",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9433,7 +9435,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0174",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9467,7 +9469,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0175",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9501,7 +9503,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0177",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9535,7 +9537,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0094",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9572,7 +9574,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0097",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9606,7 +9608,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0278",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9642,7 +9644,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0279",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9677,7 +9679,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0286",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9693,7 +9695,7 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0287",
-          "interfaces": [
+          "surfaces": [
             "web",
             "api",
             "mcp",
@@ -9711,6 +9713,312 @@
         "Schedule; run on-demand; review."
       ],
       "rationale": "Schedule + review paired in analysis lifecycle."
+    },
+    {
+      "id": "R-0290",
+      "milestone": "M-0005",
+      "title": "Define and maintain project surfaces",
+      "completes_behaviors": [
+        "B-0289"
+      ],
+      "depends_on": [
+        "R-0056"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "medium",
+      "scope": "Surface registry CRUD: a solo-builder or team-builder can declare, revise, and retire a public surface (id, kind, devices, inputs, outputs, accessibility, proof artifacts). The registry is the source of truth that downstream catalog, roadmap, and BDD validators read; renaming or removing a surface that behaviors or DAG nodes already reference must be reported as a behavior change, not a silent edit. The define-surfaces command flow lives here.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0289",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Per surface \u2014 Positive: declare / revise / retire a surface; registry updates with stable ID. Positive: registry persists across reads. Falsification: removing a surface still referenced by a behavior or DAG node is rejected. Falsification: declaring a duplicate or malformed surface ID is rejected."
+        }
+      ],
+      "playbook": [
+        "Add a surface; verify it appears in the registry and downstream tooling accepts it.",
+        "Revise a surface; verify history is preserved.",
+        "Try to retire a surface that still has behavior coverage; verify it is rejected with a drift message.",
+        "Negative walks: duplicate ID, malformed ID, unknown surface kind."
+      ],
+      "rationale": "Surface registry maintenance is the spine of define-surfaces and the precondition for every other experience-design and proof step. Without it, the rest of the catalog has no anchor."
+    },
+    {
+      "id": "R-0291",
+      "milestone": "M-0005",
+      "title": "Design experience contracts for behavior-surface pairs",
+      "completes_behaviors": [
+        "B-0290"
+      ],
+      "depends_on": [
+        "R-0294",
+        "R-0059"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "high",
+      "design_pattern_refs": [
+        "action.primary.confirmed",
+        "feedback.validation.inline",
+        "feedback.empty.useful",
+        "feedback.stale.refresh",
+        "state.coverage.matrix"
+      ],
+      "scope": "Experience contract authoring: for each accepted behavior-surface pair the user can record entry, primary flow, success/failure/empty/loading/stale/permission-denied/unavailable states, copy and accessibility expectations, design pattern references, and the proof artifact required to make the behavior reviewable on that surface. Contracts are queryable independently of code and flag stale records when their behavior, surface, or design-system pattern changes. The design-experience command flow lives here.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0290",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "design_pattern_refs": [
+            "action.primary.confirmed",
+            "feedback.validation.inline",
+            "state.coverage.matrix"
+          ],
+          "description": "Per surface \u2014 Positive: author a contract for a behavior-surface pair with all required state fields; contract appears in the index. Positive: revising the underlying behavior marks dependent contracts stale. Falsification: contract referencing a behavior that does not exist is rejected. Falsification: contract referencing a surface not in the registry is rejected."
+        }
+      ],
+      "playbook": [
+        "Author a contract for a behavior-surface pair; verify it is recorded with all required state fields.",
+        "Update the behavior; verify dependent contracts are flagged stale.",
+        "Negative walks: contract for unknown behavior, contract for unknown surface, contract missing a required state."
+      ],
+      "rationale": "Experience contracts bridge accepted behavior and the proof obligations a roadmap node must satisfy. They keep the design step from collapsing into either pure behavior text or premature implementation."
+    },
+    {
+      "id": "R-0292",
+      "milestone": "M-0005",
+      "title": "See experience contract coverage across behaviors and surfaces",
+      "completes_behaviors": [
+        "B-0291"
+      ],
+      "depends_on": [
+        "R-0291"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "medium",
+      "scope": "Coverage view: every accepted behavior is rendered against every declared surface with one of {contracted, draft, gap, out-of-scope}. The view supports filtering by surface, behavior area, experience risk, and gap state, and surfaces last-updated timestamps so stale contracts are visible without reading every record. Coverage state is consistent between the read path and what design-experience and craft-roadmap actually wrote.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0291",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Per surface \u2014 Positive: coverage matrix lists every behavior \u00d7 declared-surface pair with the right state. Positive: filters by surface, area, risk, and gap state work. Falsification: coverage state for an unknown behavior or unknown surface is rejected; the view does not invent rows."
+        }
+      ],
+      "playbook": [
+        "Open the coverage matrix; verify every accepted behavior appears with its declared surfaces.",
+        "Apply filters (surface, area, risk, gap); verify the result narrows correctly.",
+        "Update a contract; verify the matrix reflects the new state and timestamp.",
+        "Negative walks: stale contract is flagged; out-of-scope rationale is shown distinctly from a gap."
+      ],
+      "rationale": "A coverage view is what makes experience design improvable. Without it, gaps stay invisible until proof or walks fail."
+    },
+    {
+      "id": "R-0293",
+      "milestone": "M-0005",
+      "title": "Reject behavior or roadmap drift from the project surface registry",
+      "completes_behaviors": [
+        "B-0292"
+      ],
+      "depends_on": [
+        "R-0290",
+        "R-0059"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "low",
+      "scope": "Drift enforcement: behavior catalog edits, roadmap DAG edits, and BDD scenario tags that reference an unknown surface ID are rejected by the validator(s) the user runs (just check / xtask check-bdd-tags / scripts/roadmap_check.py). Removing a surface from the registry while behaviors, DAG nodes, or scenario tags still reference it is reported as a drift error rather than silently dropping coverage. The user always sees which file, behavior, node, or tag carried the drift, and which registry the allowed surfaces came from.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0292",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "description": "Per surface \u2014 Positive: editing a behavior, node, or scenario to use a registered surface succeeds. Falsification: behavior surfaces:[unknown] is rejected with a message that names the behavior and the unknown ID. Falsification: DAG expected_evidence.surfaces or surface_scope with an unknown ID is rejected. Falsification: scenario tagged @unknown is rejected. Falsification: deleting a surface while a behavior still references it is reported as drift."
+        }
+      ],
+      "playbook": [
+        "Edit a behavior to use a registered surface; verify validators pass.",
+        "Edit a behavior to reference a nonexistent surface; verify rejection names the behavior and the bad ID.",
+        "Tag a scenario with a nonexistent surface; verify xtask check-bdd-tags rejects it.",
+        "Remove a surface while a behavior still references it; verify drift is reported."
+      ],
+      "rationale": "Drift enforcement is the user-facing outcome of the surface registry being the single source of truth. This node turns the existing xtask + roadmap_check enforcement into a behavior-completing slice rather than a method-only convention."
+    },
+    {
+      "id": "R-0294",
+      "milestone": "M-0005",
+      "title": "Define and maintain the cross-surface design system",
+      "completes_behaviors": [
+        "B-0293"
+      ],
+      "depends_on": [
+        "R-0290"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "medium",
+      "design_pattern_refs": [
+        "action.primary.confirmed",
+        "feedback.validation.inline",
+        "output.machine.error-envelope",
+        "layout.tui.status-bar"
+      ],
+      "scope": "Design-system maintenance: a solo-builder or team-builder can define and revise shared principles, semantic tokens, vocabulary terms, reusable pattern IDs, accessibility expectations, and surface adapters. The design system is cross-surface rather than web-only, and downstream roadmap nodes, experience contracts, proof artifacts, and walks can reference stable design pattern IDs. The define-design-system command flow lives here.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0293",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "design_pattern_refs": [
+            "action.primary.confirmed",
+            "feedback.validation.inline",
+            "output.machine.error-envelope",
+            "layout.tui.status-bar"
+          ],
+          "description": "Per surface \u2014 Positive: define or revise tokens, vocabulary, pattern IDs, accessibility expectations, and adapters; downstream consumers can read the same registry. Falsification: duplicate or malformed pattern IDs are rejected. Falsification: removing a referenced design pattern reports stale downstream references."
+        }
+      ],
+      "playbook": [
+        "Add a design pattern; verify it appears in the registry and can be referenced by roadmap work.",
+        "Revise a pattern; verify downstream contracts or nodes are marked stale when relevant.",
+        "Review adapters for web, CLI, TUI, API, MCP, and a non-web future surface.",
+        "Negative walks: duplicate pattern ID, malformed pattern ID, deleting a referenced pattern."
+      ],
+      "rationale": "The design system is the central canon that keeps agent-generated experience from drifting across surfaces. It belongs between surface definition and per-behavior experience design."
+    },
+    {
+      "id": "R-0295",
+      "milestone": "M-0005",
+      "title": "Reject experience drift from the design system",
+      "completes_behaviors": [
+        "B-0294"
+      ],
+      "depends_on": [
+        "R-0294",
+        "R-0059"
+      ],
+      "surface_scope": [
+        "web",
+        "api",
+        "mcp",
+        "cli",
+        "tui"
+      ],
+      "experience_risk": "low",
+      "design_pattern_refs": [
+        "feedback.validation.inline",
+        "output.machine.error-envelope",
+        "state.coverage.matrix"
+      ],
+      "scope": "Design-system drift enforcement: roadmap DAG edits and expected-evidence edits that reference an unknown design pattern ID are rejected by the validator the user runs. Removing or renaming a design pattern that active roadmap or experience records still reference is reported as drift rather than silently dropping the design obligation.",
+      "expected_evidence": [
+        {
+          "kind": "bdd",
+          "behavior_id": "B-0294",
+          "surfaces": [
+            "web",
+            "api",
+            "mcp",
+            "cli",
+            "tui"
+          ],
+          "witnesses": [
+            "positive",
+            "falsification"
+          ],
+          "design_pattern_refs": [
+            "feedback.validation.inline",
+            "output.machine.error-envelope",
+            "state.coverage.matrix"
+          ],
+          "description": "Per surface \u2014 Positive: node and evidence records that cite registered design patterns validate. Falsification: node-level or evidence-level design_pattern_refs with an unknown ID are rejected with a message naming the node and ID. Falsification: deleting a referenced design pattern reports drift."
+        }
+      ],
+      "playbook": [
+        "Reference a registered design pattern from a roadmap node; verify validation passes.",
+        "Reference an unknown pattern; verify validation names the node and bad ID.",
+        "Reference an unknown pattern inside expected evidence; verify validation names the behavior and node.",
+        "Remove a referenced pattern; verify drift is reported."
+      ],
+      "rationale": "A design system only prevents agent drift if generated work and roadmap obligations are mechanically checked against it."
     }
   ],
   "wave_b_deferred": {}

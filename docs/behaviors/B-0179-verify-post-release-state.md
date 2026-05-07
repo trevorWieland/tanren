@@ -4,10 +4,9 @@ id: B-0179
 title: Verify post-release state
 area: release-learning
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

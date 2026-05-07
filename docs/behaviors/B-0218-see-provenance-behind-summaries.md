@@ -4,10 +4,9 @@ id: B-0218
 title: See provenance behind summaries
 area: observation
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: deprecated
-verification_status: unimplemented
 supersedes: []
 ---
 

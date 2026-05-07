@@ -4,10 +4,9 @@ id: B-0260
 title: Report rate limit and backpressure state
 area: integration-contract
 personas: [integration-client, observer, operator]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

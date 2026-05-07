@@ -4,10 +4,9 @@ id: B-0240
 title: Manage webhook endpoints
 area: integration-management
 personas: [operator, integration-client]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

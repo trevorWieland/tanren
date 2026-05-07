@@ -4,10 +4,9 @@ id: B-0241
 title: Manage cloud or VM provider accounts
 area: runtime-substrate
 personas: [operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

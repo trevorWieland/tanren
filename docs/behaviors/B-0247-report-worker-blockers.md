@@ -5,10 +5,9 @@ title: Report blockers with actionable options
 area: runtime-actor-contract
 personas: [solo-builder, team-builder, operator]
 runtime_actors: [agent-worker]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

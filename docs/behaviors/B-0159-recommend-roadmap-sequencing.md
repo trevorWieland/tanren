@@ -4,10 +4,9 @@ id: B-0159
 title: Recommend roadmap sequencing with tradeoffs
 area: prioritization
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

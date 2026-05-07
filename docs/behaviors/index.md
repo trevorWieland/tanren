@@ -36,7 +36,9 @@ Supporting owned projections:
 - `docs/product/concepts.md` defines product concepts and scopes.
 - Runtime actor IDs are defined by runtime and related subsystem architecture
   records.
-- `docs/architecture/subsystems/interfaces.md` defines interface IDs.
+- `docs/experience/surfaces.yml` defines active project surface IDs.
+- `docs/architecture/subsystems/interfaces.md` defines Tanren's own public
+  surfaces (the architectural contract behind the registry entries).
 - `docs/implementation/verification.md` will summarize current verification
   state once any implementation exists. It is produced by the
   `assess-implementation` skill and is absent pre-Foundation; Tanren has no
@@ -54,22 +56,19 @@ title: <imperative phrase, user-visible>
 area: implementation-loop                  # stable product area slug
 personas: [solo-builder, team-builder]      # IDs from docs/product/personas.md
 runtime_actors: []                          # optional IDs from architecture
-interfaces: [web, api, mcp, cli, tui]       # subset of {web, api, mcp, cli, tui}
+surfaces: [web, api, mcp, cli, tui]         # IDs from docs/experience/surfaces.yml
 contexts: [personal, organizational]        # one or both
 product_status: draft | accepted | deprecated | removed
-verification_status: unimplemented | implemented | asserted | retired
 supersedes: []                              # behavior IDs this replaces
 ---
 ```
 
-`product_status` and `verification_status` track different facts:
-
-- `product_status` says whether the behavior is part of Tanren's product canon.
-- `verification_status` says whether working code and executable behavior proof exist.
-
-A behavior may be product-accepted but not implemented, or product-deprecated
-while still asserted by compatibility tests. Do not collapse these concepts into
-one field.
+`product_status` is the only status carried in a behavior file. It says whether
+the behavior is part of Tanren's product canon — nothing about whether code or
+proof exists. Implementation and proof state belong to the roadmap DAG and to
+implementation projections (`docs/implementation/**`, owned by
+`assess-implementation`); behavior files must remain portable across
+implementations.
 
 Product status values:
 
@@ -78,18 +77,6 @@ Product status values:
 - `deprecated` — historical or transitional behavior that should not guide new
   work.
 - `removed` — retired behavior ID kept only as a tombstone for traceability.
-
-Verification status values:
-
-- `unimplemented` — no accepted code path exists.
-- `implemented` — code appears to support the behavior, but active behavior proof
-  is missing.
-- `asserted` — active executable behavior proof exists.
-- `retired` — no active implementation or assertion is expected.
-
-`asserted` always requires active BDD coverage with both a positive witness and
-a falsification witness. Exceptions require an explicit note in the behavior
-file and should be rare.
 
 Body sections, in order, all short:
 
@@ -116,20 +103,20 @@ These are hard rules. Violations should fail review.
    *"a `<persona>` can"*. Never *"the system shall"* or *"the service MUST"*.
 3. **Describe outcomes, not flows.** If a behavior needs numbered steps, it is
    too low-level. Split it, or promote the steps into a lane brief.
-4. **Every behavior names at least one persona, one interface, and one
+4. **Every behavior names at least one persona, one surface, and one
    context.** Do not use `any` for personas; list the specific product personas
    or external clients that care about the behavior. `runtime_actors` may be
    added only for internal runtime subjects defined in runtime and related
    subsystem architecture records.
 
-   The `interfaces` field MUST be a subset of `{web, api, mcp, cli, tui}` as
-   defined in `docs/architecture/subsystems/interfaces.md`. The legacy `any`
-   marker is forbidden, as is `daemon` (an internal actor, not a public
-   interface). The list represents the architectural commitment of where this
-   behavior is reachable to its declared personas — not a description of how
-   it is implemented. Adding or removing an interface is a behavior change.
+   The `surfaces` field MUST be a subset of `docs/experience/surfaces.yml`.
+   The legacy `any` marker is forbidden, as is `daemon` (an internal actor,
+   not a public surface). The list represents the architectural commitment
+   of where this behavior is reachable to its declared personas — not a
+   description of how it is implemented. Adding or removing a surface is a
+   behavior change.
 
-   Default for human-facing behaviors (any persona in
+   Default for Tanren human-facing behaviors (any persona in
    `{solo-builder, team-builder, observer, operator}`):
    `[web, api, mcp, cli, tui]`. Narrower lists require a clear product reason
    stated in the behavior body or the `Out of scope` section. Common
@@ -146,8 +133,8 @@ These are hard rules. Violations should fail review.
    `integration-management`, `integration-contract`, `runtime-actor-contract`,
    `product-discovery`, `architecture-planning`, `implementation-assessment`,
    `behavior-proof`, `proactive-analysis`, `spec-quality`.
-6. **IDs are immutable once accepted or asserted.** Draft IDs may be reorganized
-   during catalog-polish work, but accepted or asserted IDs must be deprecated
+6. **IDs are immutable once accepted.** Draft IDs may be reorganized
+   during catalog-polish work, but accepted IDs must be deprecated
    or removed rather than silently repurposed. Name replacements in the
    successor's `supersedes`.
 7. **One behavior per file.** Keep file length short. Favor splitting over
@@ -201,12 +188,12 @@ honoring scoped access or reporting progress. Runtime actors belong in
 
 ### Device reach
 
-Every behavior should be achievable via at least one interface that works on
-each supported device class — phone, low-power laptop, full laptop. The `web`
-interface is responsive and works on phone and laptop. `mcp` is reachable
-from phone chat clients. `api` is reachable from any client (web, mobile
-native, or external automation). `cli` and `tui` are laptop-only. A behavior
-that genuinely cannot work on a phone must state this in **Out of scope**.
+Every behavior should be achievable via at least one surface that works on each
+supported device class for the adopting project. Tanren's `web` surface is
+responsive and works on phone and laptop. `mcp` is reachable from phone chat
+clients. `api` is reachable from any client (web, mobile native, or external
+automation). `cli` and `tui` are laptop-only. A behavior that genuinely cannot
+work on a supported device class must state this in **Out of scope**.
 
 ### External issue trackers
 
@@ -226,12 +213,13 @@ should assume.
   increments should be built.
 - Shaped specs — **how** one roadmap node becomes acceptance criteria, demo
   steps, tasks, and proof obligations.
-- BDD features — **whether** accepted behaviors are asserted through positive
+- BDD features — **whether** accepted behaviors are proven through positive
   and falsification witnesses.
 
-Every executable roadmap node must complete at least one accepted behavior.
-Every asserted behavior must have active behavior proof with both a positive
-witness and a falsification witness.
+Every executable roadmap node must complete at least one accepted behavior. A
+roadmap node is only considered complete when its `expected_evidence` BDD
+witnesses pass on every declared surface; assertion state lives in the DAG,
+not in the behavior file.
 
 ## Index
 
@@ -274,6 +262,15 @@ witness and a falsification witness.
 - [B-0276](B-0276-maintain-accepted-behavior-catalog.md) — Maintain the accepted behavior catalog
 - [B-0277](B-0277-see-behavior-coverage-verification-status.md) — See behavior coverage and verification status
 - [B-0288](B-0288-review-behavior-catalog-coherence.md) — Review behavior catalog coherence
+
+### Experience Design
+
+- [B-0289](B-0289-define-project-surfaces.md) — Define and maintain project surfaces
+- [B-0290](B-0290-design-experience-contracts.md) — Design experience contracts for behavior-surface pairs
+- [B-0291](B-0291-see-experience-contract-coverage.md) — See experience contract coverage across behaviors and surfaces
+- [B-0292](B-0292-reject-surface-registry-drift.md) — Reject behavior or roadmap drift from the project surface registry
+- [B-0293](B-0293-define-design-system.md) — Define and maintain a cross-surface design system
+- [B-0294](B-0294-reject-design-system-drift.md) — Reject experience drift from the design system
 
 ### Architecture Planning
 

@@ -164,7 +164,7 @@ export default async function globalSetup(): Promise<void> {
   // the URL the API actually listens on.
   const apiPort = await tryPort(8081);
   const apiUrl = `http://127.0.0.1:${apiPort}`;
-  const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3000";
+  const webPort = process.env["PLAYWRIGHT_WEB_PORT"] ?? "3100";
   const webOrigin = `http://127.0.0.1:${webPort}`;
 
   // Spawn the API with the `test-hooks` feature so the

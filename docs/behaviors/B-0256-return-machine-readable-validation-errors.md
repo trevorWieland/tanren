@@ -4,10 +4,9 @@ id: B-0256
 title: Return machine-readable validation errors
 area: integration-contract
 personas: [integration-client]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

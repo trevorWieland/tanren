@@ -4,10 +4,9 @@ id: B-0175
 title: Revert landed work through controlled follow-up
 area: undo-recovery
 personas: [solo-builder, team-builder, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

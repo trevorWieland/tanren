@@ -4,10 +4,9 @@ id: B-0082
 title: Configure organization harness allowlist policy
 area: governance
 personas: [team-builder, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

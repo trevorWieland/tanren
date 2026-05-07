@@ -1,0 +1,116 @@
+---
+name: design-experience
+role: meta
+orchestration_loop: false
+autonomy: interactive
+declared_variables: []
+declared_tools: []
+required_capabilities: []
+produces_evidence:
+  - docs/experience/flows.md
+  - docs/experience/screens.md
+  - docs/experience/interaction-models.md
+  - docs/experience/state-matrix.md
+  - docs/experience/proof-matrix.md
+---
+
+# design-experience
+
+## Temporary Status
+
+This is a temporary Tanren-method bootstrap command. It writes experience
+projections directly because native experience-contract schemas, typed tools,
+and project-method events do not exist yet. Prefer behavior-linked records,
+surface-specific proof obligations, and compact reviewable edits so these
+artifacts can later migrate into typed Tanren storage.
+
+This command is for any repository adopting the Tanren method. Use the
+repository's configured experience artifact paths; if none are configured, use
+the conventional `docs/experience/` path.
+
+## Purpose
+
+Turn accepted behavior and project surfaces into concrete experience contracts:
+entry points, flows, states, copy obligations, interaction rules, and proof
+artifacts for each behavior-surface pair.
+
+This command keeps Tanren from treating UI/UX as web-only. A terminal command,
+TUI screen, game replay, SDK example, API contract, chat transcript, and mobile
+view can all be valid experience contracts when they are the surface where the
+behavior is actually observed.
+
+## Inputs
+
+- Product projections from `docs/product/**`.
+- Accepted behavior catalog from `docs/behaviors/**`.
+- Surface registry from `docs/experience/surfaces.yml`.
+- Design-system records from `docs/experience/design-system/**`.
+- Architecture projections from `docs/architecture/**`.
+- Existing UI, command, game, SDK, API, or agent interaction patterns.
+- Human feedback, usability findings, support examples, and review notes.
+
+## Editable Artifacts
+
+This command owns:
+
+- `docs/experience/flows.md`
+- `docs/experience/screens.md`
+- `docs/experience/interaction-models.md`
+- `docs/experience/state-matrix.md`
+- `docs/experience/proof-matrix.md`
+
+Each file is a compact projection, not a per-behavior catalog. The
+authoritative behavior catalog is `docs/behaviors/B-*.md` and the
+authoritative surface registry is `docs/experience/surfaces.yml`. Inventory
+that is mechanically derivable from those two sources should not be
+duplicated here. The five files above own:
+
+- **`flows.md`** — row schema + surface defaults + design-pattern refs +
+  explicit deviations.
+  Per-behavior rows live in spec evidence when a roadmap node is shaped,
+  not in this file.
+- **`screens.md`** — surface-keyed inventory of routes, endpoints, tools,
+  commands, and screens, grouped by behavior `area`.
+- **`interaction-models.md`** — per-surface interaction patterns (focus,
+  keyboard, error envelope, output modes) and cross-surface invariants.
+- **`state-matrix.md`** — default state coverage per surface kind plus the
+  area-level exception list of behaviors with non-default states.
+- **`proof-matrix.md`** — per-surface evidence expectations aligned with
+  `surfaces.yml` `proof:`. Adapter implementation status belongs to
+  `assess-implementation`, not here.
+
+If any of these files exceeds ~10 KB on a project of Tanren's scale (~300
+behaviors), it is over-projecting and should be trimmed back to schema +
+defaults + deviations.
+
+## Responsibilities
+
+1. Read the behavior catalog and active surface registry before proposing
+   experience work.
+2. For each relevant behavior-surface pair, identify entry point, primary flow,
+   success state, failure states, empty/loading/stale/unavailable states, and
+   recovery paths.
+3. Reference registered design pattern IDs from
+   `docs/experience/design-system/patterns.yml` when a known pattern applies;
+   record explicit deviations when no registered pattern fits.
+4. Define surface-native proof obligations: screenshots for GUI, transcripts
+   for CLI/TUI/chat, deterministic replay for games, contract examples for
+   APIs and libraries.
+5. Record accessibility, localization, latency, copy, and feedback expectations
+   at the surface level.
+6. Keep implementation choices out unless the architecture has already accepted
+   them.
+7. Mark unknown proof adapters or high-risk interactions so `craft-roadmap` can
+   size and sequence the work honestly.
+8. Summarize changed experience contracts, unresolved decisions, UX risks, and
+   proof gaps.
+
+## Out of Scope
+
+- Defining project surfaces. Use `define-surfaces`.
+- Defining shared design tokens, vocabulary, or pattern IDs. Use
+  `define-design-system`.
+- Editing product vision, personas, or concepts. Use `plan-product`.
+- Adding or removing accepted behaviors. Use `identify-behaviors`.
+- Choosing implementation architecture. Use `architect-system`.
+- Creating roadmap DAG nodes. Use `craft-roadmap`.

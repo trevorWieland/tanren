@@ -129,22 +129,29 @@ full product-to-proof method for Tanren development.
 
 ## Core Method
 
-Tanren's planning and execution method has six primary layers:
+Tanren's planning and execution method has nine primary layers:
 
 1. **Plan product**: maintain product identity, users, problems, motivations,
    constraints, non-goals, success signals, assumptions, and open decisions.
-2. **Identify behaviors**: maintain a parsable catalog of accepted user,
+2. **Define surfaces**: declare the public human and machine-facing surfaces
+   where behavior can be experienced, consumed, or proven.
+3. **Define design system**: maintain shared design principles, tokens,
+   vocabulary, reusable patterns, accessibility expectations, and surface
+   adapters.
+4. **Identify behaviors**: maintain a parsable catalog of accepted user,
    operator, client, and runtime-actor behaviors with separate product and
    verification status.
-3. **Architect system**: choose the implementation strategy, system boundaries,
+5. **Design experience**: map accepted behaviors to surface-specific flows,
+   states, proof obligations, and design pattern references.
+6. **Architect system**: choose the implementation strategy, system boundaries,
    technology posture, delivery model, operations posture, and subsystem design.
-4. **Assess implementation**: inspect current code, tests, docs, and source signals
-   to report which accepted behaviors appear implemented, asserted, missing,
-   stale, or uncertain.
-5. **Craft roadmap**: synthesize behaviors, architecture, implementation state,
-   current progress, dependencies, findings, and feedback into a
+7. **Assess implementation**: inspect current code, tests, docs, and source
+   signals to report which accepted behaviors appear implemented, asserted,
+   missing, stale, or uncertain.
+8. **Craft roadmap**: synthesize behaviors, architecture, implementation
+   state, current progress, dependencies, findings, and feedback into a
    machine-readable roadmap DAG of spec-sized work.
-6. **Execute specs**: shape one roadmap node into a spec, orchestrate tasks,
+9. **Execute specs**: shape one roadmap node into a spec, orchestrate tasks,
    run gates and audits, produce behavior proof, walk the result with a
    human, review, merge, and feed outcomes back into planning.
 

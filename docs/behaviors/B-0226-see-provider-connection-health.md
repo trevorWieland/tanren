@@ -4,10 +4,9 @@ id: B-0226
 title: See provider connection health
 area: integration-management
 personas: [team-builder, observer, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

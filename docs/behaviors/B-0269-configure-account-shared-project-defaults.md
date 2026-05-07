@@ -4,10 +4,9 @@ id: B-0269
 title: Configure shared project defaults for an account
 area: configuration
 personas: [solo-builder, team-builder, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

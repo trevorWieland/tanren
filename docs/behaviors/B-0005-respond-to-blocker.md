@@ -4,10 +4,9 @@ id: B-0005
 title: Respond to a question when a loop pauses on a blocker
 area: implementation-loop
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

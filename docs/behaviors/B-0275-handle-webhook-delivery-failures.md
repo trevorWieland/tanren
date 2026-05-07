@@ -4,10 +4,9 @@ id: B-0275
 title: Handle webhook delivery failures
 area: integration-management
 personas: [team-builder, operator, integration-client]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

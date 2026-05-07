@@ -1,0 +1,6 @@
+schema: tanren.experience_surfaces.v0
+surfaces:
+  - id: gameplay
+    kind: interactive_realtime
+  - id: cli
+    kind: command_line

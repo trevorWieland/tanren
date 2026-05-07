@@ -4,10 +4,9 @@ id: B-0209
 title: See what supports a summary and how trustworthy it is
 area: observation
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: [B-0218]
 ---
 

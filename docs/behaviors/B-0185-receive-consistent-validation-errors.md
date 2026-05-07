@@ -5,10 +5,9 @@ title: Receive consistent validation errors across public interfaces
 area: cross-interface
 personas: [solo-builder, team-builder, observer, operator, integration-client]
 runtime_actors: [agent-worker]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

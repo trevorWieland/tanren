@@ -4,10 +4,9 @@ id: B-0020
 title: Move a spec to or from the backlog
 area: spec-lifecycle
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 
