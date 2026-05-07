@@ -4,10 +4,9 @@ id: B-0094
 title: Capture human-authored product signals as candidate work
 area: intake
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: [B-0095]
 ---
 

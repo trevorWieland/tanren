@@ -24,7 +24,7 @@ match.
 - Coverage is strict-equality: every surface in the behavior's
   frontmatter `surfaces:` must have a `@positive` scenario, and a
   `@falsification` scenario when the R-* node lists falsification
-  witnesses. Existing `interfaces:` fields are accepted as a migration alias.
+  witnesses.
 
 ## Validators
 

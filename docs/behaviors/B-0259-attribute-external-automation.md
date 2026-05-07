@@ -4,10 +4,9 @@ id: B-0259
 title: Attribute external automation actions
 area: integration-contract
 personas: [integration-client, observer, operator]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

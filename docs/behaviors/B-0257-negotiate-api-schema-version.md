@@ -4,10 +4,9 @@ id: B-0257
 title: Negotiate API and schema versions
 area: integration-contract
 personas: [integration-client, operator]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

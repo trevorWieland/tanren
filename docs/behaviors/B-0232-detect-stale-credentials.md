@@ -4,10 +4,9 @@ id: B-0232
 title: Detect expiring, unused, or stale credentials
 area: configuration
 personas: [solo-builder, team-builder, observer, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

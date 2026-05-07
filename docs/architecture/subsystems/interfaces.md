@@ -72,13 +72,9 @@ workflow meaning. Those decisions belong to their owning subsystems.
 
 ## Tanren Surface IDs
 
-Tanren behavior files currently use stable interface IDs to state which
-surfaces must support a behavior. During the migration to project-defined
-surfaces, these IDs are also declared in `docs/experience/surfaces.yml`, and
-validators treat behavior `interfaces:` as a compatibility alias for
-`surfaces:`.
-
-The accepted Tanren IDs are:
+Tanren behavior files use stable surface IDs (declared in
+`docs/experience/surfaces.yml`) to state which surfaces must support a
+behavior. The accepted Tanren IDs are:
 
 | ID | Description |
 |----|-------------|

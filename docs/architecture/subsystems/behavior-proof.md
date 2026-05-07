@@ -264,10 +264,10 @@ This section is the mechanical contract that
 [`scripts/roadmap_check.py`](../../../scripts/roadmap_check.py)
 cross-references. It was locked in F-0002 to close drift between
 `tests/bdd/README.md`, `interfaces.md`, and three competing R-0001
-attempts. The current implementation now loads scenario surface tags from
-`docs/experience/surfaces.yml`, while accepting existing `interfaces:` fields
-as a migration alias. Future authors should not relitigate; if the convention
-truly needs to change, change it here first and then update both validators.
+attempts, and refined to load scenario surface tags from
+`docs/experience/surfaces.yml`. Future authors should not relitigate; if the
+convention truly needs to change, change it here first and then update both
+validators.
 
 ### File granularity
 
@@ -305,14 +305,13 @@ truly needs to change, change it here first and then update both validators.
 
 ### Coverage rules (strict equality)
 
-A behavior is binary: fully asserted or not. There is no "partially
-asserted" lane.
+Behavior proof is binary: a roadmap node either has full BDD coverage on
+every declared surface or it does not. There is no "partially asserted" lane.
 
 - The union of surface tags across the feature's scenarios must
-  **equal** the behavior's frontmatter `surfaces:` set. During migration,
-  `interfaces:` is accepted as an alias. Any tag outside that set is a hard
-  error (surface drift); any frontmatter surface with no tagged scenario is a
-  hard error (incomplete proof).
+  **equal** the behavior's frontmatter `surfaces:` set. Any tag outside that
+  set is a hard error (surface drift); any frontmatter surface with no
+  tagged scenario is a hard error (incomplete proof).
 - For each surface in the behavior's surface set, the feature
   must contain at least one `@positive` scenario tagged for that
   surface.
@@ -326,7 +325,6 @@ asserted" lane.
   witness, not just the behavior as a whole.
 - The validator already enforces that
   `expected_evidence.surfaces` equals the behavior's surface declaration.
-  During migration, `expected_evidence.interfaces` is accepted as an alias.
 
 ### Validator wiring
 

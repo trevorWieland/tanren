@@ -112,7 +112,7 @@ This command owns:
   `docs/experience/surfaces.yml`.
 - `experience_risk`, when present, must be `low`, `medium`, or `high`.
 - `expected_evidence[].surfaces` should match the completed behavior's declared
-  surfaces. Existing `interfaces` entries are accepted as a migration alias.
+  surfaces.
 - Nodes should be small enough to shape, orchestrate, walk, review, and merge
   independently.
 - Completed and in-flight nodes should be preserved during replanning.

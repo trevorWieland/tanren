@@ -4,10 +4,9 @@ id: B-0013
 title: Prevent uncoordinated concurrent loops on the same spec
 area: team-coordination
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

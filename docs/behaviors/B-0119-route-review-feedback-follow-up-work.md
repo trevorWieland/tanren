@@ -5,10 +5,9 @@ title: Route review feedback into follow-up work
 area: review-merge
 personas: [solo-builder, team-builder, integration-client]
 runtime_actors: [agent-worker]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

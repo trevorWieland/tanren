@@ -3,7 +3,7 @@ schema: tanren.subsystem_architecture.v0
 subsystem: experience-surfaces
 status: draft
 owner_command: architect-system
-updated_at: 2026-05-05
+updated_at: 2026-05-07
 ---
 
 # Experience Surfaces Architecture
@@ -196,49 +196,30 @@ For projects with typed native Tanren storage, these should become projections
 from typed experience records. During bootstrap, markdown and YAML projections
 are acceptable if they have stable ownership and validators.
 
-## Behavior File Changes
+## Behavior Files
 
-Behavior frontmatter should replace `interfaces` with a project-defined surface
-field, or support `surfaces` as the successor field.
-
-Current:
-
-```yaml
-interfaces: [web, api, mcp, cli, tui]
-```
-
-Proposed:
+Behavior frontmatter uses a project-defined `surfaces:` field validated
+against the active surface registry:
 
 ```yaml
 surfaces: [terminal, gameplay, api]
 ```
 
-The behavior catalog should validate surface IDs against the active project's
-surface registry, not against Tanren's own hardcoded interface list.
+The behavior catalog rejects unknown surface IDs at validation time. There is
+no `interfaces:` compatibility field; Tanren's own catalog uses `surfaces:`
+just like adopting projects.
 
-For Tanren itself, a compatibility alias can map `interfaces` to `surfaces`
-during migration.
+## BDD And Proof
 
-## BDD And Proof Changes
-
-The BDD tag allowlist must become project-configurable.
-
-Current fixed tags:
-
-```text
-@web @api @mcp @cli @tui
-```
-
-Proposed:
+The BDD tag allowlist is project-configurable. Scenarios use:
 
 ```text
 @<surface-id>
 ```
 
-where `<surface-id>` is loaded from `docs/experience/surfaces.yml` or native
-Tanren project configuration.
+where `<surface-id>` is loaded from `docs/experience/surfaces.yml`.
 
-Proof validators should still enforce:
+Proof validators enforce:
 
 - one feature file per behavior where BDD is the chosen proof form;
 - scenario tags cite valid surface IDs;
@@ -492,88 +473,40 @@ Walk acceptance should explicitly record:
 - residual UX concerns;
 - follow-up work or accepted deviations.
 
-## Implementation Plan
+## Bootstrap State In This Repository
 
-## Bootstrap Implementation In This Repository
+The first bootstrap layer of the model is in place:
 
-This repository now carries the first bootstrap layer of the model:
-
-- `docs/experience/surfaces.yml` declares Tanren's current `web`, `api`, `mcp`,
-  `cli`, and `tui` surfaces.
-- `xtask check-bdd-tags` loads allowed scenario surface tags from that registry.
-- Behavior `surfaces:` is supported, with existing `interfaces:` accepted as a
-  migration alias.
-- Roadmap `expected_evidence.surfaces` is supported, with
-  `expected_evidence.interfaces` accepted as a migration alias.
-- `scripts/roadmap_check.py` validates optional `surface_scope` and
-  `experience_risk` metadata.
+- `docs/experience/surfaces.yml` declares Tanren's `web`, `api`, `mcp`, `cli`,
+  and `tui` surfaces in the new schema.
+- Tanren's behavior catalog (282 accepted behaviors) and roadmap DAG (282
+  evidence entries) use `surfaces:` exclusively; there is no `interfaces:`
+  compatibility field.
+- `xtask check-bdd-tags` loads allowed scenario surface tags from the
+  registry. `scripts/roadmap_check.py` validates `surface_scope` and
+  `experience_risk` against the same registry.
 - `define-surfaces` and `design-experience` command sources define ownership
-  for the new planning phases.
+  for the new planning phases. `B-0289`–`B-0292` are the user-facing
+  capabilities Tanren itself must implement to make these phases first-class
+  rather than method-only conventions; `R-0290`–`R-0293` are the completing
+  roadmap nodes.
 - Terminal CLI, terminal TUI, and generic game profiles seed non-web
   experience generation.
 
-### Phase 1: Project Surface Registry
+## Remaining Roadmap
 
-- Add a project surface registry projection.
-- Allow Tanren itself to declare `web`, `api`, `mcp`, `cli`, and `tui`.
-- Keep the existing `interfaces` field working for Tanren during migration.
-- Update architecture docs so `interfaces.md` describes Tanren's own surfaces,
-  while this document describes project-general surfaces.
+The follow-on work tracked outside this PR:
 
-### Phase 2: Validator Generalization
-
-- Generalize `xtask check-bdd-tags` to load allowed surface tags from project
-  configuration.
-- Keep Tanren's current fixed set as the fallback only when
-  `docs/experience/surfaces.yml` is absent.
-- Keep validator messages in surface vocabulary while accepting `interfaces:`
-  as a migration alias.
-
-### Phase 3: Experience Contracts
-
-- Add `docs/experience/` projections.
-- Add an initial `design-experience` command or extend `architect-system` with a
-  clearly owned section.
-- Generate `state-matrix.md` and `proof-matrix.md` from behavior/surface pairs.
-
-### Phase 4: Profiles And Proof Adapters
-
-- Split current React assumptions into the `react-ts-pnpm` profile only.
-- Add `terminal-cli` and `terminal-tui` profiles first because Tanren already has
-  CLI and TUI surfaces.
-- Add a `game-bevy` or generic `game` profile once the proof adapter model is
-  stable.
-
-### Phase 5: Roadmap And Spec Integration
-
-- Add `surface_scope` and `experience_risk` to roadmap node guidance.
-- Require shaped specs to identify experience contracts and proof adapters.
-- Route UX or workflow gaps from demo/audit into findings or planning changes.
-
-### Phase 6: Full Native Model
-
-- Move surface registry, experience contracts, proof adapter config, and walk
-  evidence into typed Tanren state.
-- Render repo-local docs as projections from typed state.
-- Detect drift in generated experience artifacts.
-
-## Required Changes To Current Docs
-
-When implementing this proposal, update:
-
-- `docs/behaviors/index.md` to describe project-defined surfaces instead of a
-  fixed interface list;
-- `docs/architecture/subsystems/interfaces.md` to scope `web/api/mcp/cli/tui` as
-  Tanren's own public surfaces;
-- `docs/architecture/subsystems/behavior-proof.md` to describe surface-backed
-  proof adapters;
-- `tests/bdd/README.md` to reference surface tags loaded from project config;
-- `profiles/react-ts-pnpm/**` to remove assumptions that belong only to web
-  projects;
-- `commands/project/*` to include `define-surfaces` and `design-experience`
-  responsibilities;
-- `docs/roadmap/dag.json` guidance and validators to understand surface scope
-  and experience risk.
+- Move the surface registry, experience contracts, proof adapter config, and
+  walk evidence into typed Tanren state, with repo-local docs becoming
+  projections from that state.
+- Add additional non-web profiles (`game-bevy`, `mobile-react-native`,
+  `desktop-tauri`, `chat-agent`, `library-rust`, …) as adopting projects need
+  them.
+- Tighten the React/Storybook/Tailwind/Paraglide assumptions that currently
+  live workspace-wide so they only apply when the `react-ts-pnpm` profile is
+  selected.
+- Detect drift in generated experience artifacts during walks.
 
 ## Acceptance Criteria
 
@@ -593,10 +526,6 @@ This proposal is complete when:
 
 ## Open Questions
 
-- Should `define-surfaces` be a standalone command from the start, or should it
-  be part of `architect-system` until native typed planning exists?
-- Should the behavior frontmatter field be renamed from `interfaces` to
-  `surfaces`, or should Tanren support both with a migration period?
 - Should proof adapters be declared in profiles, in project config, or in native
   Tanren state first?
 - What is the smallest game proof adapter that is useful without binding Tanren

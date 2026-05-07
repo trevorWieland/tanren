@@ -4,10 +4,9 @@ id: B-0069
 title: Detect installer drift without mutating files
 area: project-setup
 personas: [solo-builder, team-builder]
-interfaces: [cli]
+surfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

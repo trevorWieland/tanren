@@ -28,6 +28,31 @@ fn fixture_dir(name: &str) -> PathBuf {
 }
 
 #[track_caller]
+fn assert_check_succeeds(subcommand: &str, fixture: &str) {
+    let dir = fixture_dir(fixture);
+    assert!(
+        dir.exists(),
+        "fixture `{fixture}` does not exist at {}",
+        dir.display()
+    );
+    let output = Command::new(xtask_bin())
+        .arg(subcommand)
+        .arg("--root")
+        .arg(&dir)
+        .output()
+        .expect("xtask binary spawns and produces output");
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        output.status.success(),
+        "expected `xtask {subcommand} --root {}` to succeed but it failed.\n\
+         stdout: {stdout}\n\
+         stderr: {stderr}",
+        dir.display()
+    );
+}
+
+#[track_caller]
 fn assert_check_fails(subcommand: &str, fixture: &str, expected_substring: &str) {
     let dir = fixture_dir(fixture);
     assert!(
@@ -84,6 +109,11 @@ fn check_bdd_tags_rejects_unknown_surface_tag() {
         "regression-bdd-unknown-surface",
         "scenario tag @gameplay",
     );
+}
+
+#[test]
+fn check_bdd_tags_accepts_project_defined_surface() {
+    assert_check_succeeds("check-bdd-tags", "regression-bdd-project-surface-accepted");
 }
 
 #[test]

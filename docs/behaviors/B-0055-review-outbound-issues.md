@@ -4,10 +4,9 @@ id: B-0055
 title: Configure outbound issue review mode
 area: external-tracker
 personas: [team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

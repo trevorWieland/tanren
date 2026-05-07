@@ -4,10 +4,9 @@ id: B-0263
 title: Report external CI or source-control status
 area: integration-contract
 personas: [integration-client, solo-builder, team-builder, observer]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

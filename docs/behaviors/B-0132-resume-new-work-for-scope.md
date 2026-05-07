@@ -4,10 +4,9 @@ id: B-0132
 title: Resume new work for a project or organization
 area: operations
 personas: [solo-builder, team-builder, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

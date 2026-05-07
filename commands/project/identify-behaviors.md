@@ -28,7 +28,10 @@ conventional `docs/behaviors/` path.
 ## Purpose
 
 Turn product intent into a durable behavior canon and maintain each behavior's
-product and verification status over time.
+product status over time. Behavior files describe what users, clients,
+operators, or runtime actors can do; they must not encode whether code or
+proof exists yet — that state belongs to the roadmap DAG and to implementation
+projections.
 
 A behavior is a high-level user, client, operator, or runtime-actor capability.
 It describes what an actor can accomplish and what outcome is observable. It
@@ -45,7 +48,6 @@ different language, architecture, runtime, or test suite.
 - Existing behavior files and `docs/behaviors/index.md`.
 - Surface IDs from `docs/experience/surfaces.yml`.
 - Runtime actor IDs from architecture docs.
-- Implementation and verification projections, if present.
 - User feedback, bug reports, client requests, audit findings, or planning
   notes supplied by the user.
 
@@ -57,9 +59,8 @@ This command owns:
 - `docs/behaviors/index.md`
 
 This command may create behavior files, update behavior frontmatter, update
-product status, update verification status when evidence supports it, add
-`supersedes` links, deprecate or remove behavior IDs with rationale, and update
-the catalog index.
+product status, add `supersedes` links, deprecate or remove behavior IDs with
+rationale, and update the catalog index.
 
 ## Temporary Artifact Format
 
@@ -74,7 +75,6 @@ runtime_actors: []
 surfaces: []
 contexts: []
 product_status: draft | accepted | deprecated | removed
-verification_status: unimplemented | implemented | asserted | retired
 supersedes: []
 ---
 
@@ -93,19 +93,16 @@ supersedes: []
 3. Propose additions and revisions in a reviewable batch before changing files.
 4. Create behavior files for accepted additions using stable IDs.
 5. Update `product_status` only with product rationale.
-6. Update `verification_status` only when implementation or executable evidence
-   supports it; summarize evidence in implementation projections rather than
-   embedding implementation references in behavior files.
-7. Use `implemented` when code appears to support the behavior but active
-   executable behavior evidence is missing.
-8. Use `asserted` only when active BDD evidence exists.
-9. Deprecate or remove accepted behavior IDs instead of silently repurposing
+6. Keep behavior files free of implementation or proof state — proof and
+   verification belong to the roadmap DAG and to
+   `assess-implementation` projections, not to behavior frontmatter.
+7. Deprecate or remove accepted behavior IDs instead of silently repurposing
    them.
-10. Keep `interfaces:` only as a migration alias for existing Tanren behavior
-    files; new adopting projects should write `surfaces:` IDs from the active
-    surface registry.
-11. Summarize added behaviors, revised behaviors, status changes, unresolved
-    decisions, and evidence gaps.
+8. Use `surfaces:` IDs drawn from the active surface registry
+   (`docs/experience/surfaces.yml`); behaviors that name an unknown surface
+   are rejected by the catalog validator.
+9. Summarize added behaviors, revised behaviors, status changes, unresolved
+   decisions, and evidence gaps.
 
 ## Out of Scope
 

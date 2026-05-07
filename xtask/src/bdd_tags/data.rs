@@ -32,7 +32,6 @@ pub(super) fn load_behaviors(dir: &Path) -> Result<HashMap<String, BehaviorRecor
         };
         let product_status = scan_field(&content, "product_status").unwrap_or_default();
         let surfaces = scan_list(&content, "surfaces")
-            .or_else(|| scan_list(&content, "interfaces"))
             .unwrap_or_default()
             .into_iter()
             .collect::<BTreeSet<_>>();
@@ -143,9 +142,7 @@ pub(super) fn load_dag_evidence(path: &Path) -> Result<HashMap<String, EvidenceR
             let Some(behavior_id) = ev.get("behavior_id").and_then(|v| v.as_str()) else {
                 continue;
             };
-            let surfaces = collect_str_array(ev.get("surfaces"))
-                .or_else(|| collect_str_array(ev.get("interfaces")))
-                .unwrap_or_default();
+            let surfaces = collect_str_array(ev.get("surfaces")).unwrap_or_default();
             let witnesses = collect_str_array(ev.get("witnesses")).unwrap_or_default();
             map.insert(
                 behavior_id.to_owned(),

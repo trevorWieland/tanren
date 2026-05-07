@@ -4,10 +4,9 @@ id: B-0153
 title: Ask clarifying questions for vague work
 area: spec-quality
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

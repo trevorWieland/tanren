@@ -4,10 +4,9 @@ id: B-0057
 title: Quick-access external links from a spec to its ticket and pull request
 area: external-tracker
 personas: [solo-builder, team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

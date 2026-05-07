@@ -4,10 +4,9 @@ id: B-0095
 title: Ingest meeting notes into candidate work
 area: intake
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: deprecated
-verification_status: unimplemented
 supersedes: []
 ---
 

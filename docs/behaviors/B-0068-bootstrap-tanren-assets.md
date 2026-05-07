@@ -4,10 +4,9 @@ id: B-0068
 title: Bootstrap Tanren assets into an existing repository
 area: project-setup
 personas: [solo-builder, team-builder]
-interfaces: [cli]
+surfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

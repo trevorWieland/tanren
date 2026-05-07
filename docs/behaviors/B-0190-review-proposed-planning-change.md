@@ -4,10 +4,9 @@ id: B-0190
 title: Review a proposed planning change
 area: product-planning
 personas: [team-builder, observer]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

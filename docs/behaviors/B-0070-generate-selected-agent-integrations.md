@@ -4,10 +4,9 @@ id: B-0070
 title: Generate selected agent integrations deterministically
 area: project-setup
 personas: [solo-builder, team-builder]
-interfaces: [cli]
+surfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

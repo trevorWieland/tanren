@@ -5,10 +5,9 @@ title: Refuse invalid or unauthorized worker assignments
 area: runtime-actor-contract
 personas: [operator]
 runtime_actors: [agent-worker]
-interfaces: [api, mcp]
+surfaces: [api, mcp]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

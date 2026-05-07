@@ -4,10 +4,9 @@ id: B-0163
 title: Require approval before sensitive actions
 area: autonomy-controls
 personas: [solo-builder, team-builder, operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

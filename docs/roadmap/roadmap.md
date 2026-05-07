@@ -7,8 +7,7 @@
 
 A dependency-aware DAG of spec-sized work that, when complete, realizes every
 accepted behavior in [`docs/behaviors/`](../behaviors) on every surface that
-behavior declares. Existing Tanren behavior records still use `interfaces:` as
-a migration alias; new project-facing roadmap work should use surfaces from
+behavior declares. Surfaces are drawn from
 [`docs/experience/surfaces.yml`](../experience/surfaces.yml). The DAG lets
 multiple independent streams progress in parallel while honoring real ordering
 constraints.
@@ -191,9 +190,7 @@ python3 scripts/roadmap_check.py --reduce
   removed by `--reduce`. Every behavior node has F-0002 as a transitive
   ancestor (and F-0002 has F-0001).
 - **`expected_evidence`** lists per-behavior BDD coverage with witnesses
-  (`positive` + `falsification`) and the surfaces the proof must cover. During
-  migration, existing entries may use `interfaces`; validators treat it as a
-  compatibility alias for `surfaces`.
+  (`positive` + `falsification`) and the surfaces the proof must cover.
 - **`surface_scope`** optionally lists the project surfaces touched by the
   node. Validators reject unknown IDs from `docs/experience/surfaces.yml`.
 - **`experience_risk`** optionally records `low`, `medium`, or `high` based on

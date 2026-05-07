@@ -4,10 +4,9 @@ id: B-0146
 title: Detect build, test, lint, and release commands
 area: repo-understanding
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

@@ -4,10 +4,9 @@ id: B-0223
 title: Connect an organization-owned provider integration
 area: integration-management
 personas: [operator]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

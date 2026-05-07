@@ -4,10 +4,9 @@ id: B-0001
 title: Start an implementation loop manually on a spec
 area: implementation-loop
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

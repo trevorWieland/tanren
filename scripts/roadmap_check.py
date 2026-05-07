@@ -31,8 +31,7 @@ Checks:
   - DAG is acyclic
   - Every behavior node has the foundation spec as a transitive ancestor
   - Each `expected_evidence[].surfaces` matches the behavior's frontmatter
-    `surfaces:` declaration, with `interfaces:` accepted as a migration alias
-    (catches drift between catalog and DAG)
+    `surfaces:` declaration (catches drift between catalog and DAG)
   - Optional `surface_scope` and `experience_risk` fields use known surface
     IDs and the allowed risk vocabulary
   - Each `tests/bdd/features/B-XXXX-*.feature` file references a behavior
@@ -79,19 +78,40 @@ def load_dag(path: Path) -> dict[str, Any]:
         return json.load(f)
 
 
+_SURFACE_ID_RE = re.compile(r"^[a-z][a-z0-9_-]*$")
+
+
 def collect_surface_ids() -> set[str]:
-    """Parse docs/experience/surfaces.yml for surface IDs."""
+    """Parse docs/experience/surfaces.yml for surface IDs.
+
+    Recognizes either the inline form (``- id: foo``) or the multi-line form
+    where ``id:`` follows ``- kind:`` (or any other key) under the same list
+    item. Falls back to the Tanren default surface set when no registry is
+    present.
+    """
     if not SURFACES_PATH.exists():
         return set(DEFAULT_SURFACES)
     text = SURFACES_PATH.read_text()
-    ids = {
-        m.group(1)
-        for m in re.finditer(
-            r"^\s*-\s*id:\s*[\"']?([a-z][a-z0-9_-]*)[\"']?\s*$",
-            text,
-            re.MULTILINE,
-        )
-    }
+    ids: set[str] = set()
+    in_surfaces = False
+    surfaces_indent: int | None = None
+    for raw in text.splitlines():
+        if not raw.strip() or raw.lstrip().startswith("#"):
+            continue
+        stripped = raw.lstrip()
+        indent = len(raw) - len(stripped)
+        if not in_surfaces:
+            if stripped.startswith("surfaces:"):
+                in_surfaces = True
+                surfaces_indent = indent
+            continue
+        if surfaces_indent is not None and indent <= surfaces_indent and not stripped.startswith("-"):
+            # we left the surfaces: block
+            break
+        # match `id: foo` (with optional list-item dash and quotes)
+        m = re.match(r"-?\s*id:\s*[\"']?([^\"'\s]+)[\"']?\s*$", stripped)
+        if m and _SURFACE_ID_RE.match(m.group(1)):
+            ids.add(m.group(1))
     return ids or set(DEFAULT_SURFACES)
 
 
@@ -99,8 +119,7 @@ def collect_behaviors() -> tuple[set[str], set[str], dict[str, set[str]]]:
     """Parse docs/behaviors/B-*.md.
 
     Returns (accepted_ids, deprecated_ids, surfaces_by_id) where surfaces_by_id
-    is the frontmatter `surfaces:` list per behavior, using `interfaces:` as a
-    migration alias.
+    is the frontmatter `surfaces:` list per behavior.
     """
     accepted: set[str] = set()
     deprecated: set[str] = set()
@@ -108,7 +127,6 @@ def collect_behaviors() -> tuple[set[str], set[str], dict[str, set[str]]]:
     id_re = re.compile(r"^id:\s*(B-\d{4})", re.MULTILINE)
     status_re = re.compile(r"^product_status:\s*(\w+)", re.MULTILINE)
     surface_re = re.compile(r"^surfaces:\s*\[([^\]]*)\]", re.MULTILINE)
-    interface_re = re.compile(r"^interfaces:\s*\[([^\]]*)\]", re.MULTILINE)
     for f in sorted(BEHAVIORS_DIR.glob("B-*.md")):
         text = f.read_text()
         id_m = id_re.search(text)
@@ -120,7 +138,7 @@ def collect_behaviors() -> tuple[set[str], set[str], dict[str, set[str]]]:
             accepted.add(bid)
         elif st_m.group(1) == "deprecated":
             deprecated.add(bid)
-        surface_m = surface_re.search(text) or interface_re.search(text)
+        surface_m = surface_re.search(text)
         if surface_m:
             items = {
                 p.strip().strip('"').strip("'")
@@ -173,7 +191,12 @@ def check_schema(dag: dict, errors: list[str]) -> tuple[set[str], set[str]]:
 
 
 def evidence_surfaces(ev: dict[str, Any]) -> set[str]:
-    return set(ev.get("surfaces") or ev.get("interfaces") or [])
+    """Return the explicit `surfaces` list, treating a missing key and an
+    empty list as distinct: an empty list means "intentionally no surface
+    coverage" and is reported as a real mismatch by the caller."""
+    if "surfaces" not in ev:
+        return set()
+    return set(ev["surfaces"] or [])
 
 
 def check_evidence_surfaces(

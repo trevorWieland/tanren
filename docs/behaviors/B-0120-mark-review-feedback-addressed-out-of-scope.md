@@ -4,10 +4,9 @@ id: B-0120
 title: Mark review feedback as addressed or out of scope
 area: review-merge
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 

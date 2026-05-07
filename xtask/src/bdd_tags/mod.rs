@@ -15,10 +15,10 @@
 //!   `product_status: accepted`.
 //! - Strict-equality coverage: the union of surface tags across the
 //!   feature's scenarios equals the behavior's frontmatter `surfaces:`
-//!   declaration, with `interfaces:` accepted as a migration alias.
-//!   For each surface, ≥1 `@positive` scenario is required; when the
-//!   DAG node's `expected_evidence.witnesses` includes `falsification`,
-//!   ≥1 `@falsification` scenario per surface is also required.
+//!   declaration. For each surface, ≥1 `@positive` scenario is required;
+//!   when the DAG node's `expected_evidence.witnesses` includes
+//!   `falsification`, ≥1 `@falsification` scenario per surface is also
+//!   required.
 
 mod data;
 mod parser;
@@ -391,7 +391,7 @@ fn check_coverage_against_behavior(
         .collect();
     for surface in scenario_surface_union.difference(declared) {
         violations.push(format!(
-            "{}: surface tag @{surface} is not in behavior {expected_id} frontmatter `surfaces:`/`interfaces:` {:?}",
+            "{}: surface tag @{surface} is not in behavior {expected_id} frontmatter `surfaces:` {:?}",
             rel.display(),
             declared
         ));

@@ -4,10 +4,9 @@ id: B-0017
 title: Block starting a loop when declared dependencies are not usable
 area: implementation-loop
 personas: [solo-builder, team-builder]
-interfaces: [web, api, mcp, cli, tui]
+surfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
 supersedes: []
 ---
 
