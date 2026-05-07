@@ -67,8 +67,18 @@ surfaces:
     devices: []
     inputs: []
     outputs: []
+    accessibility: []
+    localization: []
+    latency: []
+    unsupported_actions: []
     proof: []
 ```
+
+Every field listed above corresponds to a "Surface Record" entry in
+`docs/architecture/subsystems/experience-surfaces.md`. Empty lists are
+allowed during bootstrap; mark known gaps with `*-pending` tokens (e.g.
+`latency: [interactive-budget-pending]`) so future audits and roadmap
+sizing can find them mechanically.
 
 ## Responsibilities
 

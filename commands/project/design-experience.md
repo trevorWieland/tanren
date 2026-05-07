@@ -58,6 +58,29 @@ This command owns:
 - `docs/experience/state-matrix.md`
 - `docs/experience/proof-matrix.md`
 
+Each file is a compact projection, not a per-behavior catalog. The
+authoritative behavior catalog is `docs/behaviors/B-*.md` and the
+authoritative surface registry is `docs/experience/surfaces.yml`. Inventory
+that is mechanically derivable from those two sources should not be
+duplicated here. The five files above own:
+
+- **`flows.md`** — row schema + surface defaults + explicit deviations.
+  Per-behavior rows live in spec evidence when a roadmap node is shaped,
+  not in this file.
+- **`screens.md`** — surface-keyed inventory of routes, endpoints, tools,
+  commands, and screens, grouped by behavior `area`.
+- **`interaction-models.md`** — per-surface interaction patterns (focus,
+  keyboard, error envelope, output modes) and cross-surface invariants.
+- **`state-matrix.md`** — default state coverage per surface kind plus the
+  area-level exception list of behaviors with non-default states.
+- **`proof-matrix.md`** — per-surface evidence expectations aligned with
+  `surfaces.yml` `proof:`. Adapter implementation status belongs to
+  `assess-implementation`, not here.
+
+If any of these files exceeds ~10 KB on a project of Tanren's scale (~300
+behaviors), it is over-projecting and should be trimmed back to schema +
+defaults + deviations.
+
 ## Responsibilities
 
 1. Read the behavior catalog and active surface registry before proposing

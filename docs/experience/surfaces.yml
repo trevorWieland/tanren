@@ -1,5 +1,5 @@
 schema: tanren.experience_surfaces.v0
-updated_at: 2026-05-05
+updated_at: 2026-05-07
 owner_command: define-surfaces
 surfaces:
   - id: web
@@ -21,6 +21,18 @@ surfaces:
       - responsive-layout
       - readable-text
       - status-feedback
+    accessibility:
+      - keyboard-only-navigation
+      - visible-focus
+      - axe-clean-on-acceptance
+      - color-contrast-aa
+    localization:
+      - paraglide-strings
+      - english-default
+    latency:
+      - interactive-budget-pending
+    unsupported_actions:
+      - long-running-streaming-pending
     proof:
       - playwright_bdd
       - storybook_component_state
@@ -39,6 +51,14 @@ surfaces:
       - json
       - event-stream
       - openapi
+    accessibility:
+      - machine-readable-only
+    localization:
+      - machine-readable-only
+    latency:
+      - request-budget-pending
+    unsupported_actions:
+      - human-presentation-of-results
     proof:
       - contract_bdd
       - openapi_schema
@@ -56,6 +76,15 @@ surfaces:
     outputs:
       - tool-result
       - structured-error
+    accessibility:
+      - machine-readable-only
+    localization:
+      - machine-readable-only
+    latency:
+      - tool-call-budget-pending
+    unsupported_actions:
+      - human-presentation-of-results
+      - file-system-side-effects-outside-tanren-state
     proof:
       - mcp_tool_contract
       - tool_visibility_case
@@ -78,6 +107,16 @@ surfaces:
       - stderr
       - exit-code
       - json
+    accessibility:
+      - screen-reader-friendly-text
+      - no-color-only-signaling
+    localization:
+      - english-default
+      - locale-pending
+    latency:
+      - command-budget-pending
+    unsupported_actions:
+      - interactive-multi-screen-flows
     proof:
       - process_execution
       - golden_transcript
@@ -99,6 +138,18 @@ surfaces:
       - terminal-screen
       - focus-state
       - status-feedback
+    accessibility:
+      - keyboard-only-navigation
+      - visible-focus
+      - no-color-only-signaling
+    localization:
+      - english-default
+      - locale-pending
+    latency:
+      - frame-budget-pending
+    unsupported_actions:
+      - mouse-required-flows
+      - graphical-charts
     proof:
       - pty_session
       - screen_snapshot
