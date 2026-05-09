@@ -14,8 +14,9 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{Handlers, MyPermissionsContext};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, InterfaceError, InterfaceErrorCode, MyPermissionsRequest,
-    MyPermissionsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, InterfaceError, InterfaceErrorCode,
+    MyAccountCapabilitiesResponse, MyPermissionsRequest, MyPermissionsResponse, SessionEnvelope,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -90,6 +91,15 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+/// Optional target-account hint for capability discovery. Omitted in
+/// normal `/me` usage; present only when callers want to verify that a
+/// specific account id is self-scoped under the current session.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub(crate) struct MyPermissionsCapabilityQuery {
+    /// Optional account id to evaluate against the authenticated session.
+    pub account_id: Option<AccountId>,
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -105,6 +115,7 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        my_permissions_capabilities_route,
         my_permissions_route,
         target_account_permissions_route,
     ),
@@ -116,6 +127,8 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        MyPermissionsCapabilityQuery,
+        MyAccountCapabilitiesResponse,
         InterfaceError,
         MyPermissionsResponse,
         SessionEnvelope,
@@ -326,6 +339,39 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
 /// Read the authenticated account's effective permissions.
 #[utoipa::path(
     get,
+    path = "/me/capabilities",
+    params(
+        ("account_id" = Option<AccountId>, Query, description = "Optional account id to evaluate with self-permissions authorization semantics."),
+    ),
+    responses(
+        (status = 200, body = MyAccountCapabilitiesResponse, description = "Capability metadata for self-permissions navigation"),
+        (status = 401, body = InterfaceError, description = "auth_required"),
+        (status = 403, body = InterfaceError, description = "permission_denied"),
+        (status = 500, body = InterfaceError, description = "internal_error"),
+    ),
+    tag = "permissions",
+)]
+pub(crate) async fn my_permissions_capabilities_route(
+    State(state): State<AppState>,
+    session: Session,
+    Query(query): Query<MyPermissionsCapabilityQuery>,
+) -> Response {
+    let session_account_id = match authenticated_account_id(&session).await {
+        Ok(account_id) => account_id,
+        Err(response) => return response,
+    };
+    let requested_account_id = query.account_id.unwrap_or(session_account_id);
+    let context =
+        MyPermissionsContext::with_requested_account(session_account_id, requested_account_id);
+    match state.handlers.my_permissions_capabilities(context) {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Read the authenticated account's effective permissions.
+#[utoipa::path(
+    get,
     path = "/me/permissions",
     params(
         ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
@@ -447,6 +493,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(my_permissions_capabilities_route))
         .routes(routes!(my_permissions_route))
         .routes(routes!(target_account_permissions_route))
         .with_state(state)

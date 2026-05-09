@@ -126,6 +126,13 @@ pub struct SessionView {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Capability metadata for the authenticated actor's account surface.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct MyAccountCapabilitiesResponse {
+    /// Whether the current actor may open the self-permissions view.
+    pub can_view_my_permissions: bool,
+}
+
 /// Transport-aware projection of a freshly minted session.
 ///
 /// The `@web` and `@api` surfaces deliver session tokens via an

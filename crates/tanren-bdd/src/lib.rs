@@ -18,7 +18,8 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    HarnessPermissionsView, InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    HarnessPermissionsCapabilityView, HarnessPermissionsView, InProcessHarness, McpHarness,
+    TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -68,6 +69,8 @@ pub struct AccountContext {
     pub last_outcome: Option<HarnessOutcome>,
     /// The most recent self-permissions query result.
     pub last_permissions: Option<HarnessPermissionsView>,
+    /// The most recent self-permissions capability response.
+    pub last_permissions_capability: Option<HarnessPermissionsCapabilityView>,
     /// The most recent self-permissions query failure code.
     pub last_permissions_failure_code: Option<String>,
     /// Event ids captured before the most recent self-permissions query.
@@ -129,6 +132,7 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             last_permissions: None,
+            last_permissions_capability: None,
             last_permissions_failure_code: None,
             event_ids_before_permissions_query: None,
             invitations: HashSet::new(),

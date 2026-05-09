@@ -82,12 +82,14 @@ async fn when_view_own_permissions(world: &mut TanrenWorld, actor: String) {
 
     match ctx.harness.my_permissions(session_account_id, None).await {
         Ok(view) => {
+            ctx.last_permissions_capability = None;
             ctx.last_permissions = Some(view);
             ctx.last_permissions_failure_code = None;
             ctx.last_outcome = Some(HarnessOutcome::Other("permissions_loaded".to_owned()));
         }
         Err(err) => {
             let code = err.code();
+            ctx.last_permissions_capability = None;
             ctx.last_permissions = None;
             ctx.last_permissions_failure_code = Some(code.clone());
             ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));
@@ -107,6 +109,7 @@ async fn when_unauthenticated_view_own_permissions(world: &mut TanrenWorld) {
         .await
     {
         Ok(view) => {
+            ctx.last_permissions_capability = None;
             ctx.last_permissions = Some(view);
             ctx.last_permissions_failure_code = None;
             ctx.last_outcome = Some(HarnessOutcome::Other(
@@ -115,6 +118,7 @@ async fn when_unauthenticated_view_own_permissions(world: &mut TanrenWorld) {
         }
         Err(err) => {
             let code = err.code();
+            ctx.last_permissions_capability = None;
             ctx.last_permissions = None;
             ctx.last_permissions_failure_code = Some(code.clone());
             ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));
@@ -139,6 +143,7 @@ async fn when_view_other_permissions(world: &mut TanrenWorld, actor: String, tar
         .await
     {
         Ok(view) => {
+            ctx.last_permissions_capability = None;
             ctx.last_permissions = Some(view);
             ctx.last_permissions_failure_code = None;
             ctx.last_outcome = Some(HarnessOutcome::Other(
@@ -147,6 +152,7 @@ async fn when_view_other_permissions(world: &mut TanrenWorld, actor: String, tar
         }
         Err(err) => {
             let code = err.code();
+            ctx.last_permissions_capability = None;
             ctx.last_permissions = None;
             ctx.last_permissions_failure_code = Some(code.clone());
             ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));

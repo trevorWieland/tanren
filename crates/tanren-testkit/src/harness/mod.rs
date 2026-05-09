@@ -57,8 +57,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, MyPermissionsResponse,
-    SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, MyAccountCapabilitiesResponse,
+    MyPermissionsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
@@ -238,6 +238,15 @@ pub struct HarnessPermissionsView {
     pub rendered: String,
 }
 
+/// Wire/output projection of self-permissions capability discovery.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionsCapabilityView {
+    /// Structured capability response from the surface.
+    pub response: MyAccountCapabilitiesResponse,
+    /// Surface-native textual rendering captured from the same call.
+    pub rendered: String,
+}
+
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -270,6 +279,25 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         session_account_id: AccountId,
         requested_account_id: Option<AccountId>,
     ) -> HarnessResult<HarnessPermissionsView>;
+
+    /// Discover whether the actor may open the self-permissions view.
+    /// `requested_account_id` is optional to support falsification paths
+    /// where the caller asks for another account.
+    async fn my_permissions_capability(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+    ) -> HarnessResult<HarnessPermissionsCapabilityView> {
+        let view = self
+            .my_permissions(session_account_id, requested_account_id)
+            .await?;
+        Ok(HarnessPermissionsCapabilityView {
+            response: MyAccountCapabilitiesResponse {
+                can_view_my_permissions: true,
+            },
+            rendered: view.rendered,
+        })
+    }
 
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race

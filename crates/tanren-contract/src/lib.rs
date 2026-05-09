@@ -10,7 +10,8 @@ pub mod permissions;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    MyAccountCapabilitiesResponse, SessionEnvelope, SessionView, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
 pub use permissions::{
     InterfaceError, InterfaceErrorCode, MY_PERMISSIONS_DEFAULT_LIMIT, MY_PERMISSIONS_MAX_LIMIT,

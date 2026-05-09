@@ -4,7 +4,10 @@ import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-import { canAccessMyPermissions } from "@/app/lib/account-client";
+import {
+  AccountRequestError,
+  myAccountCapabilities,
+} from "@/app/lib/account-client";
 import * as m from "@/i18n/paraglide/messages";
 
 interface HealthReport {
@@ -19,6 +22,9 @@ export default function Home(): ReactNode {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMyPermissions, setShowMyPermissions] = useState(false);
+  const [capabilityDiscoveryError, setCapabilityDiscoveryError] = useState<
+    "unavailable" | null
+  >(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,15 +52,24 @@ export default function Home(): ReactNode {
 
   useEffect(() => {
     let cancelled = false;
-    canAccessMyPermissions()
-      .then((allowed) => {
+    myAccountCapabilities()
+      .then((response) => {
         if (!cancelled) {
-          setShowMyPermissions(allowed);
+          setShowMyPermissions(response.can_view_my_permissions);
+          setCapabilityDiscoveryError(null);
         }
       })
-      .catch(() => {
+      .catch((cause: unknown) => {
         if (!cancelled) {
           setShowMyPermissions(false);
+          if (
+            cause instanceof AccountRequestError &&
+            cause.failure.code === "unavailable"
+          ) {
+            setCapabilityDiscoveryError("unavailable");
+          } else {
+            setCapabilityDiscoveryError(null);
+          }
         }
       });
 
@@ -91,6 +106,11 @@ export default function Home(): ReactNode {
           </Link>
         ) : null}
       </nav>
+      {capabilityDiscoveryError === "unavailable" ? (
+        <p className="text-sm text-[--color-error]">
+          {m.app_myPermissionsDiscoveryUnavailable()}
+        </p>
+      ) : null}
       <section className="w-full rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-4 font-mono sm:px-6">
         {report !== null ? (
           <pre className="m-0 overflow-x-auto">

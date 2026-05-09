@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    MyPermissionsFailureReason, MyPermissionsRequest, MyPermissionsResponse, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    MyAccountCapabilitiesResponse, MyPermissionsFailureReason, MyPermissionsRequest,
+    MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::AccountId;
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
@@ -223,6 +223,20 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         permissions::my_permissions(store, context, request).await
+    }
+
+    /// Resolve capability metadata for the self-permissions view using
+    /// the same authorization model as [`Handlers::my_permissions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Permissions`] when the requested
+    /// account does not match the authenticated account context.
+    pub fn my_permissions_capabilities(
+        &self,
+        context: MyPermissionsContext,
+    ) -> Result<MyAccountCapabilitiesResponse, AppServiceError> {
+        permissions::my_permissions_capabilities(context)
     }
 }
 

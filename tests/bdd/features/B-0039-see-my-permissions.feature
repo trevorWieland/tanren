@@ -34,6 +34,19 @@ Feature: See my own permissions
       Then the request fails with code "permission_denied"
       And the permissions view does not create permission request or grant events
 
+    @positive @api
+    Scenario: API discovers that a signed-in actor can open my-permissions navigation
+      Given alice has signed up with email "alice-perms-capability-api@example.com" and password "p4ssw0rd"
+      When alice discovers their self-permissions capability
+      Then the capability indicates my permissions navigation is available
+
+    @falsification @api
+    Scenario: API capability discovery denies another account id
+      Given alice has signed up with email "alice-perms-capability-api-deny@example.com" and password "p4ssw0rd"
+      And bob has signed up with email "bob-perms-capability-api-deny@example.com" and password "p4ssw0rd"
+      When alice attempts to discover bob's permissions capability through the self capability view
+      Then the request fails with code "permission_denied"
+
   Rule: MCP surface
 
     @positive @mcp
@@ -115,6 +128,20 @@ Feature: See my own permissions
       When alice attempts to view bob's permissions through the self view
       Then the request fails with code "permission_denied"
       And the permissions view does not create permission request or grant events
+
+    @positive @web
+    Scenario: Web home navigation uses capability discovery
+      Given alice has signed up with email "alice-perms-capability-web@example.com" and password "p4ssw0rd"
+      When alice discovers their self-permissions capability
+      Then the capability indicates my permissions navigation is available
+      And alice sees the My permissions navigation link on the home page
+
+    @falsification @web
+    Scenario: Web capability discovery denies another account id
+      Given alice has signed up with email "alice-perms-capability-web-deny@example.com" and password "p4ssw0rd"
+      And bob has signed up with email "bob-perms-capability-web-deny@example.com" and password "p4ssw0rd"
+      When alice attempts to discover bob's permissions capability through the self capability view
+      Then the request fails with code "permission_denied"
 
   Rule: TUI surface
 

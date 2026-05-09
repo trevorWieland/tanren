@@ -22,8 +22,8 @@ use tanren_store::{
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsView, HarnessResult,
-    HarnessSession,
+    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsCapabilityView,
+    HarnessPermissionsView, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -164,6 +164,30 @@ impl AccountHarness for InProcessHarness {
             .await
         {
             Ok(response) => Ok(HarnessPermissionsView {
+                rendered: serde_json::to_string(&response).unwrap_or_default(),
+                response,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn my_permissions_capability(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+    ) -> HarnessResult<HarnessPermissionsCapabilityView> {
+        if !self.authenticated_accounts.contains(&session_account_id) {
+            return Err(HarnessError::FailureCode {
+                code: "auth_required".to_owned(),
+                summary: "No authenticated session is present. Sign in and retry.".to_owned(),
+            });
+        }
+        let context = MyPermissionsContext::with_requested_account(
+            session_account_id,
+            requested_account_id.unwrap_or(session_account_id),
+        );
+        match self.handlers.my_permissions_capabilities(context) {
+            Ok(response) => Ok(HarnessPermissionsCapabilityView {
                 rendered: serde_json::to_string(&response).unwrap_or_default(),
                 response,
             }),

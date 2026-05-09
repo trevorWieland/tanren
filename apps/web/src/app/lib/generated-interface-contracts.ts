@@ -3,6 +3,9 @@
 // and apps/web/scripts/generate-interface-contracts.mjs
 // Do not hand-edit this file.
 
+export interface MyAccountCapabilitiesResponse {
+  can_view_my_permissions: boolean;
+}
 export type PermissionGrantSource =
   | {
       kind: "direct";

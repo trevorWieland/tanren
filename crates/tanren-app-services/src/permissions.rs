@@ -4,9 +4,9 @@
 //! authenticated account's effective permissions from the store.
 
 use tanren_contract::{
-    MyOrganizationPermissions, MyPermissionEntry, MyPermissionsFailureReason,
-    MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse, MyProjectPermissions,
-    PermissionConstraintView,
+    MyAccountCapabilitiesResponse, MyOrganizationPermissions, MyPermissionEntry,
+    MyPermissionsFailureReason, MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse,
+    MyProjectPermissions, PermissionConstraintView,
 };
 use tanren_store::{AccountStore, MyPermissionsPage, MyPermissionsRecord};
 
@@ -20,12 +20,8 @@ pub(crate) async fn my_permissions<S>(
 where
     S: AccountStore + ?Sized,
 {
+    authorize_my_permissions(context)?;
     let resolved_limit = request.resolved_limit();
-    if context.requested_account_id() != context.session_account_id() {
-        return Err(AppServiceError::Permissions(
-            MyPermissionsFailureReason::PermissionDenied,
-        ));
-    }
 
     let record = store
         .my_permissions(
@@ -34,6 +30,24 @@ where
         )
         .await?;
     Ok(to_contract_response(record, resolved_limit))
+}
+
+pub(crate) fn my_permissions_capabilities(
+    context: MyPermissionsContext,
+) -> Result<MyAccountCapabilitiesResponse, AppServiceError> {
+    authorize_my_permissions(context)?;
+    Ok(MyAccountCapabilitiesResponse {
+        can_view_my_permissions: true,
+    })
+}
+
+fn authorize_my_permissions(context: MyPermissionsContext) -> Result<(), AppServiceError> {
+    if context.requested_account_id() == context.session_account_id() {
+        return Ok(());
+    }
+    Err(AppServiceError::Permissions(
+        MyPermissionsFailureReason::PermissionDenied,
+    ))
 }
 
 fn to_contract_response(record: MyPermissionsRecord, resolved_limit: u16) -> MyPermissionsResponse {

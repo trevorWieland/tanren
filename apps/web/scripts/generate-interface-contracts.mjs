@@ -20,6 +20,7 @@ const OUTPUT_PATH = resolve(
 const CHECK_MODE = process.argv.includes("--check");
 
 const ROOT_SCHEMAS = [
+  "MyAccountCapabilitiesResponse",
   "PermissionGrantSource",
   "PermissionConstraintView",
   "MyPermissionEntry",

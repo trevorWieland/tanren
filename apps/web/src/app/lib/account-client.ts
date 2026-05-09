@@ -1,6 +1,7 @@
 import * as m from "@/i18n/paraglide/messages";
 import type {
   InterfaceError,
+  MyAccountCapabilitiesResponse,
   MyPermissionsResponse,
   MyPermissionEntry,
   PermissionConstraintView,
@@ -10,7 +11,6 @@ import { isInterfaceErrorCode } from "@/app/lib/generated-interface-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const MY_PERMISSIONS_LIMIT = 100;
-const MY_PERMISSIONS_DISCOVERY_LIMIT = 1;
 
 export interface SignUpInput {
   email: string;
@@ -75,6 +75,7 @@ export type PermissionScopeView =
     };
 export type {
   InterfaceError,
+  MyAccountCapabilitiesResponse,
   MyPermissionsResponse,
   MyPermissionEntry,
   PermissionConstraintView,
@@ -256,19 +257,8 @@ export function myPermissions(): Promise<MyPermissionsResponse> {
   );
 }
 
-export async function canAccessMyPermissions(): Promise<boolean> {
-  try {
-    await requestJson<MyPermissionsResponse>(
-      `/me/permissions?limit=${MY_PERMISSIONS_DISCOVERY_LIMIT}`,
-      "GET",
-    );
-    return true;
-  } catch (cause: unknown) {
-    if (cause instanceof AccountRequestError) {
-      return false;
-    }
-    return false;
-  }
+export function myAccountCapabilities(): Promise<MyAccountCapabilitiesResponse> {
+  return requestJson<MyAccountCapabilitiesResponse>("/me/capabilities", "GET");
 }
 
 /**

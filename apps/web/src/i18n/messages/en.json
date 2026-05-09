@@ -7,6 +7,7 @@
   "app_nav_signUp": "Sign up",
   "app_nav_signIn": "Sign in",
   "app_nav_myPermissions": "My permissions",
+  "app_myPermissionsDiscoveryUnavailable": "My permissions navigation is temporarily unavailable.",
   "signUp_title": "Create a Tanren account",
   "signUp_email": "Email",
   "signUp_password": "Password",

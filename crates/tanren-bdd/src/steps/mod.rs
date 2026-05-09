@@ -5,3 +5,4 @@
 
 pub mod account;
 pub mod permissions;
+pub mod permissions_capability;
