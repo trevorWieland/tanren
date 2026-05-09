@@ -6,20 +6,24 @@
 //! they do not import domain, store, or runtime crates directly.
 
 pub mod account;
+mod active_account;
 pub mod events;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    ListActiveAccountsRequest, ListActiveAccountsResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse, SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
 use thiserror::Error;
+
+pub use crate::active_account::ActiveAccountContext;
 
 /// Stable response shape for the cross-interface health/liveness query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +202,62 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// List signed-in accounts for the supplied bounded session context
+    /// and identify the active account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::InvalidInput`] when the active account
+    /// is not present in the signed-in set; [`AppServiceError::Store`]
+    /// for unexpected database failures.
+    pub async fn list_active_accounts<S>(
+        &self,
+        store: &S,
+        context: &ActiveAccountContext,
+        _request: ListActiveAccountsRequest,
+    ) -> Result<ListActiveAccountsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        active_account::list_active_accounts(store, context).await
+    }
+
+    /// Switch the active account for this caller context. The target
+    /// must already be present in the bounded signed-in account set.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::TargetAccountNotSignedIn`] when the
+    /// target is outside the signed-in set; [`AppServiceError::Store`]
+    /// for unexpected database failures.
+    pub async fn switch_active_account<S>(
+        &self,
+        store: &S,
+        context: &ActiveAccountContext,
+        request: SwitchActiveAccountRequest,
+    ) -> Result<SwitchActiveAccountResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        active_account::switch_active_account(store, &self.clock, context, request).await
+    }
+}
+
+impl ActiveAccountContext {
+    /// Construct a caller-bound active-account context from validated
+    /// sessions.
+    #[must_use]
+    pub fn from_account_ids(
+        active_account_id: AccountId,
+        signed_in_account_ids: Vec<AccountId>,
+    ) -> Self {
+        Self {
+            active_account_id,
+            signed_in_account_ids,
+        }
     }
 }
 
