@@ -14,8 +14,9 @@ use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
     CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse, ContractVersion,
-    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsRequest,
-    ListOrganizationsResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
+    ListOrganizationsRequest, ListOrganizationsResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -209,10 +210,10 @@ impl Handlers {
     ///
     /// Returns [`AppServiceError::Account`] with
     /// [`AccountFailureReason::AuthRequired`] when authentication is
-    /// missing/expired. Returns [`AppServiceError::InvalidInput`] when
-    /// the organization name is invalid or duplicates an existing
-    /// name. Returns [`AppServiceError::Store`] for unexpected store
-    /// failures.
+    /// missing/expired. Returns
+    /// [`AppServiceError::CreateOrganization`] for duplicate-name and
+    /// idempotency-conflict failures. Returns [`AppServiceError::Store`]
+    /// for unexpected store failures.
     pub async fn create_organization<S>(
         &self,
         store: &S,
@@ -395,4 +396,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// Typed organization-create failure reason.
+    #[error("organization_create: {}", .0.code())]
+    CreateOrganization(CreateOrganizationFailureReason),
 }

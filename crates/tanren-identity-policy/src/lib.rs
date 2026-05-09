@@ -15,7 +15,7 @@ mod session_token;
 pub use argon2_verifier::Argon2idVerifier;
 use chrono::{DateTime, Utc};
 pub use organization::{
-    OrganizationName, OrganizationPermission, ParseOrganizationPermissionError,
+    IdempotencyKey, OrganizationName, OrganizationPermission, ParseOrganizationPermissionError,
 };
 use schemars::JsonSchema;
 use secrecy::SecretString;
@@ -469,10 +469,7 @@ pub enum IdentityError {
 
 /// Errors raised when constructing a domain newtype from a raw string.
 ///
-/// Surfaces through `tanren-app-services` as
-/// `AccountFailureReason::ValidationFailed` (HTTP 400) — a separate
-/// taxonomy from credential failures so callers can distinguish "your
-/// inputs are malformed" from "your credentials don't match".
+/// Surfaces through `tanren-app-services` as validation failures.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
@@ -491,6 +488,9 @@ pub enum ValidationError {
     /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
+    /// The supplied idempotency key was empty after trimming.
+    #[error("idempotency key is empty")]
+    IdempotencyKeyEmpty,
     /// The supplied organization name was empty after trimming.
     #[error("organization name is empty")]
     OrganizationNameEmpty,

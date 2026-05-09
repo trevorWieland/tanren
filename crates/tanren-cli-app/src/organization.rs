@@ -111,14 +111,21 @@ async fn create_organization(
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",");
+    let source_event = format!(
+        "{}.{}",
+        response.source_link.event_family, response.source_link.event_kind
+    );
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(
         handle,
-        "organization_id={id} name={name} granted_permissions={granted}",
+        "organization_id={id} name={name} granted_permissions={granted} initial_project_count={initial_project_count} proof_behavior_id={proof_behavior_id} source_event={source_event}",
         id = response.organization.id,
         name = response.organization.name,
         granted = granted,
+        initial_project_count = response.initial_project_count,
+        proof_behavior_id = response.proof_link.behavior_id,
+        source_event = source_event,
     )
     .context("write create-organization result")?;
     Ok(())

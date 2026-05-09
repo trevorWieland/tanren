@@ -89,6 +89,50 @@ impl std::fmt::Display for OrganizationName {
     }
 }
 
+/// Stable idempotency key for replay-safe mutation requests.
+///
+/// The value is preserved except for surrounding whitespace trimming so
+/// existing database rows remain valid without shape migrations.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
+#[serde(transparent)]
+#[schema(value_type = String)]
+pub struct IdempotencyKey(String);
+
+impl IdempotencyKey {
+    /// Parse a raw idempotency key.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::IdempotencyKeyEmpty`] if the input is
+    /// empty after trimming.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ValidationError::IdempotencyKeyEmpty);
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+
+    /// Borrow the normalized idempotency key.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl<'de> Deserialize<'de> for IdempotencyKey {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = String::deserialize(d)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
+impl std::fmt::Display for IdempotencyKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.0)
+    }
+}
+
 /// Closed set of organization-level administrative permissions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]

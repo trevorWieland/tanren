@@ -28,8 +28,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
-    OrganizationPermission, SessionToken,
+    AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
+    OrganizationName, OrganizationPermission, SessionToken,
 };
 
 use crate::{
@@ -184,7 +184,7 @@ pub struct CreateOrganizationAtomicRequest {
     /// Wall-clock time for all row writes and success events.
     pub now: DateTime<Utc>,
     /// Stable client idempotency key for replay-safe create semantics.
-    pub idempotency_key: Option<String>,
+    pub idempotency_key: Option<IdempotencyKey>,
     /// Event payload builder invoked inside the transaction.
     pub events_builder: CreateOrganizationEventsBuilder,
 }
@@ -199,7 +199,10 @@ impl std::fmt::Debug for CreateOrganizationAtomicRequest {
             .field("now", &self.now)
             .field(
                 "idempotency_key",
-                &self.idempotency_key.as_deref().unwrap_or("<none>"),
+                &self
+                    .idempotency_key
+                    .as_ref()
+                    .map_or("<none>", IdempotencyKey::as_str),
             )
             .finish_non_exhaustive()
     }

@@ -20,8 +20,8 @@ use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationView, SignInRequest,
-    SignUpRequest,
+    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -291,7 +291,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let re = Regex::new(
-            r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)\s+granted_permissions=([a-z_,]*)",
+            r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)\s+granted_permissions=([a-z_,]*)\s+initial_project_count=(\d+)\s+proof_behavior_id=([^\s]+)\s+source_event=([^\s]+)",
         )
         .expect("constant regex");
         let captures = re.captures(&stdout).ok_or_else(|| {
@@ -299,13 +299,32 @@ impl AccountHarness for CliHarness {
         })?;
         let org_id_raw = captures.get(1).map_or("", |m| m.as_str());
         let granted_raw = captures.get(3).map_or("", |m| m.as_str());
+        let initial_project_count_raw = captures.get(4).map_or("", |m| m.as_str());
+        let proof_behavior_id = captures.get(5).map_or("", |m| m.as_str()).to_owned();
+        let source_event = captures.get(6).map_or("", |m| m.as_str());
         let org_id = OrgId::from(
             Uuid::parse_str(org_id_raw)
                 .map_err(|e| HarnessError::Transport(format!("parse organization id: {e}")))?,
         );
+        let initial_project_count = initial_project_count_raw.parse::<u64>().map_err(|e| {
+            HarnessError::Transport(format!("parse initial_project_count from cli output: {e}"))
+        })?;
+        let (event_family, event_kind) = source_event.split_once('.').ok_or_else(|| {
+            HarnessError::Transport(format!(
+                "parse source_event from cli output: {source_event}"
+            ))
+        })?;
         Ok(CreateOrganizationResponse {
             organization: OrganizationView { id: org_id, name },
             granted_permissions: Self::parse_permissions(granted_raw)?,
+            initial_project_count,
+            proof_link: OrganizationProofLink {
+                behavior_id: proof_behavior_id,
+            },
+            source_link: OrganizationSourceLink {
+                event_family: event_family.to_owned(),
+                event_kind: event_kind.to_owned(),
+            },
         })
     }
 

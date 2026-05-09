@@ -5,7 +5,9 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     PaginatorTrait, QueryFilter, Set, TransactionTrait,
 };
-use tanren_identity_policy::{AccountId, MembershipId, OrgId, OrganizationPermission};
+use tanren_identity_policy::{
+    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationPermission,
+};
 use uuid::Uuid;
 
 use crate::entity;
@@ -23,7 +25,7 @@ pub(crate) async fn run(
     let replay_account_id = request.creator_account_id;
     let replay_name = request.name.clone();
     let replay_key = request.idempotency_key.clone();
-    if let Some(key) = replay_key.as_deref() {
+    if let Some(key) = replay_key.as_ref().map(IdempotencyKey::as_str) {
         if let Some(replayed) =
             find_idempotent_replay_for_key(conn, replay_account_id, key, &replay_name).await?
         {
@@ -44,7 +46,7 @@ pub(crate) async fn run(
             match find_idempotent_replay_for_key(
                 conn,
                 replay_account_id,
-                replay_key.as_deref().unwrap_or_default(),
+                replay_key.as_ref().map_or("", IdempotencyKey::as_str),
                 &replay_name,
             )
             .await?
@@ -57,7 +59,7 @@ pub(crate) async fn run(
             match find_idempotent_replay_for_key(
                 conn,
                 replay_account_id,
-                replay_key.as_deref().unwrap_or_default(),
+                replay_key.as_ref().map_or("", IdempotencyKey::as_str),
                 &replay_name,
             )
             .await?
@@ -84,7 +86,7 @@ async fn run_in_txn(
         events_builder,
     } = request;
 
-    if let Some(key) = idempotency_key.as_deref() {
+    if let Some(key) = idempotency_key.as_ref().map(IdempotencyKey::as_str) {
         insert_idempotency_claim_in_txn(txn, creator_account_id, key, organization_id, &name, now)
             .await?;
     }

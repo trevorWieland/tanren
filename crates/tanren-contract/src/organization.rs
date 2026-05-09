@@ -4,10 +4,11 @@
 //! cli, tui, and web client when callers create organizations, list
 //! accessible organizations, and check organization permissions.
 
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, IdempotencyKey, OrgId, OrganizationName, OrganizationPermission, SessionToken,
 };
 use utoipa::ToSchema;
 
@@ -23,7 +24,7 @@ pub struct CreateOrganizationRequest {
     pub name: OrganizationName,
     /// Stable client idempotency key. Replays with the same actor and
     /// key return the same semantic result.
-    pub idempotency_key: Option<String>,
+    pub idempotency_key: Option<IdempotencyKey>,
 }
 
 /// Create-organization response.
@@ -33,6 +34,12 @@ pub struct CreateOrganizationResponse {
     pub organization: OrganizationView,
     /// Administrative permissions granted to the creator.
     pub granted_permissions: Vec<OrganizationPermission>,
+    /// New organizations always begin with zero projects.
+    pub initial_project_count: u64,
+    /// Stable proof reference clients can render without event-log probing.
+    pub proof_link: OrganizationProofLink,
+    /// Stable source reference for the canonical creation event.
+    pub source_link: OrganizationSourceLink,
 }
 
 /// List-organizations request.
@@ -72,7 +79,7 @@ pub struct CreateOrganizationApiRequest {
     pub name: OrganizationName,
     /// Stable client idempotency key. Replays with the same actor and
     /// key return the same semantic result.
-    pub idempotency_key: Option<String>,
+    pub idempotency_key: Option<IdempotencyKey>,
 }
 
 /// API body for check-organization-permission routes.
@@ -104,4 +111,82 @@ pub struct OrganizationView {
     pub id: OrgId,
     /// Organization name uniqueness key.
     pub name: OrganizationName,
+}
+
+/// Shared failure taxonomy for create-organization command handling.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum CreateOrganizationFailureReason {
+    /// Name uniqueness conflict.
+    DuplicateName,
+    /// Idempotency key reused with conflicting request fingerprint.
+    IdempotencyConflict,
+}
+
+impl CreateOrganizationFailureReason {
+    /// Stable wire `code` for this failure.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::DuplicateName => "conflict",
+            Self::IdempotencyConflict => "idempotency_conflict",
+        }
+    }
+
+    /// Human-readable summary for this failure.
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::DuplicateName => "An organization already exists for the supplied name.",
+            Self::IdempotencyConflict => {
+                "The supplied idempotency key conflicts with a prior request."
+            }
+        }
+    }
+
+    /// Recommended HTTP status when projected over API/MCP.
+    #[must_use]
+    pub const fn http_status(self) -> u16 {
+        409
+    }
+}
+
+/// Stable reference to behavior proof coverage for organization create.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationProofLink {
+    /// Canonical behavior id proving this command contract.
+    pub behavior_id: String,
+}
+
+/// Stable reference to source evidence for organization create.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationSourceLink {
+    /// Event family in the canonical event log.
+    pub event_family: String,
+    /// Event kind in the canonical event log.
+    pub event_kind: String,
+}
+
+/// Event family used for organization lifecycle events.
+pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
+/// Event kind for organization-creation events.
+pub const ORGANIZATION_CREATED_EVENT_KIND: &str = "organization_created";
+/// Canonical behavior proof id for organization creation.
+pub const ORGANIZATION_CREATE_BEHAVIOR_ID: &str = "B-0066";
+
+/// Shared payload contract for `organization_created`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationCreatedEvent {
+    /// Freshly created organization id.
+    pub org_id: OrgId,
+    /// Normalized organization name uniqueness key.
+    pub name: OrganizationName,
+    /// Account that created the organization.
+    pub creator_account_id: AccountId,
+    /// Creator permissions granted at bootstrap.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// Initial project count for the new organization.
+    pub initial_project_count: u64,
+    /// Service-side timestamp for the create event.
+    pub created_at: DateTime<Utc>,
 }

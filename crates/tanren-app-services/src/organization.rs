@@ -1,11 +1,12 @@
 //! Organization-flow handlers.
 
 use chrono::{DateTime, Utc};
-use serde::Serialize;
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
-    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsRequest,
-    ListOrganizationsResponse, OrganizationView,
+    CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
+    ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
+    ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission, SessionToken};
 use tanren_store::{
@@ -25,17 +26,14 @@ where
     let now = clock.now();
     resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
 
-    let name = tanren_identity_policy::OrganizationName::parse(request.name.as_str())
-        .map_err(|err| AppServiceError::InvalidInput(err.to_string()))?;
-    let idempotency_key = normalize_idempotency_key(request.idempotency_key)?;
     let output = store
         .create_organization_atomic(CreateOrganizationAtomicRequest {
             organization_id: OrgId::fresh(),
-            name,
+            name: request.name,
             creator_account_id: request.account_id,
             creator_membership_id: tanren_identity_policy::MembershipId::fresh(),
             now,
-            idempotency_key,
+            idempotency_key: request.idempotency_key,
             events_builder: build_create_organization_events_builder(),
         })
         .await
@@ -47,6 +45,14 @@ where
             name: output.organization.name,
         },
         granted_permissions: output.granted_permissions,
+        initial_project_count: output.initial_project_count,
+        proof_link: OrganizationProofLink {
+            behavior_id: ORGANIZATION_CREATE_BEHAVIOR_ID.to_owned(),
+        },
+        source_link: OrganizationSourceLink {
+            event_family: ORGANIZATION_EVENT_FAMILY.to_owned(),
+            event_kind: ORGANIZATION_CREATED_EVENT_KIND.to_owned(),
+        },
     })
 }
 
@@ -141,27 +147,18 @@ where
     Ok(session)
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct OrganizationCreatedEvent {
-    org_id: OrgId,
-    name: String,
-    creator_account_id: AccountId,
-    granted_permissions: Vec<OrganizationPermission>,
-    initial_project_count: u64,
-    created_at: DateTime<Utc>,
-}
-
 fn build_create_organization_events_builder() -> tanren_store::CreateOrganizationEventsBuilder {
     Box::new(|ctx| {
+        let initial_project_count = 0;
         vec![serde_json::json!({
-            "family": "organization",
-            "kind": "organization_created",
+            "family": ORGANIZATION_EVENT_FAMILY,
+            "kind": ORGANIZATION_CREATED_EVENT_KIND,
             "payload": OrganizationCreatedEvent {
                 org_id: ctx.organization.id,
-                name: ctx.organization.name.as_str().to_owned(),
+                name: ctx.organization.name.clone(),
                 creator_account_id: ctx.creator_account_id,
                 granted_permissions: ctx.granted_permissions.clone(),
-                initial_project_count: 0,
+                initial_project_count,
                 created_at: ctx.now,
             },
         })]
@@ -171,26 +168,11 @@ fn build_create_organization_events_builder() -> tanren_store::CreateOrganizatio
 fn map_create_organization_error(err: CreateOrganizationError) -> AppServiceError {
     match err {
         CreateOrganizationError::DuplicateName => {
-            AppServiceError::InvalidInput("organization name already exists".to_owned())
+            AppServiceError::CreateOrganization(CreateOrganizationFailureReason::DuplicateName)
         }
-        CreateOrganizationError::IdempotencyConflict => {
-            AppServiceError::InvalidInput("idempotency_conflict".to_owned())
-        }
+        CreateOrganizationError::IdempotencyConflict => AppServiceError::CreateOrganization(
+            CreateOrganizationFailureReason::IdempotencyConflict,
+        ),
         CreateOrganizationError::Store(err) => AppServiceError::Store(err),
-    }
-}
-
-fn normalize_idempotency_key(raw: Option<String>) -> Result<Option<String>, AppServiceError> {
-    match raw {
-        None => Ok(None),
-        Some(key) => {
-            let trimmed = key.trim();
-            if trimmed.is_empty() {
-                return Err(AppServiceError::InvalidInput(
-                    "idempotency key must not be empty".to_owned(),
-                ));
-            }
-            Ok(Some(trimmed.to_owned()))
-        }
     }
 }

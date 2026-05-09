@@ -304,7 +304,7 @@ pub(crate) async fn accept_invitation_route(
         (status = 201, body = CreateOrganizationResponse, description = "Organization created"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 409, body = AccountFailureBody, description = "idempotency_conflict"),
+        (status = 409, body = AccountFailureBody, description = "conflict or idempotency_conflict"),
     ),
     tag = "organizations",
 )]

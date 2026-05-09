@@ -150,6 +150,12 @@ pub(crate) fn create_organization_outcome(response: &CreateOrganizationResponse)
             format!("organization_id: {}", response.organization.id),
             format!("name: {}", response.organization.name),
             format!("granted_permissions: {granted}"),
+            format!("initial_project_count: {}", response.initial_project_count),
+            format!("proof_behavior_id: {}", response.proof_link.behavior_id),
+            format!(
+                "source_event: {}.{}",
+                response.source_link.event_family, response.source_link.event_kind
+            ),
         ],
     }
 }
@@ -185,13 +191,11 @@ pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
 pub(crate) fn render_error(err: AppServiceError) -> String {
     match err {
         AppServiceError::Account(reason) => format_failure(reason),
+        AppServiceError::CreateOrganization(reason) => {
+            format!("{}: {}", reason.code(), reason.summary())
+        }
         AppServiceError::InvalidInput(message) => {
-            if message == "idempotency_conflict" {
-                "idempotency_conflict: The supplied idempotency key conflicts with a prior request."
-                    .to_owned()
-            } else {
-                format!("validation_failed: {message}")
-            }
+            format!("validation_failed: {message}")
         }
         AppServiceError::Store(err) => format!("internal_error: {err}"),
         _ => "internal_error: unknown app-service failure".to_owned(),

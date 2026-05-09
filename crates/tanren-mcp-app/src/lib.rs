@@ -36,7 +36,7 @@ use tanren_contract::{
     CreateOrganizationRequest, ListOrganizationsRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, IdempotencyKey, OrgId, OrganizationName, OrganizationPermission, SessionToken,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -86,7 +86,7 @@ struct CreateOrganizationToolRequest {
     session_token: Option<SessionToken>,
     account_id: AccountId,
     name: OrganizationName,
-    idempotency_key: Option<String>,
+    idempotency_key: Option<IdempotencyKey>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -175,7 +175,7 @@ impl TanrenMcp {
 
     #[rmcp::tool(
         name = "organization.create",
-        description = "Create an organization for a signed-in account. Failure codes: auth_required, validation_failed, idempotency_conflict."
+        description = "Create an organization for a signed-in account. Failure codes: auth_required, validation_failed, conflict, idempotency_conflict."
     )]
     async fn organization_create(
         &self,
@@ -302,16 +302,10 @@ fn success<T: Serialize>(value: &T) -> CallToolResult {
 fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::InvalidInput(message) => {
-            if message == "idempotency_conflict" {
-                (
-                    "idempotency_conflict".to_owned(),
-                    "The supplied idempotency key conflicts with a prior request.".to_owned(),
-                )
-            } else {
-                ("validation_failed".to_owned(), message)
-            }
+        AppServiceError::CreateOrganization(reason) => {
+            (reason.code().to_owned(), reason.summary().to_owned())
         }
+        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
         AppServiceError::Store(err) => (
             "internal_error".to_owned(),
             format!("Tanren encountered an internal error: {err}"),

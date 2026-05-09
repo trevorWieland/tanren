@@ -22,6 +22,9 @@ export interface OrganizationViewResponse {
 export interface CreateOrganizationResponse {
   organization: OrganizationViewResponse;
   granted_permissions: OrganizationAdminPermission[];
+  initial_project_count: number;
+  proof_link: { behavior_id: string };
+  source_link: { event_family: string; event_kind: string };
 }
 
 export interface ListOrganizationsResponse {
@@ -119,9 +122,23 @@ export function isCreateOrganizationResponse(
     return false;
   }
 
-  return permissions.every((permission) =>
-    isOrganizationPermission(permission),
-  );
+  if (
+    !permissions.every((permission) => isOrganizationPermission(permission))
+  ) {
+    return false;
+  }
+
+  if (typeof value["initial_project_count"] !== "number") {
+    return false;
+  }
+
+  const proofLink = value["proof_link"];
+  if (!hasOnlyStringKeys(proofLink, ["behavior_id"])) {
+    return false;
+  }
+
+  const sourceLink = value["source_link"];
+  return hasOnlyStringKeys(sourceLink, ["event_family", "event_kind"]);
 }
 
 export function isListOrganizationsResponse(

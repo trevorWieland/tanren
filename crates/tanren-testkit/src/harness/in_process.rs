@@ -245,6 +245,9 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::CreateOrganization(reason) => {
+            HarnessError::Transport(format!("{}: {}", reason.code(), reason.summary()))
+        }
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }

@@ -8,6 +8,9 @@ use std::collections::HashSet;
 use std::str::FromStr;
 
 use cucumber::{then, when};
+use tanren_contract::{
+    ORGANIZATION_CREATE_BEHAVIOR_ID, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
+};
 use tanren_identity_policy::{AccountId, OrganizationName, OrganizationPermission};
 use tanren_testkit::{HarnessOutcome, record_failure};
 
@@ -195,39 +198,30 @@ async fn then_org_has_zero_initial_projects(world: &mut TanrenWorld, name: Strin
     let ctx = world.ensure_account_ctx().await;
     let org_name = OrganizationName::parse(&name).expect("scenario organization names must parse");
 
-    let events = ctx
-        .harness
-        .recent_events(50)
-        .await
-        .expect("recent_events should succeed under BDD");
-    let payload = events
-        .iter()
-        .rev()
-        .find_map(|event| {
-            let kind = event
-                .payload
-                .get("kind")
-                .and_then(serde_json::Value::as_str)?;
-            if kind != "organization_created" {
-                return None;
-            }
-            let payload = event.payload.get("payload")?;
-            let event_name = payload.get("name").and_then(serde_json::Value::as_str)?;
-            if event_name == org_name.as_str() {
-                Some(payload)
-            } else {
-                None
-            }
-        })
-        .expect("expected an organization_created event for the organization");
-
-    let initial_count = payload
-        .get("initial_project_count")
-        .and_then(serde_json::Value::as_u64)
-        .expect("organization_created payload must include numeric initial_project_count");
+    let created = ctx
+        .last_created_organization
+        .as_ref()
+        .expect("create-organization response must be captured before this assertion");
     assert_eq!(
-        initial_count, 0,
+        created.organization.name.as_str(),
+        org_name.as_str(),
+        "initial-project assertion must target the just-created organization"
+    );
+    assert_eq!(
+        created.initial_project_count, 0,
         "new organizations must start with zero projects"
+    );
+    assert_eq!(
+        created.proof_link.behavior_id, ORGANIZATION_CREATE_BEHAVIOR_ID,
+        "create response should carry the canonical behavior proof link"
+    );
+    assert_eq!(
+        created.source_link.event_family, ORGANIZATION_EVENT_FAMILY,
+        "create response should carry the canonical source event family"
+    );
+    assert_eq!(
+        created.source_link.event_kind, ORGANIZATION_CREATED_EVENT_KIND,
+        "create response should carry the canonical source event kind"
     );
 }
 

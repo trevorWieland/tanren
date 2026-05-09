@@ -37,10 +37,6 @@ interface OperationState {
   detail: string | null;
 }
 
-interface EventEnvelope {
-  payload?: unknown;
-}
-
 function failureCode(response: WireResponse): string {
   const body = response.json as { code?: unknown } | null;
   if (body && typeof body.code === "string") {
@@ -87,42 +83,6 @@ async function callApi(
     text,
     json,
   };
-}
-
-async function readInitialProjectCount(
-  organizationName: string,
-): Promise<number | null> {
-  const response = await callApi(
-    "GET",
-    `${ORGANIZATION_API_ROUTES.testHookEvents}?limit=200`,
-  );
-  if (!response.ok) {
-    return null;
-  }
-
-  const events = response.json as EventEnvelope[];
-  const created = [...events]
-    .reverse()
-    .map((event) => event.payload as Record<string, unknown> | undefined)
-    .find((payload) => {
-      if (!payload) return false;
-      if (payload["kind"] !== "organization_created") return false;
-      const eventPayload = payload["payload"] as
-        | Record<string, unknown>
-        | undefined;
-      if (!eventPayload) return false;
-      return eventPayload["name"] === organizationName;
-    });
-
-  if (!created) {
-    return null;
-  }
-
-  const eventPayload = created["payload"] as
-    | Record<string, unknown>
-    | undefined;
-  const initialProjectCount = eventPayload?.["initial_project_count"];
-  return typeof initialProjectCount === "number" ? initialProjectCount : null;
 }
 
 export default function OrganizationsRoute(): ReactNode {
@@ -196,10 +156,10 @@ export default function OrganizationsRoute(): ReactNode {
     const body = response.json as {
       organization: { id: string; name: string };
       granted_permissions: string[];
+      initial_project_count: number;
+      proof_link: { behavior_id: string };
+      source_link: { event_family: string; event_kind: string };
     };
-    const initialProjectCount = await readInitialProjectCount(
-      body.organization.name,
-    );
     const normalized = normalizeOrganizationName(body.organization.name);
 
     setOrganizationsByName((previous) => ({
@@ -208,7 +168,7 @@ export default function OrganizationsRoute(): ReactNode {
         id: body.organization.id,
         name: body.organization.name,
         grantedPermissions: body.granted_permissions,
-        initialProjectCount,
+        initialProjectCount: body.initial_project_count,
       },
     }));
     if (body.granted_permissions.length > 0) {
