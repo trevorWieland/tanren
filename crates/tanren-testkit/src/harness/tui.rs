@@ -18,8 +18,9 @@
 use async_trait::async_trait;
 use tanren_contract::{
     AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, ListVisibleProjectsRequest,
-    ProjectCollectionView, SignInRequest, SignUpRequest,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
+    SignUpRequest,
 };
 use tanren_store::EventEnvelope;
 
@@ -94,6 +95,13 @@ impl ProjectHarness for TuiHarness {
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
         self.inner.list_visible_projects(req).await
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.inner.create_project(req).await
     }
 
     async fn active_project(

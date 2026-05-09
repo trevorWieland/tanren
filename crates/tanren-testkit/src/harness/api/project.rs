@@ -2,8 +2,8 @@ use async_trait::async_trait;
 use serde_json::Value;
 use tanren_contract::{
     ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
-    ConnectProjectRepositoryResponse, ListVisibleProjectsRequest, ProjectCollectionView,
-    ProjectFailureReason,
+    ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
 };
 
 use super::super::{HarnessError, HarnessResult, ProjectHarness};
@@ -59,6 +59,30 @@ impl ProjectHarness for ApiHarness {
         }
         serde_json::from_value(json)
             .map_err(|e| HarnessError::Transport(format!("decode list projects response: {e}")))
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        let url = format!("{}/projects/create", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&req)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /projects/create: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(project_failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode create project response: {e}")))
     }
 
     async fn active_project(

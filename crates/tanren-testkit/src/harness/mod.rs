@@ -59,8 +59,8 @@ use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, ActiveProjectRequest,
     ActiveProjectView, ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse,
-    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason, SignInRequest,
-    SignUpRequest,
+    CreateProjectRequest, CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView,
+    ProjectFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -258,6 +258,12 @@ pub trait ProjectHarness: AccountHarness {
         &mut self,
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse>;
+
+    /// Create a repository at a designated host and register it as a project.
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse>;
 
     /// List visible projects for the owning account.
     async fn list_visible_projects(

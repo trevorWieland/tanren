@@ -143,6 +143,8 @@ pub struct ProjectContext {
     pub actors: HashMap<String, ProjectActorState>,
     /// Fixture repository metadata keyed by canonical repository identity.
     pub repositories: HashMap<String, RepositoryFixtureState>,
+    /// Fixture host access policy keyed by normalized host label.
+    pub hosts: HashMap<String, HostFixtureState>,
     /// Most recent project failure code, if any.
     pub last_failure_code: Option<String>,
 }
@@ -156,6 +158,7 @@ impl std::fmt::Debug for ProjectContext {
                 "repositories",
                 &self.repositories.keys().collect::<Vec<_>>(),
             )
+            .field("hosts", &self.hosts.keys().collect::<Vec<_>>())
             .field("last_failure_code", &self.last_failure_code)
             .finish()
     }
@@ -185,6 +188,7 @@ impl ProjectContext {
             harness,
             actors: HashMap::new(),
             repositories: HashMap::new(),
+            hosts: HashMap::new(),
             last_failure_code: None,
         }
     }
@@ -197,6 +201,10 @@ pub struct ProjectActorState {
     pub account_id: Option<tanren_identity_policy::AccountId>,
     /// Last repository successfully connected by this actor.
     pub last_connected_repository: Option<tanren_identity_policy::RepositoryRef>,
+    /// Last repository successfully created by this actor.
+    pub last_created_repository: Option<tanren_identity_policy::RepositoryRef>,
+    /// Last designated host this actor attempted for project creation.
+    pub last_designated_host: Option<String>,
 }
 
 /// Fixture repository metadata tracked by project scenarios.
@@ -208,6 +216,17 @@ pub struct RepositoryFixtureState {
     pub fingerprint: String,
     /// Number of pre-existing commits in the fixture repository.
     pub prior_commits: usize,
+}
+
+/// Fixture metadata for a designated source-control host.
+#[derive(Debug, Clone)]
+pub struct HostFixtureState {
+    /// Normalized host label.
+    pub host: String,
+    /// Whether creation at this host should be considered accessible.
+    pub can_create: bool,
+    /// Repositories observed as created at this host in this scenario.
+    pub created_repositories: HashSet<tanren_identity_policy::RepositoryRef>,
 }
 
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {

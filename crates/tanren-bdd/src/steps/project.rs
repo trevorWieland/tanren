@@ -1,4 +1,4 @@
-//! Project-setup step definitions for B-0025.
+//! Project-setup step definitions for B-0025 and B-0026.
 //!
 //! Step bodies dispatch through [`ProjectHarness`](tanren_testkit::ProjectHarness)
 //! implementations selected from scenario interface tags.
@@ -37,6 +37,8 @@ async fn given_project_account(world: &mut TanrenWorld, actor: String) {
     let entry = ctx.actors.entry(actor).or_default();
     entry.account_id = Some(session.account_id);
     entry.last_connected_repository = None;
+    entry.last_created_repository = None;
+    entry.last_designated_host = None;
     ctx.last_failure_code = None;
 }
 
@@ -288,10 +290,14 @@ async fn connect_existing_impl(
     match result {
         Ok(response) => {
             entry.last_connected_repository = Some(response.project.repository.repository);
+            entry.last_created_repository = None;
+            entry.last_designated_host = None;
             ctx.last_failure_code = None;
         }
         Err(err) => {
             entry.last_connected_repository = None;
+            entry.last_created_repository = None;
+            entry.last_designated_host = None;
             ctx.last_failure_code = Some(err.code());
         }
     }

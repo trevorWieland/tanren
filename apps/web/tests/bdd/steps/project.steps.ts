@@ -11,6 +11,8 @@ import { randomUUID } from "node:crypto";
 interface ProjectActorState {
   accountId: string | null;
   lastConnectedRepository: string | null;
+  lastCreatedRepository: string | null;
+  lastDesignatedHost: string | null;
 }
 
 interface RepositoryFixtureState {
@@ -19,9 +21,16 @@ interface RepositoryFixtureState {
   priorCommits: number;
 }
 
+interface HostFixtureState {
+  host: string;
+  canCreate: boolean;
+  createdRepositories: Set<string>;
+}
+
 interface WebProjectWorld {
   actors: Map<string, ProjectActorState>;
   repositories: Map<string, RepositoryFixtureState>;
+  hosts: Map<string, HostFixtureState>;
   lastFailureCode: string | null;
 }
 
@@ -30,6 +39,7 @@ const extendedTest = accountTest.extend<{ projectWorld: WebProjectWorld }>({
     await use({
       actors: new Map(),
       repositories: new Map(),
+      hosts: new Map(),
       lastFailureCode: null,
     });
   },
@@ -41,7 +51,12 @@ const { Given, When, Then } = createBdd(extendedTest);
 function actor(world: WebProjectWorld, name: string): ProjectActorState {
   let state = world.actors.get(name);
   if (!state) {
-    state = { accountId: null, lastConnectedRepository: null };
+    state = {
+      accountId: null,
+      lastConnectedRepository: null,
+      lastCreatedRepository: null,
+      lastDesignatedHost: null,
+    };
     world.actors.set(name, state);
   }
   return state;
@@ -53,6 +68,10 @@ function canonicalRepository(raw: string): string {
 
 function repositoryFingerprint(repository: string): string {
   return `repo-fp::${repository}`;
+}
+
+function canonicalHost(raw: string): string {
+  return raw.trim().toLowerCase();
 }
 
 function apiUrl(): string {
@@ -174,6 +193,38 @@ Given(
   },
 );
 
+Given(
+  /^designated fixture host "([^"]+)" is accessible to (\w+)$/,
+  async ({ projectWorld }, host: string, name: string) => {
+    const state = actor(projectWorld, name);
+    if (!state.accountId) {
+      throw new Error(`actor ${name} has no project account id`);
+    }
+    const canonical = canonicalHost(host);
+    projectWorld.hosts.set(canonical, {
+      host: canonical,
+      canCreate: true,
+      createdRepositories: new Set<string>(),
+    });
+  },
+);
+
+Given(
+  /^designated fixture host "([^"]+)" is not accessible to (\w+)$/,
+  async ({ projectWorld }, host: string, name: string) => {
+    const state = actor(projectWorld, name);
+    if (!state.accountId) {
+      throw new Error(`actor ${name} has no project account id`);
+    }
+    const canonical = canonicalHost(host);
+    projectWorld.hosts.set(canonical, {
+      host: canonical,
+      canCreate: false,
+      createdRepositories: new Set<string>(),
+    });
+  },
+);
+
 When(
   /^(\w+) connects existing repository "([^"]+)" as an active project$/,
   async ({ page, projectWorld }, name: string, repository: string) => {
@@ -213,11 +264,15 @@ When(
       projectWorld.lastFailureCode = null;
       state.lastConnectedRepository =
         payload.project?.repository?.repository ?? canonical;
+      state.lastCreatedRepository = null;
+      state.lastDesignatedHost = null;
       return;
     }
 
     projectWorld.lastFailureCode = payload.code ?? "unknown";
     state.lastConnectedRepository = null;
+    state.lastCreatedRepository = null;
+    state.lastDesignatedHost = null;
   },
 );
 
@@ -255,6 +310,62 @@ When(
     projectWorld.lastFailureCode = payload.code ?? "unknown";
     state.accountId = unknownAccount;
     state.lastConnectedRepository = null;
+    state.lastCreatedRepository = null;
+    state.lastDesignatedHost = null;
+  },
+);
+
+When(
+  /^(\w+) creates new repository "([^"]+)" at designated host "([^"]+)" as an active project$/,
+  async (
+    { projectWorld },
+    name: string,
+    repository: string,
+    designatedHost: string,
+  ) => {
+    const canonicalRepositoryName = canonicalRepository(repository);
+    const canonicalHostName = canonicalHost(designatedHost);
+    const host = projectWorld.hosts.get(canonicalHostName);
+    if (!host) {
+      throw new Error(
+        `designated host fixture missing for ${canonicalHostName}`,
+      );
+    }
+
+    const state = actor(projectWorld, name);
+    if (!state.accountId) {
+      throw new Error(`actor ${name} has no project account id`);
+    }
+
+    const requestAccountId = host.canCreate ? state.accountId : randomUUID();
+    const response = await fetch(`${apiUrl()}/projects/create`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        owning_account_id: requestAccountId,
+        repository,
+        designated_host: canonicalHostName,
+        select_as_active: true,
+      }),
+    });
+    const payload = (await response.json()) as {
+      code?: string;
+      project?: { repository?: { repository?: string } };
+    };
+
+    state.lastDesignatedHost = canonicalHostName;
+    if (response.ok) {
+      projectWorld.lastFailureCode = null;
+      state.lastConnectedRepository = null;
+      state.lastCreatedRepository =
+        payload.project?.repository?.repository ?? canonicalRepositoryName;
+      host.createdRepositories.add(state.lastCreatedRepository);
+      return;
+    }
+
+    projectWorld.lastFailureCode = payload.code ?? "unknown";
+    state.lastConnectedRepository = null;
+    state.lastCreatedRepository = null;
   },
 );
 
@@ -264,12 +375,58 @@ Then("the connection succeeds", async ({ projectWorld }) => {
   }
 });
 
+Then("the project creation succeeds", async ({ projectWorld }) => {
+  if (projectWorld.lastFailureCode !== null) {
+    throw new Error(
+      `expected successful project creation, got ${projectWorld.lastFailureCode}`,
+    );
+  }
+});
+
 Then(
   /^the project request fails with code "([^"]+)"$/,
   async ({ projectWorld }, code: string) => {
     if (projectWorld.lastFailureCode !== code) {
       throw new Error(
         `expected project failure code ${code}, got ${projectWorld.lastFailureCode ?? "none"}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^repository "([^"]+)" exists at designated host "([^"]+)"$/,
+  async ({ projectWorld }, repository: string, designatedHost: string) => {
+    const canonicalRepositoryName = canonicalRepository(repository);
+    const canonicalHostName = canonicalHost(designatedHost);
+    const host = projectWorld.hosts.get(canonicalHostName);
+    if (!host) {
+      throw new Error(
+        `designated host fixture missing for ${canonicalHostName}`,
+      );
+    }
+    if (!host.createdRepositories.has(canonicalRepositoryName)) {
+      throw new Error(
+        `expected repository ${canonicalRepositoryName} to exist at designated host ${canonicalHostName}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^repository "([^"]+)" does not exist at designated host "([^"]+)"$/,
+  async ({ projectWorld }, repository: string, designatedHost: string) => {
+    const canonicalRepositoryName = canonicalRepository(repository);
+    const canonicalHostName = canonicalHost(designatedHost);
+    const host = projectWorld.hosts.get(canonicalHostName);
+    if (!host) {
+      throw new Error(
+        `designated host fixture missing for ${canonicalHostName}`,
+      );
+    }
+    if (host.createdRepositories.has(canonicalRepositoryName)) {
+      throw new Error(
+        `expected repository ${canonicalRepositoryName} not to exist at designated host ${canonicalHostName}`,
       );
     }
   },
@@ -390,6 +547,38 @@ Then(
       ) {
         throw new Error(
           `expected zero counts for ${canonical}, got specs=${project.counts.specs} milestones=${project.counts.milestones} initiatives=${project.counts.initiatives}`,
+        );
+      }
+      return;
+    }
+
+    throw new Error(`repository ${canonical} not found in actor project lists`);
+  },
+);
+
+Then(
+  /^repository "([^"]+)" starts with zero Tanren activity counts$/,
+  async ({ projectWorld }, repository: string) => {
+    const canonical = canonicalRepository(repository);
+    const accountIds = [...projectWorld.actors.values()]
+      .map((state) => state.accountId)
+      .filter((value): value is string => typeof value === "string");
+
+    for (const accountId of accountIds) {
+      const list = await listProjects(accountId);
+      const project = list.projects.find(
+        (item) => item.repository.repository === canonical,
+      );
+      if (!project) {
+        continue;
+      }
+      if (
+        project.counts.specs !== 0 ||
+        project.counts.milestones !== 0 ||
+        project.counts.initiatives !== 0
+      ) {
+        throw new Error(
+          `expected zero initial counts for ${canonical}, got specs=${project.counts.specs} milestones=${project.counts.milestones} initiatives=${project.counts.initiatives}`,
         );
       }
       return;

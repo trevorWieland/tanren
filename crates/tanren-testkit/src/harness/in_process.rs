@@ -9,13 +9,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::project::{
-    ActiveProjectQuery, ConnectExistingRepositoryCommand, ListVisibleProjectsQuery,
+    ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
+    ListVisibleProjectsQuery,
 };
 use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, ListVisibleProjectsRequest,
-    ProjectCollectionView, SignInRequest, SignUpRequest,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_provider_integrations::AllowAllSourceControlProvider;
@@ -182,6 +184,24 @@ impl ProjectHarness for InProcessHarness {
             .list_visible_projects(
                 &self.store,
                 ListVisibleProjectsQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        let actor_account_id = req.owning_account_id;
+        self.handlers
+            .create_project(
+                &self.store,
+                &self.source_control,
+                CreateNewProjectCommand {
                     actor_account_id,
                     request: req,
                 },

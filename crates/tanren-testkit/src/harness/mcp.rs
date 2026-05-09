@@ -17,8 +17,9 @@ use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, ActiveProjectRequest, ActiveProjectView,
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, ListVisibleProjectsRequest,
-    ProjectCollectionView, SignInRequest, SignUpRequest,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
+    SignUpRequest,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
@@ -230,6 +231,17 @@ impl ProjectHarness for McpHarness {
         let payload = self.call_tool("project.list_visible", body).await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode project list response: {e}")))
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self.call_tool("project.create", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode create project response: {e}")))
     }
 
     async fn active_project(
