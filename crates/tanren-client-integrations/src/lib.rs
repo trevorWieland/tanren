@@ -7,6 +7,8 @@
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub mod session_file_store;
+
 /// Stable idempotency key supplied by a calling client. Two requests with
 /// the same key are treated as the same logical operation.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]

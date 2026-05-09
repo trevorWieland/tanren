@@ -4247,6 +4247,7 @@ dependencies = [
  "serde",
  "serde_json",
  "tanren-app-services",
+ "tanren-client-integrations",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
@@ -4258,6 +4259,7 @@ name = "tanren-client-integrations"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "serde_json",
  "thiserror 2.0.18",
 ]
 
@@ -4487,8 +4489,8 @@ dependencies = [
  "ratatui",
  "secrecy",
  "serde",
- "serde_json",
  "tanren-app-services",
+ "tanren-client-integrations",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",

@@ -3,16 +3,14 @@
 use std::collections::{BTreeMap, HashSet};
 use std::env;
 use std::error::Error as StdError;
-use std::fs;
-use std::path::PathBuf;
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{AccountStore, ActiveAccountContext, ActiveAccountContextError, Clock};
+use tanren_client_integrations::session_file_store::SessionFileStore;
 use tanren_identity_policy::{AccountId, SessionToken};
 
-const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 const WINDOW_ID_ENV: &str = "TANREN_WINDOW_ID";
 const DEFAULT_WINDOW_KEY: &str = "_default";
 const SESSION_FILE_VERSION: u32 = 1;
@@ -167,25 +165,8 @@ pub(crate) fn set_active_account(account_id: AccountId) -> Result<()> {
     write_session_file(&session)
 }
 
-fn session_path() -> PathBuf {
-    if let Ok(explicit) = env::var(SESSION_FILE_ENV) {
-        if !explicit.is_empty() {
-            return PathBuf::from(explicit);
-        }
-    }
-    let base = env::var("XDG_STATE_HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map_or_else(
-            || {
-                env::var("HOME").ok().map_or_else(
-                    || PathBuf::from("."),
-                    |home| PathBuf::from(home).join(".local/state"),
-                )
-            },
-            PathBuf::from,
-        );
-    base.join("tanren").join("session")
+fn session_store() -> SessionFileStore {
+    SessionFileStore::from_env()
 }
 
 fn window_key() -> String {
@@ -197,31 +178,15 @@ fn window_key() -> String {
 }
 
 fn read_session_file() -> Result<TuiSessionFile> {
-    let path = session_path();
-    if !path.exists() {
-        return Ok(TuiSessionFile::default());
-    }
-    let raw = fs::read_to_string(&path)
-        .with_context(|| format!("read session file from {}", path.display()))?;
-    if raw.trim().is_empty() {
-        return Ok(TuiSessionFile::default());
-    }
-    if raw.trim_start().starts_with('{') {
-        return serde_json::from_str::<TuiSessionFile>(&raw)
-            .with_context(|| format!("parse session file {}", path.display()));
-    }
-    Ok(TuiSessionFile::default())
+    session_store()
+        .read_json_or_default(|_| Some(TuiSessionFile::default()))
+        .map_err(anyhow::Error::from)
 }
 
 fn write_session_file(session: &TuiSessionFile) -> Result<()> {
-    let path = session_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create session dir {}", parent.display()))?;
-    }
-    let body = serde_json::to_string_pretty(session).context("encode session file JSON")?;
-    fs::write(&path, body).with_context(|| format!("write session to {}", path.display()))?;
-    Ok(())
+    session_store()
+        .write_json_pretty(session)
+        .map_err(anyhow::Error::from)
 }
 
 fn map_active_account_context_error(err: &ActiveAccountContextError) -> anyhow::Error {
