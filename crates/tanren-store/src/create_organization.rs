@@ -1,0 +1,229 @@
+//! `SeaORM`-backed implementation of atomic organization creation.
+//! Keeps `lib.rs` below the workspace file-size budget.
+
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
+    PaginatorTrait, QueryFilter, Set, TransactionTrait,
+};
+use tanren_identity_policy::{AccountId, MembershipId, OrgId, OrganizationPermission};
+use uuid::Uuid;
+
+use crate::entity;
+use crate::traits::{
+    CreateOrganizationAtomicOutput, CreateOrganizationAtomicRequest, CreateOrganizationError,
+    CreateOrganizationEventContext, CreateOrganizationEventsBuilder,
+    LastOrganizationAdminGuardError,
+};
+use crate::{OrganizationRecord, StoreError, organization_permission_key};
+
+const ORGANIZATION_ADMIN_PERMISSIONS: [OrganizationPermission; 5] = [
+    OrganizationPermission::Invite,
+    OrganizationPermission::ManageAccess,
+    OrganizationPermission::Configure,
+    OrganizationPermission::SetPolicy,
+    OrganizationPermission::Delete,
+];
+
+pub(crate) async fn run(
+    conn: &DatabaseConnection,
+    request: CreateOrganizationAtomicRequest,
+) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError> {
+    conn.transaction::<_, CreateOrganizationAtomicOutput, CreateOrganizationError>(|txn| {
+        Box::pin(async move { run_in_txn(txn, request).await })
+    })
+    .await
+    .map_err(map_transaction_error)
+}
+
+async fn run_in_txn(
+    txn: &DatabaseTransaction,
+    request: CreateOrganizationAtomicRequest,
+) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError> {
+    let CreateOrganizationAtomicRequest {
+        organization_id,
+        name,
+        creator_account_id,
+        creator_membership_id,
+        now,
+        events_builder,
+    } = request;
+
+    let organization =
+        insert_organization_in_txn(txn, organization_id, &name, creator_account_id, now).await?;
+    insert_creator_membership_in_txn(
+        txn,
+        creator_membership_id,
+        creator_account_id,
+        organization_id,
+        now,
+    )
+    .await?;
+    let granted_permissions =
+        insert_creator_admin_grants_in_txn(txn, creator_account_id, organization_id, now).await?;
+    append_success_events_in_txn(
+        txn,
+        events_builder,
+        &CreateOrganizationEventContext {
+            organization: organization.clone(),
+            creator_account_id,
+            creator_membership_id,
+            granted_permissions: granted_permissions.clone(),
+            now,
+        },
+    )
+    .await?;
+
+    Ok(CreateOrganizationAtomicOutput {
+        organization,
+        granted_permissions,
+        initial_project_count: 0,
+    })
+}
+
+async fn insert_organization_in_txn(
+    txn: &DatabaseTransaction,
+    organization_id: OrgId,
+    name: &tanren_identity_policy::OrganizationName,
+    creator_account_id: AccountId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<OrganizationRecord, CreateOrganizationError> {
+    let model = entity::organizations::ActiveModel {
+        id: Set(organization_id.as_uuid()),
+        name: Set(name.as_str().to_owned()),
+        created_by_account_id: Set(creator_account_id.as_uuid()),
+        created_at: Set(now),
+    };
+
+    let inserted = match model.insert(txn).await {
+        Ok(row) => row,
+        Err(err) => {
+            let lower = err.to_string().to_lowercase();
+            if lower.contains("unique") || lower.contains("duplicate") {
+                return Err(CreateOrganizationError::DuplicateName);
+            }
+            return Err(StoreError::from(err).into());
+        }
+    };
+
+    OrganizationRecord::try_from(inserted).map_err(CreateOrganizationError::Store)
+}
+
+async fn insert_creator_membership_in_txn(
+    txn: &DatabaseTransaction,
+    membership_id: MembershipId,
+    creator_account_id: AccountId,
+    organization_id: OrgId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), CreateOrganizationError> {
+    let model = entity::memberships::ActiveModel {
+        id: Set(membership_id.as_uuid()),
+        account_id: Set(creator_account_id.as_uuid()),
+        org_id: Set(organization_id.as_uuid()),
+        created_at: Set(now),
+    };
+    model.insert(txn).await.map_err(StoreError::from)?;
+    Ok(())
+}
+
+async fn insert_creator_admin_grants_in_txn(
+    txn: &DatabaseTransaction,
+    creator_account_id: AccountId,
+    organization_id: OrgId,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<Vec<OrganizationPermission>, CreateOrganizationError> {
+    for permission in ORGANIZATION_ADMIN_PERMISSIONS {
+        let model = entity::organization_permission_grants::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            org_id: Set(organization_id.as_uuid()),
+            account_id: Set(creator_account_id.as_uuid()),
+            permission: Set(organization_permission_key(permission).to_owned()),
+            granted_by_account_id: Set(creator_account_id.as_uuid()),
+            created_at: Set(now),
+        };
+        model.insert(txn).await.map_err(StoreError::from)?;
+    }
+
+    Ok(ORGANIZATION_ADMIN_PERMISSIONS.to_vec())
+}
+
+async fn append_success_events_in_txn(
+    txn: &DatabaseTransaction,
+    events_builder: CreateOrganizationEventsBuilder,
+    ctx: &CreateOrganizationEventContext,
+) -> Result<(), CreateOrganizationError> {
+    for payload in (events_builder)(ctx) {
+        let model = entity::events::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            occurred_at: Set(ctx.now),
+            payload: Set(payload),
+        };
+        model.insert(txn).await.map_err(StoreError::from)?;
+    }
+    Ok(())
+}
+
+pub(crate) async fn has_permission(
+    conn: &DatabaseConnection,
+    account_id: AccountId,
+    org_id: OrgId,
+    permission: OrganizationPermission,
+) -> Result<bool, StoreError> {
+    let row = entity::organization_permission_grants::Entity::find()
+        .filter(entity::organization_permission_grants::Column::AccountId.eq(account_id.as_uuid()))
+        .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
+        .filter(
+            entity::organization_permission_grants::Column::Permission
+                .eq(organization_permission_key(permission)),
+        )
+        .one(conn)
+        .await?;
+
+    Ok(row.is_some())
+}
+
+pub(crate) async fn enforce_not_last_admin_holder(
+    conn: &DatabaseConnection,
+    account_id: AccountId,
+    org_id: OrgId,
+) -> Result<(), LastOrganizationAdminGuardError> {
+    let mut orphaned_permissions = Vec::new();
+
+    for permission in ORGANIZATION_ADMIN_PERMISSIONS {
+        if !has_permission(conn, account_id, org_id, permission).await? {
+            continue;
+        }
+
+        let holder_count = entity::organization_permission_grants::Entity::find()
+            .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
+            .filter(
+                entity::organization_permission_grants::Column::Permission
+                    .eq(organization_permission_key(permission)),
+            )
+            .count(conn)
+            .await
+            .map_err(StoreError::from)?;
+
+        if holder_count <= 1 {
+            orphaned_permissions.push(permission);
+        }
+    }
+
+    if orphaned_permissions.is_empty() {
+        return Ok(());
+    }
+
+    Err(LastOrganizationAdminGuardError::LastAdminHolder {
+        permissions: orphaned_permissions,
+    })
+}
+
+fn map_transaction_error(
+    err: sea_orm::TransactionError<CreateOrganizationError>,
+) -> CreateOrganizationError {
+    match err {
+        sea_orm::TransactionError::Connection(db_err) => {
+            CreateOrganizationError::Store(StoreError::from(db_err))
+        }
+        sea_orm::TransactionError::Transaction(inner) => inner,
+    }
+}

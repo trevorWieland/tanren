@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
+    OrganizationPermission, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, SessionRecord,
+    StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -149,6 +151,92 @@ pub enum AcceptInvitationError {
     Store(#[from] StoreError),
 }
 
+/// Context passed to create-organization success event builders.
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationEventContext {
+    /// Organization that was created.
+    pub organization: OrganizationRecord,
+    /// Account that created the organization.
+    pub creator_account_id: AccountId,
+    /// Membership row allocated to the creator in the organization.
+    pub creator_membership_id: MembershipId,
+    /// All creator permissions granted during bootstrap.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// Request timestamp threaded through all writes.
+    pub now: DateTime<Utc>,
+}
+
+/// Closure invoked inside the organization-create transaction to build
+/// success-path event envelopes.
+pub type CreateOrganizationEventsBuilder =
+    Box<dyn FnOnce(&CreateOrganizationEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`AccountStore::create_organization_atomic`].
+pub struct CreateOrganizationAtomicRequest {
+    /// Stable id allocated for the new organization.
+    pub organization_id: OrgId,
+    /// Normalized organization name uniqueness key.
+    pub name: OrganizationName,
+    /// Signed-in account creating the organization.
+    pub creator_account_id: AccountId,
+    /// Membership id to allocate for the creator.
+    pub creator_membership_id: MembershipId,
+    /// Wall-clock time for all row writes and success events.
+    pub now: DateTime<Utc>,
+    /// Event payload builder invoked inside the transaction.
+    pub events_builder: CreateOrganizationEventsBuilder,
+}
+
+impl std::fmt::Debug for CreateOrganizationAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateOrganizationAtomicRequest")
+            .field("organization_id", &self.organization_id)
+            .field("name", &self.name)
+            .field("creator_account_id", &self.creator_account_id)
+            .field("creator_membership_id", &self.creator_membership_id)
+            .field("now", &self.now)
+            .finish_non_exhaustive()
+    }
+}
+
+/// Successful return from [`AccountStore::create_organization_atomic`].
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationAtomicOutput {
+    /// Newly created organization row.
+    pub organization: OrganizationRecord,
+    /// Organization-level permissions granted to the creator.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// New organizations own zero projects at creation time.
+    pub initial_project_count: u64,
+}
+
+/// Failure taxonomy for [`AccountStore::create_organization_atomic`].
+#[derive(Debug, thiserror::Error)]
+pub enum CreateOrganizationError {
+    /// Organization name already exists (normalized uniqueness key).
+    #[error("duplicate organization name")]
+    DuplicateName,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Enforceable guard used by leave/remove-member flows so they cannot
+/// orphan administrative organization permissions.
+#[derive(Debug, thiserror::Error)]
+pub enum LastOrganizationAdminGuardError {
+    /// The account is the final holder of one or more organization
+    /// administrative permissions and cannot be removed yet.
+    #[error("account is last holder of administrative permissions")]
+    LastAdminHolder {
+        /// Permissions that would become orphaned.
+        permissions: Vec<OrganizationPermission>,
+    },
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Port the account-flow handlers consume. The SeaORM-backed adapter is
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
@@ -232,6 +320,32 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         request: AcceptInvitationAtomicRequest,
     ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError>;
+
+    /// Run organization creation as one transaction: insert the
+    /// organization row, creator membership, all creator
+    /// organization-admin grants, and success-path events.
+    async fn create_organization_atomic(
+        &self,
+        request: CreateOrganizationAtomicRequest,
+    ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError>;
+
+    /// Check whether an account currently holds the supplied
+    /// organization-level permission.
+    async fn has_organization_permission(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> Result<bool, StoreError>;
+
+    /// Guard future leave/remove-member flows by rejecting removal of
+    /// the final administrative permission holder for the
+    /// organization.
+    async fn enforce_not_last_organization_admin_holder(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), LastOrganizationAdminGuardError>;
 
     /// Issue a session for the supplied account.
     async fn insert_session(
