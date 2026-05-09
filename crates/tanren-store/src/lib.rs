@@ -11,6 +11,7 @@ mod accept_invitation;
 mod entity;
 mod migration;
 mod records;
+mod switch_active_account;
 mod traits;
 
 pub use migration::Migrator;
@@ -21,7 +22,8 @@ pub use records::{
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, SessionLookupError,
+    ConsumeInvitationError, ConsumedInvitation, SessionLookupError, SwitchActiveAccountAtomicError,
+    SwitchActiveAccountAtomicRequest,
 };
 
 use async_trait::async_trait;
@@ -339,6 +341,13 @@ impl AccountStore for Store {
         request: AcceptInvitationAtomicRequest,
     ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError> {
         accept_invitation::run(&self.conn, request).await
+    }
+
+    async fn switch_active_account_atomic(
+        &self,
+        request: SwitchActiveAccountAtomicRequest,
+    ) -> Result<(), SwitchActiveAccountAtomicError> {
+        switch_active_account::run(&self.conn, request).await
     }
 
     async fn insert_session(

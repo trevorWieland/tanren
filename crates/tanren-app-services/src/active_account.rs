@@ -11,7 +11,9 @@ use tanren_contract::{
     SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
 use tanren_identity_policy::AccountId;
-use tanren_store::{AccountRecord, AccountStore};
+use tanren_store::{
+    AccountRecord, AccountStore, SwitchActiveAccountAtomicError, SwitchActiveAccountAtomicRequest,
+};
 use thiserror::Error;
 
 use crate::events::{
@@ -180,13 +182,43 @@ where
     }
 
     let accounts = load_signed_in_accounts(store, visibility.signed_in_account_ids()).await?;
-    emit_switched(
-        store,
-        context.active_account_id(),
-        request.target_account_id,
-        now,
-    )
-    .await?;
+    match store
+        .switch_active_account_atomic(SwitchActiveAccountAtomicRequest {
+            from_account_id: context.active_account_id(),
+            to_account_id: request.target_account_id,
+            signed_in_account_ids: visibility.signed_in_account_ids().to_vec(),
+            now,
+            switched_event_payload: envelope(
+                AccountEventKind::ActiveAccountSwitched,
+                &ActiveAccountSwitched {
+                    from_account_id: context.active_account_id(),
+                    to_account_id: request.target_account_id,
+                    at: now,
+                },
+            ),
+        })
+        .await
+    {
+        Ok(()) => {}
+        Err(SwitchActiveAccountAtomicError::EmptySignedInSet) => {
+            return Err(AppServiceError::InvalidInput(
+                "signed-in account set must not be empty".to_owned(),
+            ));
+        }
+        Err(SwitchActiveAccountAtomicError::ActiveAccountNotSignedIn) => {
+            return Err(AppServiceError::InvalidInput(
+                "active account is not present in signed-in set".to_owned(),
+            ));
+        }
+        Err(SwitchActiveAccountAtomicError::TargetAccountNotSignedIn) => {
+            return Err(AppServiceError::Account(
+                AccountFailureReason::TargetAccountNotSignedIn,
+            ));
+        }
+        Err(SwitchActiveAccountAtomicError::Store(err)) => {
+            return Err(AppServiceError::Store(err));
+        }
+    }
 
     Ok(SwitchActiveAccountResponse {
         active_account_id: request.target_account_id,
@@ -223,31 +255,6 @@ fn redact_for_active_account_switcher(record: &AccountRecord) -> ActiveAccountVi
         display_name: record.display_name.clone(),
         org: record.org_id,
     }
-}
-
-async fn emit_switched<S>(
-    store: &S,
-    from_account_id: AccountId,
-    to_account_id: AccountId,
-    now: DateTime<Utc>,
-) -> Result<(), AppServiceError>
-where
-    S: AccountStore + ?Sized,
-{
-    store
-        .append_event(
-            envelope(
-                AccountEventKind::ActiveAccountSwitched,
-                &ActiveAccountSwitched {
-                    from_account_id,
-                    to_account_id,
-                    at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
-    Ok(())
 }
 
 async fn emit_switch_rejected<S>(

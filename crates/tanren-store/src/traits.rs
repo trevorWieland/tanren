@@ -122,6 +122,44 @@ pub struct AcceptInvitationAtomicOutput {
     pub joined_org: OrgId,
 }
 
+/// Input shape for [`AccountStore::switch_active_account_atomic`].
+/// Carries the caller-window active-account state snapshot that the
+/// store persists and the already-encoded `active_account_switched`
+/// event envelope that the same transaction appends.
+#[derive(Debug, Clone)]
+pub struct SwitchActiveAccountAtomicRequest {
+    /// Account that was active before the switch.
+    pub from_account_id: AccountId,
+    /// Target account that should become active.
+    pub to_account_id: AccountId,
+    /// Signed-in account ids visible in this caller scope.
+    pub signed_in_account_ids: Vec<AccountId>,
+    /// Wall-clock instant for both state write and event append.
+    pub now: DateTime<Utc>,
+    /// Pre-built event payload (`family/kind/payload`) for
+    /// `active_account_switched`. The app-service layer owns the typed
+    /// payload shape; the store persists it atomically with the state
+    /// row.
+    pub switched_event_payload: serde_json::Value,
+}
+
+/// Failure taxonomy for [`AccountStore::switch_active_account_atomic`].
+#[derive(Debug, thiserror::Error)]
+pub enum SwitchActiveAccountAtomicError {
+    /// Caller scope did not include any signed-in account ids.
+    #[error("signed-in account set must not be empty")]
+    EmptySignedInSet,
+    /// Previously active account is outside the supplied signed-in scope.
+    #[error("active account not signed in")]
+    ActiveAccountNotSignedIn,
+    /// Target account is outside the supplied signed-in scope.
+    #[error("target account not signed in")]
+    TargetAccountNotSignedIn,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Failure taxonomy for [`AccountStore::accept_invitation_atomic`]. The
 /// app-service layer maps each variant to the matching
 /// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB
@@ -290,6 +328,18 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         request: AcceptInvitationAtomicRequest,
     ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError>;
+
+    /// Persist the caller-window active-account state and append the
+    /// matching `active_account_switched` event in one transaction.
+    ///
+    /// The state row is a projection keyed by the signed-in account-id
+    /// set; it lets command handling guarantee that the success-path
+    /// state write and canonical event append either commit together or
+    /// roll back together.
+    async fn switch_active_account_atomic(
+        &self,
+        request: SwitchActiveAccountAtomicRequest,
+    ) -> Result<(), SwitchActiveAccountAtomicError>;
 
     /// Issue a session for the supplied account.
     async fn insert_session(
