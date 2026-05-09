@@ -13,10 +13,13 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use configuration::{
-    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
+    ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
+    CredentialCapabilitiesView, CredentialCapabilityAction,
+    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
     ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
-    UpsertUserSettingResponse, UserConfigurationFailureReason, UserCredentialView, UserSettingView,
+    SettingCapabilitiesView, SettingCapabilityAction, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason, UserCredentialView, UserSettingView,
 };
 
 use serde::{Deserialize, Serialize};

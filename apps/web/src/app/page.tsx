@@ -9,7 +9,7 @@ export default function LandingPage(): ReactNode {
       <header className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-6">
         <h1 className="text-2xl font-semibold">{m.app_title()}</h1>
         <p className="mt-2 text-sm text-[--color-fg-muted]">
-          Landing surface. Sign in to manage account-scoped configuration.
+          {m.landing_subtitle()}
         </p>
       </header>
       <nav className="grid gap-3 sm:grid-cols-3">
@@ -17,19 +17,19 @@ export default function LandingPage(): ReactNode {
           href="/sign-in"
           className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-3 text-sm"
         >
-          Sign in
+          {m.landing_link_sign_in()}
         </Link>
         <Link
           href="/sign-up"
           className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-3 text-sm"
         >
-          Create account
+          {m.landing_link_create_account()}
         </Link>
         <Link
           href="/configuration/account"
           className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-3 text-sm"
         >
-          Configuration
+          {m.landing_link_configuration()}
         </Link>
       </nav>
     </main>

@@ -1,5 +1,46 @@
 import * as m from "@/i18n/paraglide/messages";
 import { withJsonContentType } from "@/app/lib/http";
+import type {
+  AccountFailure,
+  ConfigurationCapabilities,
+  ConfigurationDiscoveryResult,
+  CreateUserCredentialInput,
+  CreateUserCredentialResult,
+  GetConfigurationCapabilitiesResult,
+  ListUserCredentialsResult,
+  ListUserSettingsResult,
+  RemoveUserCredentialResult,
+  RemoveUserSettingResult,
+  UpdateUserCredentialInput,
+  UpdateUserCredentialResult,
+  UpsertUserSettingInput,
+  UpsertUserSettingResult,
+  UserCredentialView,
+  UserSettingKey,
+  UserSettingView,
+} from "@/app/lib/api-contracts";
+
+export type {
+  AccountFailure,
+  ConfigurationCapabilities,
+  ConfigurationDiscoveryResult,
+  CreateUserCredentialInput,
+  CreateUserCredentialResult,
+  GetConfigurationCapabilitiesResult,
+  ListUserCredentialsResult,
+  ListUserSettingsResult,
+  RemoveUserCredentialResult,
+  RemoveUserSettingResult,
+  UpdateUserCredentialInput,
+  UpdateUserCredentialResult,
+  UpsertUserSettingInput,
+  UpsertUserSettingResult,
+  UserCredentialKind,
+  UserCredentialView,
+  UserSettingKey,
+  UserSettingValue,
+  UserSettingView,
+} from "@/app/lib/api-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
@@ -58,92 +99,6 @@ export interface HealthReport {
   status: string;
   version: string;
   contract_version: number;
-}
-
-export type UserSettingKey = "theme" | "editor";
-export type UserCredentialKind = "provider_api_token" | "harness_api_token";
-
-export type UserSettingValue =
-  | { kind: "theme"; value: "system" | "light" | "dark" }
-  | { kind: "editor"; value: string };
-
-export interface UserSettingView {
-  key: UserSettingKey;
-  value: UserSettingValue;
-  updated_at: string;
-}
-
-export interface UserCredentialView {
-  id: string;
-  kind: UserCredentialKind;
-  owner_scope: { scope: "user"; account_id: string };
-  status: "pending" | "active" | "invalid";
-  created_at: string;
-  updated_at: string;
-}
-
-export interface UpsertUserSettingInput {
-  key: UserSettingKey;
-  value: UserSettingValue;
-}
-
-export interface UpsertUserSettingResult {
-  setting: UserSettingView;
-}
-
-export interface ListUserSettingsResult {
-  items: UserSettingView[];
-}
-
-export interface RemoveUserSettingResult {
-  setting: UserSettingView;
-}
-
-export interface CreateUserCredentialInput {
-  kind: UserCredentialKind;
-  value: string;
-}
-
-export interface CreateUserCredentialResult {
-  item: UserCredentialView;
-}
-
-export interface UpdateUserCredentialInput {
-  value: string;
-}
-
-export interface UpdateUserCredentialResult {
-  item: UserCredentialView;
-}
-
-export interface ListUserCredentialsResult {
-  items: UserCredentialView[];
-}
-
-export interface RemoveUserCredentialResult {
-  item: UserCredentialView;
-}
-
-/**
- * Stable wire codes from `AccountFailureReason` and user-configuration
- * failures in `tanren-contract`.
- */
-export type AccountFailureCode =
-  | "auth_required"
-  | "duplicate_identifier"
-  | "internal_error"
-  | "invalid_credential"
-  | "invitation_already_consumed"
-  | "invitation_expired"
-  | "invitation_not_found"
-  | "item_not_found"
-  | "setting_not_found"
-  | "unavailable"
-  | "validation_failed";
-
-export interface AccountFailure {
-  code: AccountFailureCode | string;
-  summary: string;
 }
 
 interface FailureBody {
@@ -327,6 +282,88 @@ export function removeUserCredential(
     `/configuration/account/user-credentials/${encodeURIComponent(itemId)}`,
     { method: "DELETE" },
   );
+}
+
+export function getConfigurationCapabilities(): Promise<GetConfigurationCapabilitiesResult> {
+  return requestJson<GetConfigurationCapabilitiesResult>(
+    "/configuration/account/capabilities",
+    { method: "GET" },
+  );
+}
+
+function unavailableFailure(summary: string): AccountFailure {
+  return {
+    code: "unavailable",
+    summary,
+  };
+}
+
+function failureFromUnknown(error: unknown): AccountFailure {
+  if (error instanceof AccountRequestError) {
+    return error.failure;
+  }
+  if (error instanceof Error) {
+    return unavailableFailure(error.message);
+  }
+  return unavailableFailure(String(error));
+}
+
+function deniedCapabilities(): ConfigurationCapabilities {
+  return {
+    settings: {
+      allowed_actions: [],
+    },
+    user_items: {
+      allowed_actions: [],
+    },
+  };
+}
+
+/**
+ * Capability discovery for configuration controls. Mutating actions are gated
+ * by the explicit capability contract, not inferred from read success.
+ */
+export async function discoverConfigurationAccess(): Promise<ConfigurationDiscoveryResult> {
+  const [capabilitiesResult, settingsResult, credentialsResult] =
+    await Promise.allSettled([
+      getConfigurationCapabilities(),
+      listUserSettings(),
+      listUserCredentials(),
+    ]);
+
+  const settings: UserSettingView[] =
+    settingsResult.status === "fulfilled" ? settingsResult.value.items : [];
+  const credentials: UserCredentialView[] =
+    credentialsResult.status === "fulfilled"
+      ? credentialsResult.value.items
+      : [];
+
+  const settingsFailure =
+    settingsResult.status === "rejected"
+      ? failureFromUnknown(settingsResult.reason)
+      : null;
+  const credentialsFailure =
+    credentialsResult.status === "rejected"
+      ? failureFromUnknown(credentialsResult.reason)
+      : null;
+
+  const capabilitiesFailure =
+    capabilitiesResult.status === "rejected"
+      ? failureFromUnknown(capabilitiesResult.reason)
+      : null;
+  const capabilities =
+    capabilitiesResult.status === "fulfilled"
+      ? capabilitiesResult.value.capabilities
+      : deniedCapabilities();
+
+  return {
+    capabilities,
+    settings,
+    credentials,
+    capabilities_failure: capabilitiesFailure,
+    settings_failure: settingsFailure,
+    credentials_failure: credentialsFailure,
+  };
 }
 
 /**

@@ -9,10 +9,12 @@ use tanren_configuration_secrets::{
     OwnerScope, UserCredentialKind, UserSettingKey, UserSettingValue,
 };
 use tanren_contract::{
-    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
+    ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
+    CredentialCapabilitiesView, CredentialCapabilityAction,
+    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
     ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
-    UpsertUserSettingResponse,
+    SettingCapabilitiesView, SettingCapabilityAction, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
 };
 use tanren_identity_policy::{AccountId, secret_serde};
 use tower_sessions::Session;
@@ -338,4 +340,41 @@ fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, &'static str> {
 
 fn owner_scope_for(account_id: AccountId) -> OwnerScope {
     OwnerScope::User { account_id }
+}
+
+#[utoipa::path(
+    get,
+    path = "/configuration/account/capabilities",
+    responses(
+        (status = 200, body = GetAuthenticatedUserConfigurationCapabilitiesResponse),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+    ),
+    tag = "configuration",
+)]
+pub(crate) async fn get_authenticated_user_configuration_capabilities_route(
+    AuthenticatedAccountScope(_account_id): AuthenticatedAccountScope,
+) -> Response {
+    (
+        StatusCode::OK,
+        Json(GetAuthenticatedUserConfigurationCapabilitiesResponse {
+            capabilities: ConfigurationCapabilitiesView {
+                settings: SettingCapabilitiesView {
+                    allowed_actions: vec![
+                        SettingCapabilityAction::Read,
+                        SettingCapabilityAction::CreateOrUpdate,
+                        SettingCapabilityAction::Delete,
+                    ],
+                },
+                user_items: CredentialCapabilitiesView {
+                    allowed_actions: vec![
+                        CredentialCapabilityAction::Read,
+                        CredentialCapabilityAction::Create,
+                        CredentialCapabilityAction::Update,
+                        CredentialCapabilityAction::Delete,
+                    ],
+                },
+            },
+        }),
+    )
+        .into_response()
 }

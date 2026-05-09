@@ -140,6 +140,62 @@ pub struct RemoveUserCredentialResponse {
     pub item: UserCredentialView,
 }
 
+/// Capability map for authenticated account-configuration operations.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ConfigurationCapabilitiesView {
+    /// Capability set for setting reads and writes.
+    pub settings: SettingCapabilitiesView,
+    /// Capability set for user-owned secret-item metadata reads and writes.
+    pub user_items: CredentialCapabilitiesView,
+}
+
+/// Capability set for user-tier settings operations.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SettingCapabilitiesView {
+    /// Allowed settings actions for the authenticated actor.
+    pub allowed_actions: Vec<SettingCapabilityAction>,
+}
+
+/// Per-action capabilities for user-tier settings.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum SettingCapabilityAction {
+    /// Read current settings.
+    Read,
+    /// Create or update settings.
+    CreateOrUpdate,
+    /// Delete settings.
+    Delete,
+}
+
+/// Capability set for user-owned credential operations.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CredentialCapabilitiesView {
+    /// Allowed secret-item actions for the authenticated actor.
+    pub allowed_actions: Vec<CredentialCapabilityAction>,
+}
+
+/// Per-action capabilities for user-owned secret items.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialCapabilityAction {
+    /// Read redacted metadata.
+    Read,
+    /// Create a new item.
+    Create,
+    /// Update an existing item.
+    Update,
+    /// Delete an existing item.
+    Delete,
+}
+
+/// Response for authenticated configuration capability discovery.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct GetAuthenticatedUserConfigurationCapabilitiesResponse {
+    /// Capabilities granted to the authenticated actor.
+    pub capabilities: ConfigurationCapabilitiesView,
+}
+
 /// Closed taxonomy of user-configuration and user-credential failures.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "code", rename_all = "snake_case")]

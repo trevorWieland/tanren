@@ -14,10 +14,11 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CreateUserCredentialRequest,
-    CreateUserCredentialResponse, ListUserCredentialsResponse, ListUserSettingsResponse,
-    RemoveUserCredentialResponse, RemoveUserSettingResponse, SessionEnvelope, SignInRequest,
-    SignUpRequest, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
-    UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
+    CreateUserCredentialResponse, GetAuthenticatedUserConfigurationCapabilitiesResponse,
+    ListUserCredentialsResponse, ListUserSettingsResponse, RemoveUserCredentialResponse,
+    RemoveUserSettingResponse, SessionEnvelope, SignInRequest, SignUpRequest,
+    UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
+    UpsertUserSettingResponse, UserConfigurationFailureReason,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -38,6 +39,7 @@ use self::user_configuration::{
 };
 use self::user_configuration_authenticated::{
     __path_add_authenticated_user_credential_route,
+    __path_get_authenticated_user_configuration_capabilities_route,
     __path_list_authenticated_user_credentials_route,
     __path_list_authenticated_user_settings_route,
     __path_remove_authenticated_user_credential_route,
@@ -45,10 +47,11 @@ use self::user_configuration_authenticated::{
     __path_update_authenticated_user_credential_route,
     __path_upsert_authenticated_user_setting_route, AuthenticatedCreateUserCredentialRequest,
     AuthenticatedUpdateUserCredentialRequest, AuthenticatedUpsertUserSettingRequest,
-    add_authenticated_user_credential_route, list_authenticated_user_credentials_route,
-    list_authenticated_user_settings_route, remove_authenticated_user_credential_route,
-    remove_authenticated_user_setting_route, update_authenticated_user_credential_route,
-    upsert_authenticated_user_setting_route,
+    add_authenticated_user_credential_route,
+    get_authenticated_user_configuration_capabilities_route,
+    list_authenticated_user_credentials_route, list_authenticated_user_settings_route,
+    remove_authenticated_user_credential_route, remove_authenticated_user_setting_route,
+    update_authenticated_user_credential_route, upsert_authenticated_user_setting_route,
 };
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
@@ -127,6 +130,7 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        get_authenticated_user_configuration_capabilities_route,
         list_authenticated_user_settings_route,
         upsert_authenticated_user_setting_route,
         remove_authenticated_user_setting_route,
@@ -150,6 +154,7 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        GetAuthenticatedUserConfigurationCapabilitiesResponse,
         AuthenticatedUpsertUserSettingRequest,
         UpsertUserSettingRequest,
         UpsertUserSettingResponse,
@@ -378,6 +383,9 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(
+            get_authenticated_user_configuration_capabilities_route
+        ))
         .routes(routes!(list_authenticated_user_settings_route))
         .routes(routes!(upsert_authenticated_user_setting_route))
         .routes(routes!(remove_authenticated_user_setting_route))
