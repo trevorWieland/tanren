@@ -31,6 +31,18 @@ Feature: Select agent integrations during Tanren install
       And repository file ".opencode/commands/plan-product.md" does not exist
 
     @falsification @cli
+    Scenario: Reinstall preserves crafted stale manifest entry outside trusted catalog
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command succeeds
+      Given repository file ".codex/skills/team-notes.md" contains "team-owned codex content"
+      And repository file ".codex/skills/team-notes.md" baseline is recorded
+      And previous install manifest tracks stale generated file ".codex/skills/team-notes.md"
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command succeeds
+      And repository file ".codex/skills/team-notes.md" preserves its baseline content
+
+    @falsification @cli
     Scenario: Reject install when integrations input includes an invalid name
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo" and integrations "claude,not-an-integration"

@@ -6,7 +6,6 @@ use std::path::{Path, PathBuf};
 
 use crate::install::catalog::{
     build_install_asset_catalog, build_trusted_generated_asset_registry,
-    generated_integration_destination_roots, is_current_generated_integration_destination,
 };
 use crate::install::error::InstallError;
 use crate::install::manifest::{
@@ -166,7 +165,6 @@ pub fn build_install_plan(
         .filter(|entry| entry.preservation == PreservationPolicy::ReplaceGenerated)
         .map(|entry| entry.path.as_str())
         .collect::<BTreeSet<_>>();
-    let generated_destination_roots = generated_integration_destination_roots(integrations);
     let trusted_generated_asset_registry = build_trusted_generated_asset_registry()?;
 
     let writes = build_write_plan(
@@ -178,7 +176,6 @@ pub fn build_install_plan(
     let stale_removal_plan = build_removals(
         &repository_root,
         &desired_generated_paths,
-        &generated_destination_roots,
         &trusted_generated_asset_registry,
         previous_manifest.as_ref(),
         &manifest_absolute_path,
@@ -387,7 +384,6 @@ struct StaleRemovalPlan {
 fn build_removals(
     repository_root: &Path,
     desired_generated_paths: &BTreeSet<&str>,
-    generated_destination_roots: &BTreeSet<&'static str>,
     trusted_generated_asset_registry: &BTreeSet<RepoRelativePath>,
     previous_manifest: Option<&InstallManifest>,
     manifest_absolute_path: &Path,
@@ -409,9 +405,7 @@ fn build_removals(
             continue;
         }
 
-        if !is_current_generated_integration_destination(&entry.path, generated_destination_roots)
-            && !trusted_generated_asset_registry.contains(&entry.path)
-        {
+        if !trusted_generated_asset_registry.contains(&entry.path) {
             continue;
         }
 

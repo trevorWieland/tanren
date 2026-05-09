@@ -275,6 +275,11 @@ const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
     ),
 ];
 
+// Previously generated command destinations kept as trusted removal candidates.
+// These paths are no longer emitted by the active catalog but may still exist in
+// older manifests from earlier installer versions.
+const LEGACY_TRUSTED_GENERATED_DESTINATIONS: &[&str] = &[".codex/skills/retired-command.md"];
+
 /// Build the static install asset catalog for a profile + integration selection.
 pub fn build_install_asset_catalog(
     profile: InstallProfile,
@@ -324,6 +329,9 @@ pub fn build_trusted_generated_asset_registry() -> Result<BTreeSet<RepoRelativeP
                 registry.insert(asset.destination_path);
             }
         }
+    }
+    for path in LEGACY_TRUSTED_GENERATED_DESTINATIONS {
+        registry.insert(RepoRelativePath::parse(path)?);
     }
     Ok(registry)
 }
