@@ -4250,6 +4250,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "tracing",
  "uuid",
 ]
 
@@ -4281,6 +4282,7 @@ dependencies = [
  "tanren-identity-policy",
  "thiserror 2.0.18",
  "utoipa",
+ "uuid",
 ]
 
 [[package]]
@@ -4491,6 +4493,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "tracing",
  "uuid",
 ]
 

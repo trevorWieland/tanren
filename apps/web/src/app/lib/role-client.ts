@@ -9,8 +9,11 @@ import type {
   EditRoleResponse,
   PermissionCheckRequest,
   PermissionCheckResponse,
+  PermissionScope,
+  PrincipalRef,
   RoleAdminCapabilities,
   RoleFailureBody,
+  RoleScope,
 } from "./generated/role-contract";
 import { parseRoleFailure } from "./generated/role-contract";
 
@@ -25,6 +28,9 @@ export class RoleRequestError extends Error {
     this.name = "RoleRequestError";
   }
 }
+
+export type ScopeKind = RoleScope["scope"];
+export type PrincipalKind = PrincipalRef["principal"];
 
 type RoleCommandRequest =
   | CreateRoleRequest
@@ -72,6 +78,10 @@ async function postRoleJson<TResponse>(
 export interface RoleCapabilitySnapshot {
   capabilities: RoleAdminCapabilities;
   csrfToken: string;
+}
+
+export function formatRoleError(reason: unknown): string {
+  return reason instanceof Error ? reason.message : String(reason);
 }
 
 export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
@@ -153,4 +163,54 @@ export function checkPermission(
   request: PermissionCheckRequest,
 ): Promise<PermissionCheckResponse> {
   return postRoleJson<PermissionCheckResponse>("/permissions/check", request);
+}
+
+export function readRequiredField(form: FormData, name: string): string {
+  const value = form.get(name);
+  if (typeof value !== "string") {
+    return "";
+  }
+  return value.trim();
+}
+
+export function readPermissionBundle(form: FormData, name: string): string[] {
+  return readRequiredField(form, name)
+    .split(",")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+}
+
+export function readRoleScope(form: FormData, prefix: string): RoleScope {
+  const kind = readRequiredField(form, `${prefix}kind`) as ScopeKind;
+  const id = readRequiredField(form, `${prefix}id`);
+  if (kind === "organization") {
+    return { scope: "organization", org_id: id };
+  }
+  if (kind === "project") {
+    return { scope: "project", project_id: id };
+  }
+  return { scope: "account", account_id: id };
+}
+
+export function readPermissionScope(
+  form: FormData,
+  prefix: string,
+): PermissionScope {
+  const scope = readRoleScope(form, prefix);
+  if (scope.scope === "organization") {
+    return { scope: "organization", org_id: scope.org_id };
+  }
+  if (scope.scope === "project") {
+    return { scope: "project", project_id: scope.project_id };
+  }
+  return { scope: "account", account_id: scope.account_id };
+}
+
+export function readPrincipalRef(form: FormData, prefix: string): PrincipalRef {
+  const kind = readRequiredField(form, `${prefix}kind`) as PrincipalKind;
+  const id = readRequiredField(form, `${prefix}id`);
+  if (kind === "role") {
+    return { principal: "role", role_id: id };
+  }
+  return { principal: "account", account_id: id };
 }

@@ -22,10 +22,29 @@ pub(crate) enum ScopeKind {
     Project,
 }
 
+impl ScopeKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::Organization => "organization",
+            Self::Project => "project",
+        }
+    }
+}
+
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub(crate) enum PrincipalKind {
     Account,
     Role,
+}
+
+impl PrincipalKind {
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::Role => "role",
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -420,9 +439,13 @@ fn role_error(err: RoleServiceError) -> anyhow::Error {
             anyhow::anyhow!("error: validation_failed — {message}")
         }
         RoleServiceError::Store(err) => {
-            anyhow::anyhow!("error: internal_error — {err}")
+            tracing::error!(target: "tanren_cli", error = %err, "role store failure");
+            anyhow::anyhow!("error: internal_error — Tanren encountered an internal error.")
         }
-        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
+        other => {
+            tracing::error!(target: "tanren_cli", error = ?other, "unexpected role failure");
+            anyhow::anyhow!("error: internal_error — Tanren encountered an internal error.")
+        }
     }
 }
 

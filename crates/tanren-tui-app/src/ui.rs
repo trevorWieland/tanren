@@ -8,13 +8,13 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ApplyRoleRequest,
     ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, EditRoleRequest, EditRoleResponse,
     PermissionCheckRequest, PermissionCheckResponse, SignInRequest, SignInResponse, SignUpRequest,
-    SignUpResponse,
+    SignUpResponse, format_permission_scope, format_role_scope, parse_permission_scope_field,
+    parse_principal_field, parse_role_id_field, parse_role_scope_field,
 };
 use tanren_identity_policy::{
-    AccountId, Email, InvitationToken, OrgId, PermissionName, PermissionScope, PrincipalRef,
-    ProjectId, RoleId, RoleName, RoleScope, ScopedRole, ValidationError,
+    Email, InvitationToken, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleName,
+    RoleScope, ScopedRole, ValidationError,
 };
-use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -171,7 +171,7 @@ pub(crate) fn delete_role_outcome(role: ScopedRole) -> OutcomeView {
         title: "Role deleted",
         lines: vec![
             format!("role_id: {}", role.role_id),
-            format!("scope: {}", scope_display(role.scope)),
+            format!("scope: {}", format_role_scope(role.scope)),
         ],
     }
 }
@@ -181,7 +181,7 @@ pub(crate) fn apply_role_outcome(response: &ApplyRoleResponse) -> OutcomeView {
         title: "Role applied",
         lines: vec![
             format!("role_id: {}", response.role.role_id),
-            format!("scope: {}", scope_display(response.role.scope)),
+            format!("scope: {}", format_role_scope(response.role.scope)),
             format!("grants_created: {}", response.grants.len()),
         ],
     }
@@ -193,7 +193,7 @@ pub(crate) fn permission_check_outcome(response: &PermissionCheckResponse) -> Ou
         lines: vec![
             format!("allowed: {}", response.allowed),
             format!("permission: {}", response.permission),
-            format!("scope: {}", permission_scope_display(response.scope)),
+            format!("scope: {}", format_permission_scope(response.scope)),
             format!("matching_grants: {}", response.matching_grant_ids.len()),
         ],
     }
@@ -216,8 +216,14 @@ pub(crate) fn render_role_error(err: RoleServiceError) -> String {
     match err {
         RoleServiceError::Role(reason) => format!("{}: {}", reason.code(), reason.summary()),
         RoleServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
-        RoleServiceError::Store(err) => format!("internal_error: {err}"),
-        _ => "internal_error: unknown app-service failure".to_owned(),
+        RoleServiceError::Store(err) => {
+            tracing::error!(target: "tanren_tui", error = %err, "role store failure");
+            "internal_error: Tanren encountered an internal error.".to_owned()
+        }
+        other => {
+            tracing::error!(target: "tanren_tui", error = ?other, "unexpected role failure");
+            "internal_error: Tanren encountered an internal error.".to_owned()
+        }
     }
 }
 
@@ -318,55 +324,18 @@ fn field(label: &'static str) -> FormField {
 }
 
 fn parse_role_scope(kind: &str, id: &str) -> Result<RoleScope, String> {
-    let kind = normalize_kind(kind);
-    let uuid = parse_uuid(id, "scope id")?;
-    match kind.as_str() {
-        "account" => Ok(RoleScope::Account {
-            account_id: AccountId::from(uuid),
-        }),
-        "organization" => Ok(RoleScope::Organization {
-            org_id: OrgId::from(uuid),
-        }),
-        "project" => Ok(RoleScope::Project {
-            project_id: ProjectId::from(uuid),
-        }),
-        _ => Err(
-            "validation_failed: scope kind must be account, organization, or project".to_owned(),
-        ),
-    }
+    parse_role_scope_field(kind, id, "scope kind", "scope id")
+        .map_err(|err| validation_from_adapter(&err))
 }
 
 fn parse_permission_scope(kind: &str, id: &str) -> Result<PermissionScope, String> {
-    let kind = normalize_kind(kind);
-    let uuid = parse_uuid(id, "scope id")?;
-    match kind.as_str() {
-        "account" => Ok(PermissionScope::Account {
-            account_id: AccountId::from(uuid),
-        }),
-        "organization" => Ok(PermissionScope::Organization {
-            org_id: OrgId::from(uuid),
-        }),
-        "project" => Ok(PermissionScope::Project {
-            project_id: ProjectId::from(uuid),
-        }),
-        _ => Err(
-            "validation_failed: scope kind must be account, organization, or project".to_owned(),
-        ),
-    }
+    parse_permission_scope_field(kind, id, "scope kind", "scope id")
+        .map_err(|err| validation_from_adapter(&err))
 }
 
 fn parse_principal(kind: &str, id: &str) -> Result<PrincipalRef, String> {
-    let kind = normalize_kind(kind);
-    let uuid = parse_uuid(id, "principal id")?;
-    match kind.as_str() {
-        "account" => Ok(PrincipalRef::Account {
-            account_id: AccountId::from(uuid),
-        }),
-        "role" => Ok(PrincipalRef::Role {
-            role_id: RoleId::from(uuid),
-        }),
-        _ => Err("validation_failed: principal kind must be account or role".to_owned()),
-    }
+    parse_principal_field(kind, id, "principal kind", "principal id")
+        .map_err(|err| validation_from_adapter(&err))
 }
 
 fn parse_permissions(raw: &str) -> Result<Vec<PermissionName>, String> {
@@ -380,18 +349,8 @@ fn parse_permissions(raw: &str) -> Result<Vec<PermissionName>, String> {
     Ok(out)
 }
 
-fn parse_role_id(raw: &str, label: &str) -> Result<RoleId, String> {
-    let uuid = parse_uuid(raw, label)?;
-    Ok(RoleId::from(uuid))
-}
-
-fn parse_uuid(raw: &str, label: &str) -> Result<Uuid, String> {
-    Uuid::parse_str(raw.trim())
-        .map_err(|e| format!("validation_failed: parse {label} as uuid: {e}"))
-}
-
-fn normalize_kind(raw: &str) -> String {
-    raw.trim().to_ascii_lowercase()
+fn parse_role_id(raw: &str, label: &'static str) -> Result<RoleId, String> {
+    parse_role_id_field(raw, label).map_err(|err| validation_from_adapter(&err))
 }
 
 fn role_outcome(title: &'static str, role: &tanren_contract::RoleTemplateView) -> OutcomeView {
@@ -399,7 +358,7 @@ fn role_outcome(title: &'static str, role: &tanren_contract::RoleTemplateView) -
         title,
         lines: vec![
             format!("role_id: {}", role.id),
-            format!("scope: {}", scope_display(role.scope)),
+            format!("scope: {}", format_role_scope(role.scope)),
             format!("name: {}", role.name),
             format!(
                 "permissions: {}",
@@ -413,18 +372,6 @@ fn role_outcome(title: &'static str, role: &tanren_contract::RoleTemplateView) -
     }
 }
 
-fn scope_display(scope: RoleScope) -> String {
-    match scope {
-        RoleScope::Account { account_id } => format!("account:{account_id}"),
-        RoleScope::Organization { org_id } => format!("organization:{org_id}"),
-        RoleScope::Project { project_id } => format!("project:{project_id}"),
-    }
-}
-
-fn permission_scope_display(scope: PermissionScope) -> String {
-    match scope {
-        PermissionScope::Account { account_id } => format!("account:{account_id}"),
-        PermissionScope::Organization { org_id } => format!("organization:{org_id}"),
-        PermissionScope::Project { project_id } => format!("project:{project_id}"),
-    }
+fn validation_from_adapter(err: &tanren_contract::RoleAdapterError) -> String {
+    format!("validation_failed: {err}")
 }

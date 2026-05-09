@@ -18,10 +18,10 @@ impl App {
 
     fn submit(&mut self, kind: FormKind) {
         let Some(store) = self.store.clone() else {
-            let message = self
-                .store_error
-                .clone()
-                .unwrap_or_else(|| "store unavailable".to_owned());
+            let message = redacted_store_message(kind);
+            if let Some(err) = &self.store_error {
+                tracing::error!(target: "tanren_tui", error = %err, ?kind, "store unavailable for form submit");
+            }
             if let Some(state) = self.active_form_mut() {
                 state.error = Some(message);
             }
@@ -335,5 +335,20 @@ impl App {
 
     fn role_actor(&self) -> Option<tanren_contract::RoleActor> {
         self.authenticated_actor
+    }
+}
+
+fn redacted_store_message(kind: FormKind) -> String {
+    if matches!(
+        kind,
+        FormKind::CreateRole
+            | FormKind::EditRole
+            | FormKind::DeleteRole
+            | FormKind::ApplyRole
+            | FormKind::CheckPermission
+    ) {
+        "internal_error: Tanren encountered an internal error.".to_owned()
+    } else {
+        "store unavailable".to_owned()
     }
 }

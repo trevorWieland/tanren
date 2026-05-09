@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod role;
+pub mod role_adapters;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
@@ -18,6 +19,11 @@ pub use role::{
     PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView,
     ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE, RoleActor, RoleAdminAction, RoleAdminCapabilities,
     RoleFailureBody, RoleFailureReason, RoleTemplateView,
+};
+pub use role_adapters::{
+    PrincipalKind, RoleAdapterError, RoleScopeKind, format_permission_scope, format_role_scope,
+    parse_permission_scope_field, parse_principal_field, parse_role_id_field,
+    parse_role_scope_field, parse_uuid_field,
 };
 
 use serde::{Deserialize, Serialize};
