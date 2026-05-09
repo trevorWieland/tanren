@@ -16,9 +16,10 @@ use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
     CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
-    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleAdminCapabilities,
-    RoleFailureBody, RoleFailureReason, RoleTemplateView, SessionEnvelope, SignInRequest,
-    SignUpRequest,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantCursorView,
+    PermissionGrantView, RoleAdminCapabilities, RoleFailureBody, RoleFailureReason,
+    RoleReadModelFreshness, RoleReadModelRequest, RoleReadModelResponse, RoleTemplateCursorView,
+    RoleTemplateView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -125,6 +126,7 @@ pub struct AcceptInvitationBody {
         routes_role::delete_role_route,
         routes_role::apply_role_route,
         routes_role::permission_check_route,
+        routes_role::role_read_model_route,
         routes_role::role_capabilities_route,
     ),
     components(schemas(
@@ -147,6 +149,11 @@ pub struct AcceptInvitationBody {
         ApplyRoleResponse,
         PermissionCheckRequest,
         PermissionCheckResponse,
+        RoleReadModelRequest,
+        RoleReadModelResponse,
+        RoleReadModelFreshness,
+        RoleTemplateCursorView,
+        PermissionGrantCursorView,
         RoleAdminCapabilities,
         RoleCapabilitiesResponse,
         RoleTemplateView,
@@ -380,6 +387,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(routes_role::delete_role_route))
         .routes(routes!(routes_role::apply_role_route))
         .routes(routes!(routes_role::permission_check_route))
+        .routes(routes!(routes_role::role_read_model_route))
         .routes(routes!(routes_role::role_capabilities_route))
         .with_state(state)
 }

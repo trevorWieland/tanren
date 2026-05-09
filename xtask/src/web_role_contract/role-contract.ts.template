@@ -59,6 +59,41 @@ export interface ApplyRoleResponse {
   grants: PermissionGrantView[];
 }
 
+export interface RoleTemplateCursorView {
+  name: string;
+  id: string;
+}
+
+export interface PermissionGrantCursorView {
+  granted_at: string;
+  id: string;
+}
+
+export interface RoleReadModelRequest {
+  role_scope: RoleScope;
+  role_cursor: RoleTemplateCursorView | null;
+  role_limit: number | null;
+  grant_principal: PrincipalRef;
+  grant_scope: PermissionScope;
+  grant_cursor: PermissionGrantCursorView | null;
+  grant_limit: number | null;
+}
+
+export interface RoleReadModelFreshness {
+  observed_at: string;
+}
+
+export interface RoleReadModelResponse {
+  role_scope: RoleScope;
+  grant_principal: PrincipalRef;
+  grant_scope: PermissionScope;
+  role_templates: RoleTemplateView[];
+  role_next_cursor: RoleTemplateCursorView | null;
+  direct_grants: PermissionGrantView[];
+  grant_next_cursor: PermissionGrantCursorView | null;
+  freshness: RoleReadModelFreshness;
+}
+
 export interface PermissionCheckRequest {
   principal: PrincipalRef;
   permission: string;

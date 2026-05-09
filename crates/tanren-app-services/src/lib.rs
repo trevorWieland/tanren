@@ -8,13 +8,14 @@
 pub mod account;
 pub mod events;
 pub mod role;
+mod role_read_model;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    RoleActor, RoleAdminCapabilities, RoleFailureReason, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse,
+    RoleActor, RoleAdminCapabilities, RoleFailureReason, RoleReadModelRequest,
+    RoleReadModelResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, RoleStore, Store};
@@ -313,6 +314,24 @@ impl Handlers {
         S: RoleStore + ?Sized,
     {
         role::role_admin_capabilities(store, actor).await
+    }
+
+    /// Read paged role-template and direct-grant state with freshness metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] for taxonomy failures, or
+    /// [`RoleServiceError::Store`] for unexpected database failures.
+    pub async fn read_role_model<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: RoleReadModelRequest,
+    ) -> Result<RoleReadModelResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role_read_model::read_role_model(store, &self.clock, actor, request).await
     }
 }
 

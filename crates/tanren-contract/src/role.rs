@@ -17,6 +17,10 @@ use utoipa::ToSchema;
 pub const MAX_ROLE_TEMPLATE_PERMISSIONS: usize = ROLE_TEMPLATE_MAX_PERMISSIONS;
 /// Explicit empty-bundle policy for role templates.
 pub const ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE: bool = ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED;
+/// Maximum page size accepted by role read-model requests.
+pub const ROLE_READ_MODEL_PAGE_MAX: u64 = 200;
+/// Default page size used when role read-model requests omit a limit.
+pub const ROLE_READ_MODEL_PAGE_DEFAULT: u64 = 50;
 
 /// Create-role request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -86,6 +90,71 @@ pub struct ApplyRoleResponse {
     pub role: ScopedRole,
     /// Individual permission grants created by this operation.
     pub grants: Vec<PermissionGrantView>,
+}
+
+/// Cursor for role-template listing (`name`, then `id`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleTemplateCursorView {
+    /// Last-seen role name.
+    pub name: RoleName,
+    /// Last-seen role id (tie-breaker for duplicate names).
+    pub id: RoleId,
+}
+
+/// Cursor for direct-grant listing (`granted_at`, then `id`).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct PermissionGrantCursorView {
+    /// Last-seen grant timestamp.
+    pub granted_at: DateTime<Utc>,
+    /// Last-seen grant id (tie-breaker for equal timestamps).
+    pub id: PermissionGrantId,
+}
+
+/// Read-model query for role administration state.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleReadModelRequest {
+    /// Scope where role templates are listed.
+    pub role_scope: RoleScope,
+    /// Cursor for continuing role-template pagination.
+    pub role_cursor: Option<RoleTemplateCursorView>,
+    /// Requested role-template page size.
+    pub role_limit: Option<u64>,
+    /// Principal whose direct grants are listed.
+    pub grant_principal: PrincipalRef,
+    /// Scope where direct grants are listed.
+    pub grant_scope: PermissionScope,
+    /// Cursor for continuing direct-grant pagination.
+    pub grant_cursor: Option<PermissionGrantCursorView>,
+    /// Requested direct-grant page size.
+    pub grant_limit: Option<u64>,
+}
+
+/// Freshness metadata for role read-model responses.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleReadModelFreshness {
+    /// Timestamp when the response snapshot was observed.
+    pub observed_at: DateTime<Utc>,
+}
+
+/// Role administration read-model response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleReadModelResponse {
+    /// Scope used for the role-template listing.
+    pub role_scope: RoleScope,
+    /// Principal used for the direct-grant listing.
+    pub grant_principal: PrincipalRef,
+    /// Scope used for the direct-grant listing.
+    pub grant_scope: PermissionScope,
+    /// Role templates returned for the current page.
+    pub role_templates: Vec<RoleTemplateView>,
+    /// Cursor for the next role-template page.
+    pub role_next_cursor: Option<RoleTemplateCursorView>,
+    /// Direct grants returned for the current page.
+    pub direct_grants: Vec<PermissionGrantView>,
+    /// Cursor for the next direct-grant page.
+    pub grant_next_cursor: Option<PermissionGrantCursorView>,
+    /// Freshness metadata for this snapshot.
+    pub freshness: RoleReadModelFreshness,
 }
 
 /// Permission-check request.

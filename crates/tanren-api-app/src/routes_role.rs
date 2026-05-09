@@ -5,7 +5,8 @@ use axum::response::{IntoResponse, Response};
 use tanren_contract::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
-    PermissionCheckResponse, RoleActor, RoleFailureBody, RoleFailureReason,
+    PermissionCheckResponse, RoleActor, RoleFailureBody, RoleFailureReason, RoleReadModelRequest,
+    RoleReadModelResponse,
 };
 use tower_sessions::Session;
 
@@ -184,6 +185,38 @@ pub(crate) async fn permission_check_route(
     match state
         .handlers
         .check_permission(state.store.as_ref(), actor, request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_role_error(err),
+    }
+}
+
+/// Read paged role-template and direct-grant state.
+#[utoipa::path(
+    post,
+    path = "/roles/read-model",
+    request_body = RoleReadModelRequest,
+    responses(
+        (status = 200, body = RoleReadModelResponse, description = "Role read-model snapshot"),
+        (status = 400, body = RoleFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = RoleFailureBody, description = "permission_denied"),
+        (status = 404, body = RoleFailureBody, description = "not_found"),
+    ),
+    tag = "roles",
+)]
+pub(crate) async fn role_read_model_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<RoleReadModelRequest>,
+) -> Response {
+    let actor = match role_actor_from_session(&session).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
+    match state
+        .handlers
+        .read_role_model(state.store.as_ref(), actor, request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),

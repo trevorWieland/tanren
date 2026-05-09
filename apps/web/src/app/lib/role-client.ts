@@ -9,6 +9,8 @@ import type {
   EditRoleResponse,
   PermissionCheckRequest,
   PermissionCheckResponse,
+  RoleReadModelRequest,
+  RoleReadModelResponse,
   PermissionScope,
   PrincipalRef,
   RoleAdminCapabilities,
@@ -37,7 +39,8 @@ type RoleCommandRequest =
   | EditRoleRequest
   | DeleteRoleRequest
   | ApplyRoleRequest
-  | PermissionCheckRequest;
+  | PermissionCheckRequest
+  | RoleReadModelRequest;
 
 async function postRoleJson<TResponse>(
   path: string,
@@ -163,6 +166,12 @@ export function checkPermission(
   request: PermissionCheckRequest,
 ): Promise<PermissionCheckResponse> {
   return postRoleJson<PermissionCheckResponse>("/permissions/check", request);
+}
+
+export function readRoleModel(
+  request: RoleReadModelRequest,
+): Promise<RoleReadModelResponse> {
+  return postRoleJson<RoleReadModelResponse>("/roles/read-model", request);
 }
 
 export function readRequiredField(form: FormData, name: string): string {

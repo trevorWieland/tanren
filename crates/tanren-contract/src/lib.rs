@@ -16,9 +16,11 @@ pub use account::{
 pub use role::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, MAX_ROLE_TEMPLATE_PERMISSIONS,
-    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantCursorView,
+    PermissionGrantView, ROLE_READ_MODEL_PAGE_DEFAULT, ROLE_READ_MODEL_PAGE_MAX,
     ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE, RoleActor, RoleAdminAction, RoleAdminCapabilities,
-    RoleFailureBody, RoleFailureReason, RoleTemplateView,
+    RoleFailureBody, RoleFailureReason, RoleReadModelFreshness, RoleReadModelRequest,
+    RoleReadModelResponse, RoleTemplateCursorView, RoleTemplateView,
 };
 pub use role_adapters::{
     PrincipalKind, RoleAdapterError, RoleScopeKind, format_permission_scope, format_role_scope,
