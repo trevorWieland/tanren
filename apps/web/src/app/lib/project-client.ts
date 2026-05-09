@@ -1,87 +1,33 @@
-import * as m from "@/i18n/paraglide/messages";
+import * as v from "valibot";
+
+import {
+  parseFailureResponse,
+  renderFailureEnvelope,
+  unavailableFailure,
+  type FailureEnvelope,
+} from "@/app/lib/failure";
+import {
+  connectProjectRepositoryInputSchema,
+  connectProjectRepositoryResponseSchema,
+  createProjectInputSchema,
+  createProjectResponseSchema,
+  listVisibleProjectsInputSchema,
+  projectApiPaths,
+  projectCollectionViewSchema,
+  projectFailureCodes,
+  type ConnectProjectRepositoryInput,
+  type ConnectProjectRepositoryResult,
+  type CreateProjectInput,
+  type CreateProjectResult,
+  type ListVisibleProjectsInput,
+  type ProjectCollectionView,
+  type ProjectFailure,
+} from "@/app/lib/contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
-export interface ProjectRepositoryView {
-  repository: string;
-}
-
-export interface ProjectSelectionView {
-  is_active: boolean;
-  selected_at: string | null;
-}
-
-export interface ProjectCountsView {
-  specs: number;
-  milestones: number;
-  initiatives: number;
-}
-
-export interface ProjectView {
-  id: string;
-  owning_account_id: string;
-  repository: ProjectRepositoryView;
-  selection: ProjectSelectionView;
-  counts: ProjectCountsView;
-  created_at: string;
-}
-
-export interface ConnectProjectRepositoryInput {
-  repository: string;
-  select_as_active: boolean;
-}
-
-export interface ConnectProjectRepositoryResult {
-  project: ProjectView;
-}
-
-export interface CreateProjectInput {
-  repository: string;
-  designated_host: string;
-  select_as_active: boolean;
-}
-
-export interface CreateProjectResult {
-  project: ProjectView;
-}
-
-export type ListVisibleProjectsInput = Record<string, never>;
-
-export interface ProjectCollectionView {
-  owning_account_id: string;
-  projects: ProjectView[];
-}
-
-export type ProjectFailureCode =
-  | "auth_required"
-  | "duplicate_repository"
-  | "no_access"
-  | "validation_failed"
-  | "provider_failure"
-  | "unavailable"
-  | "internal_error";
-
-export interface ProjectFailure {
-  code: ProjectFailureCode | string;
-  summary: string;
-}
-
-interface FailureBody {
-  code?: unknown;
-  summary?: unknown;
-}
-
 export function describeProjectFailure(failure: ProjectFailure): string {
-  const key = `failure_${failure.code}`;
-  const lookup = m as unknown as Record<string, (() => string) | undefined>;
-  const fn = lookup[key];
-  if (typeof fn === "function") {
-    return fn();
-  }
-  if (failure.summary !== "") {
-    return failure.summary;
-  }
-  return m.failure_fallback();
+  return renderFailureEnvelope(failure);
 }
 
 export class ProjectRequestError extends Error {
@@ -94,7 +40,60 @@ export class ProjectRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+export type {
+  ConnectProjectRepositoryInput,
+  ConnectProjectRepositoryResult,
+  CreateProjectInput,
+  CreateProjectResult,
+  ListVisibleProjectsInput,
+  ProjectCollectionView,
+  ProjectFailure,
+} from "@/app/lib/contracts";
+
+function isProjectFailureCode(code: string): code is ProjectFailure["code"] {
+  return (projectFailureCodes as readonly string[]).includes(code);
+}
+
+function toProjectFailure(failure: FailureEnvelope): ProjectFailure {
+  return {
+    code: isProjectFailureCode(failure.code) ? failure.code : "internal_error",
+    summary: failure.summary,
+  };
+}
+
+function parseProjectResponse<T>(
+  schema: v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+  payload: unknown,
+): T {
+  const result = v.safeParse(schema, payload);
+  if (result.success) {
+    return result.output as T;
+  }
+  throw new ProjectRequestError({
+    code: "internal_error",
+    summary: "Response body does not match project contract.",
+  });
+}
+
+function parseProjectInput<T>(
+  schema: v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+  payload: unknown,
+): T {
+  const result = v.safeParse(schema, payload);
+  if (result.success) {
+    return result.output as T;
+  }
+  throw new ProjectRequestError({
+    code: "validation_failed",
+    summary: "Request body does not match project contract.",
+  });
+}
+
+async function postJson<T>(
+  path: string,
+  body: unknown,
+  schema: v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -106,48 +105,58 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new ProjectRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    throw new ProjectRequestError(toProjectFailure(unavailableFailure(cause)));
   }
 
   if (!response.ok) {
-    let parsed: FailureBody = {};
-    try {
-      parsed = (await response.json()) as FailureBody;
-    } catch {
-      parsed = {};
-    }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
-    const summary =
-      typeof parsed.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    throw new ProjectRequestError({ code, summary });
+    const failure = await parseFailureResponse(response);
+    throw new ProjectRequestError(toProjectFailure(failure));
   }
 
-  return (await response.json()) as T;
+  let payload: unknown;
+  try {
+    payload = (await response.json()) as unknown;
+  } catch {
+    throw new ProjectRequestError({
+      code: "internal_error",
+      summary: `HTTP ${response.status}`,
+    });
+  }
+  return parseProjectResponse(schema, payload);
 }
 
 export function connectProjectRepository(
   input: ConnectProjectRepositoryInput,
 ): Promise<ConnectProjectRepositoryResult> {
-  return postJson<ConnectProjectRepositoryResult>(
-    "/projects/connect-repository",
+  const parsedInput = parseProjectInput(
+    connectProjectRepositoryInputSchema,
     input,
+  );
+  return postJson<ConnectProjectRepositoryResult>(
+    projectApiPaths.connectRepository,
+    parsedInput,
+    connectProjectRepositoryResponseSchema,
   );
 }
 
 export function createProject(
   input: CreateProjectInput,
 ): Promise<CreateProjectResult> {
-  return postJson<CreateProjectResult>("/projects/create", input);
+  const parsedInput = parseProjectInput(createProjectInputSchema, input);
+  return postJson<CreateProjectResult>(
+    projectApiPaths.create,
+    parsedInput,
+    createProjectResponseSchema,
+  );
 }
 
 export function listVisibleProjects(
   input: ListVisibleProjectsInput = {},
 ): Promise<ProjectCollectionView> {
-  return postJson<ProjectCollectionView>("/projects/list", input);
+  const parsedInput = parseProjectInput(listVisibleProjectsInputSchema, input);
+  return postJson<ProjectCollectionView>(
+    projectApiPaths.listVisible,
+    parsedInput,
+    projectCollectionViewSchema,
+  );
 }

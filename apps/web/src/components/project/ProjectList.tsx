@@ -1,6 +1,6 @@
 import type { ReactNode } from "react";
 
-import type { ProjectView } from "@/app/lib/project-client";
+import type { ProjectView } from "@/app/lib/contracts";
 import * as m from "@/i18n/paraglide/messages";
 
 export interface ProjectListProps {

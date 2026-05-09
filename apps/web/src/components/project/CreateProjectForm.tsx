@@ -10,20 +10,8 @@ import {
   describeProjectFailure,
   type CreateProjectResult,
 } from "@/app/lib/project-client";
+import { createProjectFormSchema } from "@/components/project/project-form";
 import * as m from "@/i18n/paraglide/messages";
-
-const REPOSITORY_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+$/;
-
-const CreateProjectInput = v.object({
-  repository: v.pipe(
-    v.string(),
-    v.trim(),
-    v.toLowerCase(),
-    v.regex(REPOSITORY_PATTERN),
-  ),
-  designated_host: v.pipe(v.string(), v.trim(), v.minLength(1)),
-  select_as_active: v.boolean(),
-});
 
 export interface CreateProjectFormProps {
   onSuccess?: ((result: CreateProjectResult) => void) | undefined;
@@ -53,7 +41,7 @@ export function CreateProjectForm({
   function onSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     setErrorMessage(null);
-    const parsed = v.safeParse(CreateProjectInput, {
+    const parsed = v.safeParse(createProjectFormSchema, {
       repository,
       designated_host: designatedHost,
       select_as_active: selectAsActive,

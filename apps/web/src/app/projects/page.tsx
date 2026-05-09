@@ -1,34 +1,54 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-import type { ProjectView } from "@/app/lib/project-client";
+import {
+  ProjectRequestError,
+  listVisibleProjects,
+} from "@/app/lib/project-client";
+import {
+  mergeProjectIntoVisibleProjects,
+  normalizeActiveProjects,
+} from "@/app/lib/project-merge";
+import type { ProjectView } from "@/app/lib/contracts";
 import { ConnectRepositoryForm } from "@/components/project/ConnectRepositoryForm";
 import { ProjectList } from "@/components/project/ProjectList";
 import * as m from "@/i18n/paraglide/messages";
 
-function mergeProject(
-  projects: ProjectView[],
-  next: ProjectView,
-): ProjectView[] {
-  const withoutCurrent = projects.filter((project) => project.id !== next.id);
-  const normalized = next.selection.is_active
-    ? withoutCurrent.map((project) => ({
-        ...project,
-        selection: {
-          ...project.selection,
-          is_active: false,
-          selected_at: null,
-        },
-      }))
-    : withoutCurrent;
-  return [next, ...normalized];
-}
-
 export default function ProjectsPage(): ReactNode {
   const [projects, setProjects] = useState<ProjectView[]>([]);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const visible = await listVisibleProjects();
+        if (!cancelled) {
+          setProjects(normalizeActiveProjects(visible.projects));
+          setErrorMessage(null);
+        }
+      } catch (cause: unknown) {
+        if (cancelled) {
+          return;
+        }
+        if (cause instanceof ProjectRequestError) {
+          setErrorMessage(cause.message);
+          return;
+        }
+        if (cause instanceof Error) {
+          setErrorMessage(cause.message);
+          return;
+        }
+        setErrorMessage(m.projects_connect_failed());
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <main className="flex min-h-screen flex-col items-center gap-6 p-8">
@@ -38,9 +58,16 @@ export default function ProjectsPage(): ReactNode {
       </p>
       <ConnectRepositoryForm
         onSuccess={(result) => {
-          setProjects((current) => mergeProject(current, result.project));
+          setProjects((current) =>
+            mergeProjectIntoVisibleProjects(current, result.project),
+          );
         }}
       />
+      {errorMessage !== null && (
+        <p role="alert" className="m-0 text-[--color-error]">
+          {errorMessage}
+        </p>
+      )}
       <div className="w-full max-w-2xl">
         <h2 className="mb-3 text-lg font-medium">{m.projects_list_title()}</h2>
         <ProjectList projects={projects} />

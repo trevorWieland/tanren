@@ -10,19 +10,8 @@ import {
   describeProjectFailure,
   type ConnectProjectRepositoryResult,
 } from "@/app/lib/project-client";
+import { connectProjectFormSchema } from "@/components/project/project-form";
 import * as m from "@/i18n/paraglide/messages";
-
-const REPOSITORY_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+$/;
-
-const ConnectRepositoryInput = v.object({
-  repository: v.pipe(
-    v.string(),
-    v.trim(),
-    v.toLowerCase(),
-    v.regex(REPOSITORY_PATTERN),
-  ),
-  select_as_active: v.boolean(),
-});
 
 export interface ConnectRepositoryFormProps {
   onSuccess?: ((result: ConnectProjectRepositoryResult) => void) | undefined;
@@ -50,7 +39,7 @@ export function ConnectRepositoryForm({
   function onSubmit(event: FormEvent<HTMLFormElement>): void {
     event.preventDefault();
     setErrorMessage(null);
-    const parsed = v.safeParse(ConnectRepositoryInput, {
+    const parsed = v.safeParse(connectProjectFormSchema, {
       repository,
       select_as_active: selectAsActive,
     });
