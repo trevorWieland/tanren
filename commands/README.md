@@ -20,7 +20,7 @@ directory does not redefine install/preview/upgrade/uninstall semantics.
 Reference sections:
 
 - [Generated Repository Assets](../docs/architecture/delivery.md#generated-repository-assets)
-- [Current Local Install Command Surface (R-0023)](../docs/architecture/delivery.md#current-local-install-command-surface-r-0023)
+- [CLI And TUI Role](../docs/architecture/delivery.md#cli-and-tui-role)
 - [Install Preview](../docs/architecture/delivery.md#install-preview)
 - [Upgrades And Migrations](../docs/architecture/delivery.md#upgrades-and-migrations)
 - [Stack Uninstall](../docs/architecture/delivery.md#stack-uninstall)
