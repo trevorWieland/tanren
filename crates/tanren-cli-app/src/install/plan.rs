@@ -4,7 +4,10 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::install::catalog::build_install_asset_catalog;
+use crate::install::catalog::{
+    build_install_asset_catalog, build_trusted_generated_asset_registry,
+    generated_integration_destination_roots, is_current_generated_integration_destination,
+};
 use crate::install::error::InstallError;
 use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallAssetProjection, InstallManifest,
@@ -150,10 +153,13 @@ pub fn build_install_plan(
 
     let previous_entries_by_path =
         build_previous_entry_map(&manifest_absolute_path, previous_manifest.as_ref())?;
-    let desired_paths = manifest_entries
+    let desired_generated_paths = manifest_entries
         .iter()
+        .filter(|entry| entry.preservation == PreservationPolicy::ReplaceGenerated)
         .map(|entry| entry.path.as_str())
         .collect::<BTreeSet<_>>();
+    let generated_destination_roots = generated_integration_destination_roots(integrations);
+    let trusted_generated_asset_registry = build_trusted_generated_asset_registry()?;
 
     let writes = build_write_plan(
         &repository_root,
@@ -163,7 +169,9 @@ pub fn build_install_plan(
     )?;
     let removals = build_removals(
         &repository_root,
-        &desired_paths,
+        &desired_generated_paths,
+        &generated_destination_roots,
+        &trusted_generated_asset_registry,
         previous_manifest.as_ref(),
         &manifest_absolute_path,
     )?;
@@ -362,7 +370,9 @@ fn collect_preserved_paths(actions: &[PlannedAssetAction]) -> Vec<RepoRelativePa
 
 fn build_removals(
     repository_root: &Path,
-    desired_paths: &BTreeSet<&str>,
+    desired_generated_paths: &BTreeSet<&str>,
+    generated_destination_roots: &BTreeSet<&'static str>,
+    trusted_generated_asset_registry: &BTreeSet<RepoRelativePath>,
     previous_manifest: Option<&InstallManifest>,
     manifest_absolute_path: &Path,
 ) -> Result<Vec<PlannedRemoval>, InstallError> {
@@ -373,8 +383,14 @@ fn build_removals(
     let mut removals = Vec::with_capacity(manifest.entries.len());
     for entry in &manifest.entries {
         let path = entry.path.as_str();
-        if desired_paths.contains(path)
+        if desired_generated_paths.contains(path)
             || entry.preservation != PreservationPolicy::ReplaceGenerated
+        {
+            continue;
+        }
+
+        if !is_current_generated_integration_destination(&entry.path, generated_destination_roots)
+            && !trusted_generated_asset_registry.contains(&entry.path)
         {
             continue;
         }

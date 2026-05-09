@@ -53,3 +53,15 @@ Feature: Bootstrap Tanren assets into an existing repository
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
       And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
+
+    @falsification @cli
+    Scenario: Reinstall does not remove unrelated files from crafted stale manifest entries
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given repository file "README.md" contains "repository-owned content"
+      And repository file "README.md" baseline is recorded
+      And previous install manifest tracks stale generated file "README.md"
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      And repository file "README.md" preserves its baseline content

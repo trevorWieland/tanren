@@ -1,6 +1,7 @@
 //! Static install catalog for command and standards assets.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 
 use crate::install::error::InstallError;
 use crate::install::manifest::{
@@ -42,6 +43,10 @@ const COMMAND_SOURCES: &[(&str, &str, &str)] = &[
         )),
     ),
 ];
+
+const CLAUDE_COMMAND_DESTINATION_ROOT: &str = ".claude/commands/";
+const CODEX_COMMAND_DESTINATION_ROOT: &str = ".codex/skills/";
+const OPENCODE_COMMAND_DESTINATION_ROOT: &str = ".opencode/commands/";
 
 const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
     (
@@ -309,6 +314,42 @@ pub fn build_install_asset_catalog(
     Ok(assets)
 }
 
+/// Build a trusted registry of generated asset destinations across all profiles.
+pub fn build_trusted_generated_asset_registry() -> Result<BTreeSet<RepoRelativePath>, InstallError>
+{
+    let mut registry = BTreeSet::new();
+    for profile in [InstallProfile::RustCargo] {
+        for asset in build_install_asset_catalog(profile, &InstallIntegration::all())? {
+            if asset.preservation == PreservationPolicy::ReplaceGenerated {
+                registry.insert(asset.destination_path);
+            }
+        }
+    }
+    Ok(registry)
+}
+
+/// Integration destination roots for a selected install invocation.
+#[must_use]
+pub fn generated_integration_destination_roots(
+    integrations: &BTreeSet<InstallIntegration>,
+) -> BTreeSet<&'static str> {
+    integrations
+        .iter()
+        .map(|integration| integration_destination_root(*integration))
+        .collect()
+}
+
+/// Whether a path matches a selected integration command destination layout.
+#[must_use]
+pub fn is_current_generated_integration_destination(
+    path: &RepoRelativePath,
+    destination_roots: &BTreeSet<&'static str>,
+) -> bool {
+    destination_roots
+        .iter()
+        .any(|root| matches_generated_command_layout(path.as_str(), root))
+}
+
 fn install_asset(
     source_path: &str,
     destination_path: &str,
@@ -328,9 +369,29 @@ fn install_asset(
 }
 
 fn integration_destination(integration: InstallIntegration, command_name: &str) -> String {
+    format!(
+        "{}{command_name}.md",
+        integration_destination_root(integration)
+    )
+}
+
+const fn integration_destination_root(integration: InstallIntegration) -> &'static str {
     match integration {
-        InstallIntegration::Claude => format!(".claude/commands/{command_name}.md"),
-        InstallIntegration::Codex => format!(".codex/skills/{command_name}.md"),
-        InstallIntegration::OpenCode => format!(".opencode/commands/{command_name}.md"),
+        InstallIntegration::Claude => CLAUDE_COMMAND_DESTINATION_ROOT,
+        InstallIntegration::Codex => CODEX_COMMAND_DESTINATION_ROOT,
+        InstallIntegration::OpenCode => OPENCODE_COMMAND_DESTINATION_ROOT,
     }
+}
+
+fn matches_generated_command_layout(path: &str, destination_root: &str) -> bool {
+    let Some(filename) = path.strip_prefix(destination_root) else {
+        return false;
+    };
+    if filename.is_empty() || filename.contains('/') {
+        return false;
+    }
+    Path::new(filename)
+        .extension()
+        .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
+        && filename != ".md"
 }
