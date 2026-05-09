@@ -26,14 +26,14 @@
 
 import { createBdd, test as base } from "playwright-bdd";
 
-interface ActorState {
+export interface ActorState {
   email?: string;
   password?: string;
   hasSession?: boolean;
   lastFailureCode?: string;
 }
 
-interface WebWorld {
+export interface WebWorld {
   actors: Map<string, ActorState>;
 }
 

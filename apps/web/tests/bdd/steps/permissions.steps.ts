@@ -1,8 +1,6 @@
-/* eslint-disable */
-
 import { createBdd } from "playwright-bdd";
 
-import { test } from "./account.steps";
+import { test, type ActorState, type WebWorld } from "./account.steps";
 
 const { Given, When, Then } = createBdd(test);
 
@@ -12,55 +10,39 @@ const ORG_PERMISSION = "org.members.view";
 const PROJECT_ROLE_PERMISSION = "project.changes.review";
 const PROJECT_CONSTRAINED_PERMISSION = "project.deploy.approve";
 const ROLE_TEMPLATE_NAME = "release_manager";
-const ORG_SCOPE_ID = "11111111-1111-7111-8111-111111111139";
-const PROJECT_SCOPE_ID = "22222222-2222-7222-8222-222222222239";
-type ScopeKind = "organization" | "project";
-type GrantSourceKind = "direct" | "role_template";
-type ConstraintSource = "organization_policy" | "project_policy";
-
-interface ActorState {
-  email?: string;
-  password?: string;
-  hasSession?: boolean;
-  lastFailureCode?: string;
-}
 
 interface PermissionsMemo {
   eventIdsBefore?: Set<string>;
 }
 
-function actor(world: unknown, name: string): ActorState {
-  const actors = (world as { actors: Map<string, ActorState> }).actors;
-  const existing = actors.get(name) ?? {};
-  if (!actors.has(name)) {
-    actors.set(name, existing);
+interface SeedActorPermissionFixturesBody {
+  account_email: string;
+  organization_policy_reason: string;
+}
+
+interface PermissionEventsCheckpointResponse {
+  event_ids: string[];
+}
+
+const permissionsMemos = new WeakMap<WebWorld, PermissionsMemo>();
+
+function actor(world: WebWorld, name: string): ActorState {
+  let existing = world.actors.get(name);
+  if (!existing) {
+    existing = {};
+    world.actors.set(name, existing);
   }
   return existing;
 }
 
-function permissionsMemo(world: unknown): PermissionsMemo {
-  const w = world as Record<string, unknown>;
-  if (!w["__permissionsMemo"]) {
-    w["__permissionsMemo"] = {};
+function permissionsMemo(world: WebWorld): PermissionsMemo {
+  const existing = permissionsMemos.get(world);
+  if (existing) {
+    return existing;
   }
-  return w["__permissionsMemo"] as PermissionsMemo;
-}
-
-type RecentEvent = { id: string; kind: string | null };
-
-interface SeedPolicyConstraintPayload {
-  reason: string;
-  source: ConstraintSource;
-}
-
-interface SeedPermissionGrantPayload {
-  account_email: string;
-  scope_kind: ScopeKind;
-  scope_id: string;
-  permission: string;
-  grant_source_kind: GrantSourceKind;
-  role_template_name?: string;
-  policy_constraint?: SeedPolicyConstraintPayload;
+  const next: PermissionsMemo = {};
+  permissionsMemos.set(world, next);
+  return next;
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
@@ -81,25 +63,35 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return JSON.parse(text) as T;
 }
 
-async function snapshotEventIds(): Promise<Set<string>> {
-  const body = await postJson<{ events: RecentEvent[] }>(
-    "/test-hooks/events/recent",
+async function seedActorPermissionFixtures(
+  payload: SeedActorPermissionFixturesBody,
+): Promise<void> {
+  await postJson("/test-hooks/permissions/fixtures/actor", payload);
+}
+
+async function snapshotPermissionEventsCheckpoint(): Promise<Set<string>> {
+  const body = await postJson<PermissionEventsCheckpointResponse>(
+    "/test-hooks/permissions/checkpoints/events",
+    { limit: 200 },
+  );
+  return new Set(body.event_ids);
+}
+
+async function assertNoPermissionMutationEvents(
+  eventIdsBefore: Set<string>,
+): Promise<void> {
+  await postJson(
+    "/test-hooks/permissions/assertions/no-request-or-grant-events",
     {
+      event_ids_before: [...eventIdsBefore],
       limit: 200,
     },
   );
-  return new Set(body.events.map((event) => event.id));
-}
-
-async function seedPermissionGrant(
-  payload: SeedPermissionGrantPayload,
-): Promise<void> {
-  await postJson("/test-hooks/permission-grants", payload);
 }
 
 async function signInActor(
   page: import("@playwright/test").Page,
-  world: unknown,
+  world: WebWorld,
   name: string,
 ): Promise<void> {
   const a = actor(world, name);
@@ -126,31 +118,9 @@ Given(
       );
     }
 
-    await seedPermissionGrant({
+    await seedActorPermissionFixtures({
       account_email: a.email,
-      scope_kind: "organization",
-      scope_id: ORG_SCOPE_ID,
-      permission: ORG_PERMISSION,
-      grant_source_kind: "direct",
-    });
-    await seedPermissionGrant({
-      account_email: a.email,
-      scope_kind: "project",
-      scope_id: PROJECT_SCOPE_ID,
-      permission: PROJECT_ROLE_PERMISSION,
-      grant_source_kind: "role_template",
-      role_template_name: ROLE_TEMPLATE_NAME,
-    });
-    await seedPermissionGrant({
-      account_email: a.email,
-      scope_kind: "project",
-      scope_id: PROJECT_SCOPE_ID,
-      permission: PROJECT_CONSTRAINED_PERMISSION,
-      grant_source_kind: "direct",
-      policy_constraint: {
-        reason,
-        source: "organization_policy",
-      },
+      organization_policy_reason: reason,
     });
   },
 );
@@ -159,7 +129,8 @@ When(
   /^([a-zA-Z]\w*) views their own permissions$/,
   async ({ page, world }, name: string) => {
     await signInActor(page, world, name);
-    permissionsMemo(world).eventIdsBefore = await snapshotEventIds();
+    permissionsMemo(world).eventIdsBefore =
+      await snapshotPermissionEventsCheckpoint();
     await page.goto("/my-permissions");
     await waitForHydration(page);
     await page.getByRole("heading", { name: /my permissions/i }).waitFor();
@@ -170,7 +141,8 @@ When(
   /^(\w+) attempts to view (\w+)'s permissions through the self view$/,
   async ({ page, world }, actorName: string, targetName: string) => {
     await signInActor(page, world, actorName);
-    permissionsMemo(world).eventIdsBefore = await snapshotEventIds();
+    permissionsMemo(world).eventIdsBefore =
+      await snapshotPermissionEventsCheckpoint();
 
     const target = actor(world, targetName);
     if (!target.email) {
@@ -299,22 +271,7 @@ Then(
     if (!memo.eventIdsBefore) {
       throw new Error("missing pre-query event snapshot");
     }
-    const response = await postJson<{ events: RecentEvent[] }>(
-      "/test-hooks/events/recent",
-      { limit: 200 },
-    );
-    const forbidden = response.events
-      .filter((event) => !memo.eventIdsBefore?.has(event.id))
-      .filter(
-        (event) =>
-          event.kind === "permission_requested" ||
-          event.kind === "permission_granted",
-      );
-    if (forbidden.length > 0) {
-      throw new Error(
-        `permissions view created forbidden events: ${JSON.stringify(forbidden)}`,
-      );
-    }
+    await assertNoPermissionMutationEvents(memo.eventIdsBefore);
   },
 );
 
@@ -323,7 +280,7 @@ async function waitForHydration(
 ): Promise<void> {
   await page.waitForFunction(
     () => {
-      const root = document as unknown as Record<string, unknown>;
+      const root = document as Document & Record<string, unknown>;
       const keys = Object.keys(root).filter(
         (k) =>
           k.startsWith("__reactContainer") ||
