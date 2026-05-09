@@ -10,8 +10,9 @@ use reqwest::header::HeaderMap;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPostureReadModel,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -290,7 +291,7 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
-        let current: Option<SetDeploymentPostureResponse> =
+        let current: Option<DeploymentPostureReadModel> =
             serde_json::from_value(json["current"].clone())
                 .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
         Ok(current.map(Into::into))

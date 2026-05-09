@@ -4,13 +4,12 @@
 
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
-use tanren_app_services::deployment_posture::{
-    SetDeploymentPostureError, SupportedDeploymentPosture,
-};
+use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, DeploymentPosture,
+    DeploymentPostureCapability, DeploymentPostureUnavailableCapability,
     SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse,
+    SignUpRequest, SignUpResponse, SupportedDeploymentPosture,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, ValidationError};
 use uuid::Uuid;
@@ -134,7 +133,7 @@ pub(crate) fn posture_outcome(
             "- {} | available: {} | unavailable: {}",
             entry.posture.as_wire_value(),
             format_caps(&entry.capability_summary.available),
-            format_caps(&entry.capability_summary.unavailable),
+            format_unavailable_caps(&entry.capability_summary.unavailable),
         ));
     }
     if let Some(current) = current {
@@ -150,7 +149,7 @@ pub(crate) fn posture_outcome(
         ));
         lines.push(format!(
             "unavailable: {}",
-            format_caps(&current.capability_summary.unavailable)
+            format_unavailable_caps(&current.capability_summary.unavailable)
         ));
     } else {
         lines.push(String::new());
@@ -236,12 +235,14 @@ pub(crate) fn parse_posture(
     let account_id = AccountId::from(parsed_uuid);
     let request = SetDeploymentPostureRequest {
         scope: tanren_contract::DeploymentPostureScope::Account { account_id },
-        posture: state.value(1).to_owned(),
+        posture: DeploymentPosture::from_wire_value(state.value(1)).ok_or_else(|| {
+            "unsupported_posture: supported values are hosted, self_hosted, local_only".to_owned()
+        })?,
     };
     Ok((account_id, request))
 }
 
-fn format_caps(caps: &[tanren_contract::DeploymentPostureCapability]) -> String {
+fn format_caps(caps: &[DeploymentPostureCapability]) -> String {
     if caps.is_empty() {
         return "none".to_owned();
     }
@@ -249,21 +250,25 @@ fn format_caps(caps: &[tanren_contract::DeploymentPostureCapability]) -> String 
     values.join(", ")
 }
 
-const fn capability_name(cap: tanren_contract::DeploymentPostureCapability) -> &'static str {
-    match cap {
-        tanren_contract::DeploymentPostureCapability::ManagedControlPlane => {
-            "managed_control_plane"
-        }
-        tanren_contract::DeploymentPostureCapability::ProviderIntegrations => {
-            "provider_integrations"
-        }
-        tanren_contract::DeploymentPostureCapability::RemoteRuntimeDispatch => {
-            "remote_runtime_dispatch"
-        }
-        tanren_contract::DeploymentPostureCapability::LocalRuntimeDispatch => {
-            "local_runtime_dispatch"
-        }
+fn format_unavailable_caps(caps: &[DeploymentPostureUnavailableCapability]) -> String {
+    if caps.is_empty() {
+        return "none".to_owned();
     }
+    let values: Vec<String> = caps
+        .iter()
+        .map(|entry| {
+            format!(
+                "{} ({})",
+                capability_name(entry.capability),
+                entry.reason.summary()
+            )
+        })
+        .collect();
+    values.join(", ")
+}
+
+const fn capability_name(cap: DeploymentPostureCapability) -> &'static str {
+    cap.as_wire_value()
 }
 
 const fn describe_scope(scope: tanren_contract::DeploymentPostureScope) -> &'static str {

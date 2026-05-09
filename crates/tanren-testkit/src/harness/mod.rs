@@ -59,8 +59,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPosture,
-    DeploymentPostureCapabilitySummary, DeploymentPostureScope, SetDeploymentPostureRequest,
-    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    DeploymentPostureCapabilitySummary, DeploymentPostureReadModel, DeploymentPostureScope,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -171,6 +171,16 @@ pub struct HarnessPostureView {
 
 impl From<SetDeploymentPostureResponse> for HarnessPostureView {
     fn from(value: SetDeploymentPostureResponse) -> Self {
+        Self {
+            scope: value.scope,
+            posture: value.posture,
+            capability_summary: value.capability_summary,
+        }
+    }
+}
+
+impl From<DeploymentPostureReadModel> for HarnessPostureView {
+    fn from(value: DeploymentPostureReadModel) -> Self {
         Self {
             scope: value.scope,
             posture: value.posture,

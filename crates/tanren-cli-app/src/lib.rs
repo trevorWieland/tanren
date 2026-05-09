@@ -24,8 +24,8 @@ use secrecy::SecretString;
 use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, DeploymentPosture, DeploymentPostureScope,
+    SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InstallationId, InvitationToken, ProjectId};
 use uuid::Uuid;
@@ -337,9 +337,8 @@ async fn run_posture(action: PostureAction) -> Result<()> {
     let handlers = Handlers::new();
     match action {
         PostureAction::List => {
-            let payload = serde_json::json!({
-                "supported": handlers.list_supported_deployment_postures(),
-            });
+            let payload = serde_json::to_value(handlers.list_supported_deployment_postures())
+                .context("encode supported posture response")?;
             write_json_line(&payload)?;
         }
         PostureAction::Get {
@@ -355,7 +354,8 @@ async fn run_posture(action: PostureAction) -> Result<()> {
                 .deployment_posture(&store, scope)
                 .await
                 .context("read deployment posture")?;
-            let payload = serde_json::json!({ "current": current });
+            let payload =
+                serde_json::to_value(current).context("encode current posture response")?;
             write_json_line(&payload)?;
         }
         PostureAction::Set {
@@ -370,6 +370,7 @@ async fn run_posture(action: PostureAction) -> Result<()> {
                 .context("connect to store")?;
             let scope = parse_scope(scope_kind, &scope_id)?;
             let actor = parse_account_id(&actor_account_id)?;
+            let posture = parse_posture_value(&posture)?;
             let response = handlers
                 .set_deployment_posture(
                     &store,
@@ -406,6 +407,14 @@ fn parse_account_id(raw: &str) -> Result<AccountId> {
     let parsed_uuid = Uuid::parse_str(raw)
         .with_context(|| format!("parse --actor-account-id `{raw}` as UUID"))?;
     Ok(AccountId::from(parsed_uuid))
+}
+
+fn parse_posture_value(raw: &str) -> Result<DeploymentPosture> {
+    DeploymentPosture::from_wire_value(raw).ok_or_else(|| {
+        anyhow::anyhow!(
+            "error: unsupported_posture — unsupported deployment posture `{raw}`; supported values: hosted, self_hosted, local_only"
+        )
+    })
 }
 
 fn account_error(err: AppServiceError) -> anyhow::Error {

@@ -13,8 +13,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CurrentDeploymentPostureResponse, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, DeploymentPostureStore, Store};
@@ -205,9 +206,7 @@ impl Handlers {
     /// Return every supported deployment posture with capability
     /// availability explanations.
     #[must_use]
-    pub fn list_supported_deployment_postures(
-        &self,
-    ) -> Vec<deployment_posture::SupportedDeploymentPosture> {
+    pub fn list_supported_deployment_postures(&self) -> SupportedDeploymentPosturesResponse {
         deployment_posture::list_supported_deployment_postures()
     }
 
@@ -216,7 +215,7 @@ impl Handlers {
     /// # Errors
     ///
     /// Returns [`deployment_posture::SetDeploymentPostureError::Contract`]
-    /// for unsupported posture values and permission denies;
+    /// for permission denies and other contract-layer rejects;
     /// [`deployment_posture::SetDeploymentPostureError::Store`] for
     /// unexpected persistence failures.
     pub async fn set_deployment_posture<S>(
@@ -240,7 +239,7 @@ impl Handlers {
         &self,
         store: &S,
         scope: DeploymentPostureScope,
-    ) -> Result<Option<SetDeploymentPostureResponse>, StoreError>
+    ) -> Result<CurrentDeploymentPostureResponse, StoreError>
     where
         S: DeploymentPostureStore + ?Sized,
     {

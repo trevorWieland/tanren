@@ -210,6 +210,44 @@ MCP tool discovery is capability aware. An agent should only see tools that
 its credential is allowed to use in the current scope. API clients may receive
 unsupported-action or permission-denied responses even if a route exists.
 
+### Deployment Posture Contract
+
+Deployment posture endpoints are part of the shared API/MCP/CLI/TUI/web
+contract and use `tanren-contract` types directly:
+
+- `GET /deployment-postures` returns
+  `SupportedDeploymentPosturesResponse`, where each entry contains
+  `posture: DeploymentPosture` and `capability_summary`.
+- `GET /deployment-postures/{scope_kind}/{scope_id}` returns
+  `CurrentDeploymentPostureResponse` with `current:
+  Option<DeploymentPostureReadModel>`.
+- `POST /deployment-postures` accepts
+  `SetDeploymentPostureRequest { scope: DeploymentPostureScope, posture:
+  DeploymentPosture }` and returns `SetDeploymentPostureResponse`.
+
+Scope encoding for route paths is stable:
+
+- `scope_kind` is one of `account`, `project`, `installation`;
+- `scope_id` is a UUID for that scope's typed identity newtype;
+- unknown `scope_kind` or non-UUID `scope_id` returns `validation_failed`.
+
+Capability summaries are contract-owned and include both available
+capabilities and unavailable capability entries with typed
+`DeploymentPostureCapabilityUnavailableReason` values so every interface can
+render consistent disabled-state explanations.
+
+Authorization contract for posture mutation:
+
+- authenticated actor context is required;
+- posture changes are authorized by the same policy evaluation used by all
+  interfaces;
+- denials return `permission_denied` with no interface-specific bypass.
+
+Capability discovery is advisory only; command execution remains authoritative.
+Interfaces may show disabled actions from summaries, but `POST
+/deployment-postures` still performs server-side authorization and scope
+validation.
+
 ## Error Taxonomy
 
 All public interfaces use a shared machine-readable error taxonomy:

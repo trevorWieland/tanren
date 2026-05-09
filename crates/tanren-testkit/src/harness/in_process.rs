@@ -131,6 +131,7 @@ impl AccountHarness for InProcessHarness {
         Ok(self
             .handlers
             .list_supported_deployment_postures()
+            .supported
             .into_iter()
             .map(|entry| HarnessSupportedPosture {
                 posture: entry.posture,
@@ -161,7 +162,7 @@ impl AccountHarness for InProcessHarness {
         self.handlers
             .deployment_posture(&self.store, scope)
             .await
-            .map(|current| current.map(Into::into))
+            .map(|current| current.current.map(Into::into))
             .map_err(|err| HarnessError::Transport(format!("deployment_posture: {err}")))
     }
 

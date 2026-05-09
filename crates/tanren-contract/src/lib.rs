@@ -13,9 +13,11 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use deployment_posture::{
-    DeploymentPosture, DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
-    DeploymentPostureContractFailure, DeploymentPostureFailureReason, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    CurrentDeploymentPostureResponse, DeploymentPosture, DeploymentPostureCapability,
+    DeploymentPostureCapabilitySummary, DeploymentPostureCapabilityUnavailableReason,
+    DeploymentPostureContractFailure, DeploymentPostureFailureReason, DeploymentPostureReadModel,
+    DeploymentPostureScope, DeploymentPostureUnavailableCapability, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
 };
 
 use serde::{Deserialize, Serialize};

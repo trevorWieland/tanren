@@ -5,8 +5,8 @@ use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tanren_contract::{
-    DeploymentPosture, DeploymentPostureCapabilitySummary, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    CurrentDeploymentPostureResponse, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::{AccountId, InstallationId, ProjectId};
 use tower_sessions::Session;
@@ -16,51 +16,19 @@ use crate::AppState;
 use crate::cookies::session_account_id;
 use crate::errors::{AccountFailureBody, ValidatedJson, map_posture_error};
 
-/// Supported deployment posture with canonical capability summary.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct SupportedDeploymentPostureResponse {
-    /// Canonical posture value.
-    pub posture: DeploymentPosture,
-    /// Canonical capability explanation for this posture.
-    pub capability_summary: DeploymentPostureCapabilitySummary,
-}
-
-/// Response body for listing supported deployment postures.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct DeploymentPostureListResponse {
-    /// Supported posture options.
-    pub supported: Vec<SupportedDeploymentPostureResponse>,
-}
-
-/// Response body for reading the current posture selection for a scope.
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize, utoipa::ToSchema)]
-pub(crate) struct DeploymentPostureGetResponse {
-    /// Current selection for the requested scope, when recorded.
-    pub current: Option<SetDeploymentPostureResponse>,
-}
-
 /// List every supported deployment posture with capability summary.
 #[utoipa::path(
     get,
     path = "/deployment-postures",
     responses(
-        (status = 200, body = DeploymentPostureListResponse, description = "Supported posture list"),
+        (status = 200, body = SupportedDeploymentPosturesResponse, description = "Supported posture list"),
     ),
     tag = "posture",
 )]
 pub(crate) async fn list_deployment_postures_route(
     State(state): State<AppState>,
-) -> Json<DeploymentPostureListResponse> {
-    let supported = state
-        .handlers
-        .list_supported_deployment_postures()
-        .into_iter()
-        .map(|entry| SupportedDeploymentPostureResponse {
-            posture: entry.posture,
-            capability_summary: entry.capability_summary,
-        })
-        .collect();
-    Json(DeploymentPostureListResponse { supported })
+) -> Json<SupportedDeploymentPosturesResponse> {
+    Json(state.handlers.list_supported_deployment_postures())
 }
 
 /// Read the currently selected posture for a scope.
@@ -72,7 +40,7 @@ pub(crate) async fn list_deployment_postures_route(
         ("scope_id" = String, Path, description = "Scope identifier (UUID)"),
     ),
     responses(
-        (status = 200, body = DeploymentPostureGetResponse, description = "Current posture for the scope"),
+        (status = 200, body = CurrentDeploymentPostureResponse, description = "Current posture for the scope"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
         (status = 500, body = AccountFailureBody, description = "internal_error"),
     ),
@@ -92,7 +60,7 @@ pub(crate) async fn get_deployment_posture_route(
         .deployment_posture(state.store.as_ref(), parsed_scope)
         .await
     {
-        Ok(current) => Json(DeploymentPostureGetResponse { current }).into_response(),
+        Ok(current) => Json(current).into_response(),
         Err(err) => {
             tracing::error!(target: "tanren_api", error = %err, "store error");
             (

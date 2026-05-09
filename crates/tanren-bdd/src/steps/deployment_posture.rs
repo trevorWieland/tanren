@@ -10,7 +10,7 @@ use tanren_contract::{
     DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, ProjectId};
-use tanren_testkit::{HarnessKind, HarnessOutcome, record_failure};
+use tanren_testkit::{HarnessError, HarnessKind, HarnessOutcome, record_failure};
 
 use super::{poll_until, retry_on_transport};
 use crate::TanrenWorld;
@@ -50,6 +50,9 @@ async fn when_list_supported(world: &mut TanrenWorld, interface: String) {
 #[when(expr = "the actor sets deployment posture {string} for their account scope over {word}")]
 async fn when_set_for_their_scope(world: &mut TanrenWorld, posture: String, interface: String) {
     let actor_id = ensure_signed_in_actor(world, "actor").await;
+    let Some(posture) = parse_requested_posture(world, "actor", &posture).await else {
+        return;
+    };
     let request = SetDeploymentPostureRequest {
         scope: DeploymentPostureScope::Account {
             account_id: actor_id,
@@ -62,6 +65,9 @@ async fn when_set_for_their_scope(world: &mut TanrenWorld, posture: String, inte
 #[when(expr = "the actor sets deployment posture {string} for another account scope over {word}")]
 async fn when_set_for_another_scope(world: &mut TanrenWorld, posture: String, interface: String) {
     let actor_id = ensure_signed_in_actor(world, "actor").await;
+    let Some(posture) = parse_requested_posture(world, "actor", &posture).await else {
+        return;
+    };
     let other_id = account_id_for(world, "other").await;
     let scope = {
         let ctx = world.ensure_account_ctx().await;
@@ -92,11 +98,7 @@ async fn then_supported_list_has_summaries(world: &mut TanrenWorld, interface: S
     assert_interface(ctx.harness.kind(), &interface);
     let supported = &ctx.deployment_posture.last_supported;
     assert_eq!(supported.len(), 3, "expected three supported postures");
-    for posture in [
-        DeploymentPosture::Hosted,
-        DeploymentPosture::SelfHosted,
-        DeploymentPosture::LocalOnly,
-    ] {
+    for posture in DeploymentPosture::ALL {
         assert!(
             supported.iter().any(|entry| entry.posture == posture),
             "missing supported posture {}",
@@ -430,6 +432,28 @@ async fn account_id_for(
 
 fn parse_posture(raw: &str) -> DeploymentPosture {
     DeploymentPosture::from_wire_value(raw).expect("invalid posture in scenario")
+}
+
+async fn parse_requested_posture(
+    world: &mut TanrenWorld,
+    actor_label: &str,
+    raw: &str,
+) -> Option<DeploymentPosture> {
+    if let Some(posture) = DeploymentPosture::from_wire_value(raw) {
+        return Some(posture);
+    }
+    let ctx = world.ensure_account_ctx().await;
+    let entry = ctx.actors.entry(actor_label.to_owned()).or_default();
+    ctx.last_outcome = Some(record_failure(
+        HarnessError::FailureCode {
+            code: "unsupported_posture".to_owned(),
+            summary: format!(
+                "Unsupported deployment posture `{raw}`. Supported values: hosted, self_hosted, local_only."
+            ),
+        },
+        entry,
+    ));
+    None
 }
 
 fn assert_interface(kind: HarnessKind, interface: &str) {

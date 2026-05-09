@@ -6,6 +6,8 @@
 
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 use tanren_identity_policy::{AccountId, InstallationId, ProjectId};
 use utoipa::ToSchema;
 
@@ -22,6 +24,9 @@ pub enum DeploymentPosture {
 }
 
 impl DeploymentPosture {
+    /// Canonical ordered list of every supported posture value.
+    pub const ALL: [Self; 3] = [Self::Hosted, Self::SelfHosted, Self::LocalOnly];
+
     /// Stable `snake_case` wire value for this posture.
     #[must_use]
     pub const fn as_wire_value(self) -> &'static str {
@@ -64,6 +69,21 @@ impl DeploymentPosture {
     }
 }
 
+impl fmt::Display for DeploymentPosture {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_wire_value())
+    }
+}
+
+impl FromStr for DeploymentPosture {
+    type Err = DeploymentPostureContractFailure;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::from_wire_value(value.trim())
+            .ok_or_else(|| DeploymentPostureContractFailure::unsupported_posture(value.trim()))
+    }
+}
+
 /// Scope selector for where a deployment posture applies.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "scope", rename_all = "snake_case")]
@@ -81,18 +101,8 @@ pub enum DeploymentPostureScope {
 pub struct SetDeploymentPostureRequest {
     /// Scope the posture change targets.
     pub scope: DeploymentPostureScope,
-    /// Raw wire posture value. Must match one of
-    /// `hosted | self_hosted | local_only`.
-    pub posture: String,
-}
-
-impl SetDeploymentPostureRequest {
-    /// Validate the wire posture value into the closed posture set.
-    pub fn posture(&self) -> Result<DeploymentPosture, DeploymentPostureContractFailure> {
-        DeploymentPosture::from_wire_value(self.posture.trim()).ok_or_else(|| {
-            DeploymentPostureContractFailure::unsupported_posture(self.posture.trim())
-        })
-    }
+    /// Posture value to set.
+    pub posture: DeploymentPosture,
 }
 
 /// Capability vocabulary explained alongside each posture.
@@ -110,12 +120,109 @@ pub enum DeploymentPostureCapability {
 }
 
 impl DeploymentPostureCapability {
-    const ALL: [Self; 4] = [
+    /// Canonical ordered list of every capability exposed by posture
+    /// summaries.
+    pub const ALL: [Self; 4] = [
         Self::ManagedControlPlane,
         Self::ProviderIntegrations,
         Self::RemoteRuntimeDispatch,
         Self::LocalRuntimeDispatch,
     ];
+
+    /// Stable `snake_case` wire value for this capability.
+    #[must_use]
+    pub const fn as_wire_value(self) -> &'static str {
+        match self {
+            Self::ManagedControlPlane => "managed_control_plane",
+            Self::ProviderIntegrations => "provider_integrations",
+            Self::RemoteRuntimeDispatch => "remote_runtime_dispatch",
+            Self::LocalRuntimeDispatch => "local_runtime_dispatch",
+        }
+    }
+
+    /// Parse a capability from its wire value.
+    #[must_use]
+    pub fn from_wire_value(value: &str) -> Option<Self> {
+        match value {
+            "managed_control_plane" => Some(Self::ManagedControlPlane),
+            "provider_integrations" => Some(Self::ProviderIntegrations),
+            "remote_runtime_dispatch" => Some(Self::RemoteRuntimeDispatch),
+            "local_runtime_dispatch" => Some(Self::LocalRuntimeDispatch),
+            _ => None,
+        }
+    }
+}
+
+impl fmt::Display for DeploymentPostureCapability {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_wire_value())
+    }
+}
+
+impl FromStr for DeploymentPostureCapability {
+    type Err = ();
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        Self::from_wire_value(value.trim()).ok_or(())
+    }
+}
+
+/// Canonical unavailable-reason taxonomy for posture capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum DeploymentPostureCapabilityUnavailableReason {
+    /// The selected posture does not run Tanren-managed control-plane
+    /// services.
+    RequiresManagedControlPlane,
+    /// The selected posture does not allow provider integrations.
+    RequiresProviderIntegrations,
+    /// The selected posture does not allow non-local runtime dispatch.
+    RequiresRemoteRuntimeDispatch,
+    /// The selected posture does not allow local runtime dispatch.
+    RequiresLocalRuntimeDispatch,
+}
+
+impl DeploymentPostureCapabilityUnavailableReason {
+    const fn for_capability(
+        capability: DeploymentPostureCapability,
+    ) -> DeploymentPostureCapabilityUnavailableReason {
+        match capability {
+            DeploymentPostureCapability::ManagedControlPlane => Self::RequiresManagedControlPlane,
+            DeploymentPostureCapability::ProviderIntegrations => Self::RequiresProviderIntegrations,
+            DeploymentPostureCapability::RemoteRuntimeDispatch => {
+                Self::RequiresRemoteRuntimeDispatch
+            }
+            DeploymentPostureCapability::LocalRuntimeDispatch => Self::RequiresLocalRuntimeDispatch,
+        }
+    }
+
+    /// Stable wire summary for cross-interface rendering.
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::RequiresManagedControlPlane => {
+                "This posture does not include Tanren-managed control plane services."
+            }
+            Self::RequiresProviderIntegrations => {
+                "This posture does not include provider integration capabilities."
+            }
+            Self::RequiresRemoteRuntimeDispatch => {
+                "This posture does not include remote runtime dispatch."
+            }
+            Self::RequiresLocalRuntimeDispatch => {
+                "This posture does not include local runtime dispatch."
+            }
+        }
+    }
+}
+
+/// Unavailable capability and its canonical explanation.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DeploymentPostureUnavailableCapability {
+    /// Capability unavailable for the selected posture.
+    pub capability: DeploymentPostureCapability,
+    /// Canonical reason for the unavailable capability.
+    pub reason: DeploymentPostureCapabilityUnavailableReason,
 }
 
 /// Explanation of which capabilities are enabled for a selected posture.
@@ -124,7 +231,7 @@ pub struct DeploymentPostureCapabilitySummary {
     /// Capabilities available in the posture.
     pub available: Vec<DeploymentPostureCapability>,
     /// Capabilities unavailable in the posture.
-    pub unavailable: Vec<DeploymentPostureCapability>,
+    pub unavailable: Vec<DeploymentPostureUnavailableCapability>,
 }
 
 impl DeploymentPostureCapabilitySummary {
@@ -137,7 +244,12 @@ impl DeploymentPostureCapabilitySummary {
             if posture.supports(capability) {
                 available.push(capability);
             } else {
-                unavailable.push(capability);
+                unavailable.push(DeploymentPostureUnavailableCapability {
+                    capability,
+                    reason: DeploymentPostureCapabilityUnavailableReason::for_capability(
+                        capability,
+                    ),
+                });
             }
         }
         Self {
@@ -145,6 +257,40 @@ impl DeploymentPostureCapabilitySummary {
             unavailable,
         }
     }
+}
+
+/// Supported posture option surfaced by read/list operations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SupportedDeploymentPosture {
+    /// Canonical posture value.
+    pub posture: DeploymentPosture,
+    /// Canonical capability explanation for this posture.
+    pub capability_summary: DeploymentPostureCapabilitySummary,
+}
+
+/// Read model for all supported posture options.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SupportedDeploymentPosturesResponse {
+    /// Supported posture options.
+    pub supported: Vec<SupportedDeploymentPosture>,
+}
+
+/// Read model for a scope's current deployment posture.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DeploymentPostureReadModel {
+    /// Scope where the posture is now in effect.
+    pub scope: DeploymentPostureScope,
+    /// Persisted posture.
+    pub posture: DeploymentPosture,
+    /// Canonical capability explanation for the posture.
+    pub capability_summary: DeploymentPostureCapabilitySummary,
+}
+
+/// Response shape for reading the current posture for a scope.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CurrentDeploymentPostureResponse {
+    /// Current selection for the requested scope, when recorded.
+    pub current: Option<DeploymentPostureReadModel>,
 }
 
 /// Response shape after recording a posture selection.

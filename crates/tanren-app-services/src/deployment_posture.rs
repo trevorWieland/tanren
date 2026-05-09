@@ -5,11 +5,11 @@
 //! policy/validation rejects.
 
 use chrono::{DateTime, Utc};
-use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    DeploymentPosture, DeploymentPostureCapabilitySummary, DeploymentPostureContractFailure,
-    DeploymentPostureFailureReason, DeploymentPostureScope, SetDeploymentPostureRequest,
-    SetDeploymentPostureResponse,
+    CurrentDeploymentPostureResponse, DeploymentPosture, DeploymentPostureCapabilitySummary,
+    DeploymentPostureContractFailure, DeploymentPostureFailureReason, DeploymentPostureReadModel,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::AccountId;
 use tanren_policy::{Decision, evaluate_account_scope_posture_management};
@@ -20,15 +20,6 @@ use crate::Clock;
 use crate::events::{
     DEPLOYMENT_POSTURE_CHANGED_KIND, DeploymentPostureChanged, deployment_posture_envelope,
 };
-
-/// Supported posture option surfaced by `list_supported_deployment_postures`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct SupportedDeploymentPosture {
-    /// Canonical posture value.
-    pub posture: DeploymentPosture,
-    /// Canonical capability explanation for this posture.
-    pub capability_summary: DeploymentPostureCapabilitySummary,
-}
 
 /// Error taxonomy for setting deployment posture at app-service scope.
 #[derive(Debug, Error)]
@@ -61,22 +52,18 @@ impl SetDeploymentPostureError {
     }
 }
 
-const SUPPORTED_POSTURES: [DeploymentPosture; 3] = [
-    DeploymentPosture::Hosted,
-    DeploymentPosture::SelfHosted,
-    DeploymentPosture::LocalOnly,
-];
-
 /// Return every supported posture with its capability explanation.
 #[must_use]
-pub fn list_supported_deployment_postures() -> Vec<SupportedDeploymentPosture> {
-    SUPPORTED_POSTURES
-        .into_iter()
-        .map(|posture| SupportedDeploymentPosture {
-            posture,
-            capability_summary: DeploymentPostureCapabilitySummary::for_posture(posture),
-        })
-        .collect()
+pub fn list_supported_deployment_postures() -> SupportedDeploymentPosturesResponse {
+    SupportedDeploymentPosturesResponse {
+        supported: DeploymentPosture::ALL
+            .into_iter()
+            .map(|posture| SupportedDeploymentPosture {
+                posture,
+                capability_summary: DeploymentPostureCapabilitySummary::for_posture(posture),
+            })
+            .collect(),
+    }
 }
 
 /// Persist a posture selection after validating the posture value and actor
@@ -94,9 +81,7 @@ pub async fn set_deployment_posture<S>(
 where
     S: DeploymentPostureStore + AccountStore + ?Sized,
 {
-    let posture = request
-        .posture()
-        .map_err(|failure| SetDeploymentPostureError::Contract { failure })?;
+    let posture = request.posture;
     let scope = request.scope;
 
     if let Decision::Deny(_) = evaluate_account_scope_posture_management(actor, scope) {
@@ -134,17 +119,19 @@ where
 pub async fn deployment_posture<S>(
     store: &S,
     scope: DeploymentPostureScope,
-) -> Result<Option<SetDeploymentPostureResponse>, StoreError>
+) -> Result<CurrentDeploymentPostureResponse, StoreError>
 where
     S: DeploymentPostureStore + ?Sized,
 {
     let row = store.get_deployment_posture(scope_to_store(scope)).await?;
-    Ok(row.map(|stored| {
-        to_response(
-            scope_from_store(stored.scope),
-            posture_from_store(stored.posture),
-        )
-    }))
+    Ok(CurrentDeploymentPostureResponse {
+        current: row.map(|stored| {
+            to_read_model(
+                scope_from_store(stored.scope),
+                posture_from_store(stored.posture),
+            )
+        }),
+    })
 }
 
 async fn emit_posture_changed_event<S>(
@@ -191,6 +178,17 @@ fn to_response(
     posture: DeploymentPosture,
 ) -> SetDeploymentPostureResponse {
     SetDeploymentPostureResponse {
+        scope,
+        posture,
+        capability_summary: DeploymentPostureCapabilitySummary::for_posture(posture),
+    }
+}
+
+fn to_read_model(
+    scope: DeploymentPostureScope,
+    posture: DeploymentPosture,
+) -> DeploymentPostureReadModel {
+    DeploymentPostureReadModel {
         scope,
         posture,
         capability_summary: DeploymentPostureCapabilitySummary::for_posture(posture),

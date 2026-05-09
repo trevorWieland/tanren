@@ -289,7 +289,7 @@ impl App {
                 let supported = self.handlers.list_supported_deployment_postures();
                 // Reuse the mutation response as the authoritative current
                 // posture to avoid an immediate extra read round-trip.
-                self.screen = Screen::Outcome(posture_outcome(Some(current), &supported));
+                self.screen = Screen::Outcome(posture_outcome(Some(current), &supported.supported));
             }
             Err(reason) => {
                 if let Screen::Posture(state) = &mut self.screen {

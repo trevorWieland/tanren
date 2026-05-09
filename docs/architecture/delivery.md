@@ -502,9 +502,18 @@ Delivery emits typed events for:
 - migration started, completed, failed, or rolled back where supported;
 - stack uninstall previewed or completed;
 - repo uninstall previewed or completed.
+- deployment posture changed for a typed scope.
 
 Events may include file paths, projection identifiers, resource references, and
 redacted diagnostics. Events must not include secret values.
+
+Deployment posture event contract uses
+`deployment_posture.changed` semantics with payload fields:
+
+- `scope: DeploymentPostureScope` (`account`, `project`, or `installation`);
+- `posture: DeploymentPosture` (`hosted`, `self_hosted`, `local_only`);
+- `changed_by: AccountId`;
+- `changed_at: DateTime<Utc>`.
 
 ## Read Models
 
@@ -525,6 +534,17 @@ Required delivery read models include:
 - stack uninstall preview;
 - repo uninstall preview;
 - delivery audit history.
+- current deployment posture per typed scope.
+- supported deployment posture catalog with capability summaries.
+
+Deployment posture read-model contract is interface-facing and distinct from
+mutation responses:
+
+- `SupportedDeploymentPosturesResponse` for supported-posture discovery;
+- `CurrentDeploymentPostureResponse` for current posture reads;
+- unavailable capability entries carry
+  `DeploymentPostureCapabilityUnavailableReason` for consistent UI/agent
+  rendering across web/api/mcp/cli/tui.
 
 ## Sub-PR Stack Methodology For High-Stakes Multi-Area PRs
 

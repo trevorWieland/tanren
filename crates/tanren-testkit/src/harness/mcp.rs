@@ -193,7 +193,17 @@ impl AccountHarness for McpHarness {
         let payload = self
             .call_tool("deployment_posture.list", serde_json::json!({}))
             .await?;
-        serde_json::from_value(payload)
+        serde_json::from_value::<tanren_contract::SupportedDeploymentPosturesResponse>(payload)
+            .map(|response| {
+                response
+                    .supported
+                    .into_iter()
+                    .map(|entry| HarnessSupportedPosture {
+                        posture: entry.posture,
+                        capability_summary: entry.capability_summary,
+                    })
+                    .collect()
+            })
             .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))
     }
 
@@ -217,9 +227,10 @@ impl AccountHarness for McpHarness {
         let body = serde_json::to_value(scope)
             .map_err(|e| HarnessError::Transport(format!("encode posture scope: {e}")))?;
         let payload = self.call_tool("deployment_posture.get", body).await?;
-        let current: Option<SetDeploymentPostureResponse> = serde_json::from_value(payload)
-            .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
-        Ok(current.map(Into::into))
+        let current: tanren_contract::CurrentDeploymentPostureResponse =
+            serde_json::from_value(payload)
+                .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
+        Ok(current.current.map(Into::into))
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
