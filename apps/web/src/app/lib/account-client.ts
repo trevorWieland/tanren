@@ -41,6 +41,9 @@ export type {
 } from "@/app/lib/api-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const USER_CREDENTIAL_METADATA_PATH = "/configuration/account/user-credentials";
+const USER_CREDENTIAL_SECRET_WRITE_PATH =
+  "/configuration/account/user-credentials";
 
 export interface SignUpInput {
   email: string;
@@ -273,21 +276,36 @@ export function listUserCredentialsPage(
   }
   const suffix = params.toString();
   return requestJson<ListUserCredentialsResult>(
-    `/configuration/account/user-credentials${suffix === "" ? "" : `?${suffix}`}`,
+    `${USER_CREDENTIAL_METADATA_PATH}${suffix === "" ? "" : `?${suffix}`}`,
     { method: "GET" },
+  );
+}
+
+function writeCredentialSecret<T>(
+  method: "POST" | "PUT",
+  path: string,
+  input: CreateUserCredentialInput | UpdateUserCredentialInput,
+  expectedStatus: readonly number[],
+): Promise<T> {
+  // Secret material crosses the client boundary only through this helper.
+  return requestJson<T>(
+    path,
+    {
+      method,
+      headers: withJsonContentType(),
+      body: JSON.stringify(input),
+    },
+    expectedStatus,
   );
 }
 
 export function addUserCredential(
   input: CreateUserCredentialInput,
 ): Promise<CreateUserCredentialResult> {
-  return requestJson<CreateUserCredentialResult>(
-    "/configuration/account/user-credentials",
-    {
-      method: "POST",
-      headers: withJsonContentType(),
-      body: JSON.stringify(input),
-    },
+  return writeCredentialSecret<CreateUserCredentialResult>(
+    "POST",
+    USER_CREDENTIAL_SECRET_WRITE_PATH,
+    input,
     [201],
   );
 }
@@ -296,13 +314,11 @@ export function updateUserCredential(
   itemId: string,
   input: UpdateUserCredentialInput,
 ): Promise<UpdateUserCredentialResult> {
-  return requestJson<UpdateUserCredentialResult>(
-    `/configuration/account/user-credentials/${encodeURIComponent(itemId)}`,
-    {
-      method: "PUT",
-      headers: withJsonContentType(),
-      body: JSON.stringify(input),
-    },
+  return writeCredentialSecret<UpdateUserCredentialResult>(
+    "PUT",
+    `${USER_CREDENTIAL_SECRET_WRITE_PATH}/${encodeURIComponent(itemId)}`,
+    input,
+    [200],
   );
 }
 
@@ -310,7 +326,7 @@ export function removeUserCredential(
   itemId: string,
 ): Promise<RemoveUserCredentialResult> {
   return requestJson<RemoveUserCredentialResult>(
-    `/configuration/account/user-credentials/${encodeURIComponent(itemId)}`,
+    `${USER_CREDENTIAL_METADATA_PATH}/${encodeURIComponent(itemId)}`,
     { method: "DELETE" },
   );
 }

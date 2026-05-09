@@ -68,8 +68,9 @@ Feature: Manage user-tier configuration and credentials
 
   Rule: Web surface
     The browser workflow uses the session-scoped
-    `/configuration/account/*` API paths and never sends account scope in
-    credential request bodies.
+    `/configuration/account/*` API paths, submits raw credential secrets
+    only at credential create/update boundaries, and never sends account
+    scope in credential request bodies.
 
     @positive @web
     Scenario: Web manages user-tier settings and credential metadata

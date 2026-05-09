@@ -39,6 +39,8 @@
   "config_credentials_add_button": "Add",
   "config_credentials_update_button": "Update",
   "config_credentials_remove_button": "Remove",
+  "config_credentials_redaction_state_label": "redaction_state",
+  "config_credentials_redaction_state_redacted": "redacted",
   "config_credential_kind_provider_api_token": "provider_api_token",
   "config_credential_kind_harness_api_token": "harness_api_token",
   "config_credentials_placeholder_secret": "Credential secret",

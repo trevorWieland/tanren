@@ -1,6 +1,7 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
+import { CredentialSecretForm } from "@/app/configuration/account/CredentialSecretForm";
 import type {
   CreateUserCredentialInput,
   ListUserCredentialsResult,
@@ -43,7 +44,6 @@ export function CredentialsPanel({
   const [panel, setPanel] = useState<CredentialPanel>("list");
   const [credentialKind, setCredentialKind] =
     useState<UserCredentialKind>("provider_api_token");
-  const [credentialValue, setCredentialValue] = useState("");
   const [credentialItemId, setCredentialItemId] = useState("");
 
   const rows = readModel?.items ?? [];
@@ -57,31 +57,21 @@ export function CredentialsPanel({
       typeof item.value === "string" && item.value.trim() !== "",
   );
 
-  async function submitAdd(): Promise<void> {
-    const secret = credentialValue;
-    if (secret.trim() === "") {
-      return;
-    }
+  async function submitAdd(secret: string): Promise<void> {
     await onAdd({
       kind: credentialKind,
       value: secret,
     });
-    setCredentialValue("");
   }
 
-  async function submitUpdate(): Promise<void> {
+  async function submitUpdate(secret: string): Promise<void> {
     const itemId = credentialItemId.trim();
     if (itemId === "") {
-      return;
-    }
-    const secret = credentialValue;
-    if (secret.trim() === "") {
       return;
     }
     await onUpdate(itemId, {
       value: secret,
     });
-    setCredentialValue("");
   }
 
   async function submitRemove(): Promise<void> {
@@ -174,21 +164,13 @@ export function CredentialsPanel({
               {m.config_credential_kind_harness_api_token()}
             </option>
           </select>
-          <input
-            type="password"
-            value={credentialValue}
-            onChange={(event) => setCredentialValue(event.target.value)}
-            className="min-w-48 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
+          <CredentialSecretForm
+            busy={busy}
+            className="flex min-w-48 flex-1 flex-wrap items-center gap-2"
             placeholder={m.config_credentials_placeholder_secret()}
+            submitLabel={m.config_credentials_add_button()}
+            onSubmit={submitAdd}
           />
-          <button
-            type="button"
-            onClick={() => void submitAdd()}
-            disabled={busy}
-            className="rounded-md bg-[--color-accent] px-3 py-1.5 text-sm text-[--color-accent-fg] disabled:opacity-60"
-          >
-            {m.config_credentials_add_button()}
-          </button>
         </div>
       ) : null}
 
@@ -200,21 +182,13 @@ export function CredentialsPanel({
             className="min-w-48 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
             placeholder={m.config_credentials_placeholder_item_id()}
           />
-          <input
-            type="password"
-            value={credentialValue}
-            onChange={(event) => setCredentialValue(event.target.value)}
-            className="min-w-48 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
+          <CredentialSecretForm
+            busy={busy}
+            className="flex min-w-48 flex-1 flex-wrap items-center gap-2"
             placeholder={m.config_credentials_placeholder_new_secret()}
+            submitLabel={m.config_credentials_update_button()}
+            onSubmit={submitUpdate}
           />
-          <button
-            type="button"
-            onClick={() => void submitUpdate()}
-            disabled={busy}
-            className="rounded-md bg-[--color-accent] px-3 py-1.5 text-sm text-[--color-accent-fg] disabled:opacity-60"
-          >
-            {m.config_credentials_update_button()}
-          </button>
         </div>
       ) : null}
 
@@ -273,6 +247,9 @@ export function CredentialsPanel({
                 <th className="border-b border-[--color-border] px-3 py-2">
                   updated_at
                 </th>
+                <th className="border-b border-[--color-border] px-3 py-2">
+                  {m.config_credentials_redaction_state_label()}
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -295,6 +272,9 @@ export function CredentialsPanel({
                   </td>
                   <td className="border-b border-[--color-border] px-3 py-2">
                     {credential.updated_at}
+                  </td>
+                  <td className="border-b border-[--color-border] px-3 py-2">
+                    {m.config_credentials_redaction_state_redacted()}
                   </td>
                 </tr>
               ))}
