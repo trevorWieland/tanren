@@ -11,16 +11,18 @@ mod accept_invitation;
 mod entity;
 mod migration;
 mod records;
+mod role_store;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, ApplyRole, EditRole, InvitationRecord, MembershipRecord, NewAccount,
+    NewInvitation, NewRole, PermissionGrantRecord, RolePermissionRecord, RoleRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
-    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore, ApplyRoleError,
+    ConsumeInvitationError, ConsumedInvitation, CreateRoleError, EditRoleError, RoleStore,
 };
 
 use async_trait::async_trait;
@@ -33,8 +35,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, PermissionName,
+    PermissionScope, PrincipalRef, RoleName, RoleScope, SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -357,6 +359,99 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
     })
 }
 
+pub(crate) fn parse_db_role_name(raw: &str) -> Result<RoleName, StoreError> {
+    RoleName::parse(raw).map_err(|err| StoreError::PolicyDataInvariant {
+        column: "role_name",
+        cause: err.to_string(),
+    })
+}
+
+pub(crate) fn parse_db_permission_name(raw: &str) -> Result<PermissionName, StoreError> {
+    PermissionName::parse(raw).map_err(|err| StoreError::PolicyDataInvariant {
+        column: "permission_name",
+        cause: err.to_string(),
+    })
+}
+
+pub(crate) fn parse_db_role_scope(kind: &str, scope_ref: Uuid) -> Result<RoleScope, StoreError> {
+    match kind {
+        "account" => Ok(RoleScope::Account {
+            account_id: AccountId::new(scope_ref),
+        }),
+        "organization" => Ok(RoleScope::Organization {
+            org_id: OrgId::new(scope_ref),
+        }),
+        "project" => Ok(RoleScope::Project {
+            project_id: tanren_identity_policy::ProjectId::new(scope_ref),
+        }),
+        _ => Err(StoreError::EnumDataInvariant {
+            column: "role_scope_kind",
+            value: kind.to_owned(),
+        }),
+    }
+}
+
+pub(crate) fn parse_db_permission_scope(
+    kind: &str,
+    scope_ref: Uuid,
+) -> Result<PermissionScope, StoreError> {
+    match kind {
+        "account" => Ok(PermissionScope::Account {
+            account_id: AccountId::new(scope_ref),
+        }),
+        "organization" => Ok(PermissionScope::Organization {
+            org_id: OrgId::new(scope_ref),
+        }),
+        "project" => Ok(PermissionScope::Project {
+            project_id: tanren_identity_policy::ProjectId::new(scope_ref),
+        }),
+        _ => Err(StoreError::EnumDataInvariant {
+            column: "permission_scope_kind",
+            value: kind.to_owned(),
+        }),
+    }
+}
+
+pub(crate) fn parse_db_principal_ref(
+    kind: &str,
+    principal_ref: Uuid,
+) -> Result<PrincipalRef, StoreError> {
+    match kind {
+        "account" => Ok(PrincipalRef::Account {
+            account_id: AccountId::new(principal_ref),
+        }),
+        "role" => Ok(PrincipalRef::Role {
+            role_id: tanren_identity_policy::RoleId::new(principal_ref),
+        }),
+        _ => Err(StoreError::EnumDataInvariant {
+            column: "principal_kind",
+            value: kind.to_owned(),
+        }),
+    }
+}
+
+pub(crate) fn role_scope_to_parts(scope: RoleScope) -> (&'static str, Uuid) {
+    match scope {
+        RoleScope::Account { account_id } => ("account", account_id.as_uuid()),
+        RoleScope::Organization { org_id } => ("organization", org_id.as_uuid()),
+        RoleScope::Project { project_id } => ("project", project_id.as_uuid()),
+    }
+}
+
+pub(crate) fn permission_scope_to_parts(scope: PermissionScope) -> (&'static str, Uuid) {
+    match scope {
+        PermissionScope::Account { account_id } => ("account", account_id.as_uuid()),
+        PermissionScope::Organization { org_id } => ("organization", org_id.as_uuid()),
+        PermissionScope::Project { project_id } => ("project", project_id.as_uuid()),
+    }
+}
+
+pub(crate) fn principal_ref_to_parts(principal: PrincipalRef) -> (&'static str, Uuid) {
+    match principal {
+        PrincipalRef::Account { account_id } => ("account", account_id.as_uuid()),
+        PrincipalRef::Role { role_id } => ("role", role_id.as_uuid()),
+    }
+}
 /// Wrap a raw string into a [`SecretString`]. Re-exported so callers
 /// can build a [`SecretString`] without taking a direct `secrecy`
 /// dependency.
@@ -382,5 +477,21 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A row read out of the database failed policy value validation.
+    #[error("policy invariant violation in column `{column}`: {cause}")]
+    PolicyDataInvariant {
+        /// The column whose value failed to validate.
+        column: &'static str,
+        /// Error message describing the rejected value.
+        cause: String,
+    },
+    /// A DB enum-like discriminator column contains an unknown value.
+    #[error("enum invariant violation in column `{column}`: `{value}`")]
+    EnumDataInvariant {
+        /// The discriminator column name.
+        column: &'static str,
+        /// The invalid value.
+        value: String,
     },
 }

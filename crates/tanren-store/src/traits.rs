@@ -1,4 +1,4 @@
-//! Port for Tanren's account-flow persistence.
+//! Ports for Tanren's persistence layer.
 //!
 //! `AccountStore` is the **port** that `tanren-app-services` consumes;
 //! [`crate::Store`] is the SeaORM-backed adapter implementation. The trait
@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, PermissionName,
+    PermissionScope, PrincipalRef, RoleId, RoleScope, ScopedRole, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, ApplyRole, EditRole, EventEnvelope, InvitationRecord, NewAccount, NewRole,
+    PermissionGrantRecord, RoleRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +285,105 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`RoleStore::create_role`].
+#[derive(Debug, thiserror::Error)]
+pub enum CreateRoleError {
+    /// The role name is already in use within this scope.
+    #[error("role name already exists in scope")]
+    DuplicateRoleName,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`RoleStore::edit_role`].
+#[derive(Debug, thiserror::Error)]
+pub enum EditRoleError {
+    /// No role template matches the requested scoped id.
+    #[error("role not found")]
+    RoleNotFound,
+    /// The requested replacement name conflicts with another role in the scope.
+    #[error("role name already exists in scope")]
+    DuplicateRoleName,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`RoleStore::apply_role`].
+#[derive(Debug, thiserror::Error)]
+pub enum ApplyRoleError {
+    /// No role template matches the requested scoped id.
+    #[error("role not found")]
+    RoleNotFound,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Port for role-template persistence and direct permission grants.
+#[async_trait]
+pub trait RoleStore: Send + Sync + std::fmt::Debug {
+    /// Insert a role template with its initial permission bundle.
+    async fn create_role(&self, new: NewRole) -> Result<RoleRecord, CreateRoleError>;
+
+    /// Replace role metadata and permission bundle.
+    async fn edit_role(&self, edit: EditRole) -> Result<RoleRecord, EditRoleError>;
+
+    /// Delete a role template and its template-permission rows.
+    ///
+    /// Returns `true` when a role was removed, `false` when no matching
+    /// role exists.
+    async fn delete_role(&self, role: ScopedRole) -> Result<bool, StoreError>;
+
+    /// List all role templates in one scope.
+    async fn list_roles(&self, scope: RoleScope) -> Result<Vec<RoleRecord>, StoreError>;
+
+    /// Resolve one role template by id + scope.
+    async fn find_role(&self, role: ScopedRole) -> Result<Option<RoleRecord>, StoreError>;
+
+    /// Apply a role template to a principal in one transaction by
+    /// inserting direct permission grants for the template's current
+    /// permission bundle.
+    async fn apply_role(
+        &self,
+        request: ApplyRole,
+    ) -> Result<Vec<PermissionGrantRecord>, ApplyRoleError>;
+
+    /// Check whether one direct grant exists for the principal/scope/permission.
+    async fn has_direct_grant(
+        &self,
+        principal: PrincipalRef,
+        scope: PermissionScope,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError>;
+
+    /// List direct grants for one principal and scope.
+    async fn list_direct_grants(
+        &self,
+        principal: PrincipalRef,
+        scope: PermissionScope,
+    ) -> Result<Vec<PermissionGrantRecord>, StoreError>;
+
+    /// List all direct grants for one principal.
+    async fn list_all_direct_grants(
+        &self,
+        principal: PrincipalRef,
+    ) -> Result<Vec<PermissionGrantRecord>, StoreError>;
+
+    /// Read direct grants for principal + scope + permission.
+    async fn find_direct_grants(
+        &self,
+        principal: PrincipalRef,
+        scope: PermissionScope,
+        permission: &PermissionName,
+    ) -> Result<Vec<PermissionGrantRecord>, StoreError>;
+
+    /// List the role template's current permission names.
+    async fn list_role_permissions(
+        &self,
+        role_id: RoleId,
+    ) -> Result<Vec<PermissionName>, StoreError>;
 }
