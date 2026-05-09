@@ -1,16 +1,11 @@
 //! Tanren scriptable command-line client — runtime library.
 //!
 //! R-0001 (sub-8) promotes the runtime out of `bin/tanren-cli/src/main.rs`
-//! per the thin-binary-crate profile
-//! (`profiles/rust-cargo/architecture/thin-binary-crate.md`). The binary
-//! shrinks to a wiring shell that initializes tracing and calls [`run`];
+//! per the thin-binary-crate profile. The binary shrinks to a wiring
+//! shell that initializes tracing and calls [`run`];
 //! everything below — `clap` parsing, account-flow dispatch, session
 //! persistence — lives here so the BDD harness can depend on it directly
 //! without spinning up a child process.
-//!
-//! The CLI continues to receive bearer-mode `SessionView` responses from
-//! `tanren-app-services` (no cookie jar to use); the cookie envelope
-//! lives only on the api-app surface.
 
 use std::env;
 use std::fs;
@@ -19,14 +14,15 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, MyPermissionsContext, Store};
+use tanren_app_services::{AccountStore, AppServiceError, Handlers, MyPermissionsContext, Store};
 use tanren_contract::{
     AcceptInvitationRequest, MyPermissionEntry, MyPermissionsRequest, MyPermissionsResponse,
     SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, Email, InvitationToken};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, SessionToken};
 use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
@@ -248,7 +244,7 @@ async fn run_account_create(
                 )
                 .await
                 .map_err(account_error)?;
-            persist_session(response.account.id, response.session.token.expose_secret())?;
+            persist_session(response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             writeln!(
@@ -274,7 +270,7 @@ async fn run_account_create(
                 )
                 .await
                 .map_err(account_error)?;
-            persist_session(response.account.id, response.session.token.expose_secret())?;
+            persist_session(response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             writeln!(
@@ -305,7 +301,7 @@ async fn run_account_sign_in(
         .sign_in(&store, SignInRequest { email, password })
         .await
         .map_err(account_error)?;
-    persist_session(response.account.id, response.session.token.expose_secret())?;
+    persist_session(response.session.token.expose_secret())?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(
@@ -326,7 +322,23 @@ async fn run_account_my_permissions(
     let store = Store::connect(database_url)
         .await
         .context("connect to store")?;
-    let session_account_id = read_session_account_id()?;
+    let session_token = read_session_token()?;
+    let session = AccountStore::find_session_by_token(&store, &session_token)
+        .await
+        .context("load persisted session from store")?
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "error: auth_required — session is invalid or revoked; sign in again to refresh {}",
+                session_path().display()
+            )
+        })?;
+    if session.expires_at <= Utc::now() {
+        anyhow::bail!(
+            "error: auth_required — session has expired; sign in again to refresh {}",
+            session_path().display()
+        );
+    }
+    let session_account_id = session.account_id;
     let requested_account_id = target_account_id
         .map(|raw| parse_account_id(&raw, "--target-account-id"))
         .transpose()?
@@ -385,28 +397,37 @@ fn session_path() -> PathBuf {
     base.join("tanren").join("session")
 }
 
-fn persist_session(account_id: AccountId, token: &str) -> Result<()> {
+fn persist_session(token: &str) -> Result<()> {
     let path = session_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create session dir {}", parent.display()))?;
     }
-    let content = format!("version=1\naccount_id={account_id}\ntoken={token}\n");
+    let content = format!("version=1\ntoken={token}\n");
     fs::write(&path, content).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
 }
 
-fn read_session_account_id() -> Result<AccountId> {
+fn read_session_token() -> Result<SessionToken> {
     let path = session_path();
     let content = fs::read_to_string(&path)
         .with_context(|| format!("read session from {}", path.display()))?;
     for line in content.lines() {
-        if let Some(raw) = line.strip_prefix("account_id=") {
-            return parse_account_id(raw.trim(), "persisted session account_id");
+        if let Some(raw) = line.strip_prefix("token=") {
+            let token = raw.trim();
+            if token.is_empty() {
+                anyhow::bail!(
+                    "error: auth_required — session is missing token; sign in again to refresh {}",
+                    path.display()
+                );
+            }
+            return Ok(SessionToken::from_secret(SecretString::from(
+                token.to_owned(),
+            )));
         }
     }
     anyhow::bail!(
-        "error: auth_required — session is missing account_id; sign in again to refresh {}",
+        "error: auth_required — session is missing token; sign in again to refresh {}",
         path.display()
     )
 }

@@ -243,6 +243,12 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
 
+    /// Look up a session row by its opaque token.
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
     /// Read the authenticated account's effective permissions grouped by
     /// organization and project scope.
     ///

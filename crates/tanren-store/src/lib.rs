@@ -298,6 +298,16 @@ impl AccountStore for Store {
         })
     }
 
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
+
     async fn my_permissions(
         &self,
         account_id: AccountId,

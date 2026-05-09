@@ -406,12 +406,25 @@ async fn authenticated_account_id(session: &Session) -> Result<AccountId, Respon
         Ok(Some(expires_at)) if expires_at < Utc::now() => Err(auth_required_response(
             "The current session has expired. Sign in and retry.",
         )),
-        Ok(_) => Ok(account_id),
+        Ok(Some(_)) => Ok(account_id),
+        Ok(None) => Err(clear_malformed_session(
+            session,
+            "Malformed session is missing expiry. Sign in and retry.",
+        )
+        .await),
         Err(err) => {
             tracing::error!(target: "tanren_api", error = %err, "session read expires_at");
             Err(internal_error_response().into_response())
         }
     }
+}
+
+async fn clear_malformed_session(session: &Session, summary: &str) -> Response {
+    if let Err(err) = session.flush().await {
+        tracing::error!(target: "tanren_api", error = %err, "session flush malformed session");
+        return internal_error_response().into_response();
+    }
+    auth_required_response(summary)
 }
 
 /// Build the `OpenApiRouter` carrying every account-flow route. Called

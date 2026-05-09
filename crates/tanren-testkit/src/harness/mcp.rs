@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -34,6 +35,7 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    session_tokens: HashMap<tanren_identity_policy::AccountId, SecretString>,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
@@ -96,6 +98,7 @@ impl McpHarness {
         Ok(Self {
             store,
             db_path,
+            session_tokens: HashMap::new(),
             client: Some(client),
             server: Some(server),
         })
@@ -155,7 +158,11 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let token = session_token_from_payload(&payload)?;
+        let session = decode_session(&payload)?;
+        self.session_tokens
+            .insert(session.account_id, SecretString::from(token));
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -164,7 +171,11 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let token = session_token_from_payload(&payload)?;
+        let session = decode_session(&payload)?;
+        self.session_tokens
+            .insert(session.account_id, SecretString::from(token));
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -178,7 +189,10 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
+        let token = session_token_from_payload(&payload)?;
         let session = decode_session(&payload)?;
+        self.session_tokens
+            .insert(session.account_id, SecretString::from(token));
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -192,8 +206,18 @@ impl AccountHarness for McpHarness {
         session_account_id: tanren_identity_policy::AccountId,
         requested_account_id: Option<tanren_identity_policy::AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
+        let session_token = self
+            .session_tokens
+            .get(&session_account_id)
+            .ok_or_else(|| {
+                HarnessError::Transport(format!(
+                    "missing mcp session token for account_id={session_account_id}"
+                ))
+            })?
+            .expose_secret()
+            .to_owned();
         let body = serde_json::json!({
-            "account_id": session_account_id,
+            "session_token": session_token,
             "target_account_id": requested_account_id,
         });
         let payload = self.call_tool("account.my_permissions", body).await?;
@@ -229,6 +253,13 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+}
+
+fn session_token_from_payload(payload: &Value) -> HarnessResult<String> {
+    payload["session"]["token"]
+        .as_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| HarnessError::Transport("missing session.token".to_owned()))
 }
 
 fn first_text(content: &[Content]) -> Option<String> {
