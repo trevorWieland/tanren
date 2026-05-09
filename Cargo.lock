@@ -4505,10 +4505,12 @@ dependencies = [
  "clap",
  "quote",
  "regex",
+ "schemars",
  "serde",
  "serde_json",
  "syn 2.0.117",
  "tanren-contract",
+ "tanren-identity-policy",
  "toml",
  "walkdir",
 ]

@@ -5,13 +5,23 @@ import type {
   AccountId,
   AccountView,
   Brand,
+  SessionEnvelope,
   ListActiveAccountsResponse,
   OrgId,
   SignedInAccountView,
   SwitchActiveAccountRequest,
   SwitchActiveAccountResponse,
 } from "@/app/lib/generated/account-contract";
-import { asAccountId, asOrgId } from "@/app/lib/generated/account-contract";
+import {
+  AccountIdSchema,
+  AccountViewSchema,
+  ListActiveAccountsResponseSchema,
+  OrgIdSchema,
+  SessionEnvelopeSchema,
+  SwitchActiveAccountRequestSchema,
+  SwitchActiveAccountResponseSchema,
+  parseAccountId as parseGeneratedAccountId,
+} from "@/app/lib/generated/account-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const WINDOW_ID_HEADER = "x-tanren-window-id";
@@ -89,20 +99,6 @@ interface FailureBody {
   summary?: unknown;
 }
 
-const AccountIdSchema = v.pipe(
-  v.string(),
-  v.trim(),
-  v.uuid(),
-  v.transform((value): AccountId => asAccountId(value)),
-);
-
-const OrgIdSchema = v.pipe(
-  v.string(),
-  v.trim(),
-  v.uuid(),
-  v.transform((value): OrgId => asOrgId(value)),
-);
-
 const WindowContextIdSchema = v.pipe(
   v.string(),
   v.trim(),
@@ -110,52 +106,31 @@ const WindowContextIdSchema = v.pipe(
   v.transform((value): WindowContextId => value as WindowContextId),
 );
 
-const AccountViewSchema = v.object({
-  id: AccountIdSchema,
-  identifier: v.string(),
-  display_name: v.string(),
-  org: v.nullable(OrgIdSchema),
-});
-
-const ActiveAccountViewSchema = v.object({
-  id: AccountIdSchema,
-  display_name: v.string(),
-  org: v.nullable(OrgIdSchema),
-});
-
-const SignedInAccountViewSchema = v.object({
-  account: ActiveAccountViewSchema,
-  is_active: v.boolean(),
-});
-
 const SessionViewSchema = v.object({
   account_id: AccountIdSchema,
   expires_at: v.string(),
 });
 
-const SignUpResultSchema = v.object({
-  account: AccountViewSchema,
-  session: SessionViewSchema,
+const SessionEnvelopeCookieSchema = v.object({
+  transport: v.literal("cookie"),
+  account_id: AccountIdSchema,
+  expires_at: v.string(),
 });
 
-const SignInResultSchema = v.object({
+const SignUpWireSchema = v.object({
   account: AccountViewSchema,
-  session: SessionViewSchema,
+  session: SessionEnvelopeSchema,
 });
 
-const AcceptInvitationResultSchema = v.object({
+const SignInWireSchema = v.object({
   account: AccountViewSchema,
-  session: SessionViewSchema,
+  session: SessionEnvelopeSchema,
+});
+
+const AcceptInvitationWireSchema = v.object({
+  account: AccountViewSchema,
+  session: SessionEnvelopeSchema,
   joined_org: OrgIdSchema,
-});
-
-const ListActiveAccountsResponseSchema = v.object({
-  accounts: v.array(SignedInAccountViewSchema),
-});
-
-const SwitchActiveAccountResponseSchema = v.object({
-  active_account_id: AccountIdSchema,
-  accounts: v.array(SignedInAccountViewSchema),
 });
 
 const FailureBodySchema = v.object({
@@ -175,10 +150,6 @@ function decodeWithSchema<
   return parsed.output;
 }
 
-function decodeAccountId(payload: unknown): AccountId | null {
-  return decodeWithSchema(AccountIdSchema, payload);
-}
-
 function decodeWindowContextId(payload: unknown): WindowContextId | null {
   return decodeWithSchema(WindowContextIdSchema, payload);
 }
@@ -188,17 +159,51 @@ function decodeFailureBody(payload: unknown): FailureBody | null {
 }
 
 function decodeSignUpResult(payload: unknown): SignUpResult | null {
-  return decodeWithSchema(SignUpResultSchema, payload);
+  const decoded = decodeWithSchema(SignUpWireSchema, payload);
+  if (decoded === null) {
+    return null;
+  }
+  const session = decodeCookieSessionEnvelope(decoded.session);
+  if (session === null) {
+    return null;
+  }
+  return {
+    account: decoded.account,
+    session,
+  };
 }
 
 function decodeSignInResult(payload: unknown): SignInResult | null {
-  return decodeWithSchema(SignInResultSchema, payload);
+  const decoded = decodeWithSchema(SignInWireSchema, payload);
+  if (decoded === null) {
+    return null;
+  }
+  const session = decodeCookieSessionEnvelope(decoded.session);
+  if (session === null) {
+    return null;
+  }
+  return {
+    account: decoded.account,
+    session,
+  };
 }
 
 function decodeAcceptInvitationResult(
   payload: unknown,
 ): AcceptInvitationResult | null {
-  return decodeWithSchema(AcceptInvitationResultSchema, payload);
+  const decoded = decodeWithSchema(AcceptInvitationWireSchema, payload);
+  if (decoded === null) {
+    return null;
+  }
+  const session = decodeCookieSessionEnvelope(decoded.session);
+  if (session === null) {
+    return null;
+  }
+  return {
+    account: decoded.account,
+    session,
+    joined_org: decoded.joined_org,
+  };
 }
 
 function decodeListActiveAccountsResult(
@@ -211,6 +216,16 @@ function decodeSwitchActiveAccountResult(
   payload: unknown,
 ): SwitchActiveAccountResult | null {
   return decodeWithSchema(SwitchActiveAccountResponseSchema, payload);
+}
+
+function decodeCookieSessionEnvelope(
+  payload: SessionEnvelope,
+): SessionView | null {
+  const parsed = decodeWithSchema(SessionEnvelopeCookieSchema, payload);
+  if (parsed === null) {
+    return null;
+  }
+  return decodeWithSchema(SessionViewSchema, parsed);
 }
 
 /**
@@ -334,11 +349,18 @@ export function listActiveAccounts(): Promise<ListActiveAccountsResult> {
 export function switchActiveAccount(
   input: SwitchActiveAccountInput,
 ): Promise<SwitchActiveAccountResult> {
+  const parsed = decodeWithSchema(SwitchActiveAccountRequestSchema, input);
+  if (parsed === null) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: "Invalid request body.",
+    });
+  }
   return requestJson(
     "/accounts/active/switch",
     "POST",
     decodeSwitchActiveAccountResult,
-    input,
+    parsed,
   );
 }
 
@@ -370,7 +392,7 @@ export async function signOut(): Promise<void> {
 }
 
 export function parseAccountId(value: string): AccountId | null {
-  return decodeAccountId(value);
+  return parseGeneratedAccountId(value);
 }
 
 function windowIdentityHeader(): Record<string, string> {

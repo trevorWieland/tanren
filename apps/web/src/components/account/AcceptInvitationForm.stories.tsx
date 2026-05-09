@@ -88,6 +88,7 @@ export const Success: Story = {
             org: orgId,
           },
           session: {
+            transport: "cookie",
             account_id: accountId,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
           },
