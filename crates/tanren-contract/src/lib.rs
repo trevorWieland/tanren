@@ -14,6 +14,7 @@ pub use account::{
 };
 pub use configuration::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
+    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
     UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
     UpsertUserSettingResponse, UserConfigurationFailureReason, UserCredentialView, UserSettingView,
 };

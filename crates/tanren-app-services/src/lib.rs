@@ -7,14 +7,20 @@
 
 pub mod account;
 pub mod events;
+pub mod user_configuration;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
+    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+use tanren_store::UserConfigurationStore;
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -199,6 +205,181 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// List all user-tier settings for the authenticated account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] with
+    /// [`UserConfigurationFailureReason::SettingNotFound`] when the
+    /// requested account scope is not owned by the authenticated account.
+    pub async fn list_user_settings<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        requested_account_id: AccountId,
+    ) -> Result<ListUserSettingsResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + ?Sized,
+    {
+        user_configuration::list_user_settings(
+            store,
+            authenticated_account_id,
+            requested_account_id,
+        )
+        .await
+    }
+
+    /// Insert or update a user-tier setting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] for invalid payloads or
+    /// unauthorized/not-found scope checks.
+    pub async fn upsert_user_setting<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        requested_account_id: AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> Result<UpsertUserSettingResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::upsert_user_setting(
+            store,
+            &self.clock,
+            authenticated_account_id,
+            requested_account_id,
+            request,
+        )
+        .await
+    }
+
+    /// Remove a user-tier setting.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] with
+    /// [`UserConfigurationFailureReason::SettingNotFound`] for unknown or
+    /// unauthorized/not-found scopes.
+    pub async fn remove_user_setting<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        requested_account_id: AccountId,
+        key: tanren_configuration_secrets::UserSettingKey,
+    ) -> Result<RemoveUserSettingResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::remove_user_setting(
+            store,
+            &self.clock,
+            authenticated_account_id,
+            requested_account_id,
+            key,
+        )
+        .await
+    }
+
+    /// Add one user-owned credential and return metadata-only output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] for invalid payloads or
+    /// unauthorized/not-found scope checks.
+    pub async fn add_user_credential<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> Result<CreateUserCredentialResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::add_user_credential(
+            store,
+            &self.clock,
+            authenticated_account_id,
+            request,
+        )
+        .await
+    }
+
+    /// Update one user-owned credential secret value and return
+    /// metadata-only output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] for invalid payloads,
+    /// unknown item ids, or unauthorized/not-found scope checks.
+    pub async fn update_user_credential<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        item_id: &str,
+        owner_scope: tanren_configuration_secrets::OwnerScope,
+        request: UpdateUserCredentialRequest,
+    ) -> Result<UpdateUserCredentialResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::update_user_credential(
+            store,
+            &self.clock,
+            authenticated_account_id,
+            item_id,
+            owner_scope,
+            request,
+        )
+        .await
+    }
+
+    /// List user-owned credential metadata rows for the requested scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] with
+    /// [`UserConfigurationFailureReason::ItemNotFound`] for unauthorized/not-found scopes.
+    pub async fn list_user_credentials<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        owner_scope: tanren_configuration_secrets::OwnerScope,
+    ) -> Result<ListUserCredentialsResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + ?Sized,
+    {
+        user_configuration::list_user_credentials(store, authenticated_account_id, owner_scope)
+            .await
+    }
+
+    /// Remove one user-owned credential and return metadata-only output.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Configuration`] for unknown item ids or
+    /// unauthorized/not-found scope checks.
+    pub async fn remove_user_credential<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        item_id: &str,
+        owner_scope: tanren_configuration_secrets::OwnerScope,
+    ) -> Result<RemoveUserCredentialResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::remove_user_credential(
+            store,
+            &self.clock,
+            authenticated_account_id,
+            item_id,
+            owner_scope,
+        )
+        .await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +396,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// User-tier configuration and credential taxonomy failure.
+    #[error("configuration: {}", .0.code())]
+    Configuration(UserConfigurationFailureReason),
 }

@@ -44,6 +44,20 @@ pub struct UpsertUserSettingResponse {
     pub setting: UserSettingView,
 }
 
+/// List response for user-tier settings.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListUserSettingsResponse {
+    /// Persisted setting views.
+    pub items: Vec<UserSettingView>,
+}
+
+/// Remove response for a user-tier setting.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RemoveUserSettingResponse {
+    /// Removed setting view from the pre-delete snapshot.
+    pub setting: UserSettingView,
+}
+
 /// Create request for a user-owned credential.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateUserCredentialRequest {
@@ -125,6 +139,13 @@ pub struct ListUserCredentialsResponse {
     pub items: Vec<UserCredentialView>,
 }
 
+/// Remove response for a user-owned credential.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RemoveUserCredentialResponse {
+    /// Removed credential metadata from the pre-delete snapshot.
+    pub item: UserCredentialView,
+}
+
 /// Closed taxonomy of user-configuration and user-credential failures.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -142,6 +163,16 @@ pub enum UserConfigurationFailureReason {
 }
 
 impl UserConfigurationFailureReason {
+    /// Stable machine-readable error code.
+    #[must_use]
+    pub const fn code(&self) -> &'static str {
+        match self {
+            Self::ValidationFailed { .. } => "validation_failed",
+            Self::SettingNotFound => "setting_not_found",
+            Self::ItemNotFound => "item_not_found",
+        }
+    }
+
     /// Human-readable wire summary for this failure.
     #[must_use]
     pub const fn summary(&self) -> &'static str {
@@ -149,8 +180,12 @@ impl UserConfigurationFailureReason {
             Self::ValidationFailed { .. } => {
                 "The submitted configuration input did not satisfy contract-level validation."
             }
-            Self::SettingNotFound => "The requested user setting does not exist.",
-            Self::ItemNotFound => "The requested user credential metadata does not exist.",
+            Self::SettingNotFound => {
+                "The requested user setting does not exist or is not accessible."
+            }
+            Self::ItemNotFound => {
+                "The requested user credential metadata does not exist or is not accessible."
+            }
         }
     }
 
