@@ -122,18 +122,36 @@ fn encode_cursor(cursor: Option<MyPermissionsCursor>) -> Option<String> {
 }
 
 fn to_permission_entry(record: tanren_store::MyPermissionRecord) -> MyPermissionEntry {
+    let grant_source_reference = grant_source_reference(&record);
     let policy_constraint = record
         .policy_constraint
         .map(|constraint| PermissionConstraintView {
             reason: constraint.reason,
             source: constraint.source,
+            source_reference: format!("permission_constraint:{}", constraint.id.as_uuid()),
         });
 
     MyPermissionEntry {
         permission: record.permission,
         effective_state: record.effective_state,
         grant_source: record.grant_source,
+        grant_source_reference,
         policy_constraint,
+    }
+}
+
+fn grant_source_reference(record: &tanren_store::MyPermissionRecord) -> String {
+    let grant_id = record.grant_id.as_uuid();
+    match &record.grant_source {
+        tanren_identity_policy::PermissionGrantSource::Direct => {
+            format!("permission_grant:{grant_id}")
+        }
+        tanren_identity_policy::PermissionGrantSource::RoleTemplate { role_template } => {
+            format!(
+                "permission_grant:{grant_id}#role_template={}",
+                role_template.as_str()
+            )
+        }
     }
 }
 

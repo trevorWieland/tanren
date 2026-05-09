@@ -15,7 +15,10 @@ use tanren_identity_policy::{
 };
 
 use crate::entity;
-use crate::{PermissionGrantId, StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{
+    PermissionConstraintId, PermissionGrantId, StoreError, parse_db_identifier,
+    parse_db_invitation_token,
+};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -141,6 +144,8 @@ impl From<entity::account_sessions::Model> for SessionRecord {
 /// One policy-constraint detail attached to a constrained permission.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PermissionConstraintRecord {
+    /// Stable constraint id (opaque persistence key).
+    pub id: PermissionConstraintId,
     /// Human-readable reason surfaced to callers.
     pub reason: PolicyConstraintReason,
     /// Scope that produced this constraint.
@@ -155,6 +160,7 @@ impl From<entity::permission_constraints::Model> for PermissionConstraintRecord 
             PolicyConstraintSource::OrganizationPolicy
         };
         Self {
+            id: PermissionConstraintId::new(model.id),
             reason: PolicyConstraintReason::new(model.reason),
             source,
         }
@@ -205,6 +211,8 @@ impl From<entity::permission_grants::Model> for PermissionGrantRecord {
 /// One effective permission in a self-introspection response.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MyPermissionRecord {
+    /// Stable grant id backing this effective permission row.
+    pub grant_id: PermissionGrantId,
     /// Canonical permission identifier.
     pub permission: PermissionName,
     /// Effective state after policy constraints are applied.

@@ -3,7 +3,7 @@
 use crate::{
     MyOrganizationPermissionsRecord, MyPermissionRecord, MyPermissionsCursor, MyPermissionsPage,
     MyPermissionsRecord, MyPermissionsScopeKind, MyProjectPermissionsRecord,
-    PermissionConstraintRecord, PermissionGrantId, StoreError,
+    PermissionConstraintId, PermissionConstraintRecord, PermissionGrantId, StoreError,
 };
 use chrono::Utc;
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, QueryResult, Statement};
@@ -81,16 +81,22 @@ fn parse_permission_row(row: &QueryResult) -> Result<ParsedPermissionRow, StoreE
     let constraint_reason: Option<String> = row.try_get("", "constraint_reason")?;
     let constraint_is_project_policy: Option<bool> =
         row.try_get("", "constraint_is_project_policy")?;
+    let constraint_id: Option<Uuid> = row.try_get("", "constraint_id")?;
     let grant_id: Uuid = row.try_get("", "grant_id")?;
 
-    let policy_constraint =
-        parse_policy_constraint(constraint_reason, constraint_is_project_policy)?;
+    let grant_id = PermissionGrantId::new(grant_id);
+    let policy_constraint = parse_policy_constraint(
+        constraint_reason,
+        constraint_is_project_policy,
+        constraint_id,
+    )?;
     let effective_state = if policy_constraint.is_some() {
         PermissionEffectiveState::Constrained
     } else {
         PermissionEffectiveState::Granted
     };
     let permission = MyPermissionRecord {
+        grant_id,
         permission: parse_permission_name(&permission_name)?,
         effective_state,
         grant_source: parse_grant_source(role_template_name.clone())?,
@@ -115,7 +121,7 @@ fn parse_permission_row(row: &QueryResult) -> Result<ParsedPermissionRow, StoreE
             },
             permission_name,
             role_template_name,
-            grant_id: PermissionGrantId::new(grant_id),
+            grant_id,
         },
     })
 }
@@ -275,9 +281,15 @@ fn parse_grant_source(
 fn parse_policy_constraint(
     constraint_reason: Option<String>,
     constraint_is_project_policy: Option<bool>,
+    constraint_id: Option<Uuid>,
 ) -> Result<Option<PermissionConstraintRecord>, StoreError> {
-    match (constraint_reason, constraint_is_project_policy) {
-        (Some(reason), Some(is_project_policy)) => Ok(Some(PermissionConstraintRecord {
+    match (
+        constraint_reason,
+        constraint_is_project_policy,
+        constraint_id,
+    ) {
+        (Some(reason), Some(is_project_policy), Some(id)) => Ok(Some(PermissionConstraintRecord {
+            id: PermissionConstraintId::new(id),
             reason: parse_policy_constraint_reason(&reason)?,
             source: if is_project_policy {
                 tanren_identity_policy::PolicyConstraintSource::ProjectPolicy
@@ -285,10 +297,10 @@ fn parse_policy_constraint(
                 tanren_identity_policy::PolicyConstraintSource::OrganizationPolicy
             },
         })),
-        (None, None) => Ok(None),
+        (None, None, None) => Ok(None),
         _ => Err(StoreError::Invariant {
             entity: "permission_constraints",
-            detail: "constraint reason/source columns must be both null or both set",
+            detail: "constraint id/reason/source columns must be all null or all set",
         }),
     }
 }
@@ -320,6 +332,7 @@ SELECT
   pg.project_id AS project_id,
   pg.permission_name,
   pg.role_template_name,
+  pc.id AS constraint_id,
   pc.reason AS constraint_reason,
   pc.is_project_policy AS constraint_is_project_policy,
   pg.id AS grant_id
@@ -346,6 +359,7 @@ SELECT
   pg.project_id AS project_id,
   pg.permission_name,
   pg.role_template_name,
+  pc.id AS constraint_id,
   pc.reason AS constraint_reason,
   pc.is_project_policy AS constraint_is_project_policy,
   pg.id AS grant_id
@@ -372,6 +386,7 @@ SELECT
   pg.project_id AS project_id,
   pg.permission_name,
   pg.role_template_name,
+  pc.id AS constraint_id,
   pc.reason AS constraint_reason,
   pc.is_project_policy AS constraint_is_project_policy,
   pg.id AS grant_id
@@ -410,6 +425,7 @@ SELECT
   pg.project_id AS project_id,
   pg.permission_name,
   pg.role_template_name,
+  pc.id AS constraint_id,
   pc.reason AS constraint_reason,
   pc.is_project_policy AS constraint_is_project_policy,
   pg.id AS grant_id

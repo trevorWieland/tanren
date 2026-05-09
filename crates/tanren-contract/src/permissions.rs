@@ -143,6 +143,8 @@ pub struct MyPermissionEntry {
     pub effective_state: PermissionEffectiveState,
     /// How this permission was granted.
     pub grant_source: PermissionGrantSource,
+    /// Stable proof/source reference for how this grant was derived.
+    pub grant_source_reference: String,
     /// Why policy constrained this permission, when applicable.
     pub policy_constraint: Option<PermissionConstraintView>,
 }
@@ -154,6 +156,8 @@ pub struct PermissionConstraintView {
     pub reason: PolicyConstraintReason,
     /// Scope that produced the constraint.
     pub source: PolicyConstraintSource,
+    /// Stable proof/source reference for the constraining policy record.
+    pub source_reference: String,
 }
 
 /// Shared machine-readable interface error body.

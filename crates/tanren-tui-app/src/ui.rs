@@ -147,23 +147,26 @@ pub(crate) fn my_permissions_outcome(response: &MyPermissionsResponse) -> Outcom
 
 fn append_permission_lines(lines: &mut Vec<String>, permissions: &[MyPermissionEntry]) {
     for permission in permissions {
-        let (constraint_reason, constraint_source) =
+        let (constraint_reason, constraint_source, constraint_source_reference) =
             permission.policy_constraint.as_ref().map_or_else(
-                || ("none".to_owned(), "none".to_owned()),
+                || ("none".to_owned(), "none".to_owned(), "none".to_owned()),
                 |constraint| {
                     (
                         constraint.reason.to_string(),
                         format_constraint_source(constraint.source),
+                        constraint.source_reference.clone(),
                     )
                 },
             );
         lines.push(format!(
-            "    permission={} state={:?} source={} constraint_reason={} constraint_source={}",
+            "    permission={} state={:?} source={} source_reference={} constraint_reason={} constraint_source={} constraint_source_reference={}",
             permission.permission,
             permission.effective_state,
             format_grant_source(&permission.grant_source),
+            permission.grant_source_reference,
             constraint_reason,
             constraint_source,
+            constraint_source_reference,
         ));
     }
 }

@@ -112,7 +112,7 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
-      And on a phone viewport the web permissions page shows the role-template source and constraint reason
+      And on a phone viewport the web permissions page shows the role-template source, source proof references, and constraint reason
       And the permissions view does not create permission request or grant events
 
     @falsification @web

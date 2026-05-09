@@ -217,6 +217,7 @@ fn parse_permission_line(
             role_template: tanren_identity_policy::RoleTemplateName::new(role_template),
         }
     };
+    let grant_source_reference = capture(line, r"source_reference=(\S+)")?;
     let policy_constraint = if line.contains("constraint_reason=none") {
         None
     } else {
@@ -232,12 +233,14 @@ fn parse_permission_line(
         Some(tanren_contract::PermissionConstraintView {
             reason: tanren_identity_policy::PolicyConstraintReason::new(reason),
             source,
+            source_reference: capture(line, r"constraint_source_reference=(\S+)")?,
         })
     };
     let entry = tanren_contract::MyPermissionEntry {
         permission: tanren_identity_policy::PermissionName::new(permission),
         effective_state,
         grant_source,
+        grant_source_reference,
         policy_constraint,
     };
     Ok(Some((

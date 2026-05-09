@@ -1,7 +1,4 @@
-//! Permission-introspection steps for B-0039.
-//!
-//! These steps drive the interface-selected `AccountHarness` and assert on
-//! the observable output from each surface.
+//! Permission-introspection steps for B-0039 across all harnessed interfaces.
 
 use std::collections::HashSet;
 
@@ -198,14 +195,28 @@ async fn then_sees_direct_org_permission(world: &mut TanrenWorld, actor: String)
         .last_permissions
         .as_ref()
         .expect("permissions query should have succeeded");
-    assert_entry(
+    let direct_entry = require_entry_with_source(
         &view.response.organizations,
         ORG_PERMISSION,
         &PermissionGrantSource::Direct,
     );
     assert!(
+        direct_entry
+            .grant_source_reference
+            .starts_with("permission_grant:"),
+        "expected direct grant source reference to start with permission_grant:, got {}",
+        direct_entry.grant_source_reference
+    );
+    assert!(
         view.rendered.contains(ORG_PERMISSION),
         "expected rendered output to include {ORG_PERMISSION}; got {}",
+        view.rendered
+    );
+    assert!(
+        view.rendered
+            .contains(direct_entry.grant_source_reference.as_str()),
+        "expected rendered output to include direct grant source reference {}; got {}",
+        direct_entry.grant_source_reference,
         view.rendered
     );
     if ctx.harness.kind() == tanren_testkit::HarnessKind::Tui {
@@ -225,7 +236,7 @@ async fn then_sees_role_template_project_permission(world: &mut TanrenWorld, act
         .last_permissions
         .as_ref()
         .expect("permissions query should have succeeded");
-    assert_entry(
+    let role_entry = require_entry_with_source(
         &view.response.projects,
         PROJECT_ROLE_PERMISSION,
         &PermissionGrantSource::RoleTemplate {
@@ -233,8 +244,29 @@ async fn then_sees_role_template_project_permission(world: &mut TanrenWorld, act
         },
     );
     assert!(
+        role_entry
+            .grant_source_reference
+            .starts_with("permission_grant:"),
+        "expected role-template source reference to start with permission_grant:, got {}",
+        role_entry.grant_source_reference
+    );
+    assert!(
+        role_entry
+            .grant_source_reference
+            .contains("role_template=release_manager"),
+        "expected role-template source reference to include the role template id, got {}",
+        role_entry.grant_source_reference
+    );
+    assert!(
         view.rendered.contains(ROLE_TEMPLATE_NAME),
         "expected rendered output to include role template {ROLE_TEMPLATE_NAME}; got {}",
+        view.rendered
+    );
+    assert!(
+        view.rendered
+            .contains(role_entry.grant_source_reference.as_str()),
+        "expected rendered output to include role-template source reference {}; got {}",
+        role_entry.grant_source_reference,
         view.rendered
     );
     if ctx.harness.kind() == tanren_testkit::HarnessKind::Tui {
@@ -277,30 +309,41 @@ async fn then_sees_constraint_reason_and_source(
         PolicyConstraintSource::ProjectPolicy => "project_policy",
     };
     assert_eq!(actual_source, source);
-
-    let source_variants = [
-        source.as_str(),
-        "organization_policy",
-        "OrganizationPolicy",
-        "organization policy",
-    ];
     assert!(
-        source_variants
-            .iter()
-            .any(|candidate| view.rendered.contains(candidate)),
-        "expected rendered output to include one of {:?}; got {}",
-        source_variants,
-        view.rendered
+        constraint
+            .source_reference
+            .starts_with("permission_constraint:"),
+        "expected constraint source reference to start with permission_constraint:, got {}",
+        constraint.source_reference
     );
+
+    if ctx.harness.kind() != tanren_testkit::HarnessKind::Tui {
+        assert!(
+            view.rendered.contains(source.as_str())
+                || view.rendered.contains("organization_policy")
+                || view.rendered.contains("OrganizationPolicy")
+                || view.rendered.contains("organization policy"),
+            "expected rendered output to include source variants for {source}; got {}",
+            view.rendered
+        );
+    }
     assert!(
         view.rendered.contains(&reason),
         "expected rendered output to include reason '{reason}'; got {}",
         view.rendered
     );
+    if ctx.harness.kind() != tanren_testkit::HarnessKind::Tui {
+        assert!(
+            view.rendered.contains(constraint.source_reference.as_str()),
+            "expected rendered output to include constraint source reference {}; got {}",
+            constraint.source_reference,
+            view.rendered
+        );
+    }
 }
 
 #[then(
-    expr = "on a phone viewport the web permissions page shows the role-template source and constraint reason"
+    expr = "on a phone viewport the web permissions page shows the role-template source, source proof references, and constraint reason"
 )]
 async fn then_phone_viewport_visibility(world: &mut TanrenWorld) {
     let ctx = world.ensure_account_ctx().await;
@@ -317,6 +360,16 @@ async fn then_phone_viewport_visibility(world: &mut TanrenWorld) {
         view.rendered.contains("organization_policy")
             || view.rendered.contains("OrganizationPolicy"),
         "expected rendered output to include organization-policy source; got {}",
+        view.rendered
+    );
+    assert!(
+        view.rendered.contains("permission_grant:"),
+        "expected rendered output to include grant source reference text; got {}",
+        view.rendered
+    );
+    assert!(
+        view.rendered.contains("permission_constraint:"),
+        "expected rendered output to include constraint source reference text; got {}",
         view.rendered
     );
 }
@@ -406,20 +459,25 @@ async fn snapshot_event_ids(ctx: &mut crate::AccountContext) -> HashSet<String> 
         .collect()
 }
 
-fn assert_entry<T>(sections: &[T], permission: &str, expected_source: &PermissionGrantSource)
+fn require_entry_with_source<'a, T>(
+    sections: &'a [T],
+    permission: &str,
+    expected_source: &PermissionGrantSource,
+) -> &'a MyPermissionEntry
 where
     T: AsPermissions,
 {
-    let matches = sections
+    let entry = sections
         .iter()
         .flat_map(AsPermissions::permissions)
-        .any(|entry| {
+        .find(|entry| {
             entry.permission.as_str() == permission && &entry.grant_source == expected_source
         });
     assert!(
-        matches,
+        entry.is_some(),
         "expected permission '{permission}' with source {expected_source:?}"
     );
+    entry.expect("entry existence was asserted")
 }
 
 trait AsPermissions {

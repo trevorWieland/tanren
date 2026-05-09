@@ -251,7 +251,7 @@ Then(
 );
 
 Then(
-  "on a phone viewport the web permissions page shows the role-template source and constraint reason",
+  "on a phone viewport the web permissions page shows the role-template source, source proof references, and constraint reason",
   async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await page.goto("/my-permissions");
@@ -270,9 +270,15 @@ Then(
     const roleTemplateSource = page
       .getByText(new RegExp(`role template\\s*:\\s*${ROLE_TEMPLATE_NAME}`, "i"))
       .first();
+    const grantSourceReference = page
+      .getByText(/permission_grant:/i, { exact: false })
+      .first();
     const constraintSource = page.getByText(/^organization policy$/i).first();
     const constraintReason = page
       .getByText(/organization policy requires approval ticket\./i)
+      .first();
+    const constraintSourceReference = page
+      .getByText(/permission_constraint:/i, { exact: false })
       .first();
 
     await organizationPermission.waitFor();
@@ -280,8 +286,10 @@ Then(
     await constrainedPermission.waitFor();
     await directSource.waitFor();
     await roleTemplateSource.waitFor();
+    await grantSourceReference.waitFor();
     await constraintSource.waitFor();
     await constraintReason.waitFor();
+    await constraintSourceReference.waitFor();
 
     const roleSourceBox = await requiredBox(
       roleTemplateSource,
@@ -290,6 +298,14 @@ Then(
     const constraintReasonBox = await requiredBox(
       constraintReason,
       "constraint reason",
+    );
+    const grantSourceReferenceBox = await requiredBox(
+      grantSourceReference,
+      "grant source reference",
+    );
+    const constraintSourceReferenceBox = await requiredBox(
+      constraintSourceReference,
+      "constraint source reference",
     );
     const orgPermissionBox = await requiredBox(
       organizationPermission,
@@ -304,6 +320,12 @@ Then(
       constraintReasonBox,
       "role-template source",
       "constraint reason",
+    );
+    assertNoOverlap(
+      grantSourceReferenceBox,
+      constraintSourceReferenceBox,
+      "grant source reference",
+      "constraint source reference",
     );
     assertNoOverlap(
       orgPermissionBox,

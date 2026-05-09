@@ -54,6 +54,22 @@ function scopeDisplayLabel(scope: PermissionScopeView): string {
   }
 }
 
+function SourceReferenceValue({ reference }: { reference: string }): ReactNode {
+  if (reference.startsWith("http://") || reference.startsWith("https://")) {
+    return (
+      <a
+        href={reference}
+        className="underline underline-offset-2"
+        target="_blank"
+        rel="noreferrer"
+      >
+        {reference}
+      </a>
+    );
+  }
+  return <code className="break-all text-xs sm:text-sm">{reference}</code>;
+}
+
 function isOrganizationScope(
   scope: PermissionScopeView,
 ): scope is Extract<PermissionScopeView, { kind: "organization" }> {
@@ -102,6 +118,14 @@ function ScopeCard({
                 {formatGrantSource(permission.grant_source)}
               </dd>
               <dt className="text-[--color-fg-muted]">
+                {m.myPermissions_sourceReferenceLabel()}
+              </dt>
+              <dd>
+                <SourceReferenceValue
+                  reference={permission.grant_source_reference}
+                />
+              </dd>
+              <dt className="text-[--color-fg-muted]">
                 {m.myPermissions_constraintReasonLabel()}
               </dt>
               <dd>
@@ -115,6 +139,18 @@ function ScopeCard({
                 {permission.policy_constraint == null
                   ? m.myPermissions_constraintNone()
                   : formatConstraintSource(permission.policy_constraint.source)}
+              </dd>
+              <dt className="text-[--color-fg-muted]">
+                {m.myPermissions_constraintSourceReferenceLabel()}
+              </dt>
+              <dd>
+                {permission.policy_constraint == null ? (
+                  m.myPermissions_constraintNone()
+                ) : (
+                  <SourceReferenceValue
+                    reference={permission.policy_constraint.source_reference}
+                  />
+                )}
               </dd>
             </dl>
           </li>

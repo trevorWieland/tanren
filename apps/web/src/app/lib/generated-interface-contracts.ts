@@ -17,10 +17,12 @@ export type PermissionGrantSource =
 export interface PermissionConstraintView {
   reason: PolicyConstraintReason;
   source: PolicyConstraintSource;
+  source_reference: string;
 }
 export interface MyPermissionEntry {
   effective_state: PermissionEffectiveState;
   grant_source: PermissionGrantSource;
+  grant_source_reference: string;
   permission: PermissionName;
   policy_constraint?: null | PermissionConstraintView;
 }

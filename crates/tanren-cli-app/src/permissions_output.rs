@@ -66,22 +66,25 @@ fn write_permission_row(
     scope_id: &str,
     permission: &MyPermissionEntry,
 ) -> Result<()> {
-    let (constraint_reason, constraint_source) = permission.policy_constraint.as_ref().map_or_else(
-        || ("none".to_owned(), "none".to_owned()),
-        |constraint| {
-            (
-                format!("{:?}", constraint.reason),
-                format!("{:?}", constraint.source),
-            )
-        },
-    );
+    let (constraint_reason, constraint_source, constraint_source_reference) =
+        permission.policy_constraint.as_ref().map_or_else(
+            || ("none".to_owned(), "none".to_owned(), "none".to_owned()),
+            |constraint| {
+                (
+                    format!("{:?}", constraint.reason),
+                    format!("{:?}", constraint.source),
+                    constraint.source_reference.clone(),
+                )
+            },
+        );
 
     writeln!(
         handle,
-        "scope={scope} scope_id={scope_id} permission={permission_name:?} effective_state={effective_state:?} source={grant_source:?} constraint_reason={constraint_reason} constraint_source={constraint_source}",
+        "scope={scope} scope_id={scope_id} permission={permission_name:?} effective_state={effective_state:?} source={grant_source:?} source_reference={source_reference} constraint_reason={constraint_reason} constraint_source={constraint_source} constraint_source_reference={constraint_source_reference}",
         permission_name = permission.permission,
         effective_state = permission.effective_state,
         grant_source = permission.grant_source,
+        source_reference = permission.grant_source_reference,
     )
     .context("write permission row")
 }
