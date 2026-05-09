@@ -9,13 +9,18 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
+    CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleTemplateView,
+    SignInRequest, SignUpRequest,
+};
 use tanren_identity_policy::Argon2idVerifier;
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewRole, RoleStore};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessRoleTemplate, HarnessSession, RoleHarness, RoleHarnessError, RoleHarnessResult,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -143,6 +148,92 @@ impl AccountHarness for InProcessHarness {
     }
 }
 
+#[async_trait]
+impl RoleHarness for InProcessHarness {
+    async fn create_role(
+        &mut self,
+        req: CreateRoleRequest,
+    ) -> RoleHarnessResult<CreateRoleResponse> {
+        self.handlers
+            .create_role(&self.store, req)
+            .await
+            .map_err(translate_role_error)
+    }
+
+    async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse> {
+        self.handlers
+            .edit_role(&self.store, req)
+            .await
+            .map_err(translate_role_error)
+    }
+
+    async fn delete_role(
+        &mut self,
+        req: DeleteRoleRequest,
+    ) -> RoleHarnessResult<DeleteRoleResponse> {
+        self.handlers
+            .delete_role(&self.store, req)
+            .await
+            .map_err(translate_role_error)
+    }
+
+    async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse> {
+        self.handlers
+            .apply_role(&self.store, req)
+            .await
+            .map_err(translate_role_error)
+    }
+
+    async fn check_permission(
+        &mut self,
+        req: PermissionCheckRequest,
+    ) -> RoleHarnessResult<PermissionCheckResponse> {
+        self.handlers
+            .check_permission(&self.store, req)
+            .await
+            .map_err(translate_role_error)
+    }
+
+    async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()> {
+        self.store
+            .create_role(NewRole {
+                id: fixture.id,
+                scope: fixture.scope,
+                name: fixture.name,
+                permissions: fixture.permissions,
+                created_at: fixture.created_at,
+                updated_at: fixture.updated_at,
+            })
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("seed_role_template: {e}")))?;
+        Ok(())
+    }
+
+    async fn read_role_template(
+        &self,
+        role: tanren_identity_policy::ScopedRole,
+    ) -> RoleHarnessResult<Option<RoleTemplateView>> {
+        let maybe = self
+            .store
+            .find_role(role)
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("read_role_template: {e}")))?;
+        Ok(maybe.map(role_template_view))
+    }
+
+    async fn read_direct_grants(
+        &self,
+        principal: tanren_identity_policy::PrincipalRef,
+    ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
+        let grants = self
+            .store
+            .list_all_direct_grants(principal)
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("read_direct_grants: {e}")))?;
+        Ok(grants.into_iter().map(permission_grant_view).collect())
+    }
+}
+
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
@@ -152,5 +243,39 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+    }
+}
+
+fn translate_role_error(err: tanren_app_services::RoleServiceError) -> RoleHarnessError {
+    use tanren_app_services::RoleServiceError;
+    match err {
+        RoleServiceError::Role(reason) => RoleHarnessError::Role(reason, reason.code().to_owned()),
+        RoleServiceError::InvalidInput(msg) => {
+            RoleHarnessError::Transport(format!("invalid_input: {msg}"))
+        }
+        RoleServiceError::Store(err) => RoleHarnessError::Transport(format!("store: {err}")),
+        _ => RoleHarnessError::Transport("unknown app-service failure".to_owned()),
+    }
+}
+
+fn role_template_view(record: tanren_store::RoleRecord) -> RoleTemplateView {
+    RoleTemplateView {
+        id: record.id,
+        scope: record.scope,
+        name: record.name,
+        permissions: record.permissions,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    }
+}
+
+fn permission_grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
+    PermissionGrantView {
+        id: record.id,
+        principal: record.principal,
+        scope: record.scope,
+        permission: record.permission,
+        source_role_id: record.source_role_id,
+        granted_at: record.granted_at,
     }
 }

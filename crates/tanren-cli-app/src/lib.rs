@@ -26,6 +26,7 @@ use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
+mod role;
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
 /// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
@@ -63,6 +64,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Role-template and permission-evaluation flow.
+    Role {
+        #[command(subcommand)]
+        action: role::RoleAction,
     },
 }
 
@@ -122,6 +128,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Role { action }) => role::dispatch(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

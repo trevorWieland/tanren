@@ -4244,10 +4244,13 @@ dependencies = [
  "anyhow",
  "clap",
  "secrecy",
+ "serde",
+ "serde_json",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4486,6 +4489,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

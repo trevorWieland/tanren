@@ -28,6 +28,8 @@ use super::{
     HarnessSession,
 };
 
+mod role;
+
 /// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
