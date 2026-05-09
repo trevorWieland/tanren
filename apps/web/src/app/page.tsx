@@ -4,6 +4,18 @@ import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import * as m from "@/i18n/paraglide/messages";
+import type {
+  PermissionCheckResponse,
+  PrincipalRef,
+  RoleScope,
+} from "@/app/lib/generated/role-contract";
+import {
+  applyRole,
+  checkPermission,
+  createRole,
+  deleteRole,
+  editRole,
+} from "@/app/lib/role-client";
 
 interface HealthReport {
   status: string;
@@ -13,63 +25,6 @@ interface HealthReport {
 
 type ScopeKind = "account" | "organization" | "project";
 type PrincipalKind = "account" | "role";
-
-type RoleScope =
-  | { scope: "account"; account_id: string }
-  | { scope: "organization"; org_id: string }
-  | { scope: "project"; project_id: string };
-
-type PrincipalRef =
-  | { principal: "account"; account_id: string }
-  | { principal: "role"; role_id: string };
-
-interface RoleTemplateView {
-  id: string;
-  scope: RoleScope;
-  name: string;
-  permissions: string[];
-  created_at: string;
-  updated_at: string;
-}
-
-interface PermissionGrantView {
-  id: string;
-  principal: PrincipalRef;
-  scope: RoleScope;
-  permission: string;
-  source_role_id: string;
-  granted_at: string;
-}
-
-interface CreateRoleResponse {
-  role: RoleTemplateView;
-}
-
-interface EditRoleResponse {
-  role: RoleTemplateView;
-}
-
-interface DeleteRoleResponse {
-  role: { role_id: string; scope: RoleScope };
-}
-
-interface ApplyRoleResponse {
-  role: { role_id: string; scope: RoleScope };
-  grants: PermissionGrantView[];
-}
-
-interface PermissionCheckResponse {
-  principal: PrincipalRef;
-  permission: string;
-  scope: RoleScope;
-  allowed: boolean;
-  matching_grant_ids: string[];
-}
-
-interface FailureBody {
-  code?: unknown;
-  summary?: unknown;
-}
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
@@ -105,11 +60,10 @@ export default function Home(): ReactNode {
 
   const runRoleAction = async <T,>(
     label: string,
-    path: string,
-    body: unknown,
+    action: () => Promise<T>,
   ): Promise<void> => {
     try {
-      const response = await postJson<T>(path, body);
+      const response = await action();
       setRoleMessage(`${label}: ok`);
       setRoleResult(JSON.stringify(response, null, 2));
     } catch (reason: unknown) {
@@ -122,61 +76,67 @@ export default function Home(): ReactNode {
   const onCreateRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void runRoleAction<CreateRoleResponse>("create role", "/roles", {
-      scope: readScope(form, "scope_"),
-      name: readRequired(form, "name"),
-      permissions: readPermissions(form, "permissions"),
-    });
+    void runRoleAction("create role", () =>
+      createRole({
+        scope: readScope(form, "scope_"),
+        name: readRequired(form, "name"),
+        permissions: readPermissions(form, "permissions"),
+      }),
+    );
   };
 
   const onEditRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void runRoleAction<EditRoleResponse>("edit role", "/roles/edit", {
-      role: {
-        role_id: readRequired(form, "role_id"),
-        scope: readScope(form, "scope_"),
-      },
-      name: readRequired(form, "name"),
-      permissions: readPermissions(form, "permissions"),
-    });
+    void runRoleAction("edit role", () =>
+      editRole({
+        role: {
+          role_id: readRequired(form, "role_id"),
+          scope: readScope(form, "scope_"),
+        },
+        name: readRequired(form, "name"),
+        permissions: readPermissions(form, "permissions"),
+      }),
+    );
   };
 
   const onDeleteRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void runRoleAction<DeleteRoleResponse>("delete role", "/roles/delete", {
-      role: {
-        role_id: readRequired(form, "role_id"),
-        scope: readScope(form, "scope_"),
-      },
-    });
+    void runRoleAction("delete role", () =>
+      deleteRole({
+        role: {
+          role_id: readRequired(form, "role_id"),
+          scope: readScope(form, "scope_"),
+        },
+      }),
+    );
   };
 
   const onApplyRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void runRoleAction<ApplyRoleResponse>("apply role", "/roles/apply", {
-      role: {
-        role_id: readRequired(form, "role_id"),
-        scope: readScope(form, "role_scope_"),
-      },
-      principal: readPrincipal(form, "principal_"),
-      grant_scope: readScope(form, "grant_scope_"),
-    });
+    void runRoleAction("apply role", () =>
+      applyRole({
+        role: {
+          role_id: readRequired(form, "role_id"),
+          scope: readScope(form, "role_scope_"),
+        },
+        principal: readPrincipal(form, "principal_"),
+        grant_scope: readScope(form, "grant_scope_"),
+      }),
+    );
   };
 
   const onCheckPermission = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    void runRoleAction<PermissionCheckResponse>(
-      "check permission",
-      "/permissions/check",
-      {
+    void runRoleAction<PermissionCheckResponse>("check permission", () =>
+      checkPermission({
         principal: readPrincipal(form, "principal_"),
         permission: readRequired(form, "permission"),
         scope: readScope(form, "scope_"),
-      },
+      }),
     );
   };
 
@@ -258,38 +218,6 @@ export default function Home(): ReactNode {
       </section>
     </main>
   );
-}
-
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      credentials: "include",
-    });
-  } catch (cause: unknown) {
-    throw new Error(cause instanceof Error ? cause.message : String(cause));
-  }
-
-  if (!response.ok) {
-    let parsed: FailureBody = {};
-    try {
-      parsed = (await response.json()) as FailureBody;
-    } catch {
-      parsed = {};
-    }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : `http_${response.status}`;
-    const summary =
-      typeof parsed.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    throw new Error(`${code}: ${summary}`);
-  }
-
-  return (await response.json()) as T;
 }
 
 function readRequired(form: FormData, name: string): string {

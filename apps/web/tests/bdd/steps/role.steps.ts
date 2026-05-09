@@ -1,67 +1,25 @@
 import { createBdd, test as base } from "playwright-bdd";
-
-type RoleScopeWire =
-  | { scope: "account"; account_id: string }
-  | { scope: "organization"; org_id: string }
-  | { scope: "project"; project_id: string };
-
-type PermissionScopeWire =
-  | { scope: "account"; account_id: string }
-  | { scope: "organization"; org_id: string }
-  | { scope: "project"; project_id: string };
-
-type PrincipalRefWire =
-  | { principal: "account"; account_id: string }
-  | { principal: "role"; role_id: string };
-
-interface ScopedRoleWire {
-  role_id: string;
-  scope: RoleScopeWire;
-}
-
-interface RoleTemplateViewWire {
-  id: string;
-  scope: RoleScopeWire;
-  name: string;
-  permissions: string[];
-}
-
-interface PermissionGrantViewWire {
-  principal: PrincipalRefWire;
-  scope: PermissionScopeWire;
-  permission: string;
-  source_role_id: string;
-}
-
-interface CreateRoleResponseWire {
-  role: RoleTemplateViewWire;
-}
-
-interface EditRoleResponseWire {
-  role: RoleTemplateViewWire;
-}
-
-interface DeleteRoleResponseWire {
-  role: ScopedRoleWire;
-}
-
-interface ApplyRoleResponseWire {
-  role: ScopedRoleWire;
-  grants: PermissionGrantViewWire[];
-}
-
-interface PermissionCheckResponseWire {
-  allowed: boolean;
-}
-
-interface FailureBodyWire {
-  code: string;
-  summary: string;
-}
+import {
+  parseRoleFailure,
+  type ApplyRoleRequest,
+  type ApplyRoleResponse,
+  type CreateRoleRequest,
+  type CreateRoleResponse,
+  type DeleteRoleRequest,
+  type DeleteRoleResponse,
+  type EditRoleRequest,
+  type EditRoleResponse,
+  type PermissionCheckRequest,
+  type PermissionCheckResponse,
+  type PermissionScope,
+  type PrincipalRef,
+  type RoleScope,
+  type ScopedRole,
+} from "../../../src/app/lib/generated/role-contract";
 
 interface RoleWorld {
-  scope: RoleScopeWire | undefined;
-  activeRole: ScopedRoleWire | undefined;
+  scope: RoleScope | undefined;
+  activeRole: ScopedRole | undefined;
   activeRolePermissions: string[] | undefined;
   principals: Map<string, string>;
   lastPermissionCheck: boolean | undefined;
@@ -108,11 +66,12 @@ Given("an organization role scope", async ({ world }) => {
 When(
   "the operator creates role template {string} with permissions {string}",
   async ({ world }, name: string, permissions: string) => {
-    const response = await postJson<CreateRoleResponseWire>("/roles", {
+    const request: CreateRoleRequest = {
       scope: roleScope(world),
       name,
       permissions: parsePermissionsCsv(permissions),
-    });
+    };
+    const response = await postJson<CreateRoleResponse>("/roles", request);
     if (!response.ok) {
       throw new Error(
         `create role failed (${response.code}): ${response.summary}`,
@@ -134,11 +93,12 @@ When(
   "the operator edits the active role template to name {string} and permissions {string}",
   async ({ world }, name: string, permissions: string) => {
     const activeRole = requiredActiveRole(world);
-    const response = await postJson<EditRoleResponseWire>("/roles/edit", {
+    const request: EditRoleRequest = {
       role: activeRole,
       name,
       permissions: parsePermissionsCsv(permissions),
-    });
+    };
+    const response = await postJson<EditRoleResponse>("/roles/edit", request);
     if (!response.ok) {
       throw new Error(
         `edit role failed (${response.code}): ${response.summary}`,
@@ -158,9 +118,8 @@ When(
 
 When("the operator deletes the active role template", async ({ world }) => {
   const activeRole = requiredActiveRole(world);
-  const response = await postJson<DeleteRoleResponseWire>("/roles/delete", {
-    role: activeRole,
-  });
+  const request: DeleteRoleRequest = { role: activeRole };
+  const response = await postJson<DeleteRoleResponse>("/roles/delete", request);
   if (!response.ok) {
     throw new Error(
       `delete role failed (${response.code}): ${response.summary}`,
@@ -177,15 +136,16 @@ When(
   "the operator applies the role template to account principal {word}",
   async ({ world }, alias: string) => {
     const activeRole = requiredActiveRole(world);
-    const principal: PrincipalRefWire = {
+    const principal: PrincipalRef = {
       principal: "account",
       account_id: accountId(world, alias),
     };
-    const response = await postJson<ApplyRoleResponseWire>("/roles/apply", {
+    const request: ApplyRoleRequest = {
       role: activeRole,
       principal,
       grant_scope: permissionScopeFromRoleScope(roleScope(world)),
-    });
+    };
+    const response = await postJson<ApplyRoleResponse>("/roles/apply", request);
     if (!response.ok) {
       throw new Error(
         `apply role failed (${response.code}): ${response.summary}`,
@@ -221,16 +181,17 @@ When(
 When(
   "the operator checks permission {string} for account principal {word}",
   async ({ world }, permission: string, alias: string) => {
-    const response = await postJson<PermissionCheckResponseWire>(
-      "/permissions/check",
-      {
-        principal: {
-          principal: "account",
-          account_id: accountId(world, alias),
-        },
-        permission,
-        scope: permissionScopeFromRoleScope(roleScope(world)),
+    const request: PermissionCheckRequest = {
+      principal: {
+        principal: "account",
+        account_id: accountId(world, alias),
       },
+      permission,
+      scope: permissionScopeFromRoleScope(roleScope(world)),
+    };
+    const response = await postJson<PermissionCheckResponse>(
+      "/permissions/check",
+      request,
     );
     if (!response.ok) {
       throw new Error(
@@ -246,16 +207,17 @@ When(
   "the operator checks permission {string} for the role template principal",
   async ({ world }, permission: string) => {
     const activeRole = requiredActiveRole(world);
-    const response = await postJson<PermissionCheckResponseWire>(
-      "/permissions/check",
-      {
-        principal: {
-          principal: "role",
-          role_id: activeRole.role_id,
-        },
-        permission,
-        scope: permissionScopeFromRoleScope(roleScope(world)),
+    const request: PermissionCheckRequest = {
+      principal: {
+        principal: "role",
+        role_id: activeRole.role_id,
       },
+      permission,
+      scope: permissionScopeFromRoleScope(roleScope(world)),
+    };
+    const response = await postJson<PermissionCheckResponse>(
+      "/permissions/check",
+      request,
     );
     if (response.ok) {
       world.lastPermissionCheck = response.json.allowed;
@@ -281,14 +243,15 @@ Then(
 
 Then("the active role template no longer exists", async ({ world }) => {
   const activeRole = requiredActiveRole(world);
-  const response = await postJson<ApplyRoleResponseWire>("/roles/apply", {
+  const request: ApplyRoleRequest = {
     role: activeRole,
     principal: {
       principal: "account",
       account_id: accountId(world, "deleted_role_probe"),
     },
     grant_scope: permissionScopeFromRoleScope(roleScope(world)),
-  });
+  };
+  const response = await postJson<ApplyRoleResponse>("/roles/apply", request);
   if (response.ok) {
     throw new Error("expected deleted role apply to fail with not_found");
   }
@@ -344,11 +307,11 @@ Then(
   },
 );
 
-function roleScope(world: RoleWorld): RoleScopeWire {
+function roleScope(world: RoleWorld): RoleScope {
   if (world.scope) {
     return world.scope;
   }
-  const scope: RoleScopeWire = {
+  const scope: RoleScope = {
     scope: "organization",
     org_id: crypto.randomUUID(),
   };
@@ -356,9 +319,7 @@ function roleScope(world: RoleWorld): RoleScopeWire {
   return scope;
 }
 
-function permissionScopeFromRoleScope(
-  scope: RoleScopeWire,
-): PermissionScopeWire {
+function permissionScopeFromRoleScope(scope: RoleScope): PermissionScope {
   switch (scope.scope) {
     case "account":
       return { scope: "account", account_id: scope.account_id };
@@ -379,7 +340,7 @@ function accountId(world: RoleWorld, alias: string): string {
   return created;
 }
 
-function requiredActiveRole(world: RoleWorld): ScopedRoleWire {
+function requiredActiveRole(world: RoleWorld): ScopedRole {
   if (!world.activeRole) {
     throw new Error("active role template must be created first");
   }
@@ -412,8 +373,8 @@ function assertPermissionSetEqual(actual: string[], expected: string[]): void {
 }
 
 function permissionScopeEquals(
-  a: PermissionScopeWire,
-  b: PermissionScopeWire,
+  a: PermissionScope,
+  b: PermissionScope,
 ): boolean {
   if (a.scope !== b.scope) return false;
   if (a.scope === "account" && b.scope === "account") {
@@ -440,13 +401,14 @@ async function assertDirectGrantPermissions(
   };
   const scope = permissionScopeFromRoleScope(roleScope(world));
   for (const permission of expected) {
-    const result = await postJson<PermissionCheckResponseWire>(
+    const request: PermissionCheckRequest = {
+      principal,
+      permission,
+      scope,
+    };
+    const result = await postJson<PermissionCheckResponse>(
       "/permissions/check",
-      {
-        principal,
-        permission,
-        scope,
-      },
+      request,
     );
     if (!result.ok) {
       throw new Error(
@@ -463,13 +425,14 @@ async function assertDirectGrantPermissions(
     if (expected.includes(probe)) {
       continue;
     }
-    const result = await postJson<PermissionCheckResponseWire>(
+    const request: PermissionCheckRequest = {
+      principal,
+      permission: probe,
+      scope,
+    };
+    const result = await postJson<PermissionCheckResponse>(
       "/permissions/check",
-      {
-        principal,
-        permission: probe,
-        scope,
-      },
+      request,
     );
     if (!result.ok) {
       throw new Error(
@@ -499,29 +462,11 @@ async function postJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
   if (response.ok) {
     return { ok: true, json: payload as T };
   }
-  const failure = parseFailure(payload);
+  const failure = parseRoleFailure(payload);
   return {
     ok: false,
     status: response.status,
     code: failure.code,
     summary: failure.summary,
   };
-}
-
-function parseFailure(payload: unknown): FailureBodyWire {
-  if (isRecord(payload)) {
-    const code = payload["code"];
-    const summary = payload["summary"];
-    if (typeof code === "string" && typeof summary === "string") {
-      return { code, summary };
-    }
-  }
-  return {
-    code: "transport_error",
-    summary: "unexpected failure payload",
-  };
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null;
 }

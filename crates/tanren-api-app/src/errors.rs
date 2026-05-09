@@ -1,9 +1,9 @@
-//! Shared `{code, summary}` error body and `AppServiceError` mapping.
+//! Shared `{code, summary}` error bodies and app-service error mapping.
 //!
 //! Split out of `lib.rs` so the api-app crate stays under the workspace
 //! 500-line line-budget. The shapes here are the wire equivalent of
-//! `tanren_contract::AccountFailureReason` rendered through the
-//! API's HTTP transport.
+//! `tanren_contract::{AccountFailureReason, RoleFailureReason}` rendered
+//! through the API's HTTP transport.
 
 use axum::Json;
 use axum::extract::{FromRequest, Request, rejection::JsonRejection};
@@ -13,7 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::{AppServiceError, RoleServiceError};
-use tanren_contract::{AccountFailureReason, RoleFailureReason};
+use tanren_contract::{AccountFailureReason, RoleFailureBody, RoleFailureReason};
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -55,7 +55,10 @@ pub(crate) fn map_role_error(err: RoleServiceError) -> Response {
         RoleServiceError::Role(reason) => role_failure_body(reason),
         RoleServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({"code": "validation_failed", "summary": message})),
+            Json(RoleFailureBody {
+                code: RoleFailureReason::ValidationFailed.code().to_owned(),
+                summary: message,
+            }),
         )
             .into_response(),
         RoleServiceError::Store(err) => {
@@ -79,11 +82,7 @@ fn account_failure_body(reason: AccountFailureReason) -> Response {
 fn role_failure_body(reason: RoleFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(json!({"code": reason.code(), "summary": reason.summary()})),
-    )
-        .into_response()
+    (status, Json(RoleFailureBody::from_reason(reason))).into_response()
 }
 
 fn internal_error_response() -> Response {

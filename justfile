@@ -344,6 +344,7 @@ check:
     run_stage "thin binary" just check-thin-binary
     run_stage "tracing init" just check-tracing-init
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
+    run_stage "web role contracts" just check-web-role-contracts
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
     run_stage "enforcement regressions" just check-enforcement-regressions
@@ -742,6 +743,10 @@ check-orphan-traits:
 # drift from the running server. Wired into `check` by PR 12.
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
+
+# Validate the generated web role contract artifact is current.
+check-web-role-contracts:
+    @{{ cargo }} run -q -p tanren-xtask -- check-web-role-contracts
 
 # Run the regression-fixture test suite that proves each guard rejects
 # its synthetic regression. Each fixture under

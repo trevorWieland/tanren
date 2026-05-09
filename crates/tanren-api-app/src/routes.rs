@@ -16,8 +16,8 @@ use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
     CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
-    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleFailureReason,
-    RoleTemplateView, SessionEnvelope, SignInRequest, SignUpRequest,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleFailureBody,
+    RoleFailureReason, RoleTemplateView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -132,6 +132,7 @@ pub struct AcceptInvitationBody {
         PermissionCheckResponse,
         RoleTemplateView,
         PermissionGrantView,
+        RoleFailureBody,
         RoleFailureReason,
     )),
     tags(
@@ -347,9 +348,9 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     request_body = CreateRoleRequest,
     responses(
         (status = 201, body = CreateRoleResponse, description = "Role template created"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 409, body = AccountFailureBody, description = "conflict"),
+        (status = 400, body = RoleFailureBody, description = "validation_failed"),
+        (status = 403, body = RoleFailureBody, description = "permission_denied"),
+        (status = 409, body = RoleFailureBody, description = "conflict"),
     ),
     tag = "roles",
 )]
@@ -374,10 +375,10 @@ pub(crate) async fn create_role_route(
     request_body = EditRoleRequest,
     responses(
         (status = 200, body = EditRoleResponse, description = "Role template updated"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed or role_as_principal_rejected"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 404, body = AccountFailureBody, description = "not_found"),
-        (status = 409, body = AccountFailureBody, description = "conflict"),
+        (status = 400, body = RoleFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = RoleFailureBody, description = "permission_denied"),
+        (status = 404, body = RoleFailureBody, description = "not_found"),
+        (status = 409, body = RoleFailureBody, description = "conflict"),
     ),
     tag = "roles",
 )]
@@ -402,9 +403,9 @@ pub(crate) async fn edit_role_route(
     request_body = DeleteRoleRequest,
     responses(
         (status = 200, body = DeleteRoleResponse, description = "Role template deleted"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 404, body = AccountFailureBody, description = "not_found"),
+        (status = 400, body = RoleFailureBody, description = "validation_failed"),
+        (status = 403, body = RoleFailureBody, description = "permission_denied"),
+        (status = 404, body = RoleFailureBody, description = "not_found"),
     ),
     tag = "roles",
 )]
@@ -429,10 +430,10 @@ pub(crate) async fn delete_role_route(
     request_body = ApplyRoleRequest,
     responses(
         (status = 200, body = ApplyRoleResponse, description = "Role applied"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed or role_as_principal_rejected"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 404, body = AccountFailureBody, description = "not_found"),
-        (status = 409, body = AccountFailureBody, description = "conflict"),
+        (status = 400, body = RoleFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = RoleFailureBody, description = "permission_denied"),
+        (status = 404, body = RoleFailureBody, description = "not_found"),
+        (status = 409, body = RoleFailureBody, description = "conflict"),
     ),
     tag = "roles",
 )]
@@ -457,8 +458,8 @@ pub(crate) async fn apply_role_route(
     request_body = PermissionCheckRequest,
     responses(
         (status = 200, body = PermissionCheckResponse, description = "Permission check response"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed or role_as_principal_rejected"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 400, body = RoleFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = RoleFailureBody, description = "permission_denied"),
     ),
     tag = "roles",
 )]

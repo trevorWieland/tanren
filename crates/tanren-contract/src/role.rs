@@ -142,6 +142,26 @@ pub struct PermissionGrantView {
     pub granted_at: DateTime<Utc>,
 }
 
+/// Canonical role failure envelope exposed by interface transports.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleFailureBody {
+    /// Stable error code from [`RoleFailureReason`].
+    pub code: String,
+    /// Human-readable failure summary.
+    pub summary: String,
+}
+
+impl RoleFailureBody {
+    /// Project a reason enum into the canonical role failure envelope.
+    #[must_use]
+    pub fn from_reason(reason: RoleFailureReason) -> Self {
+        Self {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }
+    }
+}
+
 /// Closed taxonomy of role-template and permission-evaluation failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
 #[serde(rename_all = "snake_case")]
