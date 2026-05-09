@@ -86,6 +86,26 @@ export type {
   PermissionGrantSource,
 };
 
+export interface InterfaceContractDriftFailure {
+  kind: "interface_contract_drift";
+  code: string;
+  status: number;
+  summary: string;
+}
+
+export type AccountFailure = InterfaceError | InterfaceContractDriftFailure;
+
+export function isInterfaceContractDriftFailure(
+  failure: AccountFailure,
+): failure is InterfaceContractDriftFailure {
+  return (
+    typeof failure === "object" &&
+    failure !== null &&
+    "kind" in failure &&
+    failure.kind === "interface_contract_drift"
+  );
+}
+
 function scopeLabel(scope: PermissionScopeView): string {
   switch (scope.kind) {
     case "organization":
@@ -116,11 +136,17 @@ export function permissionScopes(
 }
 
 /**
- * Map an `InterfaceError` to a localized message via paraglide. Falls back
- * to the API-supplied summary, then to a generic "Request failed" string,
- * so unknown failure codes still surface something meaningful.
+ * Map a request failure to a localized message via paraglide. Falls back
+ * to the API-supplied summary, then to a generic fallback string, so
+ * unknown failure codes still surface something meaningful.
  */
-export function describeFailure(failure: InterfaceError): string {
+export function describeFailure(failure: AccountFailure): string {
+  if (isInterfaceContractDriftFailure(failure)) {
+    if (failure.summary !== "") {
+      return failure.summary;
+    }
+    return `Unexpected interface error code (${failure.code})`;
+  }
   switch (failure.code) {
     case "duplicate_identifier":
       return m.failure_duplicate_identifier();
@@ -151,9 +177,9 @@ export function describeFailure(failure: InterfaceError): string {
 }
 
 export class AccountRequestError extends Error {
-  readonly failure: InterfaceError;
+  readonly failure: AccountFailure;
 
-  constructor(failure: InterfaceError) {
+  constructor(failure: AccountFailure) {
     super(describeFailure(failure));
     this.failure = failure;
     this.name = "AccountRequestError";
@@ -163,7 +189,7 @@ export class AccountRequestError extends Error {
 function normalizeInterfaceError(
   payload: unknown,
   fallbackStatus: number,
-): InterfaceError {
+): AccountFailure {
   if (
     typeof payload === "object" &&
     payload !== null &&
@@ -176,7 +202,12 @@ function normalizeInterfaceError(
       if (isInterfaceErrorCode(code)) {
         return { code, summary };
       }
-      return { code: "internal_error", summary };
+      return {
+        kind: "interface_contract_drift",
+        code,
+        status: fallbackStatus,
+        summary,
+      };
     }
   }
   return {

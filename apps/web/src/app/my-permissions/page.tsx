@@ -7,9 +7,10 @@ import type { ReactNode } from "react";
 import {
   AccountRequestError,
   describeFailure,
+  isInterfaceContractDriftFailure,
   myPermissions,
   permissionScopes,
-  type InterfaceError,
+  type AccountFailure,
   type MyPermissionEntry,
   type MyPermissionsResponse,
   type PermissionConstraintView,
@@ -208,10 +209,10 @@ function cursorOrNone(cursor: null | string | undefined): string {
 
 export default function MyPermissionsPage(): ReactNode {
   const [pages, setPages] = useState<MyPermissionsResponse[]>([]);
-  const [failure, setFailure] = useState<InterfaceError | null>(null);
+  const [failure, setFailure] = useState<AccountFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
-  const [loadMoreFailure, setLoadMoreFailure] = useState<InterfaceError | null>(
+  const [loadMoreFailure, setLoadMoreFailure] = useState<AccountFailure | null>(
     null,
   );
   const data = mergePermissionPages(pages);
@@ -302,9 +303,20 @@ export default function MyPermissionsPage(): ReactNode {
       ) : failure !== null ? (
         <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm">
           <p className="m-0 text-[--color-error]">{describeFailure(failure)}</p>
-          <p className="m-0 mt-1 font-mono text-[--color-fg-muted]">
-            code: {failure.code}
-          </p>
+          {isInterfaceContractDriftFailure(failure) ? (
+            <dl className="mt-2 grid gap-x-3 gap-y-1 font-mono text-[--color-fg-muted] sm:grid-cols-[auto_1fr]">
+              <dt>type:</dt>
+              <dd>interface_contract_drift</dd>
+              <dt>raw_code:</dt>
+              <dd className="break-all">{failure.code}</dd>
+              <dt>status:</dt>
+              <dd>{failure.status}</dd>
+            </dl>
+          ) : (
+            <p className="m-0 mt-1 font-mono text-[--color-fg-muted]">
+              code: {failure.code}
+            </p>
+          )}
         </section>
       ) : data === null ? (
         <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm text-[--color-fg-muted]">
@@ -373,9 +385,17 @@ export default function MyPermissionsPage(): ReactNode {
                     : m.myPermissions_loadMore()}
                 </button>
                 {loadMoreFailure ? (
-                  <p className="m-0 text-sm text-[--color-error]">
-                    {describeFailure(loadMoreFailure)}
-                  </p>
+                  <div className="space-y-1 text-sm">
+                    <p className="m-0 text-[--color-error]">
+                      {describeFailure(loadMoreFailure)}
+                    </p>
+                    {isInterfaceContractDriftFailure(loadMoreFailure) ? (
+                      <p className="m-0 font-mono text-[--color-fg-muted]">
+                        contract drift: {loadMoreFailure.code} (HTTP{" "}
+                        {loadMoreFailure.status})
+                      </p>
+                    ) : null}
+                  </div>
                 ) : null}
               </div>
             ) : (
