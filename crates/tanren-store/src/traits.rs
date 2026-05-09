@@ -27,12 +27,17 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use secrecy::SecretString;
+use tanren_configuration_secrets::{
+    OwnerScope, UserCredentialStatus, UserCredentialWrite, UserSettingKey, UserSettingValue,
+};
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
 
 use crate::{
     AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    UserOwnedItemRecord, UserSettingRecord,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -252,6 +257,72 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+}
+
+/// Port for user-tier configuration and user-owned credential metadata + value
+/// persistence. Credential writes accept plaintext once and persist encrypted
+/// value bytes; reads return metadata only.
+#[async_trait]
+pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
+    /// List all user-tier settings for an account.
+    async fn list_user_settings(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<UserSettingRecord>, StoreError>;
+
+    /// Read one user-tier setting.
+    async fn get_user_setting(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> Result<Option<UserSettingRecord>, StoreError>;
+
+    /// Insert or update one user-tier setting.
+    async fn set_user_setting(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+        value: UserSettingValue,
+        now: DateTime<Utc>,
+    ) -> Result<UserSettingRecord, StoreError>;
+
+    /// Remove one user-tier setting.
+    async fn remove_user_setting(
+        &self,
+        account_id: AccountId,
+        key: UserSettingKey,
+    ) -> Result<bool, StoreError>;
+
+    /// Create one user-owned credential metadata row and encrypted value row.
+    async fn add_user_credential(
+        &self,
+        write: UserCredentialWrite,
+        status: UserCredentialStatus,
+        now: DateTime<Utc>,
+    ) -> Result<UserOwnedItemRecord, StoreError>;
+
+    /// Update value bytes and status for one existing user-owned credential.
+    async fn update_user_credential(
+        &self,
+        id: &str,
+        owner_scope: OwnerScope,
+        value: SecretString,
+        status: UserCredentialStatus,
+        now: DateTime<Utc>,
+    ) -> Result<Option<UserOwnedItemRecord>, StoreError>;
+
+    /// List user-owned credential metadata for a scope.
+    async fn list_user_credentials(
+        &self,
+        owner_scope: OwnerScope,
+    ) -> Result<Vec<UserOwnedItemRecord>, StoreError>;
+
+    /// Remove one user-owned credential metadata row and encrypted value row.
+    async fn remove_user_credential(
+        &self,
+        id: &str,
+        owner_scope: OwnerScope,
+    ) -> Result<bool, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

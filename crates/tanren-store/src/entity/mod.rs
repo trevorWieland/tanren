@@ -7,3 +7,6 @@ pub(crate) mod accounts;
 pub(crate) mod events;
 pub(crate) mod invitations;
 pub(crate) mod memberships;
+pub(crate) mod user_config_values;
+pub(crate) mod user_credential_values;
+pub(crate) mod user_credentials;

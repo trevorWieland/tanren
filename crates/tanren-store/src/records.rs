@@ -8,6 +8,10 @@
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{
+    OwnerScope, UserCredentialKind, UserCredentialMetadata, UserCredentialStatus, UserSettingKey,
+    UserSettingValue,
+};
 use tanren_identity_policy::{
     AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
 };
@@ -136,6 +140,137 @@ impl From<entity::account_sessions::Model> for SessionRecord {
     }
 }
 
+/// Persisted user-tier setting row.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UserSettingRecord {
+    /// Stable row id.
+    pub id: String,
+    /// Owning account.
+    pub account_id: AccountId,
+    /// Owning scope for this setting (`user`).
+    pub owner_scope: OwnerScope,
+    /// Setting key.
+    pub key: UserSettingKey,
+    /// Typed setting value.
+    pub value: UserSettingValue,
+    /// Wall-clock time the setting was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the setting was last updated.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::user_config_values::Model> for UserSettingRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::user_config_values::Model) -> Result<Self, Self::Error> {
+        let account_id = AccountId::new(model.account_id);
+        let owner_scope = parse_owner_scope(&model.owner_scope, account_id)?;
+        let key = parse_user_setting_key(&model.key)?;
+        let value: UserSettingValue =
+            serde_json::from_value(model.value_json).map_err(|source| StoreError::DataDecode {
+                column: "user_config_values.value_json",
+                source,
+            })?;
+        let expected_kind = user_setting_kind_to_db(&value);
+        if model.value_kind != expected_kind {
+            return Err(StoreError::InvalidStoreValue {
+                column: "user_config_values.value_kind",
+                detail: model.value_kind,
+            });
+        }
+        Ok(Self {
+            id: model.id.to_string(),
+            account_id,
+            owner_scope,
+            key,
+            value,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+/// Persisted user-owned credential metadata row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserOwnedItemRecord {
+    /// Stable credential metadata id.
+    pub id: String,
+    /// Owning account.
+    pub account_id: AccountId,
+    /// Credential kind.
+    pub kind: UserCredentialKind,
+    /// Owning scope (`user`).
+    pub owner_scope: OwnerScope,
+    /// Lifecycle status.
+    pub status: UserCredentialStatus,
+    /// Wall-clock time the metadata row was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the metadata row was last updated.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl UserOwnedItemRecord {
+    /// Convert to the contract/domain redacted metadata shape.
+    #[must_use]
+    pub fn into_metadata(self) -> UserCredentialMetadata {
+        UserCredentialMetadata {
+            id: self.id,
+            kind: self.kind,
+            owner_scope: self.owner_scope,
+            status: self.status,
+            created_at: self.created_at,
+            updated_at: self.updated_at,
+        }
+    }
+}
+
+impl TryFrom<entity::user_credentials::Model> for UserOwnedItemRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::user_credentials::Model) -> Result<Self, Self::Error> {
+        let account_id = AccountId::new(model.account_id);
+        let owner_scope = parse_owner_scope(&model.owner_scope, account_id)?;
+        let kind = parse_user_item_kind(&model.kind)?;
+        let status = parse_user_item_status(&model.status)?;
+        Ok(Self {
+            id: model.id.to_string(),
+            account_id,
+            kind,
+            owner_scope,
+            status,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+/// Persisted encrypted-value row metadata for a user-owned credential.
+///
+/// This intentionally omits nonce/ciphertext bytes; callers can inspect
+/// ownership and write freshness without ever receiving secret material.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UserOwnedValueRecord {
+    /// Stable encrypted value row id.
+    pub id: String,
+    /// Metadata id this value belongs to.
+    pub item_id: String,
+    /// Owning account.
+    pub account_id: AccountId,
+    /// Last encrypted write timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl From<entity::user_credential_values::Model> for UserOwnedValueRecord {
+    fn from(model: entity::user_credential_values::Model) -> Self {
+        Self {
+            id: model.id.to_string(),
+            item_id: model.item_id.to_string(),
+            account_id: AccountId::new(model.account_id),
+            updated_at: model.updated_at,
+        }
+    }
+}
+
 /// Input shape for [`crate::AccountStore::insert_account`].
 #[derive(Debug, Clone)]
 pub struct NewAccount {
@@ -164,4 +299,83 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+pub(crate) fn user_setting_key_to_db(key: UserSettingKey) -> &'static str {
+    match key {
+        UserSettingKey::Theme => "theme",
+        UserSettingKey::Editor => "editor",
+    }
+}
+
+pub(crate) fn user_setting_kind_to_db(value: &UserSettingValue) -> &'static str {
+    match value {
+        UserSettingValue::Theme(_) => "theme",
+        UserSettingValue::Editor(_) => "editor",
+    }
+}
+
+pub(crate) fn owner_scope_to_db(scope: OwnerScope) -> (&'static str, AccountId) {
+    match scope {
+        OwnerScope::User { account_id } => ("user", account_id),
+    }
+}
+
+pub(crate) fn user_item_kind_to_db(kind: UserCredentialKind) -> &'static str {
+    match kind {
+        UserCredentialKind::ProviderApiToken => "provider_api_token",
+        UserCredentialKind::HarnessApiToken => "harness_api_token",
+    }
+}
+
+pub(crate) fn user_item_status_to_db(status: UserCredentialStatus) -> &'static str {
+    match status {
+        UserCredentialStatus::Pending => "pending",
+        UserCredentialStatus::Active => "active",
+        UserCredentialStatus::Invalid => "invalid",
+    }
+}
+
+fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, StoreError> {
+    match raw {
+        "theme" => Ok(UserSettingKey::Theme),
+        "editor" => Ok(UserSettingKey::Editor),
+        _ => Err(StoreError::InvalidStoreValue {
+            column: "user_config_values.key",
+            detail: raw.to_owned(),
+        }),
+    }
+}
+
+fn parse_owner_scope(raw: &str, account_id: AccountId) -> Result<OwnerScope, StoreError> {
+    match raw {
+        "user" => Ok(OwnerScope::User { account_id }),
+        _ => Err(StoreError::InvalidStoreValue {
+            column: "owner_scope",
+            detail: raw.to_owned(),
+        }),
+    }
+}
+
+fn parse_user_item_kind(raw: &str) -> Result<UserCredentialKind, StoreError> {
+    match raw {
+        "provider_api_token" => Ok(UserCredentialKind::ProviderApiToken),
+        "harness_api_token" => Ok(UserCredentialKind::HarnessApiToken),
+        _ => Err(StoreError::InvalidStoreValue {
+            column: "user_credentials.kind",
+            detail: raw.to_owned(),
+        }),
+    }
+}
+
+fn parse_user_item_status(raw: &str) -> Result<UserCredentialStatus, StoreError> {
+    match raw {
+        "pending" => Ok(UserCredentialStatus::Pending),
+        "active" => Ok(UserCredentialStatus::Active),
+        "invalid" => Ok(UserCredentialStatus::Invalid),
+        _ => Err(StoreError::InvalidStoreValue {
+            column: "user_credentials.status",
+            detail: raw.to_owned(),
+        }),
+    }
 }

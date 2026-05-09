@@ -12,15 +12,17 @@ mod entity;
 mod migration;
 mod records;
 mod traits;
+mod user_configuration;
 
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    UserOwnedItemRecord, UserOwnedValueRecord, UserSettingRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, UserConfigurationStore,
 };
 
 use async_trait::async_trait;
@@ -32,6 +34,7 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::ConfigurationValidationFailure;
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -382,5 +385,41 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A non-identity typed value read from the database failed to decode into
+    /// the expected domain shape.
+    #[error("data decode error in column `{column}`: {source}")]
+    DataDecode {
+        /// The column whose value failed to decode.
+        column: &'static str,
+        /// JSON decode cause from serde.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A typed value failed to encode to JSON for persistence.
+    #[error("data encode error for field `{field}`: {source}")]
+    DataEncode {
+        /// The field being encoded.
+        field: &'static str,
+        /// JSON encode cause from serde.
+        #[source]
+        source: serde_json::Error,
+    },
+    /// A stringly-typed DB value failed to match the closed enum domain.
+    #[error("invalid persisted value in column `{column}`: {detail}")]
+    InvalidStoreValue {
+        /// The column whose value is invalid.
+        column: &'static str,
+        /// Raw value that failed to parse.
+        detail: String,
+    },
+    /// Input failed domain validation before persistence.
+    #[error(transparent)]
+    InvalidConfiguration(#[from] ConfigurationValidationFailure),
+    /// Secret value encryption failed.
+    #[error("credential value encryption failed: {detail}")]
+    CredentialEncryption {
+        /// Human-readable detail (key missing, algorithm error, etc.).
+        detail: String,
     },
 }

@@ -9,12 +9,18 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{
+    OwnerScope, UserCredentialKind, UserCredentialStatus, UserSettingKey, UserSettingValueKind,
+};
 use tanren_contract::AccountFailureReason;
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
 pub const EVENT_FAMILY: &str = "account";
+/// Event family tag for user-tier configuration and user-owned credential
+/// lifecycle metadata changes.
+pub const CONFIGURATION_EVENT_FAMILY: &str = "configuration";
 
 /// Closed taxonomy of account-flow event kinds.
 ///
@@ -41,6 +47,34 @@ pub enum AccountEventKind {
     /// An invitation acceptance was rejected — not found / expired /
     /// already consumed / validation failure.
     InvitationAcceptFailed,
+}
+
+/// Closed taxonomy of user-tier configuration / credential metadata events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum ConfigurationEventType {
+    /// A user-tier setting was created or updated.
+    UserSettingChanged,
+    /// A user-tier setting was removed.
+    UserSettingRemoved,
+    /// A user-owned credential metadata row was created or updated.
+    UserCredentialChanged,
+    /// A user-owned credential metadata row was removed.
+    UserCredentialRemoved,
+}
+
+impl ConfigurationEventType {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::UserSettingChanged => "user_setting_changed",
+            Self::UserSettingRemoved => "user_setting_removed",
+            Self::UserCredentialChanged => "user_credential_changed",
+            Self::UserCredentialRemoved => "user_credential_removed",
+        }
+    }
 }
 
 impl AccountEventKind {
@@ -128,11 +162,84 @@ pub struct InvitationAcceptFailed {
     pub at: DateTime<Utc>,
 }
 
+/// A user-tier setting was created or updated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSettingChanged {
+    /// Actor that performed the write.
+    pub actor: AccountId,
+    /// Scope impacted by the write.
+    pub scope: OwnerScope,
+    /// Setting key changed.
+    pub key: UserSettingKey,
+    /// Value kind changed (`theme` / `editor`), never the raw value.
+    pub value_kind: UserSettingValueKind,
+    /// Write timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// A user-tier setting was removed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserSettingRemoved {
+    /// Actor that performed the removal.
+    pub actor: AccountId,
+    /// Scope impacted by the removal.
+    pub scope: OwnerScope,
+    /// Setting key removed.
+    pub key: UserSettingKey,
+    /// Removal timestamp.
+    pub removed_at: DateTime<Utc>,
+}
+
+/// A user-owned credential metadata row was created or updated.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCredentialChanged {
+    /// Actor that performed the write.
+    pub actor: AccountId,
+    /// Scope impacted by the write.
+    pub scope: OwnerScope,
+    /// Stable metadata id.
+    pub item_id: String,
+    /// Credential kind.
+    pub kind: UserCredentialKind,
+    /// Metadata lifecycle status.
+    pub status: UserCredentialStatus,
+    /// Metadata write timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// A user-owned credential metadata row was removed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UserCredentialRemoved {
+    /// Actor that performed the removal.
+    pub actor: AccountId,
+    /// Scope impacted by the removal.
+    pub scope: OwnerScope,
+    /// Stable metadata id.
+    pub item_id: String,
+    /// Credential kind for auditability after deletion.
+    pub kind: UserCredentialKind,
+    /// Removal timestamp.
+    pub removed_at: DateTime<Utc>,
+}
+
 /// Encode a typed event as the JSON envelope persisted in the event log.
 #[must_use]
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
     serde_json::json!({
         "family": EVENT_FAMILY,
+        "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+/// Encode a typed configuration/credential metadata event as a JSON envelope.
+#[must_use]
+pub fn configuration_envelope<T: Serialize>(
+    kind: ConfigurationEventType,
+    payload: &T,
+) -> serde_json::Value {
+    serde_json::json!({
+        "family": CONFIGURATION_EVENT_FAMILY,
         "kind": kind.as_str(),
         "payload": payload,
     })
