@@ -7,13 +7,16 @@
 use tanren_contract::{
     ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
-    ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
-    ProjectRepositoryView, ProjectSelectionView, ProjectView,
+    ListVisibleProjectsRequest, PROJECT_LIST_DEFAULT_PAGE_SIZE, PROJECT_LIST_MAX_PAGE_SIZE,
+    ProjectCollectionFreshnessView, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
+    ProjectListCursor, ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView,
+    ProjectView,
 };
 use tanren_identity_policy::{AccountId, DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
 use tanren_provider_integrations::{SourceControlError, SourceControlProvider};
 use tanren_store::{
-    NewProject, NewProjectRepository, ProjectSetupRecord, ProjectStore, ProjectStoreError,
+    NewProject, NewProjectRepository, ProjectListCursor as StoreProjectListCursor,
+    ProjectSetupRecord, ProjectStore, ProjectStoreError,
 };
 
 use crate::{AppServiceError, Clock};
@@ -190,13 +193,28 @@ where
         query.request.owning_account_id,
     )
     .await?;
-    let setups = store
-        .list_projects_for_account(query.request.owning_account_id)
+    let page_size = bounded_page_size(query.request.page.page_size);
+    let cursor = query
+        .request
+        .page
+        .cursor
+        .as_ref()
+        .map(to_store_project_cursor);
+    let page = store
+        .list_projects_for_account(query.request.owning_account_id, page_size, cursor.as_ref())
         .await?;
-    let projects = setups.iter().map(project_view).collect();
+    let projects = page.projects.iter().map(project_view).collect();
     Ok(ProjectCollectionView {
         owning_account_id: query.request.owning_account_id,
         projects,
+        pagination: ProjectPaginationView {
+            page_size: page.page_size,
+            default_page_size: PROJECT_LIST_DEFAULT_PAGE_SIZE,
+            max_page_size: PROJECT_LIST_MAX_PAGE_SIZE,
+            has_more: page.has_more,
+            next_cursor: page.next_cursor.as_ref().map(to_contract_project_cursor),
+        },
+        freshness: ProjectCollectionFreshnessView { as_of: page.as_of },
     })
 }
 
@@ -213,12 +231,10 @@ where
         query.request.owning_account_id,
     )
     .await?;
-    let setups = store
-        .list_projects_for_account(query.request.owning_account_id)
-        .await?;
-    let active_project = setups
-        .iter()
-        .find(|setup| setup.is_active)
+    let active_project = store
+        .active_project_for_account(query.request.owning_account_id)
+        .await?
+        .as_ref()
         .map(project_view);
     Ok(ActiveProjectView {
         owning_account_id: query.request.owning_account_id,
@@ -303,6 +319,30 @@ where
         .map_err(map_project_store_error)?;
 
     Ok(setup)
+}
+
+fn bounded_page_size(requested: u16) -> u16 {
+    if requested == 0 {
+        PROJECT_LIST_DEFAULT_PAGE_SIZE
+    } else {
+        requested.min(PROJECT_LIST_MAX_PAGE_SIZE)
+    }
+}
+
+fn to_store_project_cursor(cursor: &ProjectListCursor) -> StoreProjectListCursor {
+    StoreProjectListCursor {
+        active_selected_at: cursor.active_selected_at,
+        created_at: cursor.created_at,
+        project_id: cursor.project_id,
+    }
+}
+
+fn to_contract_project_cursor(cursor: &StoreProjectListCursor) -> ProjectListCursor {
+    ProjectListCursor {
+        active_selected_at: cursor.active_selected_at,
+        created_at: cursor.created_at,
+        project_id: cursor.project_id,
+    }
 }
 
 fn map_provider_error(err: SourceControlError) -> AppServiceError {

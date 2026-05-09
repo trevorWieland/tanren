@@ -6,8 +6,9 @@ use regex::Regex;
 use tanren_contract::{
     ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
-    ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectRepositoryView,
-    ProjectSelectionView, ProjectView,
+    ListVisibleProjectsRequest, PROJECT_LIST_DEFAULT_PAGE_SIZE, PROJECT_LIST_MAX_PAGE_SIZE,
+    ProjectCollectionFreshnessView, ProjectCollectionView, ProjectCountsView,
+    ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView, ProjectView,
 };
 use tanren_identity_policy::{AccountId, ProjectId, ProviderFamily, RepositoryRef};
 use tokio::process::Command;
@@ -156,6 +157,14 @@ fn parse_project_collection(
     Ok(ProjectCollectionView {
         owning_account_id,
         projects,
+        pagination: ProjectPaginationView {
+            page_size: PROJECT_LIST_DEFAULT_PAGE_SIZE,
+            default_page_size: PROJECT_LIST_DEFAULT_PAGE_SIZE,
+            max_page_size: PROJECT_LIST_MAX_PAGE_SIZE,
+            has_more: false,
+            next_cursor: None,
+        },
+        freshness: ProjectCollectionFreshnessView { as_of: None },
     })
 }
 

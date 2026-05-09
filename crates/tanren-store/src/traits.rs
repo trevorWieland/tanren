@@ -307,6 +307,32 @@ pub enum ProjectStoreError {
     Store(#[from] StoreError),
 }
 
+/// Deterministic project-list cursor.
+#[derive(Debug, Clone)]
+pub struct ProjectListCursor {
+    /// Primary sort key from the project row.
+    pub active_selected_at: Option<DateTime<Utc>>,
+    /// Secondary sort key from the project row.
+    pub created_at: DateTime<Utc>,
+    /// Final tie-breaker sort key from the project row.
+    pub project_id: ProjectId,
+}
+
+/// Bounded project-list read-model page.
+#[derive(Debug, Clone)]
+pub struct ProjectListPage {
+    /// Page of project setup records.
+    pub projects: Vec<ProjectSetupRecord>,
+    /// Applied page size.
+    pub page_size: u16,
+    /// Whether another page exists.
+    pub has_more: bool,
+    /// Cursor for the next page, when available.
+    pub next_cursor: Option<ProjectListCursor>,
+    /// Newest row timestamp present in this page (if any).
+    pub as_of: Option<DateTime<Utc>>,
+}
+
 /// Port consumed by project setup/listing handlers.
 #[async_trait]
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
@@ -339,11 +365,19 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         repository_ref: &RepositoryRef,
     ) -> Result<Option<ProjectRepositoryRecord>, StoreError>;
 
-    /// List project setup records for an account.
+    /// List project setup records for an account page.
     async fn list_projects_for_account(
         &self,
         owning_account_id: AccountId,
-    ) -> Result<Vec<ProjectSetupRecord>, StoreError>;
+        page_size: u16,
+        cursor: Option<&ProjectListCursor>,
+    ) -> Result<ProjectListPage, StoreError>;
+
+    /// Read the currently active project setup record for an account.
+    async fn active_project_for_account(
+        &self,
+        owning_account_id: AccountId,
+    ) -> Result<Option<ProjectSetupRecord>, StoreError>;
 
     /// Mark one project active for an account and clear active selection
     /// on every other project in that account.

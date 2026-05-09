@@ -45,14 +45,38 @@ export type ConnectProjectRepositoryInput =
   components["schemas"]["ConnectProjectRepositoryCookieRequest"];
 export type CreateProjectInput =
   components["schemas"]["CreateProjectCookieRequest"];
-export type ListVisibleProjectsInput =
-  components["schemas"]["ListVisibleProjectsCookieRequest"];
 export type ConnectProjectRepositoryResult =
   components["schemas"]["ConnectProjectRepositoryResponse"];
 export type CreateProjectResult =
   components["schemas"]["CreateProjectResponse"];
-export type ProjectCollectionView =
-  components["schemas"]["ProjectCollectionView"];
+export type ProjectListCursor = {
+  active_selected_at: string | null;
+  created_at: string;
+  project_id: string;
+};
+export type ProjectPageRequest = {
+  cursor?: ProjectListCursor | null;
+  page_size?: number;
+};
+export type ListVisibleProjectsInput = {
+  page?: ProjectPageRequest;
+};
+export type ProjectPaginationView = {
+  page_size: number;
+  default_page_size: number;
+  max_page_size: number;
+  has_more: boolean;
+  next_cursor: ProjectListCursor | null;
+};
+export type ProjectCollectionFreshnessView = {
+  as_of: string | null;
+};
+export type ProjectCollectionView = {
+  owning_account_id: string;
+  projects: ProjectView[];
+  pagination: ProjectPaginationView;
+  freshness: ProjectCollectionFreshnessView;
+};
 export const projectFailureCodes = [
   "auth_required",
   "duplicate_repository",
@@ -180,7 +204,20 @@ export const createProjectInputSchema = v.strictObject({
   select_as_active: selectAsActiveSchema,
 });
 
-export const listVisibleProjectsInputSchema = v.strictObject({});
+const projectListCursorSchema = v.strictObject({
+  active_selected_at: v.optional(v.nullable(v.string())),
+  created_at: v.string(),
+  project_id: v.string(),
+});
+
+const projectPageRequestSchema = v.strictObject({
+  cursor: v.optional(v.nullable(projectListCursorSchema)),
+  page_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+});
+
+export const listVisibleProjectsInputSchema = v.strictObject({
+  page: v.optional(projectPageRequestSchema),
+});
 
 export const connectProjectRepositoryResponseSchema = v.strictObject({
   project: projectViewSchema,
@@ -193,4 +230,14 @@ export const createProjectResponseSchema = v.strictObject({
 export const projectCollectionViewSchema = v.strictObject({
   owning_account_id: v.string(),
   projects: v.array(projectViewSchema),
+  pagination: v.strictObject({
+    page_size: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    default_page_size: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    max_page_size: v.pipe(v.number(), v.integer(), v.minValue(1)),
+    has_more: v.boolean(),
+    next_cursor: v.optional(v.nullable(projectListCursorSchema)),
+  }),
+  freshness: v.strictObject({
+    as_of: v.optional(v.nullable(v.string())),
+  }),
 });

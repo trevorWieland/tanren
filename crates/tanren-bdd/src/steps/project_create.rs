@@ -1,7 +1,7 @@
 //! Create-new-project step definitions for B-0026.
 
 use cucumber::{given, then, when};
-use tanren_contract::{CreateProjectRequest, ListVisibleProjectsRequest};
+use tanren_contract::{CreateProjectRequest, ListVisibleProjectsRequest, ProjectPageRequest};
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 
 use crate::{HostFixtureState, ProjectActorState, TanrenWorld};
@@ -97,6 +97,7 @@ async fn then_zero_initial_activity_counts(world: &mut TanrenWorld, repository: 
             .harness
             .list_visible_projects(ListVisibleProjectsRequest {
                 owning_account_id: account_id,
+                page: ProjectPageRequest::default(),
             })
             .await
             .expect("list projects should succeed");

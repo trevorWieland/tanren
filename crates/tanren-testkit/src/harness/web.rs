@@ -25,7 +25,7 @@ use tanren_contract::{
     AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
     ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
     CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
-    SignInRequest, SignUpRequest,
+    ProjectPageRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
@@ -145,6 +145,7 @@ impl ProjectHarness for WebHarness {
         self.inner
             .list_visible_projects(ListVisibleProjectsRequest {
                 owning_account_id: session_account_id,
+                page: ProjectPageRequest::default(),
             })
             .await
     }

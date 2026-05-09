@@ -378,7 +378,7 @@ pub(crate) async fn create_project_route(
 pub(crate) async fn list_visible_projects_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(_request): ValidatedJson<ListVisibleProjectsCookieRequest>,
+    ValidatedJson(request): ValidatedJson<ListVisibleProjectsCookieRequest>,
 ) -> Response {
     let actor_account_id = match session_actor_account_id(&session).await {
         Ok(id) => id,
@@ -392,6 +392,7 @@ pub(crate) async fn list_visible_projects_route(
                 actor_account_id,
                 request: ListVisibleProjectsRequest {
                     owning_account_id: actor_account_id,
+                    page: request.page,
                 },
             },
         )

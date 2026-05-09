@@ -23,7 +23,8 @@ pub use records::{
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, ProjectStore, ProjectStoreError,
+    ConsumeInvitationError, ConsumedInvitation, ProjectListCursor, ProjectListPage, ProjectStore,
+    ProjectStoreError,
 };
 
 use async_trait::async_trait;

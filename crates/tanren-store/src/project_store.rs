@@ -1,9 +1,12 @@
 //! `SeaORM`-backed implementation of project setup/listing persistence.
 
+use std::collections::HashMap;
+
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, Order, QueryFilter, QueryOrder,
+    QuerySelect, Set, TransactionTrait, sea_query::NullOrdering,
 };
 use tanren_identity_policy::{
     AccountId, ProjectId, ProviderFamily, RepositoryRef, ValidationError,
@@ -11,8 +14,9 @@ use tanren_identity_policy::{
 
 use crate::entity;
 use crate::{
-    NewProject, NewProjectRepository, ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord,
-    ProjectStore, ProjectStoreError, Store, StoreError, parse_db_project_id,
+    NewProject, NewProjectRepository, ProjectListCursor, ProjectListPage, ProjectRecord,
+    ProjectRepositoryRecord, ProjectSetupRecord, ProjectStore, ProjectStoreError, Store,
+    StoreError, parse_db_project_id,
 };
 
 #[async_trait]
@@ -169,34 +173,84 @@ impl ProjectStore for Store {
     async fn list_projects_for_account(
         &self,
         owning_account_id: AccountId,
-    ) -> Result<Vec<ProjectSetupRecord>, StoreError> {
-        let projects = entity::projects::Entity::find()
-            .filter(entity::projects::Column::OwningAccountId.eq(owning_account_id.as_uuid()))
-            .order_by_desc(entity::projects::Column::ActiveSelectedAt)
+        page_size: u16,
+        cursor: Option<&ProjectListCursor>,
+    ) -> Result<ProjectListPage, StoreError> {
+        let limit = u64::from(page_size) + 1;
+        let mut query = entity::projects::Entity::find()
+            .filter(entity::projects::Column::OwningAccountId.eq(owning_account_id.as_uuid()));
+        if let Some(cursor) = cursor {
+            query = query.filter(project_cursor_filter(cursor));
+        }
+
+        let mut project_rows = query
+            .order_by_with_nulls(
+                entity::projects::Column::ActiveSelectedAt,
+                Order::Desc,
+                NullOrdering::Last,
+            )
             .order_by_desc(entity::projects::Column::CreatedAt)
+            .order_by_desc(entity::projects::Column::Id)
+            .limit(limit)
             .all(&self.conn)
             .await?;
 
-        let mut out = Vec::with_capacity(projects.len());
-        for row in projects {
-            let project = ProjectRecord::try_from(row)?;
-            let repo = entity::project_repositories::Entity::find_by_id(project.id.as_uuid())
-                .one(&self.conn)
-                .await?
-                .ok_or_else(|| StoreError::DataInvariant {
-                    column: "project_repositories.project_id",
-                    cause: ValidationError::RepositoryRefInvalid,
-                })?;
-            out.push(ProjectSetupRecord {
-                is_active: project.active_selected_at.is_some(),
-                project,
-                repository: ProjectRepositoryRecord::try_from(repo)?,
-                spec_count: 0,
-                milestone_count: 0,
-                initiative_count: 0,
-            });
+        let has_more = project_rows.len() > usize::from(page_size);
+        if has_more {
+            project_rows.truncate(usize::from(page_size));
         }
-        Ok(out)
+        let as_of = project_rows.first().map(|row| row.created_at);
+        let next_cursor = if has_more {
+            project_rows
+                .last()
+                .map(project_list_cursor_from_model)
+                .transpose()?
+        } else {
+            None
+        };
+
+        let repositories = load_repositories_for_projects(
+            &self.conn,
+            owning_account_id,
+            project_rows.iter().map(|row| row.id).collect(),
+        )
+        .await?;
+        let projects = build_project_setup_records(project_rows, repositories)?;
+
+        Ok(ProjectListPage {
+            projects,
+            page_size,
+            has_more,
+            next_cursor,
+            as_of,
+        })
+    }
+
+    async fn active_project_for_account(
+        &self,
+        owning_account_id: AccountId,
+    ) -> Result<Option<ProjectSetupRecord>, StoreError> {
+        let Some(project_row) = entity::projects::Entity::find()
+            .filter(entity::projects::Column::OwningAccountId.eq(owning_account_id.as_uuid()))
+            .filter(entity::projects::Column::ActiveSelectedAt.is_not_null())
+            .order_by_with_nulls(
+                entity::projects::Column::ActiveSelectedAt,
+                Order::Desc,
+                NullOrdering::Last,
+            )
+            .order_by_desc(entity::projects::Column::CreatedAt)
+            .order_by_desc(entity::projects::Column::Id)
+            .one(&self.conn)
+            .await?
+        else {
+            return Ok(None);
+        };
+
+        let repositories =
+            load_repositories_for_projects(&self.conn, owning_account_id, vec![project_row.id])
+                .await?;
+        let mut records = build_project_setup_records(vec![project_row], repositories)?;
+        Ok(records.pop())
     }
 
     async fn set_active_project(
@@ -237,6 +291,88 @@ impl ProjectStore for Store {
             .await
             .map_err(map_transaction_error)
     }
+}
+
+fn project_cursor_filter(cursor: &ProjectListCursor) -> Condition {
+    let created_at_lt = entity::projects::Column::CreatedAt.lt(cursor.created_at);
+    let created_at_eq = entity::projects::Column::CreatedAt.eq(cursor.created_at);
+    let project_id_lt = entity::projects::Column::Id.lt(cursor.project_id.as_uuid());
+
+    let same_time_then_id = Condition::all()
+        .add(created_at_eq.clone())
+        .add(project_id_lt.clone());
+    let created_or_id = Condition::any().add(created_at_lt).add(same_time_then_id);
+
+    match cursor.active_selected_at {
+        Some(active_selected_at) => {
+            let active_lt = entity::projects::Column::ActiveSelectedAt.lt(active_selected_at);
+            let active_eq = entity::projects::Column::ActiveSelectedAt.eq(active_selected_at);
+            Condition::any()
+                .add(active_lt)
+                .add(entity::projects::Column::ActiveSelectedAt.is_null())
+                .add(Condition::all().add(active_eq).add(created_or_id))
+        }
+        None => Condition::all()
+            .add(entity::projects::Column::ActiveSelectedAt.is_null())
+            .add(created_or_id),
+    }
+}
+
+fn project_list_cursor_from_model(
+    model: &entity::projects::Model,
+) -> Result<ProjectListCursor, StoreError> {
+    Ok(ProjectListCursor {
+        active_selected_at: model.active_selected_at,
+        created_at: model.created_at,
+        project_id: parse_db_project_id(model.id, "projects.id")?,
+    })
+}
+
+async fn load_repositories_for_projects(
+    conn: &sea_orm::DatabaseConnection,
+    owning_account_id: AccountId,
+    project_ids: Vec<uuid::Uuid>,
+) -> Result<HashMap<uuid::Uuid, entity::project_repositories::Model>, StoreError> {
+    if project_ids.is_empty() {
+        return Ok(HashMap::new());
+    }
+    let repositories = entity::project_repositories::Entity::find()
+        .filter(
+            entity::project_repositories::Column::OwningAccountId.eq(owning_account_id.as_uuid()),
+        )
+        .filter(entity::project_repositories::Column::ProjectId.is_in(project_ids))
+        .all(conn)
+        .await?;
+    let mut by_project_id = HashMap::with_capacity(repositories.len());
+    for row in repositories {
+        by_project_id.insert(row.project_id, row);
+    }
+    Ok(by_project_id)
+}
+
+fn build_project_setup_records(
+    projects: Vec<entity::projects::Model>,
+    mut repositories: HashMap<uuid::Uuid, entity::project_repositories::Model>,
+) -> Result<Vec<ProjectSetupRecord>, StoreError> {
+    let mut out = Vec::with_capacity(projects.len());
+    for row in projects {
+        let repository = repositories
+            .remove(&row.id)
+            .ok_or_else(|| StoreError::DataInvariant {
+                column: "project_repositories.project_id",
+                cause: ValidationError::RepositoryRefInvalid,
+            })?;
+        let project = ProjectRecord::try_from(row)?;
+        out.push(ProjectSetupRecord {
+            is_active: project.active_selected_at.is_some(),
+            project,
+            repository: ProjectRepositoryRecord::try_from(repository)?,
+            spec_count: 0,
+            milestone_count: 0,
+            initiative_count: 0,
+        });
+    }
+    Ok(out)
 }
 
 fn map_transaction_error(err: sea_orm::TransactionError<StoreError>) -> StoreError {

@@ -7,8 +7,8 @@ use tanren_app_services::AppServiceError;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ActiveProjectView,
     ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectPageRequest,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     AccountId, DesignatedHost, Email, InvitationToken, RepositoryRef, ValidationError,
@@ -334,7 +334,10 @@ pub(crate) fn parse_create_project(state: &FormState) -> Result<CreateProjectReq
 
 pub(crate) fn parse_list_projects(state: &FormState) -> Result<ListVisibleProjectsRequest, String> {
     let owning_account_id = parse_account_id(state.value(0))?;
-    Ok(ListVisibleProjectsRequest { owning_account_id })
+    Ok(ListVisibleProjectsRequest {
+        owning_account_id,
+        page: ProjectPageRequest::default(),
+    })
 }
 
 pub(crate) fn parse_active_project(

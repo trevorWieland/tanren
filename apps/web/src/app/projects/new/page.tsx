@@ -12,13 +12,22 @@ import {
   mergeProjectIntoVisibleProjects,
   normalizeActiveProjects,
 } from "@/app/lib/project-merge";
-import type { ProjectView } from "@/app/lib/contracts";
+import type {
+  ProjectCollectionFreshnessView,
+  ProjectPaginationView,
+  ProjectView,
+} from "@/app/lib/contracts";
 import { CreateProjectForm } from "@/components/project/CreateProjectForm";
 import { ProjectList } from "@/components/project/ProjectList";
 import * as m from "@/i18n/paraglide/messages";
 
 export default function NewProjectPage(): ReactNode {
   const [projects, setProjects] = useState<ProjectView[]>([]);
+  const [pagination, setPagination] = useState<ProjectPaginationView | null>(
+    null,
+  );
+  const [freshness, setFreshness] =
+    useState<ProjectCollectionFreshnessView | null>(null);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -28,6 +37,8 @@ export default function NewProjectPage(): ReactNode {
         const visible = await listVisibleProjects();
         if (!cancelled) {
           setProjects(normalizeActiveProjects(visible.projects));
+          setPagination(visible.pagination);
+          setFreshness(visible.freshness);
           setErrorMessage(null);
         }
       } catch (cause: unknown) {
@@ -68,7 +79,12 @@ export default function NewProjectPage(): ReactNode {
           {errorMessage}
         </p>
       )}
-      <div className="w-full max-w-2xl">
+      <div
+        className="w-full max-w-2xl"
+        data-page-size={pagination?.page_size}
+        data-has-more={pagination?.has_more}
+        data-freshness-as-of={freshness?.as_of ?? undefined}
+      >
         <h2 className="mb-3 text-lg font-medium">{m.projects_list_title()}</h2>
         <ProjectList projects={projects} />
       </div>

@@ -86,6 +86,10 @@ pub struct ProjectCollectionView {
     pub owning_account_id: AccountId,
     /// Projects currently visible under the account.
     pub projects: Vec<ProjectView>,
+    /// Bounded pagination metadata for this page.
+    pub pagination: ProjectPaginationView,
+    /// Projection freshness metadata for this page.
+    pub freshness: ProjectCollectionFreshnessView,
 }
 
 /// Query request for listing projects visible to an account.
@@ -93,12 +97,19 @@ pub struct ProjectCollectionView {
 pub struct ListVisibleProjectsRequest {
     /// Account whose visible projects should be listed.
     pub owning_account_id: AccountId,
+    /// Pagination controls for this list request.
+    #[serde(default)]
+    pub page: ProjectPageRequest,
 }
 
 /// Cookie-scoped API/web request for listing projects visible to the
 /// authenticated session account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
-pub struct ListVisibleProjectsCookieRequest {}
+pub struct ListVisibleProjectsCookieRequest {
+    /// Pagination controls for this list request.
+    #[serde(default)]
+    pub page: ProjectPageRequest,
+}
 
 /// Query request for reading active-project metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -118,6 +129,64 @@ pub struct ActiveProjectView {
     pub owning_account_id: AccountId,
     /// Active project, if one is currently selected.
     pub active_project: Option<ProjectView>,
+}
+
+/// Default project-list page size.
+pub const PROJECT_LIST_DEFAULT_PAGE_SIZE: u16 = 25;
+/// Maximum project-list page size.
+pub const PROJECT_LIST_MAX_PAGE_SIZE: u16 = 100;
+
+/// Pagination controls for project-list queries.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectPageRequest {
+    /// Cursor pointing to the last project from the previous page.
+    #[serde(default)]
+    pub cursor: Option<ProjectListCursor>,
+    /// Requested page size, bounded server-side to `[1, max_page_size]`.
+    #[serde(default = "default_project_list_page_size")]
+    pub page_size: u16,
+}
+
+impl Default for ProjectPageRequest {
+    fn default() -> Self {
+        Self {
+            cursor: None,
+            page_size: default_project_list_page_size(),
+        }
+    }
+}
+
+/// Stable cursor over the deterministic project-list ordering.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectListCursor {
+    /// Active-selection timestamp used as the primary sort key.
+    pub active_selected_at: Option<DateTime<Utc>>,
+    /// Project creation timestamp used as a secondary sort key.
+    pub created_at: DateTime<Utc>,
+    /// Project id used as a final deterministic tie-breaker.
+    pub project_id: ProjectId,
+}
+
+/// Pagination metadata for a project-list response page.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectPaginationView {
+    /// The page size that was actually applied after bounding.
+    pub page_size: u16,
+    /// Default server page size when callers omit one.
+    pub default_page_size: u16,
+    /// Maximum server page size.
+    pub max_page_size: u16,
+    /// Whether another page exists after this one.
+    pub has_more: bool,
+    /// Cursor callers should send to request the next page.
+    pub next_cursor: Option<ProjectListCursor>,
+}
+
+/// Projection freshness metadata for project lists.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ProjectCollectionFreshnessView {
+    /// The newest row timestamp visible in this page (if any rows exist).
+    pub as_of: Option<DateTime<Utc>>,
 }
 
 /// External-facing project projection.
@@ -232,4 +301,8 @@ impl ProjectFailureReason {
             Self::ProviderFailure => 502,
         }
     }
+}
+
+const fn default_project_list_page_size() -> u16 {
+    PROJECT_LIST_DEFAULT_PAGE_SIZE
 }

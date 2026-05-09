@@ -9,7 +9,7 @@ use tanren_app_services::project::{
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, CreateProjectRequest,
-    ListVisibleProjectsRequest, ProjectView,
+    ListVisibleProjectsRequest, ProjectPageRequest, ProjectView,
 };
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
@@ -210,7 +210,10 @@ async fn run_list_projects(
             &store,
             ListVisibleProjectsQuery {
                 actor_account_id: owning_account_id,
-                request: ListVisibleProjectsRequest { owning_account_id },
+                request: ListVisibleProjectsRequest {
+                    owning_account_id,
+                    page: ProjectPageRequest::default(),
+                },
             },
         )
         .await

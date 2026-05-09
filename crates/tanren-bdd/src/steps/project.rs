@@ -8,7 +8,7 @@ use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, ListVisibleProjectsRequest,
-    SignUpRequest,
+    ProjectPageRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, RepositoryRef};
 
@@ -196,6 +196,7 @@ async fn then_repository_visible(world: &mut TanrenWorld, actor: String, reposit
         .harness
         .list_visible_projects(ListVisibleProjectsRequest {
             owning_account_id: account_id,
+            page: ProjectPageRequest::default(),
         })
         .await
         .expect("list_visible_projects should succeed");
@@ -243,6 +244,7 @@ async fn then_project_record_count(world: &mut TanrenWorld, actor: String, expec
         .harness
         .list_visible_projects(ListVisibleProjectsRequest {
             owning_account_id: account_id,
+            page: ProjectPageRequest::default(),
         })
         .await
         .expect("list projects should succeed");
@@ -280,6 +282,7 @@ async fn then_zero_activity_counts(world: &mut TanrenWorld, repository: String) 
             .harness
             .list_visible_projects(ListVisibleProjectsRequest {
                 owning_account_id: account_id,
+                page: ProjectPageRequest::default(),
             })
             .await
             .expect("list projects should succeed");
