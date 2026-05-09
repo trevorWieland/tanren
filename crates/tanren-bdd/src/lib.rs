@@ -16,6 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::steps::install::InstallContext;
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -28,6 +29,8 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Lazily initialized install-flow context.
+    pub(crate) install: Option<InstallContext>,
 }
 
 impl TanrenWorld {
@@ -39,6 +42,17 @@ impl TanrenWorld {
         self.account
             .as_mut()
             .expect("account context just initialized")
+    }
+
+    /// Construct (or return) the lazy install context.
+    #[must_use]
+    pub(crate) fn ensure_install_ctx(&mut self) -> &mut InstallContext {
+        if self.install.is_none() {
+            self.install = Some(InstallContext::new());
+        }
+        self.install
+            .as_mut()
+            .expect("install context just initialized")
     }
 
     /// Refresh the account context with the harness chosen for the
@@ -167,6 +181,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            install: None,
         };
         assert_eq!(world.seed.value(), 42);
     }

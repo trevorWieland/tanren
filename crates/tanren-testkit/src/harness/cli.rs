@@ -225,7 +225,7 @@ impl AccountHarness for CliHarness {
 /// Locate a workspace binary by name. The BDD runner is at
 /// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
 /// the same directory.
-pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
+pub fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if let Ok(explicit) = std::env::var(format!(
         "TANREN_BIN_{}",
         name.replace('-', "_").to_uppercase()

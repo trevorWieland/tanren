@@ -17,7 +17,7 @@ pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
     HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    record_failure,
+    locate_workspace_binary, record_failure,
 };
 
 use chrono::{DateTime, Duration, Utc};

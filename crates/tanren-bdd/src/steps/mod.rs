@@ -1,5 +1,6 @@
-//! Step-definition modules. R-0001 ships only `account` (the account
-//! flow that proves B-0043). Future R-* slices add their own modules
-//! here and the macros register globally.
+//! Step-definition modules. `account` proves B-0043 and `install`
+//! provides the CLI bootstrap fixture/assertion surface used by
+//! B-0068/B-0070.
 
 pub mod account;
+pub mod install;
