@@ -16,7 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::steps::install::InstallContext;
+use crate::steps::install::{InstallContext, InstallStepError};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -45,14 +45,13 @@ impl TanrenWorld {
     }
 
     /// Construct (or return) the lazy install context.
-    #[must_use]
-    pub(crate) fn ensure_install_ctx(&mut self) -> &mut InstallContext {
+    pub(crate) fn ensure_install_ctx(&mut self) -> Result<&mut InstallContext, InstallStepError> {
         if self.install.is_none() {
-            self.install = Some(InstallContext::new());
+            self.install = Some(InstallContext::new()?);
         }
         self.install
             .as_mut()
-            .expect("install context just initialized")
+            .ok_or(InstallStepError::InstallContextUnavailable)
     }
 
     /// Refresh the account context with the harness chosen for the

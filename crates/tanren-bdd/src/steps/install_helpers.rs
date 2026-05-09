@@ -2,72 +2,83 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
-use std::path::{Component, Path};
+use std::path::{Component, Path, PathBuf};
 
-pub(crate) fn assert_rust_cargo_default_assets_installed(repository_root: &Path) {
-    let command_files = list_relative_files_under_workspace("commands/project");
-    assert!(
-        !command_files.is_empty(),
-        "expected workspace command catalog to have at least one file"
-    );
+use super::install::InstallStepError;
+
+pub(crate) fn assert_rust_cargo_default_assets_installed(
+    repository_root: &Path,
+) -> Result<(), InstallStepError> {
+    let command_files = list_relative_files_under_workspace("commands/project")?;
+    if command_files.is_empty() {
+        return Err(InstallStepError::CatalogEmpty {
+            catalog_root: "commands/project",
+        });
+    }
     for command_file in &command_files {
         for integration_destination in [
             format!(".claude/commands/{command_file}"),
             format!(".codex/skills/{command_file}"),
             format!(".opencode/commands/{command_file}"),
         ] {
-            assert_file_exists(repository_root, &integration_destination);
+            assert_file_exists(repository_root, &integration_destination)?;
         }
     }
 
-    let standards_files = list_relative_files_under_workspace("profiles/rust-cargo");
-    assert!(
-        !standards_files.is_empty(),
-        "expected rust-cargo profile catalog to have at least one file"
-    );
+    let standards_files = list_relative_files_under_workspace("profiles/rust-cargo")?;
+    if standards_files.is_empty() {
+        return Err(InstallStepError::CatalogEmpty {
+            catalog_root: "profiles/rust-cargo",
+        });
+    }
     for standard_file in standards_files {
         assert_file_exists(
             repository_root,
             &format!("profiles/rust-cargo/{standard_file}"),
-        );
+        )?;
     }
+
+    Ok(())
 }
 
-pub(crate) fn assert_rust_cargo_standards_installed(repository_root: &Path) {
-    let standards_files = list_relative_files_under_workspace("profiles/rust-cargo");
-    assert!(
-        !standards_files.is_empty(),
-        "expected rust-cargo profile catalog to have at least one file"
-    );
+pub(crate) fn assert_rust_cargo_standards_installed(
+    repository_root: &Path,
+) -> Result<(), InstallStepError> {
+    let standards_files = list_relative_files_under_workspace("profiles/rust-cargo")?;
+    if standards_files.is_empty() {
+        return Err(InstallStepError::CatalogEmpty {
+            catalog_root: "profiles/rust-cargo",
+        });
+    }
     for standard_file in standards_files {
         assert_file_exists(
             repository_root,
             &format!("profiles/rust-cargo/{standard_file}"),
-        );
+        )?;
     }
+    Ok(())
 }
 
 pub(crate) fn assert_selected_integration_command_assets(
     repository_root: &Path,
     selected_integrations: &[String],
-) {
+) -> Result<(), InstallStepError> {
     let mut selected = BTreeSet::new();
     for integration in selected_integrations {
-        let normalized = normalize_integration_name(integration.as_str());
-        assert!(
-            normalized.is_some(),
-            "unsupported integration in BDD assertion: {integration}"
-        );
-        if let Some(normalized) = normalized {
-            selected.insert(normalized);
-        }
+        let normalized = normalize_integration_name(integration.as_str()).ok_or_else(|| {
+            InstallStepError::UnsupportedIntegrationForAssertion {
+                integration: integration.clone(),
+            }
+        })?;
+        selected.insert(normalized);
     }
 
-    let command_files = list_relative_files_under_workspace("commands/project");
-    assert!(
-        !command_files.is_empty(),
-        "expected workspace command catalog to have at least one file"
-    );
+    let command_files = list_relative_files_under_workspace("commands/project")?;
+    if command_files.is_empty() {
+        return Err(InstallStepError::CatalogEmpty {
+            catalog_root: "commands/project",
+        });
+    }
 
     for command_file in &command_files {
         for (integration, destination) in [
@@ -76,17 +87,24 @@ pub(crate) fn assert_selected_integration_command_assets(
             ("open-code", format!(".opencode/commands/{command_file}")),
         ] {
             if selected.contains(integration) {
-                assert_file_exists(repository_root, &destination);
+                assert_file_exists(repository_root, &destination)?;
             } else {
-                assert_file_absent(repository_root, &destination);
+                assert_file_absent(repository_root, &destination)?;
             }
         }
     }
+
+    Ok(())
 }
 
-pub(crate) fn assert_manifest_rust_cargo_defaults(repository_root: &Path) {
+pub(crate) fn assert_manifest_rust_cargo_defaults(
+    repository_root: &Path,
+) -> Result<(), InstallStepError> {
     let manifest_path = repository_root.join(".tanren/install-manifest.toml");
-    let manifest = fs::read_to_string(&manifest_path).expect("read install manifest from fixture");
+    let manifest = read_to_string_with_context(
+        &manifest_path,
+        "read install manifest from repository fixture",
+    )?;
     for expected in [
         "manifest_version = 1",
         "profile = \"rust-cargo\"",
@@ -94,20 +112,25 @@ pub(crate) fn assert_manifest_rust_cargo_defaults(repository_root: &Path) {
         "asset_class = \"methodology-command\"",
         "asset_class = \"standards-profile\"",
     ] {
-        assert!(
-            manifest.contains(expected),
-            "expected install manifest to contain `{expected}`; got:\n{manifest}",
-        );
+        if !manifest.contains(expected) {
+            return Err(InstallStepError::ManifestMissingContent {
+                expected: expected.to_owned(),
+                manifest_path,
+                manifest,
+            });
+        }
     }
+
+    Ok(())
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub(crate) struct RepositoryRelativePath(String);
 
 impl RepositoryRelativePath {
-    pub(crate) fn parse(raw: String) -> Self {
-        validate_relative_path(raw.as_str());
-        Self(raw)
+    pub(crate) fn parse(raw: String) -> Result<Self, InstallStepError> {
+        validate_relative_path(raw.as_str())?;
+        Ok(Self(raw))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -115,20 +138,25 @@ impl RepositoryRelativePath {
     }
 }
 
-pub(crate) fn validate_relative_path(path: &str) {
-    assert!(!path.is_empty(), "repository-relative path cannot be empty");
+pub(crate) fn validate_relative_path(path: &str) -> Result<(), InstallStepError> {
+    if path.is_empty() {
+        return Err(InstallStepError::EmptyRepositoryRelativePath);
+    }
     let candidate = Path::new(path);
-    assert!(
-        !candidate.is_absolute(),
-        "repository-relative path must not be absolute: {path}"
-    );
+    if candidate.is_absolute() {
+        return Err(InstallStepError::AbsoluteRepositoryRelativePath {
+            path: path.to_owned(),
+        });
+    }
     let is_valid = candidate
         .components()
         .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-    assert!(
-        is_valid,
-        "repository-relative path must not contain traversal components: {path}"
-    );
+    if !is_valid {
+        return Err(InstallStepError::TraversalRepositoryRelativePath {
+            path: path.to_owned(),
+        });
+    }
+    Ok(())
 }
 
 pub(crate) fn append_stale_generated_manifest_entry(
@@ -139,22 +167,20 @@ pub(crate) fn append_stale_generated_manifest_entry(
     manifest.push_str(&entry.to_manifest_block());
 }
 
-fn assert_file_exists(repository_root: &Path, relative_path: &str) {
+fn assert_file_exists(repository_root: &Path, relative_path: &str) -> Result<(), InstallStepError> {
     let absolute = repository_root.join(relative_path);
-    assert!(
-        absolute.exists(),
-        "expected repository file to exist: {}",
-        absolute.display()
-    );
+    if !absolute.exists() {
+        return Err(InstallStepError::ExpectedFileToExist { path: absolute });
+    }
+    Ok(())
 }
 
-fn assert_file_absent(repository_root: &Path, relative_path: &str) {
+fn assert_file_absent(repository_root: &Path, relative_path: &str) -> Result<(), InstallStepError> {
     let absolute = repository_root.join(relative_path);
-    assert!(
-        !absolute.exists(),
-        "expected repository file to be absent: {}",
-        absolute.display()
-    );
+    if absolute.exists() {
+        return Err(InstallStepError::ExpectedFileToBeAbsent { path: absolute });
+    }
+    Ok(())
 }
 
 fn normalize_integration_name(raw: &str) -> Option<&'static str> {
@@ -198,42 +224,93 @@ impl GeneratedManifestEntry {
     }
 }
 
-fn list_relative_files_under_workspace(relative_root: &str) -> Vec<String> {
+fn list_relative_files_under_workspace(
+    relative_root: &'static str,
+) -> Result<Vec<String>, InstallStepError> {
     let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
-        .expect("canonicalize workspace root for BDD install steps");
+        .map_err(|source| InstallStepError::CanonicalizeWorkspaceRoot { source })?;
     let root = workspace_root.join(relative_root);
-    assert!(
-        root.exists() && root.is_dir(),
-        "expected workspace catalog root to exist: {}",
-        root.display()
-    );
+    if !root.exists() || !root.is_dir() {
+        return Err(InstallStepError::MissingCatalogRoot { path: root });
+    }
 
     let mut files = BTreeMap::new();
-    collect_files(&root, &root, &mut files);
-    files.into_keys().collect()
+    collect_files(&root, &root, &mut files)?;
+    Ok(files.into_keys().collect())
 }
 
-fn collect_files(root: &Path, cursor: &Path, out: &mut BTreeMap<String, Vec<u8>>) {
-    let entries = fs::read_dir(cursor).expect("read workspace catalog directory");
+fn collect_files(
+    root: &Path,
+    cursor: &Path,
+    out: &mut BTreeMap<String, Vec<u8>>,
+) -> Result<(), InstallStepError> {
+    let entries = fs::read_dir(cursor).map_err(|source| InstallStepError::ReadDirectory {
+        path: cursor.to_path_buf(),
+        source,
+    })?;
     for entry in entries {
-        let entry = entry.expect("inspect workspace catalog directory entry");
+        let entry = entry.map_err(|source| InstallStepError::ReadDirectoryEntry {
+            path: cursor.to_path_buf(),
+            source,
+        })?;
         let path = entry.path();
-        let file_type = entry.file_type().expect("inspect workspace file type");
+        let file_type = entry
+            .file_type()
+            .map_err(|source| InstallStepError::InspectFileType {
+                path: path.clone(),
+                source,
+            })?;
         if file_type.is_dir() {
-            collect_files(root, &path, out);
+            collect_files(root, &path, out)?;
             continue;
         }
         if !file_type.is_file() {
             continue;
         }
 
-        let relative = path
-            .strip_prefix(root)
-            .expect("workspace catalog path must stay under its root");
+        let relative =
+            path.strip_prefix(root)
+                .map_err(|source| InstallStepError::PathOutsideRoot {
+                    path: path.clone(),
+                    root: root.to_path_buf(),
+                    source,
+                })?;
         let relative = relative.to_string_lossy().replace('\\', "/");
-        let bytes = fs::read(&path).expect("read workspace catalog file");
+        let bytes = read_bytes_with_context(&path, "read workspace catalog file")?;
         out.insert(relative, bytes);
+    }
+    Ok(())
+}
+
+fn read_to_string_with_context(
+    path: &Path,
+    action: &'static str,
+) -> Result<String, InstallStepError> {
+    fs::read_to_string(path).map_err(|source| InstallStepError::ReadFile {
+        path: path.to_path_buf(),
+        action,
+        source,
+    })
+}
+
+fn read_bytes_with_context(path: &Path, action: &'static str) -> Result<Vec<u8>, InstallStepError> {
+    fs::read(path).map_err(|source| InstallStepError::ReadFile {
+        path: path.to_path_buf(),
+        action,
+        source,
+    })
+}
+
+pub(crate) fn io_error(
+    path: PathBuf,
+    action: &'static str,
+    source: std::io::Error,
+) -> InstallStepError {
+    InstallStepError::Io {
+        path,
+        action,
+        source,
     }
 }
