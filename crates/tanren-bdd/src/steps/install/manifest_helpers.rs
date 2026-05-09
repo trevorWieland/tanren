@@ -1,5 +1,3 @@
-//! Shared install-step assertions that do not need scenario-local state.
-
 use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
 use std::fs;
@@ -7,7 +5,7 @@ use std::path::{Component, Path, PathBuf};
 
 use sha2::{Digest, Sha256};
 
-use super::install::InstallStepError;
+use super::InstallStepError;
 
 const NIBBLES: &[u8; 16] = b"0123456789abcdef";
 const TAMPERED_ENTRY_SHA256: &str =

@@ -3,9 +3,9 @@
 use cucumber::{given, then, when};
 
 use crate::TanrenWorld;
-use crate::steps::install::{InstallContext, InstallStepResult};
-use crate::steps::install_helpers;
-use crate::steps::install_helpers::RepositoryRelativePath;
+use crate::steps::install::{
+    InstallContext, InstallStepResult, RepositoryRelativePath, read_workspace_catalog_file,
+};
 
 #[given(expr = "a clean repository fixture")]
 #[given(expr = "a clean install repository fixture")]
@@ -32,7 +32,7 @@ fn given_repository_file_seeded_from_catalog(
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     let relative_path = RepositoryRelativePath::parse(path)?;
-    let content = install_helpers::read_workspace_catalog_file(relative_path.as_str())?;
+    let content = read_workspace_catalog_file(relative_path.as_str())?;
     ctx.write_fixture_file(&relative_path, content)
 }
 

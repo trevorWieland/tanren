@@ -5,7 +5,6 @@
 pub mod account;
 pub mod install;
 mod install_error;
-pub mod install_helpers;
 pub mod install_selection;
 mod install_snapshot;
 mod install_steps;
