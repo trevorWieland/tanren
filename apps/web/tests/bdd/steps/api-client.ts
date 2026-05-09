@@ -1,4 +1,4 @@
-import type { Page } from "@playwright/test";
+import type { Page, Response } from "@playwright/test";
 
 import { actor, type OrganizationWorld } from "./organization-world";
 
@@ -17,10 +17,12 @@ export async function signInActorViaUi(
   await waitForHydration(page);
   await page.getByLabel(/email/i).fill(a.email);
   await page.getByLabel(/password/i).fill(a.password);
+  const signInResponsePromise = waitForRouteResponse(page, "POST", "/sessions");
+
   await page.getByRole("button", { name: /^sign in$/i }).click();
 
   const result = await Promise.race([
-    page.waitForURL("/").then(() => "ok" as const),
+    signInResponsePromise.then(() => "response" as const),
     page
       .locator('form [role="alert"]')
       .first()
@@ -28,9 +30,27 @@ export async function signInActorViaUi(
       .then(() => "alert" as const),
   ]);
 
-  if (result !== "ok") {
+  if (result === "alert") {
     a.hasSession = false;
     a.lastFailureCode = await classifyFailureFromAlert(page);
+    throw new Error(`sign-in failed for ${name} via web UI`);
+  }
+
+  const response = await signInResponsePromise;
+  const responseBody = parseJson(await response.text());
+  const failureCode = failureCodeFromBody(responseBody);
+  const hasSessionCookie =
+    (await hasSessionCookieInContext(page)) || hasSessionCookieHeader(response);
+  const hasCookieSessionEnvelope = isCookieSessionEnvelope(responseBody);
+
+  if (
+    !response.ok() ||
+    (!hasSessionCookie && !hasCookieSessionEnvelope) ||
+    failureCode !== undefined
+  ) {
+    a.hasSession = false;
+    a.lastFailureCode =
+      failureCode ?? (await classifyFailureCode(page, responseBody));
     throw new Error(`sign-in failed for ${name} via web UI`);
   }
 
@@ -84,4 +104,99 @@ async function classifyFailureFromAlert(page: Page): Promise<string> {
   }
 
   return "unknown";
+}
+
+async function classifyFailureCode(
+  page: Page,
+  responseBody: unknown,
+): Promise<string> {
+  return failureCodeFromBody(responseBody) ?? classifyFailureFromAlert(page);
+}
+
+function parseJson(text: string): unknown {
+  if (text.trim() === "") {
+    return null;
+  }
+
+  try {
+    return JSON.parse(text) as unknown;
+  } catch {
+    return null;
+  }
+}
+
+function hasSessionCookieHeader(response: Response): boolean {
+  const value = response.headers()["set-cookie"];
+  if (typeof value !== "string") {
+    return false;
+  }
+
+  return value
+    .split(",")
+    .some((header) => header.trimStart().startsWith("tanren_session="));
+}
+
+async function hasSessionCookieInContext(page: Page): Promise<boolean> {
+  const cookies = await page.context().cookies();
+  return cookies.some((cookie) => cookie.name === "tanren_session");
+}
+
+function isCookieSessionEnvelope(payload: unknown): boolean {
+  if (!isRecord(payload)) {
+    return false;
+  }
+
+  const session = payload["session"];
+  if (!isRecord(session)) {
+    return false;
+  }
+
+  if (session["transport"] !== "cookie") {
+    return false;
+  }
+
+  return (
+    typeof session["account_id"] === "string" &&
+    typeof session["expires_at"] === "string"
+  );
+}
+
+function failureCodeFromBody(payload: unknown): string | undefined {
+  if (!isRecord(payload)) {
+    return undefined;
+  }
+
+  const code = payload["code"];
+  return typeof code === "string" ? code : undefined;
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function isMatchingRoute(
+  response: Response,
+  method: "GET" | "POST",
+  route: string,
+): boolean {
+  if (response.request().method() !== method) {
+    return false;
+  }
+
+  try {
+    return new URL(response.url()).pathname === route;
+  } catch {
+    return response.url().endsWith(route);
+  }
+}
+
+function waitForRouteResponse(
+  page: Page,
+  method: "GET" | "POST",
+  route: string,
+): Promise<Response> {
+  return page.waitForResponse(
+    (response) => isMatchingRoute(response, method, route),
+    { timeout: 30_000 },
+  );
 }
