@@ -6,10 +6,13 @@ use axum::extract::Request;
 use axum::http::{HeaderMap, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use rmcp::transport::streamable_http_server::StreamableHttpServerConfig;
+use secrecy::ExposeSecret;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use tanren_app_services::Handlers;
+use tanren_app_services::{AccountStore, Handlers, Store};
+use tanren_identity_policy::{AccountId, SessionToken};
 use tokio_util::sync::CancellationToken;
 
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
@@ -36,6 +39,18 @@ pub(super) struct AuthConfig {
     pub(super) bootstrap_key: Option<secrecy::SecretString>,
 }
 
+#[derive(Debug, Clone)]
+pub(super) struct AuthState {
+    pub(super) config: AuthConfig,
+    pub(super) store: Arc<Store>,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AuthenticatedMcpCredential {
+    BootstrapApiKey,
+    Session { account_id: AccountId },
+}
+
 impl AuthConfig {
     pub(super) fn from_env() -> Self {
         let bootstrap_key = env::var(API_KEY_ENV)
@@ -45,7 +60,7 @@ impl AuthConfig {
         Self { bootstrap_key }
     }
 
-    fn extract_credential(headers: &HeaderMap) -> Option<&str> {
+    pub(crate) fn extract_credential(headers: &HeaderMap) -> Option<&str> {
         if let Some(value) = headers
             .get(header::AUTHORIZATION)
             .and_then(|v| v.to_str().ok())
@@ -63,48 +78,69 @@ impl AuthConfig {
 }
 
 pub(super) async fn require_api_key(
-    axum::extract::State(config): axum::extract::State<Arc<AuthConfig>>,
-    request: Request,
+    axum::extract::State(state): axum::extract::State<Arc<AuthState>>,
+    mut request: Request,
     next: Next,
 ) -> Response {
-    let Some(expected) = config
-        .bootstrap_key
-        .as_ref()
-        .map(secrecy::ExposeSecret::expose_secret)
-    else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(error_body(
-                "unavailable",
-                "MCP credential store is not configured. Set TANREN_MCP_API_KEY (bootstrap key) until R-0008 lands the real store.",
-            )),
-        )
-            .into_response();
-    };
-
     let Some(presented) = AuthConfig::extract_credential(request.headers()) else {
         return (
             StatusCode::UNAUTHORIZED,
             Json(error_body(
                 "auth_required",
-                "Missing Authorization: Bearer <api-key> or X-API-Key header.",
+                "Missing bearer credential. Set Authorization: Bearer <session-token>.",
             )),
         )
             .into_response();
     };
 
-    if !constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(error_body(
-                "permission_denied",
-                "Presented credential is not authorized for this MCP service.",
-            )),
-        )
-            .into_response();
+    if state
+        .config
+        .bootstrap_key
+        .as_ref()
+        .map(ExposeSecret::expose_secret)
+        .is_some_and(|expected| constant_time_eq(presented.as_bytes(), expected.as_bytes()))
+    {
+        request
+            .extensions_mut()
+            .insert(AuthenticatedMcpCredential::BootstrapApiKey);
+        return next.run(request).await;
     }
 
-    next.run(request).await
+    let token = SessionToken::from_secret(secrecy::SecretString::from(presented.to_owned()));
+    let now = Utc::now();
+    match state.store.find_active_session(&token, now).await {
+        Ok(Some(session)) => {
+            request
+                .extensions_mut()
+                .insert(AuthenticatedMcpCredential::Session {
+                    account_id: session.account_id,
+                });
+            next.run(request).await
+        }
+        Ok(None) => (
+            StatusCode::UNAUTHORIZED,
+            Json(error_body(
+                "auth_required",
+                "Missing, expired, or unknown MCP session credential.",
+            )),
+        )
+            .into_response(),
+        Err(err) => {
+            tracing::error!(
+                target: "tanren_mcp",
+                error = %err,
+                "resolve MCP bearer credential"
+            );
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(error_body(
+                    "internal_error",
+                    "Tanren encountered an internal error while resolving MCP credentials.",
+                )),
+            )
+                .into_response()
+        }
+    }
 }
 
 pub(super) fn streamable_http_config(
@@ -119,7 +155,7 @@ pub(super) fn streamable_http_config(
         tracing::warn!(
             target: "tanren_mcp",
             env_var = ALLOWED_HOSTS_ENV,
-            "Host-header validation disabled by `*`; relying on API-key auth as the sole gate."
+            "Host-header validation disabled by `*`; relying on credential auth as the sole gate."
         );
         return base.disable_allowed_hosts();
     }

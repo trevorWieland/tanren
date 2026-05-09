@@ -279,6 +279,18 @@ impl AccountStore for Store {
         })
     }
 
+    async fn find_active_session(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+            .filter(entity::account_sessions::Column::ExpiresAt.gt(now))
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
+
     async fn append_event(
         &self,
         payload: serde_json::Value,

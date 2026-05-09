@@ -137,10 +137,10 @@ Feature: Connect Tanren to an existing repository
       And repository "mcpteam/atlas" has zero Tanren activity counts
 
     @falsification @mcp
-    Scenario: MCP rejects connecting a repository without access
+    Scenario: MCP rejects connecting a repository without a project actor credential
       Given repository fixture "McpTeam/Private" has fingerprint "repo-fp::mcpteam/private" and 5 prior commits
       When outsider tries to connect existing repository "McpTeam/Private" without an account
-      Then the project request fails with code "no_access"
+      Then the project request fails with code "auth_required"
 
     @falsification @mcp
     Scenario: MCP rejects duplicate repository connection and keeps one record
@@ -151,6 +151,15 @@ Feature: Connect Tanren to an existing repository
       When alice connects existing repository "McpTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
       And alice has exactly 1 connected project records
+
+    @falsification @mcp
+    Scenario: MCP rejects cross-account repository connection requests
+      Given alice has a project account
+      And bob has a project account
+      And repository fixture "McpTeam/CrossAccount" has fingerprint "repo-fp::mcpteam/crossaccount" and 4 prior commits
+      When alice uses their credential to connect existing repository "McpTeam/CrossAccount" for bob as an active project
+      Then the project request fails with code "no_access"
+      And bob has exactly 0 connected project records
 
     @falsification @mcp
     Scenario: MCP does not import prior commits as Tanren activity

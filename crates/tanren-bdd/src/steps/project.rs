@@ -75,6 +75,60 @@ async fn when_connect_existing(world: &mut TanrenWorld, actor: String, repositor
     connect_existing_impl(world, actor, repository, false).await;
 }
 
+#[when(
+    expr = "{word} uses their credential to connect existing repository {string} for {word} as an active project"
+)]
+async fn when_connect_existing_for_other_account(
+    world: &mut TanrenWorld,
+    actor: String,
+    repository: String,
+    target_actor: String,
+) {
+    let Ok(parsed_repository) = RepositoryRef::parse(&repository) else {
+        let ctx = world.ensure_project_ctx().await;
+        let entry = ctx.actors.entry(actor).or_default();
+        entry.last_connected_repository = None;
+        entry.last_created_repository = None;
+        entry.last_designated_host = None;
+        ctx.last_failure_code = Some("validation_failed".to_owned());
+        return;
+    };
+    let ctx = world.ensure_project_ctx().await;
+    assert!(
+        ctx.repositories.contains_key(parsed_repository.as_str()),
+        "repository fixture must be seeded before connect attempt"
+    );
+    let actor_credential_account_id = actor_account_id(&ctx.actors, &actor);
+    let target_account_id = actor_account_id(&ctx.actors, &target_actor);
+    let result = ctx
+        .harness
+        .connect_project_repository_as_actor(
+            actor_credential_account_id,
+            ConnectProjectRepositoryRequest {
+                owning_account_id: target_account_id,
+                repository: parsed_repository.clone(),
+                select_as_active: true,
+            },
+        )
+        .await;
+    let entry = ctx.actors.entry(actor).or_default();
+    entry.account_id = Some(actor_credential_account_id);
+    match result {
+        Ok(response) => {
+            entry.last_connected_repository = Some(response.project.repository.repository);
+            entry.last_created_repository = None;
+            entry.last_designated_host = None;
+            ctx.last_failure_code = None;
+        }
+        Err(err) => {
+            entry.last_connected_repository = None;
+            entry.last_created_repository = None;
+            entry.last_designated_host = None;
+            ctx.last_failure_code = Some(err.code());
+        }
+    }
+}
+
 #[when(expr = "{word} tries to connect existing repository {string} without an account")]
 async fn when_connect_without_account(world: &mut TanrenWorld, actor: String, repository: String) {
     connect_existing_impl(world, actor, repository, true).await;

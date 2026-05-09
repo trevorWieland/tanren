@@ -259,6 +259,18 @@ pub trait ProjectHarness: AccountHarness {
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse>;
 
+    /// Connect a repository while authenticating as a specific actor account.
+    ///
+    /// Harnesses that do not model bearer project credentials can ignore the
+    /// actor parameter and dispatch to [`ProjectHarness::connect_project_repository`].
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        _actor_account_id: AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.connect_project_repository(req).await
+    }
+
     /// Create a repository at a designated host and register it as a project.
     async fn create_project(
         &mut self,
