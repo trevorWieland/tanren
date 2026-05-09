@@ -4193,6 +4193,7 @@ dependencies = [
  "serde_json",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tanren-store",
  "thiserror 2.0.18",
 ]
@@ -4392,6 +4393,7 @@ version = "0.0.0"
 dependencies = [
  "async-trait",
  "serde",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
 ]
 

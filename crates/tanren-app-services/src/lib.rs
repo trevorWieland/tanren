@@ -7,18 +7,21 @@
 
 pub mod account;
 pub mod events;
+pub mod project;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    ConnectProjectRepositoryResponse, ContractVersion, CreateProjectResponse, ProjectFailureReason,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_provider_integrations::SourceControlProvider;
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
-use tanren_store::StoreError;
+use tanren_store::{ProjectStore, StoreError};
 use thiserror::Error;
 
 /// Stable response shape for the cross-interface health/liveness query.
@@ -199,6 +202,45 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Connect an existing repository to an account as a Tanren project.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] for typed project-setup failures,
+    /// and [`AppServiceError::Store`] for unexpected store failures.
+    pub async fn connect_project_repository<S, P>(
+        &self,
+        store: &S,
+        provider: &P,
+        command: project::ConnectExistingRepositoryCommand,
+    ) -> Result<ConnectProjectRepositoryResponse, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+        P: SourceControlProvider + ?Sized,
+    {
+        project::connect_existing_repository(store, provider, &self.clock, command).await
+    }
+
+    /// Create a new repository at a designated host, then register it as a
+    /// project in the owning account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] for typed project-setup failures,
+    /// and [`AppServiceError::Store`] for unexpected store failures.
+    pub async fn create_project<S, P>(
+        &self,
+        store: &S,
+        provider: &P,
+        command: project::CreateNewProjectCommand,
+    ) -> Result<CreateProjectResponse, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+        P: SourceControlProvider + ?Sized,
+    {
+        project::create_new_project(store, provider, &self.clock, command).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +257,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// Project-setup taxonomy failure.
+    #[error("project: {}", .0.code())]
+    Project(ProjectFailureReason),
 }

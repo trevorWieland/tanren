@@ -105,8 +105,12 @@ pub struct ProjectCountsView {
 pub enum ProjectFailureReason {
     /// A project already exists for this repository in the owning account.
     DuplicateRepository,
+    /// The actor does not have access to the requested account or repository.
+    NoAccess,
     /// User-supplied input failed contract-level validation.
     ValidationFailed,
+    /// Source-control provider connectivity or operation failed.
+    ProviderFailure,
 }
 
 impl ProjectFailureReason {
@@ -115,7 +119,9 @@ impl ProjectFailureReason {
     pub const fn code(self) -> &'static str {
         match self {
             Self::DuplicateRepository => "duplicate_repository",
+            Self::NoAccess => "no_access",
             Self::ValidationFailed => "validation_failed",
+            Self::ProviderFailure => "provider_failure",
         }
     }
 
@@ -126,8 +132,12 @@ impl ProjectFailureReason {
             Self::DuplicateRepository => {
                 "A project for the supplied repository already exists in this account."
             }
+            Self::NoAccess => "The requested account, host, or repository is not accessible.",
             Self::ValidationFailed => {
                 "The submitted input did not satisfy contract-level validation."
+            }
+            Self::ProviderFailure => {
+                "The source-control provider could not complete the requested operation."
             }
         }
     }
@@ -137,7 +147,9 @@ impl ProjectFailureReason {
     pub const fn http_status(self) -> u16 {
         match self {
             Self::DuplicateRepository => 409,
+            Self::NoAccess => 403,
             Self::ValidationFailed => 400,
+            Self::ProviderFailure => 502,
         }
     }
 }

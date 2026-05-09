@@ -301,6 +301,9 @@ pub enum ProjectStoreError {
 /// Port consumed by project setup/listing handlers.
 #[async_trait]
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
+    /// Return whether an account id exists.
+    async fn account_exists(&self, account_id: AccountId) -> Result<bool, StoreError>;
+
     /// Insert a project row.
     async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError>;
 
@@ -309,6 +312,15 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         &self,
         new: NewProjectRepository,
     ) -> Result<ProjectRepositoryRecord, ProjectStoreError>;
+
+    /// Atomically create a project and repository binding, and optionally
+    /// select the new project as active for the owning account.
+    async fn create_project_setup(
+        &self,
+        project: NewProject,
+        repository: NewProjectRepository,
+        select_as_active: bool,
+    ) -> Result<ProjectSetupRecord, ProjectStoreError>;
 
     /// Find a project-repository binding by account + repository identity.
     async fn find_project_repository(

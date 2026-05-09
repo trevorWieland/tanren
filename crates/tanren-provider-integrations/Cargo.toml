@@ -11,7 +11,12 @@ description = "Provider Integrations subsystem: outbound connections to source c
 [lints]
 workspace = true
 
+[features]
+default = []
+test-hooks = []
+
 [dependencies]
 async-trait = { workspace = true }
 serde = { workspace = true }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }

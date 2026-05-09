@@ -15,6 +15,13 @@ use crate::{
 
 #[async_trait]
 impl ProjectStore for Store {
+    async fn account_exists(&self, account_id: AccountId) -> Result<bool, StoreError> {
+        let row = entity::accounts::Entity::find_by_id(account_id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        Ok(row.is_some())
+    }
+
     async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError> {
         let model = entity::projects::ActiveModel {
             id: Set(new.id.as_uuid()),
@@ -47,6 +54,104 @@ impl ProjectStore for Store {
             }
         };
         ProjectRepositoryRecord::try_from(inserted).map_err(ProjectStoreError::Store)
+    }
+
+    async fn create_project_setup(
+        &self,
+        project: NewProject,
+        repository: NewProjectRepository,
+        select_as_active: bool,
+    ) -> Result<ProjectSetupRecord, ProjectStoreError> {
+        self.conn
+            .transaction::<_, ProjectSetupRecord, ProjectStoreError>(|txn| {
+                let project = project.clone();
+                let repository = repository.clone();
+                Box::pin(async move {
+                    let inserted_project = entity::projects::ActiveModel {
+                        id: Set(project.id.as_uuid()),
+                        owning_account_id: Set(project.owning_account_id.as_uuid()),
+                        created_at: Set(project.created_at),
+                        active_selected_at: Set(None),
+                    }
+                    .insert(txn)
+                    .await
+                    .map_err(StoreError::from)
+                    .map_err(ProjectStoreError::Store)?;
+
+                    let inserted_repository = match (entity::project_repositories::ActiveModel {
+                        project_id: Set(repository.project_id.as_uuid()),
+                        owning_account_id: Set(repository.owning_account_id.as_uuid()),
+                        repository_ref: Set(repository.repository_ref.as_str().to_owned()),
+                        created_at: Set(repository.created_at),
+                    })
+                    .insert(txn)
+                    .await
+                    {
+                        Ok(row) => row,
+                        Err(err) => {
+                            let lower = err.to_string().to_lowercase();
+                            if lower.contains("unique") || lower.contains("duplicate") {
+                                return Err(ProjectStoreError::DuplicateRepository);
+                            }
+                            return Err(ProjectStoreError::Store(StoreError::from(err)));
+                        }
+                    };
+
+                    let selected_at = if select_as_active {
+                        entity::projects::Entity::update_many()
+                            .col_expr(
+                                entity::projects::Column::ActiveSelectedAt,
+                                sea_orm::sea_query::Expr::value(None::<DateTime<Utc>>),
+                            )
+                            .filter(
+                                entity::projects::Column::OwningAccountId
+                                    .eq(project.owning_account_id.as_uuid()),
+                            )
+                            .filter(entity::projects::Column::Id.ne(project.id.as_uuid()))
+                            .exec(txn)
+                            .await
+                            .map_err(StoreError::from)
+                            .map_err(ProjectStoreError::Store)?;
+                        entity::projects::Entity::update_many()
+                            .col_expr(
+                                entity::projects::Column::ActiveSelectedAt,
+                                sea_orm::sea_query::Expr::value(Some(project.created_at)),
+                            )
+                            .filter(
+                                entity::projects::Column::OwningAccountId
+                                    .eq(project.owning_account_id.as_uuid()),
+                            )
+                            .filter(entity::projects::Column::Id.eq(project.id.as_uuid()))
+                            .exec(txn)
+                            .await
+                            .map_err(StoreError::from)
+                            .map_err(ProjectStoreError::Store)?;
+                        Some(project.created_at)
+                    } else {
+                        None
+                    };
+
+                    let project_record = ProjectRecord {
+                        id: ProjectId::new(inserted_project.id),
+                        owning_account_id: AccountId::new(inserted_project.owning_account_id),
+                        created_at: inserted_project.created_at,
+                        active_selected_at: selected_at,
+                    };
+                    let repository_record = ProjectRepositoryRecord::try_from(inserted_repository)
+                        .map_err(ProjectStoreError::Store)?;
+
+                    Ok(ProjectSetupRecord {
+                        is_active: selected_at.is_some(),
+                        project: project_record,
+                        repository: repository_record,
+                        spec_count: 0,
+                        milestone_count: 0,
+                        initiative_count: 0,
+                    })
+                })
+            })
+            .await
+            .map_err(map_project_transaction_error)
     }
 
     async fn find_project_repository(
@@ -141,6 +246,17 @@ impl ProjectStore for Store {
 fn map_transaction_error(err: sea_orm::TransactionError<StoreError>) -> StoreError {
     match err {
         sea_orm::TransactionError::Connection(db_err) => StoreError::from(db_err),
+        sea_orm::TransactionError::Transaction(inner) => inner,
+    }
+}
+
+fn map_project_transaction_error(
+    err: sea_orm::TransactionError<ProjectStoreError>,
+) -> ProjectStoreError {
+    match err {
+        sea_orm::TransactionError::Connection(db_err) => {
+            ProjectStoreError::Store(StoreError::from(db_err))
+        }
         sea_orm::TransactionError::Transaction(inner) => inner,
     }
 }
