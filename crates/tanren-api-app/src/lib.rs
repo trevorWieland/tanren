@@ -57,9 +57,9 @@ use tanren_app_services::{Handlers, Store};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
-#[cfg(any(test, feature = "test-hooks"))]
-use crate::cookies::session_layer_with_secure;
-use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
+use crate::cookies::{
+    SessionLayerEnum, build_cookie_store, session_layer, session_layer_with_secure,
+};
 use crate::routes::build_router;
 
 pub use crate::errors::AccountFailureBody;
@@ -163,7 +163,13 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
-    let layer = session_layer(cookie_store);
+    let layer = if cfg!(feature = "test-hooks") {
+        // Playwright `@web` BDD runs over plain HTTP loopback and needs
+        // non-Secure cookies to exercise authenticated config routes.
+        session_layer_with_secure(cookie_store, false)
+    } else {
+        session_layer(cookie_store)
+    };
 
     let cors = CorsLayer::new()
         .allow_origin(config.cors_allow_origins.clone())

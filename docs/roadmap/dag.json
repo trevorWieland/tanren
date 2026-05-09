@@ -714,6 +714,8 @@
         {
           "kind": "bdd",
           "behavior_id": "B-0048",
+          "evidence_id": "B-0048-bdd-positive-falsification",
+          "witness_command": "just tests",
           "interfaces": [
             "web",
             "api",

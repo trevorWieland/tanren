@@ -21,7 +21,12 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, CreateUserCredentialRequest, CreateUserCredentialResponse,
+    ListUserCredentialsResponse, ListUserSettingsResponse, RemoveUserCredentialResponse,
+    SignInRequest, SignUpRequest, UpsertUserSettingRequest, UpsertUserSettingResponse,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
@@ -79,5 +84,49 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn list_user_settings(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserSettingsResponse> {
+        self.inner.list_user_settings(requested_account_id).await
+    }
+
+    async fn upsert_user_setting(
+        &mut self,
+        requested_account_id: AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> HarnessResult<UpsertUserSettingResponse> {
+        self.inner
+            .upsert_user_setting(requested_account_id, request)
+            .await
+    }
+
+    async fn list_user_credentials(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserCredentialsResponse> {
+        self.inner.list_user_credentials(requested_account_id).await
+    }
+
+    async fn add_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> HarnessResult<CreateUserCredentialResponse> {
+        self.inner
+            .add_user_credential(requested_account_id, request)
+            .await
+    }
+
+    async fn remove_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        item_id: &str,
+    ) -> HarnessResult<RemoveUserCredentialResponse> {
+        self.inner
+            .remove_user_credential(requested_account_id, item_id)
+            .await
     }
 }

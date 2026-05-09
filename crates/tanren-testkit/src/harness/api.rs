@@ -1,33 +1,28 @@
 //! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
 //! drives it via `reqwest::Client` with `cookie_store(true)`.
-//!
-//! The harness owns the `SQLite` database (a per-scenario file under
-//! the OS temp directory). The same database is shared between (a)
-//! the `Arc<Store>` injected into the api app for account-flow data
-//! and (b) the tower-sessions sqlite-backed cookie store. Reading
-//! recent events for the `Then a "..." event is recorded` step
-//! goes through the harness's own `Store` handle (the api app's
-//! `Arc<Store>` is a clone of the same `Store`).
 
+mod user_configuration;
 use std::path::PathBuf;
 use std::sync::Arc;
 
+use super::{
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
+    HarnessSession,
+};
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, ListUserCredentialsResponse, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, SignInRequest, SignUpRequest, UpsertUserSettingRequest,
+    UpsertUserSettingResponse,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-
-use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
-};
 
 /// `@api` wire harness.
 pub struct ApiHarness {
@@ -370,6 +365,68 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn list_user_settings(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+    ) -> HarnessResult<ListUserSettingsResponse> {
+        user_configuration::list_user_settings(&self.base_url, &self.client, requested_account_id)
+            .await
+    }
+
+    async fn upsert_user_setting(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> HarnessResult<UpsertUserSettingResponse> {
+        user_configuration::upsert_user_setting(
+            &self.base_url,
+            &self.client,
+            requested_account_id,
+            request,
+        )
+        .await
+    }
+
+    async fn list_user_credentials(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+    ) -> HarnessResult<ListUserCredentialsResponse> {
+        user_configuration::list_user_credentials(
+            &self.base_url,
+            &self.client,
+            requested_account_id,
+        )
+        .await
+    }
+
+    async fn add_user_credential(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> HarnessResult<CreateUserCredentialResponse> {
+        user_configuration::add_user_credential(
+            &self.base_url,
+            &self.client,
+            requested_account_id,
+            request,
+        )
+        .await
+    }
+
+    async fn remove_user_credential(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+        item_id: &str,
+    ) -> HarnessResult<RemoveUserCredentialResponse> {
+        user_configuration::remove_user_credential(
+            &self.base_url,
+            &self.client,
+            requested_account_id,
+            item_id,
+        )
+        .await
+    }
 }
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
@@ -426,7 +483,7 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
     } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+        HarnessError::FailureCode(code, summary)
     }
 }
 

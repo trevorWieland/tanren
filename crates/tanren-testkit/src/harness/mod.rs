@@ -57,7 +57,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, ListUserCredentialsResponse, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, SignInRequest, SignUpRequest, UpsertUserSettingRequest,
+    UpsertUserSettingResponse, UserCredentialView, UserSettingView,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -154,6 +157,9 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A non-account taxonomy failure with a known `code`.
+    #[error("{0}: {1}")]
+    FailureCode(String, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +172,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::FailureCode(code, _) => code.clone(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -238,6 +245,39 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// List user-tier settings for one requested account id.
+    async fn list_user_settings(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserSettingsResponse>;
+
+    /// Upsert one user-tier setting for one requested account id.
+    async fn upsert_user_setting(
+        &mut self,
+        requested_account_id: AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> HarnessResult<UpsertUserSettingResponse>;
+
+    /// List user-owned credential metadata for one requested account id.
+    async fn list_user_credentials(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserCredentialsResponse>;
+
+    /// Add one user-owned credential for one requested account id.
+    async fn add_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> HarnessResult<CreateUserCredentialResponse>;
+
+    /// Remove one user-owned credential by metadata id.
+    async fn remove_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        item_id: &str,
+    ) -> HarnessResult<RemoveUserCredentialResponse>;
 }
 
 /// Default short-window timeout used by the wire harnesses.
@@ -267,6 +307,12 @@ pub struct ActorState {
     pub accept_invitation: Option<HarnessAcceptance>,
     /// Last failure (taxonomy code), if any.
     pub last_failure: Option<AccountFailureReason>,
+    /// Most recent user-setting list snapshot for this actor.
+    pub last_user_settings: Vec<UserSettingView>,
+    /// Most recent user-credential metadata list snapshot for this actor.
+    pub last_user_credentials: Vec<UserCredentialView>,
+    /// Remembered credential metadata id for add/remove chaining.
+    pub remembered_credential_id: Option<String>,
 }
 
 /// Outcome of the most recent action.
@@ -280,6 +326,8 @@ pub enum HarnessOutcome {
     AcceptedInvitation(HarnessAcceptance),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
+    /// Non-account taxonomy failure (with the wire `code`).
+    FailureCode(String),
     /// Non-taxonomy infrastructure failure.
     Other(String),
 }
@@ -292,6 +340,7 @@ impl HarnessOutcome {
     pub fn failure_code(&self) -> Option<String> {
         match self {
             Self::Failure(reason) => Some(reason.code().to_owned()),
+            Self::FailureCode(code) => Some(code.clone()),
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
@@ -309,6 +358,7 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::FailureCode(code, _) => HarnessOutcome::FailureCode(code),
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -348,6 +398,9 @@ impl ConcurrentAcceptanceTally {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
                 let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::FailureCode(code, _)) => {
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
             Err(HarnessError::Transport(msg)) => self.other.push(msg),

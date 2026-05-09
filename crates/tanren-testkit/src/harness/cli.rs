@@ -7,6 +7,8 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
+mod user_configuration;
+
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -16,7 +18,12 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, ListUserCredentialsResponse, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, SignInRequest, SignUpRequest, UpsertUserSettingRequest,
+    UpsertUserSettingResponse,
+};
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
@@ -34,6 +41,7 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    authenticated_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -73,7 +81,35 @@ impl CliHarness {
             db_path,
             db_url,
             binary,
+            authenticated_account_id: None,
         })
+    }
+
+    fn ensure_setting_scope(&self, requested_account_id: AccountId) -> HarnessResult<()> {
+        let authenticated = self.authenticated_account_id.ok_or_else(|| {
+            HarnessError::Transport("no authenticated account in cli harness".to_owned())
+        })?;
+        if authenticated == requested_account_id {
+            return Ok(());
+        }
+        Err(HarnessError::FailureCode(
+            "setting_not_found".to_owned(),
+            "The requested user setting does not exist or is not accessible.".to_owned(),
+        ))
+    }
+
+    fn ensure_credential_scope(&self, requested_account_id: AccountId) -> HarnessResult<()> {
+        let authenticated = self.authenticated_account_id.ok_or_else(|| {
+            HarnessError::Transport("no authenticated account in cli harness".to_owned())
+        })?;
+        if authenticated == requested_account_id {
+            return Ok(());
+        }
+        Err(HarnessError::FailureCode(
+            "item_not_found".to_owned(),
+            "The requested user credential metadata does not exist or is not accessible."
+                .to_owned(),
+        ))
     }
 }
 
@@ -114,6 +150,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
+            self.authenticated_account_id = Some(account.id);
             HarnessSession {
                 account_id: account.id,
                 account,
@@ -145,11 +182,14 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| {
+            self.authenticated_account_id = Some(account.id);
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -183,6 +223,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        self.authenticated_account_id = Some(account.id);
         let joined_org = parse_joined_org(&stdout)?;
         // The CLI binary returns the AccountView reconstituted from
         // the row; re-decorate it with `org = Some(joined_org)` to
@@ -219,6 +260,69 @@ impl AccountHarness for CliHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn list_user_settings(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserSettingsResponse> {
+        self.ensure_setting_scope(requested_account_id)?;
+        user_configuration::list_user_settings(&self.binary, &self.db_url, requested_account_id)
+            .await
+    }
+
+    async fn upsert_user_setting(
+        &mut self,
+        requested_account_id: AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> HarnessResult<UpsertUserSettingResponse> {
+        self.ensure_setting_scope(requested_account_id)?;
+        user_configuration::upsert_user_setting(
+            &self.binary,
+            &self.db_url,
+            requested_account_id,
+            request,
+        )
+        .await
+    }
+
+    async fn list_user_credentials(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserCredentialsResponse> {
+        self.ensure_credential_scope(requested_account_id)?;
+        user_configuration::list_user_credentials(&self.binary, &self.db_url, requested_account_id)
+            .await
+    }
+
+    async fn add_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> HarnessResult<CreateUserCredentialResponse> {
+        self.ensure_credential_scope(requested_account_id)?;
+        user_configuration::add_user_credential(
+            &self.binary,
+            &self.db_url,
+            requested_account_id,
+            request,
+        )
+        .await
+    }
+
+    async fn remove_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        item_id: &str,
+    ) -> HarnessResult<RemoveUserCredentialResponse> {
+        self.ensure_credential_scope(requested_account_id)?;
+        user_configuration::remove_user_credential(
+            &self.binary,
+            &self.db_url,
+            requested_account_id,
+            item_id,
+        )
+        .await
     }
 }
 
@@ -279,6 +383,7 @@ fn translate_cli_error(stderr: &[u8]) -> HarnessError {
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
         }
+        return HarnessError::FailureCode(code.to_owned(), summary);
     }
     HarnessError::Transport(text.into_owned())
 }

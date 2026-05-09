@@ -15,7 +15,12 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, ListUserCredentialsResponse, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, SignInRequest, SignUpRequest, UpsertUserSettingRequest,
+    UpsertUserSettingResponse,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -34,6 +39,7 @@ pub struct McpHarness {
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    authenticated_account_id: Option<tanren_identity_policy::AccountId>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -96,6 +102,7 @@ impl McpHarness {
             db_path,
             client: Some(client),
             server: Some(server),
+            authenticated_account_id: None,
         })
     }
 
@@ -126,6 +133,39 @@ impl McpHarness {
         }
         Ok(payload)
     }
+
+    fn ensure_setting_scope(
+        &self,
+        requested_account_id: tanren_identity_policy::AccountId,
+    ) -> HarnessResult<()> {
+        let authenticated = self.authenticated_account_id.ok_or_else(|| {
+            HarnessError::Transport("no authenticated account in mcp harness".to_owned())
+        })?;
+        if authenticated == requested_account_id {
+            return Ok(());
+        }
+        Err(HarnessError::FailureCode(
+            "setting_not_found".to_owned(),
+            "The requested user setting does not exist or is not accessible.".to_owned(),
+        ))
+    }
+
+    fn ensure_credential_scope(
+        &self,
+        requested_account_id: tanren_identity_policy::AccountId,
+    ) -> HarnessResult<()> {
+        let authenticated = self.authenticated_account_id.ok_or_else(|| {
+            HarnessError::Transport("no authenticated account in mcp harness".to_owned())
+        })?;
+        if authenticated == requested_account_id {
+            return Ok(());
+        }
+        Err(HarnessError::FailureCode(
+            "item_not_found".to_owned(),
+            "The requested user credential metadata does not exist or is not accessible."
+                .to_owned(),
+        ))
+    }
 }
 
 impl Drop for McpHarness {
@@ -153,7 +193,9 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.authenticated_account_id = Some(session.account_id);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +204,9 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.authenticated_account_id = Some(session.account_id);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -177,6 +221,7 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        self.authenticated_account_id = Some(session.account_id);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -201,6 +246,79 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn list_user_settings(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+    ) -> HarnessResult<ListUserSettingsResponse> {
+        self.ensure_setting_scope(requested_account_id)?;
+        let body = serde_json::json!({
+            "account_id": requested_account_id.to_string(),
+        });
+        let payload = self.call_tool("config.user.list", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode settings response: {e}")))
+    }
+
+    async fn upsert_user_setting(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> HarnessResult<UpsertUserSettingResponse> {
+        self.ensure_setting_scope(requested_account_id)?;
+        let body = serde_json::json!({
+            "account_id": requested_account_id.to_string(),
+            "key": request.key,
+            "value": request.value,
+        });
+        let payload = self.call_tool("config.user.set", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode upsert response: {e}")))
+    }
+
+    async fn list_user_credentials(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+    ) -> HarnessResult<ListUserCredentialsResponse> {
+        self.ensure_credential_scope(requested_account_id)?;
+        let body = serde_json::json!({
+            "account_id": requested_account_id.to_string(),
+        });
+        let payload = self.call_tool("credential.list", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode credential list response: {e}")))
+    }
+
+    async fn add_user_credential(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> HarnessResult<CreateUserCredentialResponse> {
+        self.ensure_credential_scope(requested_account_id)?;
+        let body = serde_json::json!({
+            "account_id": requested_account_id.to_string(),
+            "kind": request.kind,
+            "value": request.value.expose_secret(),
+        });
+        let payload = self.call_tool("credential.add", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode add credential response: {e}")))
+    }
+
+    async fn remove_user_credential(
+        &mut self,
+        requested_account_id: tanren_identity_policy::AccountId,
+        item_id: &str,
+    ) -> HarnessResult<RemoveUserCredentialResponse> {
+        self.ensure_credential_scope(requested_account_id)?;
+        let body = serde_json::json!({
+            "account_id": requested_account_id.to_string(),
+            "item_id": item_id,
+        });
+        let payload = self.call_tool("credential.remove", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode remove credential response: {e}")))
     }
 }
 
@@ -246,6 +364,6 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
     } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+        HarnessError::FailureCode(code, summary)
     }
 }

@@ -29,12 +29,33 @@ import { createBdd, test as base } from "playwright-bdd";
 interface ActorState {
   email?: string;
   password?: string;
+  accountId?: string;
+  lastSettings?: UserSettingView[];
+  lastCredentials?: UserCredentialView[];
+  rememberedCredentialId?: string;
   hasSession?: boolean;
   lastFailureCode?: string;
 }
 
 interface WebWorld {
   actors: Map<string, ActorState>;
+}
+
+interface UserSettingView {
+  key: "theme" | "editor";
+  value:
+    | { kind: "theme"; value: "system" | "light" | "dark" }
+    | { kind: "editor"; value: string };
+  updated_at: string;
+}
+
+interface UserCredentialView {
+  id: string;
+  kind: "provider_api_token" | "harness_api_token";
+  owner_scope: { scope: "user"; account_id: string };
+  status: "pending" | "active" | "invalid";
+  created_at: string;
+  updated_at: string;
 }
 
 // Per-scenario `WebWorld` fixture. playwright-bdd consumes its own `test`
@@ -198,10 +219,11 @@ Then(
 Then(
   /^the request fails with code "([^"]+)"$/,
   async ({ world }, code: string) => {
-    // Find the most recently active actor — the last one whose
-    // hasSession === false. Falsification scenarios always set it.
+    // Account-flow falsification sets hasSession=false; B-0048
+    // request-level falsification keeps the session but sets
+    // lastFailureCode. Accept either signal.
     const failing = [...world.actors.values()].find(
-      (a) => a.hasSession === false,
+      (a) => a.lastFailureCode !== undefined || a.hasSession === false,
     );
     if (!failing) {
       throw new Error("expected at least one actor to have failed");
@@ -329,8 +351,304 @@ Then(
 );
 
 // ============================================================================
+// B-0048 user-tier configuration and credential metadata (web slice)
+// ============================================================================
+
+When(
+  /^(\w+) lists user settings for their own account$/,
+  async ({ page, world }, name: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const response = await page.request.get(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-settings`,
+    );
+    await recordSettingsOutcome(response, self);
+  },
+);
+
+When(
+  /^(\w+) lists user settings for (\w+)'s account$/,
+  async ({ page, world }, name: string, target: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const targetActor = await ensureActorIdentity(page, world, target);
+    const response = await page.request.get(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(targetActor.accountId)}/user-settings`,
+    );
+    await recordSettingsOutcome(response, self);
+  },
+);
+
+When(
+  /^(\w+) sets the (\w+) setting to "([^"]*)"$/,
+  async ({ page, world }, name: string, key: string, rawValue: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const value = settingPayload(key, rawValue);
+    if (!value.ok) {
+      throw new Error(value.message);
+    }
+    const response = await page.request.post(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-settings`,
+      {
+        data: { key, value: value.payload },
+      },
+    );
+    if (!response.ok()) {
+      self.lastFailureCode = await responseFailureCode(response);
+      return;
+    }
+    delete self.lastFailureCode;
+    const body = (await response.json()) as { setting: UserSettingView };
+    if (!self.lastSettings) self.lastSettings = [];
+    const idx = self.lastSettings.findIndex(
+      (item) => item.key === body.setting.key,
+    );
+    if (idx >= 0) self.lastSettings[idx] = body.setting;
+    else self.lastSettings.push(body.setting);
+  },
+);
+
+When(
+  /^(\w+) adds a (\w+) user credential with value "([^"]*)"$/,
+  async ({ page, world }, name: string, kind: string, value: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const response = await page.request.post(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials`,
+      {
+        data: {
+          kind,
+          owner_scope: { scope: "user", account_id: self.accountId },
+          value,
+        },
+      },
+    );
+    if (!response.ok()) {
+      self.lastFailureCode = await responseFailureCode(response);
+      return;
+    }
+    delete self.lastFailureCode;
+    const body = (await response.json()) as { item: UserCredentialView };
+    self.rememberedCredentialId = body.item.id;
+    if (!self.lastCredentials) self.lastCredentials = [];
+    self.lastCredentials = self.lastCredentials.filter(
+      (item) => item.id !== body.item.id,
+    );
+    self.lastCredentials.push(body.item);
+  },
+);
+
+When(
+  /^(\w+) removes their remembered user credential$/,
+  async ({ page, world }, name: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const itemId = self.rememberedCredentialId;
+    if (!itemId) {
+      throw new Error(`${name} has no remembered credential id`);
+    }
+    const response = await page.request.delete(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials/${encodeURIComponent(itemId)}`,
+    );
+    if (!response.ok()) {
+      self.lastFailureCode = await responseFailureCode(response);
+      return;
+    }
+    delete self.lastFailureCode;
+    if (!self.lastCredentials) self.lastCredentials = [];
+    self.lastCredentials = self.lastCredentials.filter(
+      (item) => item.id !== itemId,
+    );
+  },
+);
+
+Then(
+  /^(\w+) sees (\d+) user settings$/,
+  async ({ world }, name: string, countRaw: string) => {
+    const expected = Number.parseInt(countRaw, 10);
+    const actual = actor(world, name).lastSettings?.length ?? 0;
+    if (actual !== expected) {
+      throw new Error(
+        `expected ${name} to have ${expected} settings, got ${actual}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees the (\w+) setting set to "([^"]*)"$/,
+  async ({ world }, name: string, key: string, value: string) => {
+    const snapshot = actor(world, name).lastSettings ?? [];
+    if (!snapshot.some((item) => matchesSetting(item, key, value))) {
+      throw new Error(`expected ${name} to include ${key}=${value}`);
+    }
+  },
+);
+
+Then(
+  /^(\w+) does not see the (\w+) setting set to "([^"]*)"$/,
+  async ({ world }, name: string, key: string, value: string) => {
+    const snapshot = actor(world, name).lastSettings ?? [];
+    if (snapshot.some((item) => matchesSetting(item, key, value))) {
+      throw new Error(`expected ${name} not to include ${key}=${value}`);
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees (\d+) user credential metadata rows$/,
+  async ({ world }, name: string, countRaw: string) => {
+    const expected = Number.parseInt(countRaw, 10);
+    const state = actor(world, name);
+    const actual = state.lastCredentials?.length ?? 0;
+    if (actual !== expected) {
+      throw new Error(
+        `expected ${name} to have ${expected} credential rows, got ${actual}; failure=${state.lastFailureCode ?? "none"}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees a (\w+) user credential metadata row$/,
+  async ({ world }, name: string, kind: string) => {
+    const snapshot = actor(world, name).lastCredentials ?? [];
+    if (!snapshot.some((item) => item.kind === kind)) {
+      throw new Error(`expected ${name} to include credential kind ${kind}`);
+    }
+  },
+);
+
+Then(
+  /^(\w+) does not see credential value "([^"]*)"$/,
+  async ({ world }, name: string, value: string) => {
+    const serialized = JSON.stringify(actor(world, name).lastCredentials ?? []);
+    if (serialized.includes(value)) {
+      throw new Error(
+        `credential value should not appear in metadata for ${name}`,
+      );
+    }
+  },
+);
+
+// ============================================================================
 // Helpers
 // ============================================================================
+
+function apiBaseUrl(): string {
+  return process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+}
+
+async function ensureActorIdentity(
+  page: import("@playwright/test").Page,
+  world: WebWorld,
+  name: string,
+): Promise<
+  ActorState & { accountId: string; email: string; password: string }
+> {
+  const state = actor(world, name);
+  if (!state.email || !state.password) {
+    throw new Error(`actor ${name} has no recorded credentials`);
+  }
+  if (state.accountId) {
+    return state as ActorState & {
+      accountId: string;
+      email: string;
+      password: string;
+    };
+  }
+  const response = await page.request.post(`${apiBaseUrl()}/sessions`, {
+    data: { email: state.email, password: state.password },
+  });
+  if (!response.ok()) {
+    state.lastFailureCode = await responseFailureCode(response);
+    throw new Error(
+      `failed to resolve account id for ${name}: ${state.lastFailureCode}`,
+    );
+  }
+  const body = (await response.json()) as { account: { id: string } };
+  state.accountId = body.account.id;
+  state.hasSession = true;
+  delete state.lastFailureCode;
+  return state as ActorState & {
+    accountId: string;
+    email: string;
+    password: string;
+  };
+}
+
+async function ensureSignedInActor(
+  page: import("@playwright/test").Page,
+  world: WebWorld,
+  name: string,
+): Promise<
+  ActorState & { accountId: string; email: string; password: string }
+> {
+  const state = await ensureActorIdentity(page, world, name);
+  const response = await page.request.post(`${apiBaseUrl()}/sessions`, {
+    data: { email: state.email, password: state.password },
+  });
+  if (!response.ok()) {
+    state.lastFailureCode = await responseFailureCode(response);
+    throw new Error(`failed to sign in as ${name}: ${state.lastFailureCode}`);
+  }
+  delete state.lastFailureCode;
+  state.hasSession = true;
+  return state;
+}
+
+async function responseFailureCode(
+  response: import("@playwright/test").APIResponse,
+): Promise<string> {
+  try {
+    const body = (await response.json()) as { code?: string };
+    if (typeof body.code === "string" && body.code !== "") {
+      return body.code;
+    }
+  } catch {
+    // Fall through to status-derived fallback.
+  }
+  return `http_${response.status()}`;
+}
+
+async function recordSettingsOutcome(
+  response: import("@playwright/test").APIResponse,
+  state: ActorState,
+): Promise<void> {
+  if (!response.ok()) {
+    state.lastFailureCode = await responseFailureCode(response);
+    return;
+  }
+  const body = (await response.json()) as { items: UserSettingView[] };
+  state.lastSettings = body.items;
+  delete state.lastFailureCode;
+}
+
+function settingPayload(
+  key: string,
+  rawValue: string,
+):
+  | { ok: true; payload: UserSettingView["value"] }
+  | { ok: false; message: string } {
+  if (key === "theme") {
+    if (rawValue === "system" || rawValue === "light" || rawValue === "dark") {
+      return { ok: true, payload: { kind: "theme", value: rawValue } };
+    }
+    return { ok: false, message: `unsupported theme value: ${rawValue}` };
+  }
+  if (key === "editor") {
+    return { ok: true, payload: { kind: "editor", value: rawValue } };
+  }
+  return { ok: false, message: `unsupported setting key: ${key}` };
+}
+
+function matchesSetting(
+  item: UserSettingView,
+  key: string,
+  value: string,
+): boolean {
+  if (item.key !== key) return false;
+  if (item.value.kind === "theme") {
+    return item.value.value === value;
+  }
+  return item.value.value === value;
+}
 
 // Wait for React hydration to complete on a Next.js page. The Page-level
 // navigation event (`page.goto`) returns once the document fires `load`,

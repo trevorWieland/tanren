@@ -129,6 +129,7 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
         HarnessOutcome::Failure(_) => "Failure",
+        HarnessOutcome::FailureCode(_) => "FailureCode",
         HarnessOutcome::Other(_) => "Other",
     }
 }

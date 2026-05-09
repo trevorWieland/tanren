@@ -9,8 +9,13 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_configuration_secrets::OwnerScope;
+use tanren_contract::{
+    AcceptInvitationRequest, CreateUserCredentialRequest, CreateUserCredentialResponse,
+    ListUserCredentialsResponse, ListUserSettingsResponse, RemoveUserCredentialResponse,
+    SignInRequest, SignUpRequest, UpsertUserSettingRequest, UpsertUserSettingResponse,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
@@ -26,6 +31,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    authenticated_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -63,6 +69,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            authenticated_account_id: None,
         })
     }
 
@@ -84,24 +91,30 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.authenticated_account_id = Some(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.authenticated_account_id = Some(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -111,15 +124,18 @@ impl AccountHarness for InProcessHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         match self.handlers.accept_invitation(&self.store, req).await {
-            Ok(response) => Ok(HarnessAcceptance {
-                session: HarnessSession {
-                    account: response.account.clone(),
-                    account_id: response.account.id,
-                    expires_at: response.session.expires_at,
-                    has_token: !response.session.token.expose_secret().is_empty(),
-                },
-                joined_org: response.joined_org,
-            }),
+            Ok(response) => {
+                self.authenticated_account_id = Some(response.account.id);
+                Ok(HarnessAcceptance {
+                    session: HarnessSession {
+                        account: response.account.clone(),
+                        account_id: response.account.id,
+                        expires_at: response.session.expires_at,
+                        has_token: !response.session.token.expose_secret().is_empty(),
+                    },
+                    joined_org: response.joined_org,
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -141,14 +157,123 @@ impl AccountHarness for InProcessHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn list_user_settings(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserSettingsResponse> {
+        let authenticated_account_id = self.authenticated_account_id()?;
+        match self
+            .handlers
+            .list_user_settings(&self.store, authenticated_account_id, requested_account_id)
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn upsert_user_setting(
+        &mut self,
+        requested_account_id: AccountId,
+        request: UpsertUserSettingRequest,
+    ) -> HarnessResult<UpsertUserSettingResponse> {
+        let authenticated_account_id = self.authenticated_account_id()?;
+        match self
+            .handlers
+            .upsert_user_setting(
+                &self.store,
+                authenticated_account_id,
+                requested_account_id,
+                request,
+            )
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_user_credentials(
+        &mut self,
+        requested_account_id: AccountId,
+    ) -> HarnessResult<ListUserCredentialsResponse> {
+        let authenticated_account_id = self.authenticated_account_id()?;
+        match self
+            .handlers
+            .list_user_credentials(
+                &self.store,
+                authenticated_account_id,
+                OwnerScope::User {
+                    account_id: requested_account_id,
+                },
+            )
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn add_user_credential(
+        &mut self,
+        _requested_account_id: AccountId,
+        request: CreateUserCredentialRequest,
+    ) -> HarnessResult<CreateUserCredentialResponse> {
+        let authenticated_account_id = self.authenticated_account_id()?;
+        match self
+            .handlers
+            .add_user_credential(&self.store, authenticated_account_id, request)
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn remove_user_credential(
+        &mut self,
+        requested_account_id: AccountId,
+        item_id: &str,
+    ) -> HarnessResult<RemoveUserCredentialResponse> {
+        let authenticated_account_id = self.authenticated_account_id()?;
+        match self
+            .handlers
+            .remove_user_credential(
+                &self.store,
+                authenticated_account_id,
+                item_id,
+                OwnerScope::User {
+                    account_id: requested_account_id,
+                },
+            )
+            .await
+        {
+            Ok(response) => Ok(response),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+}
+
+impl InProcessHarness {
+    fn authenticated_account_id(&self) -> HarnessResult<AccountId> {
+        self.authenticated_account_id.ok_or_else(|| {
+            HarnessError::Transport(
+                "no authenticated account in in-process harness; sign in first".to_owned(),
+            )
+        })
+    }
 }
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Configuration(reason) => {
+            HarnessError::FailureCode(reason.code().to_owned(), reason.summary().to_owned())
+        }
         AppServiceError::InvalidInput(msg) => {
-            HarnessError::Transport(format!("invalid_input: {msg}"))
+            HarnessError::FailureCode("validation_failed".to_owned(), msg)
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),

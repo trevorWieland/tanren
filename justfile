@@ -372,6 +372,7 @@ check:
 tests:
     #!/usr/bin/env bash
     set -euo pipefail
+    export TANREN_CREDENTIAL_SEAL_PASSPHRASE="${TANREN_CREDENTIAL_SEAL_PASSPHRASE:-tanren-bdd-credential-passphrase}"
     # Pre-build binaries that the wire harnesses spawn as subprocesses.
     # CliHarness::spawn locates `tanren-cli` next to the test executable
     # in `target/debug/`; without an explicit build, CI runs (which only
