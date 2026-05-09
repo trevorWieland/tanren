@@ -15,15 +15,19 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, ListVisibleProjectsRequest,
+    ProjectCollectionView, SignInRequest, SignUpRequest,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_reason, project_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, ProjectHarness,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -204,6 +208,42 @@ impl AccountHarness for McpHarness {
     }
 }
 
+#[async_trait]
+impl ProjectHarness for McpHarness {
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self.call_tool("project.connect_repository", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project response: {e}")))
+    }
+
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self.call_tool("project.list_visible", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project list response: {e}")))
+    }
+
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self.call_tool("project.active", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode active project response: {e}")))
+    }
+}
+
 fn first_text(content: &[Content]) -> Option<String> {
     for item in content {
         if let RawContent::Text(text) = &item.raw {
@@ -245,6 +285,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = project_code_to_reason(&code) {
+        HarnessError::Project(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

@@ -16,13 +16,17 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, ListVisibleProjectsRequest,
+    ProjectCollectionView, SignInRequest, SignUpRequest,
+};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, ProjectHarness,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -73,5 +77,29 @@ impl AccountHarness for TuiHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+}
+
+#[async_trait]
+impl ProjectHarness for TuiHarness {
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.inner.connect_project_repository(req).await
+    }
+
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.inner.list_visible_projects(req).await
+    }
+
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.inner.active_project(req).await
     }
 }

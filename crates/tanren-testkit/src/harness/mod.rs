@@ -57,7 +57,10 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ActiveProjectRequest,
+    ActiveProjectView, ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -154,6 +157,9 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A project taxonomy failure with a known `code`.
+    #[error("{0:?}: {1}")]
+    Project(ProjectFailureReason, String),
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +172,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::Project(reason, _) => reason.code().to_owned(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -240,6 +247,31 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
 }
 
+/// Per-interface seam used by the project-setup BDD steps (B-0025 and
+/// successors). The trait extends [`AccountHarness`] so project steps can
+/// provision fixture accounts through the same wire surface before issuing
+/// project commands.
+#[async_trait]
+pub trait ProjectHarness: AccountHarness {
+    /// Connect an existing repository as a project.
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse>;
+
+    /// List visible projects for the owning account.
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView>;
+
+    /// Read active-project metadata for the owning account.
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView>;
+}
+
 /// Default short-window timeout used by the wire harnesses.
 pub(crate) const HARNESS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -309,6 +341,7 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::Project(_, message) => HarnessOutcome::Other(message),
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -347,6 +380,10 @@ impl ConcurrentAcceptanceTally {
         match outcome {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
+                let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::Project(reason, _)) => {
                 let code = reason.code().to_owned();
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }

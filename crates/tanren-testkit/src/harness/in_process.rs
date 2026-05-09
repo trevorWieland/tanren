@@ -8,14 +8,22 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use tanren_app_services::project::{
+    ActiveProjectQuery, ConnectExistingRepositoryCommand, ListVisibleProjectsQuery,
+};
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, ListVisibleProjectsRequest,
+    ProjectCollectionView, SignInRequest, SignUpRequest,
+};
 use tanren_identity_policy::Argon2idVerifier;
+use tanren_provider_integrations::AllowAllSourceControlProvider;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, ProjectHarness,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -25,6 +33,7 @@ use super::{
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
+    source_control: AllowAllSourceControlProvider,
     kind: HarnessKind,
 }
 
@@ -62,6 +71,7 @@ impl InProcessHarness {
         Ok(Self {
             store,
             handlers,
+            source_control: AllowAllSourceControlProvider,
             kind,
         })
     }
@@ -143,10 +153,66 @@ impl AccountHarness for InProcessHarness {
     }
 }
 
+#[async_trait]
+impl ProjectHarness for InProcessHarness {
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        let actor_account_id = req.owning_account_id;
+        self.handlers
+            .connect_project_repository(
+                &self.store,
+                &self.source_control,
+                ConnectExistingRepositoryCommand {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        let actor_account_id = req.owning_account_id;
+        self.handlers
+            .list_visible_projects(
+                &self.store,
+                ListVisibleProjectsQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        let actor_account_id = req.owning_account_id;
+        self.handlers
+            .active_project(
+                &self.store,
+                ActiveProjectQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+}
+
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.code().to_owned()),
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
