@@ -15,16 +15,19 @@ mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, DeploymentPosture, DeploymentPostureRecord, DeploymentPostureScope,
+    InvitationRecord, MembershipRecord, NewAccount, NewDeploymentPosture, NewInvitation,
+    SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, DeploymentPostureStore,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
     QueryOrder, QuerySelect, Set,
@@ -310,6 +313,63 @@ impl AccountStore for Store {
     }
 }
 
+#[async_trait]
+impl DeploymentPostureStore for Store {
+    async fn get_deployment_posture(
+        &self,
+        scope: DeploymentPostureScope,
+    ) -> Result<Option<DeploymentPostureRecord>, StoreError> {
+        let (scope_kind, scope_id) = records::DeploymentPostureScopeKind::from_scope(scope);
+        let row = entity::deployment_postures::Entity::find_by_id((
+            scope_kind.as_stored_value().to_owned(),
+            scope_id,
+        ))
+        .one(&self.conn)
+        .await?;
+        row.map(DeploymentPostureRecord::try_from).transpose()
+    }
+
+    async fn upsert_deployment_posture(
+        &self,
+        new: NewDeploymentPosture,
+    ) -> Result<DeploymentPostureRecord, StoreError> {
+        let (scope_kind, scope_id) = records::DeploymentPostureScopeKind::from_scope(new.scope);
+        entity::deployment_postures::Entity::insert(entity::deployment_postures::ActiveModel {
+            scope_kind: Set(scope_kind.as_stored_value().to_owned()),
+            scope_id: Set(scope_id),
+            posture: Set(new.posture.as_stored_value().to_owned()),
+            changed_by: Set(new.changed_by.as_uuid()),
+            changed_at: Set(new.changed_at),
+        })
+        .on_conflict(
+            OnConflict::columns([
+                entity::deployment_postures::Column::ScopeKind,
+                entity::deployment_postures::Column::ScopeId,
+            ])
+            .update_columns([
+                entity::deployment_postures::Column::Posture,
+                entity::deployment_postures::Column::ChangedBy,
+                entity::deployment_postures::Column::ChangedAt,
+            ])
+            .to_owned(),
+        )
+        .exec(&self.conn)
+        .await?;
+
+        let stored = entity::deployment_postures::Entity::find_by_id((
+            scope_kind.as_stored_value().to_owned(),
+            scope_id,
+        ))
+        .one(&self.conn)
+        .await?
+        .ok_or_else(|| StoreError::DataInvariantDetail {
+            column: "deployment_postures",
+            detail: "upsert succeeded but the row is missing".to_owned(),
+        })?;
+        DeploymentPostureRecord::try_from(stored)
+    }
+}
+
 /// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
 /// so production binaries cannot accidentally seed test data; the testkit
 /// (and only the testkit) enables the feature.
@@ -382,5 +442,15 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A row read out of the database failed a closed-value invariant
+    /// that does not map to a `tanren-identity-policy` validation
+    /// error (for example an unexpected enum literal).
+    #[error("data invariant violation in column `{column}`: {detail}")]
+    DataInvariantDetail {
+        /// The column whose value failed to validate.
+        column: &'static str,
+        /// Human-readable detail about the violated invariant.
+        detail: String,
     },
 }

@@ -32,7 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, DeploymentPostureRecord, DeploymentPostureScope, EventEnvelope,
+    InvitationRecord, NewAccount, NewDeploymentPosture, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +284,22 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Port for deployment-posture persistence. Keeps row entities private
+/// and exposes typed record envelopes to callers.
+#[async_trait]
+pub trait DeploymentPostureStore: Send + Sync + std::fmt::Debug {
+    /// Read the persisted posture for a scope, if any.
+    async fn get_deployment_posture(
+        &self,
+        scope: DeploymentPostureScope,
+    ) -> Result<Option<DeploymentPostureRecord>, StoreError>;
+
+    /// Insert or replace the current posture for a scope and return the
+    /// recorded row.
+    async fn upsert_deployment_posture(
+        &self,
+        new: NewDeploymentPosture,
+    ) -> Result<DeploymentPostureRecord, StoreError>;
 }

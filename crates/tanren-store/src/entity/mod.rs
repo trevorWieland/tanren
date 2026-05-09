@@ -4,6 +4,7 @@
 
 pub(crate) mod account_sessions;
 pub(crate) mod accounts;
+pub(crate) mod deployment_postures;
 pub(crate) mod events;
 pub(crate) mod invitations;
 pub(crate) mod memberships;
