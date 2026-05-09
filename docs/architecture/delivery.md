@@ -331,6 +331,31 @@ Harness assets are Tanren-owned controlled projections. Reinstalling or
 regenerating them replaces stale Tanren-owned content while preserving
 unrelated user-owned files according to the declared merge policy.
 
+## Current Local Install Command Surface (R-0023)
+
+The implemented repository-local install command is:
+
+```text
+tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
+```
+
+Current behavior:
+
+- `--profile` is required. Current supported value is `rust-cargo`.
+- `--repo` defaults to the current working directory (`.`).
+- `--integrations` supports `claude`, `codex`, and `opencode`; omitting the
+  flag installs all supported integrations.
+- Selected integration command assets are written to `.claude/commands/`,
+  `.codex/skills/`, and `.opencode/commands/`.
+- Install state is recorded in `.tanren/install-manifest.toml`.
+- Tanren-owned generated command assets use `replace-generated` semantics.
+- Standards profile assets use `preserve-user-edits` semantics; reinstall
+  restores missing tracked standards files and keeps user-edited content.
+
+This command slice is intentionally limited to install materialization. For
+this node, drift detection/remediation workflows, upgrade flows, and uninstall
+flows remain out of scope.
+
 ## Standards Profiles
 
 Standards profiles are Tanren-owned projections once selected for a project.

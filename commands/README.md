@@ -9,6 +9,37 @@ Do not hand-edit rendered artifacts. Edit files in `commands/` and re-run
 `just install-commands` in this repository, or `tanren-cli install` in an
 adopting repository.
 
+## Current `tanren-cli install` Surface
+
+`tanren-cli install` currently exposes:
+
+```text
+tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
+```
+
+- `--profile` is required. Current supported value: `rust-cargo`.
+- `--repo` defaults to `.` (the current working directory).
+- `--integrations` is optional comma-separated names. Supported values:
+  `claude`, `codex`, `opencode`. Omitted means "install all supported
+  integrations."
+
+Install output is manifest-driven:
+
+- Integration command assets are generated under `.claude/commands/`,
+  `.codex/skills/`, and `.opencode/commands/` for the selected integrations.
+- The install manifest is written to `.tanren/install-manifest.toml`.
+- Tanren-owned generated command assets use replace-on-reinstall semantics.
+- Standards profile files are user-editable and preserve user edits on
+  reinstall, while missing tracked standards files are restored.
+- Stale Tanren-generated command files tracked in the prior manifest are
+  removed on reinstall.
+
+Out of scope for this install node:
+
+- projection drift detection/remediation workflows;
+- upgrade flows;
+- uninstall flows.
+
 > **Note (rewrite reset):** the `spec/` directory and the
 > `assess-implementation` command have been removed during the architecture
 > rewrite. The spec-orchestration state machine is being redesigned from
