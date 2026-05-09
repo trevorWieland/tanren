@@ -5,8 +5,8 @@ use chrono::Utc;
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_configuration_secrets::{
-    OwnerScope, ThemePreference, UserCredentialKind, UserCredentialStatus, UserSettingKey,
-    UserSettingValue,
+    OwnerScope, ThemePreference, UserCredentialId, UserCredentialKind, UserCredentialStatus,
+    UserSettingKey, UserSettingValue,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
@@ -259,7 +259,9 @@ fn parse_credential_rows(stdout: &str) -> HarnessResult<Vec<UserCredentialView>>
         let captures = re.captures(line).ok_or_else(|| {
             HarnessError::Transport(format!("could not parse cli credential row: {line}"))
         })?;
-        let id = captures.get(1).map_or("", |m| m.as_str()).to_owned();
+        let id_raw = captures.get(1).map_or("", |m| m.as_str());
+        let id = UserCredentialId::parse(id_raw)
+            .map_err(|e| HarnessError::Transport(format!("parse credential id '{id_raw}': {e}")))?;
         let kind = parse_credential_kind(captures.get(2).map_or("", |m| m.as_str()))?;
         let owner_account_id = AccountId::new(
             Uuid::parse_str(captures.get(3).map_or("", |m| m.as_str()))

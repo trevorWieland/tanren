@@ -89,7 +89,7 @@ async fn when_add_credential(world: &mut TanrenWorld, actor: String, kind: Strin
     let entry = ctx.actors.entry(actor).or_default();
     let outcome = match result {
         Ok(response) => {
-            entry.remembered_credential_id = Some(response.item.id.clone());
+            entry.remembered_credential_id = Some(response.item.id.to_string());
             entry
                 .last_user_credentials
                 .retain(|item| item.id != response.item.id);

@@ -10,7 +10,8 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_configuration_secrets::{
-    OwnerScope, UserCredentialKind, UserCredentialStatus, UserSettingKey, UserSettingValueKind,
+    OwnerScope, UserCredentialId, UserCredentialKind, UserCredentialStatus, UserSettingKey,
+    UserSettingValueKind,
 };
 use tanren_contract::AccountFailureReason;
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
@@ -198,7 +199,7 @@ pub struct UserCredentialChanged {
     /// Scope impacted by the write.
     pub scope: OwnerScope,
     /// Stable metadata id.
-    pub item_id: String,
+    pub item_id: UserCredentialId,
     /// Credential kind.
     pub kind: UserCredentialKind,
     /// Metadata lifecycle status.
@@ -215,7 +216,7 @@ pub struct UserCredentialRemoved {
     /// Scope impacted by the removal.
     pub scope: OwnerScope,
     /// Stable metadata id.
-    pub item_id: String,
+    pub item_id: UserCredentialId,
     /// Credential kind for auditability after deletion.
     pub kind: UserCredentialKind,
     /// Removal timestamp.

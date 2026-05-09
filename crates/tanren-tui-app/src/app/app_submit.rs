@@ -375,7 +375,7 @@ impl App {
         let result = self.runtime.block_on(handlers.update_user_credential(
             store,
             authenticated_account_id,
-            &item_id,
+            item_id,
             OwnerScope::User {
                 account_id: requested_account_id,
             },
@@ -417,7 +417,7 @@ impl App {
         let result = self.runtime.block_on(handlers.remove_user_credential(
             store,
             authenticated_account_id,
-            &item_id,
+            item_id,
             OwnerScope::User {
                 account_id: requested_account_id,
             },

@@ -5,7 +5,8 @@ use crate::{FormField, FormState, OutcomeView};
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_configuration_secrets::{
-    ThemePreference, UserCredentialKind, UserSettingKey, UserSettingValue,
+    ThemePreference, UserCredentialId, UserCredentialKind, UserSettingKey, UserSettingValue,
+    parse_user_credential_kind, parse_user_setting_key,
 };
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
@@ -257,11 +258,8 @@ pub(crate) fn parse_setting_key_field(
     state: &FormState,
     idx: usize,
 ) -> Result<UserSettingKey, String> {
-    match state.value(idx).trim() {
-        "theme" => Ok(UserSettingKey::Theme),
-        "editor" => Ok(UserSettingKey::Editor),
-        _ => Err("validation_failed: key must be one of theme|editor".to_owned()),
-    }
+    parse_user_setting_key(state.value(idx).trim())
+        .map_err(|_| "validation_failed: key must be one of theme|editor".to_owned())
 }
 pub(crate) fn parse_setting_value_field(
     key: UserSettingKey,
@@ -282,11 +280,9 @@ pub(crate) fn parse_credential_kind_field(
     state: &FormState,
     idx: usize,
 ) -> Result<UserCredentialKind, String> {
-    match state.value(idx).trim() {
-        "provider_api_token" => Ok(UserCredentialKind::ProviderApiToken),
-        "harness_api_token" => Ok(UserCredentialKind::HarnessApiToken),
-        _ => Err("validation_failed: kind must be provider_api_token|harness_api_token".to_owned()),
-    }
+    parse_user_credential_kind(state.value(idx).trim()).map_err(|_| {
+        "validation_failed: kind must be provider_api_token|harness_api_token".to_owned()
+    })
 }
 pub(crate) fn credential_list_outcome(
     items: &[UserCredentialView],
@@ -379,12 +375,13 @@ pub(crate) fn setting_item_outcome(
         ],
     }
 }
-pub(crate) fn parse_item_id_field(state: &FormState, idx: usize) -> Result<String, String> {
+pub(crate) fn parse_item_id_field(
+    state: &FormState,
+    idx: usize,
+) -> Result<UserCredentialId, String> {
     let raw = state.value(idx).trim();
-    if raw.is_empty() {
-        return Err("validation_failed: item id is required".to_owned());
-    }
-    Ok(raw.to_owned())
+    UserCredentialId::parse(raw)
+        .map_err(|_| "validation_failed: item id must be a valid uuid".to_owned())
 }
 pub(crate) fn parse_list_limit_field(state: &FormState, idx: usize) -> Result<Option<u16>, String> {
     let raw = state.value(idx).trim();

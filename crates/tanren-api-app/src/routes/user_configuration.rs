@@ -7,7 +7,10 @@ use axum::response::{IntoResponse, Response};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tanren_app_services::AuthenticatedConfigurationContext;
-use tanren_configuration_secrets::{OwnerScope, UserSettingKey};
+use tanren_configuration_secrets::{
+    OwnerScope, UserCredentialId, UserSettingKey,
+    parse_user_setting_key as parse_user_setting_key_registry,
+};
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
     ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
@@ -187,12 +190,16 @@ pub(crate) async fn update_user_credential_route(
     ValidatedJson(request): ValidatedJson<UpdateUserCredentialRequest>,
 ) -> Response {
     let (_, item_id) = path_params;
+    let item_id = match parse_user_credential_id(&item_id) {
+        Ok(value) => value,
+        Err(message) => return validation_failed(message),
+    };
     match state
         .handlers
         .update_user_credential_with_context(
             state.store.as_ref(),
             scope.context(),
-            &item_id,
+            item_id,
             request,
         )
         .await
@@ -259,9 +266,13 @@ pub(crate) async fn remove_user_credential_route(
     Path(path_params): Path<(String, String)>,
 ) -> Response {
     let (_, item_id) = path_params;
+    let item_id = match parse_user_credential_id(&item_id) {
+        Ok(value) => value,
+        Err(message) => return validation_failed(message),
+    };
     match state
         .handlers
-        .remove_user_credential_with_context(state.store.as_ref(), scope.context(), &item_id)
+        .remove_user_credential_with_context(state.store.as_ref(), scope.context(), item_id)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -409,11 +420,11 @@ fn parse_account_id(raw: &str) -> Result<AccountId, &'static str> {
 }
 
 fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, &'static str> {
-    match raw {
-        "theme" => Ok(UserSettingKey::Theme),
-        "editor" => Ok(UserSettingKey::Editor),
-        _ => Err("key must be one of: theme, editor"),
-    }
+    parse_user_setting_key_registry(raw).map_err(|_| "key must be one of: theme, editor")
+}
+
+fn parse_user_credential_id(raw: &str) -> Result<UserCredentialId, &'static str> {
+    UserCredentialId::parse(raw).map_err(|_| "item_id must be a valid uuid")
 }
 
 fn is_same_account(requested_account_id: AccountId, authenticated_account_id: AccountId) -> bool {

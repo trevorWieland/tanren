@@ -19,3 +19,4 @@ serde = { workspace = true }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
 utoipa = { workspace = true }
+uuid = { workspace = true }

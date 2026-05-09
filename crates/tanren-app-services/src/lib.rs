@@ -306,7 +306,7 @@ impl Handlers {
         &self,
         store: &S,
         authenticated_account_id: AccountId,
-        item_id: &str,
+        item_id: tanren_configuration_secrets::UserCredentialId,
         owner_scope: tanren_configuration_secrets::OwnerScope,
         request: UpdateUserCredentialRequest,
     ) -> Result<UpdateUserCredentialResponse, AppServiceError>
@@ -329,7 +329,7 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
-        item_id: &str,
+        item_id: tanren_configuration_secrets::UserCredentialId,
         request: UpdateUserCredentialRequest,
     ) -> Result<UpdateUserCredentialResponse, AppServiceError>
     where
@@ -396,7 +396,7 @@ impl Handlers {
         &self,
         store: &S,
         authenticated_account_id: AccountId,
-        item_id: &str,
+        item_id: tanren_configuration_secrets::UserCredentialId,
         owner_scope: tanren_configuration_secrets::OwnerScope,
     ) -> Result<RemoveUserCredentialResponse, AppServiceError>
     where
@@ -417,7 +417,7 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
-        item_id: &str,
+        item_id: tanren_configuration_secrets::UserCredentialId,
     ) -> Result<RemoveUserCredentialResponse, AppServiceError>
     where
         S: UserConfigurationStore + AccountStore + ?Sized,

@@ -9,8 +9,11 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_configuration_secrets::{
-    OwnerScope, UserCredentialKind, UserCredentialMetadata, UserCredentialStatus, UserSettingKey,
-    UserSettingValue,
+    OwnerScope, UserCredentialId, UserCredentialKind, UserCredentialMetadata, UserCredentialStatus,
+    UserSettingKey, UserSettingValue,
+    parse_user_credential_kind as parse_user_credential_kind_registry,
+    parse_user_setting_key as parse_user_setting_key_registry, user_credential_kind_wire_name,
+    user_setting_key_wire_name,
 };
 use tanren_identity_policy::{
     AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
@@ -215,7 +218,7 @@ impl TryFrom<entity::user_config_values::Model> for UserSettingRecord {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserOwnedItemRecord {
     /// Stable credential metadata id.
-    pub id: String,
+    pub id: UserCredentialId,
     /// Owning account.
     pub account_id: AccountId,
     /// Credential kind.
@@ -254,7 +257,7 @@ impl TryFrom<entity::user_credentials::Model> for UserOwnedItemRecord {
         let kind = parse_user_item_kind(&model.kind)?;
         let status = parse_user_item_status(&model.status)?;
         Ok(Self {
-            id: model.id.to_string(),
+            id: UserCredentialId::new(model.id),
             account_id,
             kind,
             owner_scope,
@@ -274,7 +277,7 @@ pub struct UserOwnedValueRecord {
     /// Stable encrypted value row id.
     pub id: String,
     /// Metadata id this value belongs to.
-    pub item_id: String,
+    pub item_id: UserCredentialId,
     /// Owning account.
     pub account_id: AccountId,
     /// Last encrypted write timestamp.
@@ -285,7 +288,7 @@ impl From<entity::user_credential_values::Model> for UserOwnedValueRecord {
     fn from(model: entity::user_credential_values::Model) -> Self {
         Self {
             id: model.id.to_string(),
-            item_id: model.item_id.to_string(),
+            item_id: UserCredentialId::new(model.item_id),
             account_id: AccountId::new(model.account_id),
             updated_at: model.updated_at,
         }
@@ -322,11 +325,8 @@ pub struct NewInvitation {
     pub expires_at: DateTime<Utc>,
 }
 
-pub(crate) fn user_setting_key_to_db(key: UserSettingKey) -> &'static str {
-    match key {
-        UserSettingKey::Theme => "theme",
-        UserSettingKey::Editor => "editor",
-    }
+pub(crate) fn user_setting_key_to_db(key: UserSettingKey) -> Result<&'static str, StoreError> {
+    user_setting_key_wire_name(key).map_err(StoreError::InvalidConfiguration)
 }
 
 pub(crate) fn user_setting_kind_to_db(value: &UserSettingValue) -> &'static str {
@@ -342,11 +342,8 @@ pub(crate) fn owner_scope_to_db(scope: OwnerScope) -> (&'static str, AccountId) 
     }
 }
 
-pub(crate) fn user_item_kind_to_db(kind: UserCredentialKind) -> &'static str {
-    match kind {
-        UserCredentialKind::ProviderApiToken => "provider_api_token",
-        UserCredentialKind::HarnessApiToken => "harness_api_token",
-    }
+pub(crate) fn user_item_kind_to_db(kind: UserCredentialKind) -> Result<&'static str, StoreError> {
+    user_credential_kind_wire_name(kind).map_err(StoreError::InvalidConfiguration)
 }
 
 pub(crate) fn user_item_status_to_db(status: UserCredentialStatus) -> &'static str {
@@ -358,14 +355,10 @@ pub(crate) fn user_item_status_to_db(status: UserCredentialStatus) -> &'static s
 }
 
 fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, StoreError> {
-    match raw {
-        "theme" => Ok(UserSettingKey::Theme),
-        "editor" => Ok(UserSettingKey::Editor),
-        _ => Err(StoreError::InvalidStoreValue {
-            column: "user_config_values.key",
-            detail: raw.to_owned(),
-        }),
-    }
+    parse_user_setting_key_registry(raw).map_err(|_| StoreError::InvalidStoreValue {
+        column: "user_config_values.key",
+        detail: raw.to_owned(),
+    })
 }
 
 fn parse_owner_scope(raw: &str, account_id: AccountId) -> Result<OwnerScope, StoreError> {
@@ -379,14 +372,10 @@ fn parse_owner_scope(raw: &str, account_id: AccountId) -> Result<OwnerScope, Sto
 }
 
 fn parse_user_item_kind(raw: &str) -> Result<UserCredentialKind, StoreError> {
-    match raw {
-        "provider_api_token" => Ok(UserCredentialKind::ProviderApiToken),
-        "harness_api_token" => Ok(UserCredentialKind::HarnessApiToken),
-        _ => Err(StoreError::InvalidStoreValue {
-            column: "user_credentials.kind",
-            detail: raw.to_owned(),
-        }),
-    }
+    parse_user_credential_kind_registry(raw).map_err(|_| StoreError::InvalidStoreValue {
+        column: "user_credentials.kind",
+        detail: raw.to_owned(),
+    })
 }
 
 fn parse_user_item_status(raw: &str) -> Result<UserCredentialStatus, StoreError> {

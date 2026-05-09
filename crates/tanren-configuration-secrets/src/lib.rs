@@ -12,6 +12,13 @@ use serde::{Deserialize, Serialize};
 use tanren_identity_policy::AccountId;
 use thiserror::Error;
 use utoipa::ToSchema;
+use uuid::Uuid;
+
+mod user_registry;
+pub use user_registry::{
+    parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,
+    user_setting_key_wire_name, validate_user_credential_kind, validate_user_setting,
+};
 
 /// Maximum byte length allowed for the editor setting value.
 pub const USER_SETTING_EDITOR_MAX_BYTES: usize = 1_024;
@@ -123,6 +130,53 @@ pub enum UserCredentialKind {
     HarnessApiToken,
 }
 
+/// Stable identifier for user-owned credential metadata rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(transparent)]
+#[schema(value_type = String, format = "uuid")]
+pub struct UserCredentialId(Uuid);
+
+impl UserCredentialId {
+    /// Wrap a raw UUID.
+    #[must_use]
+    pub const fn new(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    /// Allocate a fresh stable id.
+    #[must_use]
+    pub fn fresh() -> Self {
+        Self(Uuid::now_v7())
+    }
+
+    /// Parse a user credential id from a raw string.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ConfigurationValidationFailure::CredentialIdInvalid`] when
+    /// the value is not a valid UUID.
+    pub fn parse(raw: &str) -> Result<Self, ConfigurationValidationFailure> {
+        let parsed = Uuid::parse_str(raw).map_err(|_| {
+            ConfigurationValidationFailure::CredentialIdInvalid {
+                value: raw.to_owned(),
+            }
+        })?;
+        Ok(Self::new(parsed))
+    }
+
+    /// The wrapped UUID value.
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+impl std::fmt::Display for UserCredentialId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)
+    }
+}
+
 /// Lifecycle status for stored user-owned credentials.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -141,7 +195,7 @@ pub enum UserCredentialStatus {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UserCredentialMetadata {
     /// Stable credential identifier (slug), not the secret value.
-    pub id: String,
+    pub id: UserCredentialId,
     /// Declared credential kind.
     pub kind: UserCredentialKind,
     /// Owning scope for this credential.
@@ -268,6 +322,24 @@ pub enum ConfigurationValidationFailure {
         /// Provided byte length.
         actual_bytes: usize,
     },
+    /// Raw user setting key is not part of the current supported registry.
+    #[error("unsupported user setting key '{key}'")]
+    UnsupportedSettingKey {
+        /// Unsupported raw setting key from the caller.
+        key: String,
+    },
+    /// Raw user credential kind is not part of the current supported registry.
+    #[error("unsupported user credential kind '{kind}'")]
+    UnsupportedCredentialKind {
+        /// Unsupported raw credential kind from the caller.
+        kind: String,
+    },
+    /// Credential metadata id is not a valid UUID.
+    #[error("credential id is not a valid uuid: '{value}'")]
+    CredentialIdInvalid {
+        /// Invalid raw credential id.
+        value: String,
+    },
 }
 
 /// Validation failures for credential-seal passphrases.
@@ -294,44 +366,6 @@ pub enum CredentialSealPassphraseValidationFailure {
         /// Estimated entropy bits from the heuristic.
         estimated_bits: usize,
     },
-}
-
-/// Validate a user-tier setting payload.
-///
-/// # Errors
-///
-/// Returns [`ConfigurationValidationFailure`] if the value kind is wrong for
-/// the key or an editor value is blank.
-pub fn validate_user_setting(
-    key: UserSettingKey,
-    value: &UserSettingValue,
-) -> Result<(), ConfigurationValidationFailure> {
-    let expected = key.expected_kind();
-    let provided = value.kind();
-    if expected != provided {
-        return Err(ConfigurationValidationFailure::SettingTypeMismatch {
-            key,
-            expected,
-            provided,
-        });
-    }
-
-    if let UserSettingValue::Editor(editor) = value
-        && editor.trim().is_empty()
-    {
-        return Err(ConfigurationValidationFailure::EditorEmpty);
-    }
-    if let UserSettingValue::Editor(editor) = value {
-        let actual_bytes = editor.len();
-        if actual_bytes > USER_SETTING_EDITOR_MAX_BYTES {
-            return Err(ConfigurationValidationFailure::EditorTooLong {
-                max_bytes: USER_SETTING_EDITOR_MAX_BYTES,
-                actual_bytes,
-            });
-        }
-    }
-
-    Ok(())
 }
 
 /// Validate a user-owned credential secret before persistence/encryption work.

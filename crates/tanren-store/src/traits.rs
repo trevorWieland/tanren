@@ -29,7 +29,8 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use tanren_configuration_secrets::{
-    OwnerScope, UserCredentialStatus, UserCredentialWrite, UserSettingKey, UserSettingValue,
+    OwnerScope, UserCredentialId, UserCredentialStatus, UserCredentialWrite, UserSettingKey,
+    UserSettingValue,
 };
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
@@ -334,7 +335,7 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
     /// Update value bytes and status for one existing user-owned credential.
     async fn update_user_credential(
         &self,
-        id: &str,
+        id: UserCredentialId,
         owner_scope: OwnerScope,
         value: SecretString,
         status: UserCredentialStatus,
@@ -351,14 +352,14 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
     /// Read one user-owned credential metadata row for a scope.
     async fn get_user_credential(
         &self,
-        id: &str,
+        id: UserCredentialId,
         owner_scope: OwnerScope,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError>;
 
     /// Remove one user-owned credential metadata row and encrypted value row.
     async fn remove_user_credential(
         &self,
-        id: &str,
+        id: UserCredentialId,
         owner_scope: OwnerScope,
     ) -> Result<bool, StoreError>;
 }
@@ -396,7 +397,7 @@ pub struct UserCredentialListCursor {
     /// Primary sort key (descending).
     pub updated_at: DateTime<Utc>,
     /// Deterministic tie-breaker (descending).
-    pub id: String,
+    pub id: UserCredentialId,
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_configuration_secrets::OwnerScope;
+use tanren_configuration_secrets::{OwnerScope, UserCredentialId};
 use tanren_contract::{
     AcceptInvitationRequest, CreateUserCredentialRequest, CreateUserCredentialResponse,
     ListUserCredentialsResponse, ListUserSettingsResponse, RemoveUserCredentialResponse,
@@ -237,6 +237,8 @@ impl AccountHarness for InProcessHarness {
         item_id: &str,
     ) -> HarnessResult<RemoveUserCredentialResponse> {
         let authenticated_account_id = self.authenticated_account_id()?;
+        let item_id = UserCredentialId::parse(item_id)
+            .map_err(|err| HarnessError::Transport(format!("parse credential id: {err}")))?;
         match self
             .handlers
             .remove_user_credential(

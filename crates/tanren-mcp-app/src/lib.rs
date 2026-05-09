@@ -48,8 +48,8 @@ use crate::auth::ActorCapabilityModel;
 use crate::tool_support::{
     AccountScopeParams, AddCredentialParams, RemoveCredentialParams, RemoveUserConfigParams,
     SetUserConfigParams, UpdateCredentialParams, account_principal_from_parts,
-    actor_capability_model_from_context, map_failure, parse_account_id, permission_denied_failure,
-    server_info_for_capability_model, success, validation_failure,
+    actor_capability_model_from_context, map_failure, parse_account_id, parse_user_credential_id,
+    permission_denied_failure, server_info_for_capability_model, success, validation_failure,
 };
 
 #[cfg(any(test, feature = "test-hooks"))]
@@ -316,12 +316,16 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
+        let item_id = match parse_user_credential_id(&request.item_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
         match self
             .handlers
             .update_user_credential(
                 self.store.as_ref(),
                 authenticated_account_id,
-                &request.item_id,
+                item_id,
                 OwnerScope::User {
                     account_id: requested_account_id,
                 },
@@ -392,12 +396,16 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
+        let item_id = match parse_user_credential_id(&request.item_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
         match self
             .handlers
             .remove_user_credential(
                 self.store.as_ref(),
                 authenticated_account_id,
-                &request.item_id,
+                item_id,
                 OwnerScope::User {
                     account_id: requested_account_id,
                 },

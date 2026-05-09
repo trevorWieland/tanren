@@ -6,8 +6,9 @@
 
 use chrono::Utc;
 use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, UserCredentialStatus, UserCredentialWrite,
-    UserSettingKey, validate_user_credential_value, validate_user_setting,
+    ConfigurationValidationFailure, OwnerScope, UserCredentialId, UserCredentialStatus,
+    UserCredentialWrite, UserSettingKey, validate_user_credential_kind,
+    validate_user_credential_value, validate_user_setting,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
@@ -237,6 +238,7 @@ where
     if request.owner_scope != context.requested_owner_scope() {
         return Err(item_not_found());
     }
+    validate_user_credential_kind(request.kind).map_err(validation_error)?;
 
     let write = UserCredentialWrite {
         kind: request.kind,
@@ -263,7 +265,7 @@ pub(crate) async fn update_user_credential<S>(
     store: &S,
     clock: &Clock,
     context: AuthenticatedConfigurationContext,
-    item_id: &str,
+    item_id: UserCredentialId,
     request: UpdateUserCredentialRequest,
 ) -> Result<UpdateUserCredentialResponse, AppServiceError>
 where
@@ -324,7 +326,7 @@ pub(crate) async fn remove_user_credential<S>(
     store: &S,
     clock: &Clock,
     context: AuthenticatedConfigurationContext,
-    item_id: &str,
+    item_id: UserCredentialId,
 ) -> Result<RemoveUserCredentialResponse, AppServiceError>
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
@@ -353,7 +355,7 @@ where
                 &UserCredentialRemoved {
                     actor: context.authenticated_account_id(),
                     scope: context.requested_owner_scope(),
-                    item_id: item.id.clone(),
+                    item_id: item.id,
                     kind: item.kind,
                     removed_at: now,
                 },
@@ -401,7 +403,7 @@ where
                 &UserCredentialChanged {
                     actor,
                     scope: item.owner_scope,
-                    item_id: item.id.clone(),
+                    item_id: item.id,
                     kind: item.kind,
                     status: item.status,
                     updated_at: item.updated_at,

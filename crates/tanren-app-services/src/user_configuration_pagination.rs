@@ -1,6 +1,6 @@
 use base64::Engine;
 use chrono::Utc;
-use tanren_configuration_secrets::UserSettingKey;
+use tanren_configuration_secrets::{UserCredentialId, UserSettingKey, parse_user_setting_key};
 use tanren_contract::{ListUserCredentialsRequest, ListUserSettingsRequest};
 use tanren_store::{
     UserConfigurationListPageRequest, UserCredentialListCursor, UserSettingListCursor,
@@ -62,7 +62,7 @@ fn decode_settings_cursor(raw: &str) -> Result<UserSettingListCursor, AppService
     let key_raw = parts.next().ok_or_else(malformed_after_cursor)?;
     let parsed = chrono::DateTime::parse_from_rfc3339(updated_at_raw)
         .map_err(|_| malformed_after_cursor())?;
-    let key = parse_setting_key(key_raw).ok_or_else(malformed_after_cursor)?;
+    let key = parse_user_setting_key(key_raw).map_err(|_| malformed_after_cursor())?;
     Ok(UserSettingListCursor {
         updated_at: parsed.with_timezone(&Utc),
         key,
@@ -73,15 +73,13 @@ fn decode_credentials_cursor(raw: &str) -> Result<UserCredentialListCursor, AppS
     let payload = decode_cursor_payload(raw)?;
     let mut parts = payload.splitn(2, '|');
     let updated_at_raw = parts.next().ok_or_else(malformed_after_cursor)?;
-    let id = parts.next().ok_or_else(malformed_after_cursor)?;
+    let id_raw = parts.next().ok_or_else(malformed_after_cursor)?;
     let parsed = chrono::DateTime::parse_from_rfc3339(updated_at_raw)
         .map_err(|_| malformed_after_cursor())?;
-    if id.trim().is_empty() {
-        return Err(malformed_after_cursor());
-    }
+    let id = UserCredentialId::parse(id_raw).map_err(|_| malformed_after_cursor())?;
     Ok(UserCredentialListCursor {
         updated_at: parsed.with_timezone(&Utc),
-        id: id.to_owned(),
+        id,
     })
 }
 
@@ -107,13 +105,5 @@ fn setting_key_name(key: UserSettingKey) -> &'static str {
     match key {
         UserSettingKey::Theme => "theme",
         UserSettingKey::Editor => "editor",
-    }
-}
-
-fn parse_setting_key(raw: &str) -> Option<UserSettingKey> {
-    match raw {
-        "theme" => Some(UserSettingKey::Theme),
-        "editor" => Some(UserSettingKey::Editor),
-        _ => None,
     }
 }

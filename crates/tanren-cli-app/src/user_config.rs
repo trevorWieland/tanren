@@ -6,8 +6,8 @@ use secrecy::SecretString;
 use std::io::Write;
 use tanren_app_services::{AccountStore, Handlers, Store};
 use tanren_configuration_secrets::{
-    OwnerScope, ThemePreference, UserCredentialKind, UserCredentialStatus, UserSettingKey,
-    UserSettingValue,
+    OwnerScope, ThemePreference, UserCredentialId, UserCredentialKind, UserCredentialStatus,
+    UserSettingKey, UserSettingValue,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest,
@@ -316,6 +316,7 @@ async fn run_credential_update(
 ) -> Result<()> {
     let (store, authenticated_account_id) = connect_store_and_authenticate(database_url).await?;
     let requested_account_id = parse_account_id(account_id)?;
+    let item_id = parse_credential_id(item_id)?;
     let value = read_secret_from_stdin()?;
     let response = handlers
         .update_user_credential(
@@ -370,6 +371,7 @@ async fn run_credential_remove(
 ) -> Result<()> {
     let (store, authenticated_account_id) = connect_store_and_authenticate(database_url).await?;
     let requested_account_id = parse_account_id(account_id)?;
+    let item_id = parse_credential_id(item_id)?;
     let response = handlers
         .remove_user_credential(
             &store,
@@ -411,6 +413,9 @@ async fn connect_store_and_authenticate(database_url: &str) -> Result<(Store, Ac
 fn parse_account_id(raw: &str) -> Result<AccountId> {
     let parsed = Uuid::parse_str(raw).with_context(|| format!("parse account id {raw}"))?;
     Ok(AccountId::new(parsed))
+}
+fn parse_credential_id(raw: &str) -> Result<UserCredentialId> {
+    UserCredentialId::parse(raw).with_context(|| format!("parse credential id {raw}"))
 }
 fn read_secret_from_stdin() -> Result<SecretString> {
     let mut raw = String::new();

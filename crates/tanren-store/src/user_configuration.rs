@@ -21,8 +21,9 @@ use sea_orm::{
 };
 use secrecy::{ExposeSecret, SecretString};
 use tanren_configuration_secrets::{
-    CredentialSealPassphrase, OwnerScope, UserCredentialStatus, UserCredentialWrite,
-    UserSettingKey, UserSettingValue, validate_user_credential_value, validate_user_setting,
+    CredentialSealPassphrase, OwnerScope, UserCredentialId, UserCredentialStatus,
+    UserCredentialWrite, UserSettingKey, UserSettingValue, validate_user_credential_kind,
+    validate_user_credential_value, validate_user_setting,
 };
 use tanren_identity_policy::AccountId;
 use tokio::task;
@@ -80,7 +81,7 @@ impl UserConfigurationStore for Store {
                             .add(entity::user_config_values::Column::UpdatedAt.eq(after.updated_at))
                             .add(
                                 entity::user_config_values::Column::Key
-                                    .gt(user_setting_key_to_db(after.key)),
+                                    .gt(user_setting_key_to_db(after.key)?),
                             ),
                     ),
             );
@@ -114,7 +115,7 @@ impl UserConfigurationStore for Store {
     ) -> Result<Option<UserSettingRecord>, StoreError> {
         let row = entity::user_config_values::Entity::find()
             .filter(entity::user_config_values::Column::AccountId.eq(account_id.as_uuid()))
-            .filter(entity::user_config_values::Column::Key.eq(user_setting_key_to_db(key)))
+            .filter(entity::user_config_values::Column::Key.eq(user_setting_key_to_db(key)?))
             .one(&self.conn)
             .await?;
         row.map(UserSettingRecord::try_from).transpose()
@@ -131,7 +132,7 @@ impl UserConfigurationStore for Store {
             field: "user_config_values.value_json",
             source,
         })?;
-        let key_db = user_setting_key_to_db(key);
+        let key_db = user_setting_key_to_db(key)?;
         let upserted =
             entity::user_config_values::Entity::insert(entity::user_config_values::ActiveModel {
                 id: Set(Uuid::now_v7()),
@@ -167,7 +168,7 @@ impl UserConfigurationStore for Store {
     ) -> Result<bool, StoreError> {
         let result = entity::user_config_values::Entity::delete_many()
             .filter(entity::user_config_values::Column::AccountId.eq(account_id.as_uuid()))
-            .filter(entity::user_config_values::Column::Key.eq(user_setting_key_to_db(key)))
+            .filter(entity::user_config_values::Column::Key.eq(user_setting_key_to_db(key)?))
             .exec(&self.conn)
             .await?;
         Ok(result.rows_affected > 0)
@@ -184,15 +185,16 @@ impl UserConfigurationStore for Store {
             owner_scope,
             value,
         } = write;
+        validate_user_credential_kind(kind).map_err(StoreError::InvalidConfiguration)?;
         let (scope, account_id) = owner_scope_to_db(owner_scope);
-        let item_id = Uuid::now_v7();
-        let sealed = seal_user_value(account_id, item_id, value).await?;
+        let item_id = UserCredentialId::fresh();
+        let sealed = seal_user_value(account_id, item_id.as_uuid(), value).await?;
         let txn = self.conn.begin().await?;
         let inserted = entity::user_credentials::ActiveModel {
-            id: Set(item_id),
+            id: Set(item_id.as_uuid()),
             account_id: Set(account_id.as_uuid()),
             owner_scope: Set(scope.to_owned()),
-            kind: Set(user_item_kind_to_db(kind).to_owned()),
+            kind: Set(user_item_kind_to_db(kind)?.to_owned()),
             status: Set(user_item_status_to_db(status).to_owned()),
             created_at: Set(now),
             updated_at: Set(now),
@@ -201,7 +203,7 @@ impl UserConfigurationStore for Store {
         .await?;
         entity::user_credential_values::ActiveModel {
             id: Set(Uuid::now_v7()),
-            item_id: Set(item_id),
+            item_id: Set(item_id.as_uuid()),
             account_id: Set(account_id.as_uuid()),
             cipher_scheme: Set(sealed.scheme.as_db_value().to_owned()),
             kdf_version: Set(sealed.kdf_version),
@@ -218,14 +220,14 @@ impl UserConfigurationStore for Store {
     }
     async fn update_user_credential(
         &self,
-        id: &str,
+        id: UserCredentialId,
         owner_scope: OwnerScope,
         value: SecretString,
         status: UserCredentialStatus,
         now: DateTime<Utc>,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError> {
         validate_user_credential_value(&value).map_err(StoreError::InvalidConfiguration)?;
-        let parsed_id = parse_item_id(id)?;
+        let parsed_id = id.as_uuid();
         let (scope, account_id) = owner_scope_to_db(owner_scope);
         let row = entity::user_credentials::Entity::find()
             .filter(entity::user_credentials::Column::Id.eq(parsed_id))
@@ -289,7 +291,7 @@ impl UserConfigurationStore for Store {
             .order_by_desc(entity::user_credentials::Column::UpdatedAt)
             .order_by_desc(entity::user_credentials::Column::Id);
         if let Some(after) = page.after {
-            let after_id = parse_item_id(&after.id)?;
+            let after_id = after.id.as_uuid();
             query = query.filter(
                 Condition::any()
                     .add(entity::user_credentials::Column::UpdatedAt.lt(after.updated_at))
@@ -319,7 +321,7 @@ impl UserConfigurationStore for Store {
             })?;
             Some(UserCredentialListCursor {
                 updated_at: last.updated_at,
-                id: last.id.clone(),
+                id: last.id,
             })
         } else {
             None
@@ -328,10 +330,10 @@ impl UserConfigurationStore for Store {
     }
     async fn get_user_credential(
         &self,
-        id: &str,
+        id: UserCredentialId,
         owner_scope: OwnerScope,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError> {
-        let parsed_id = parse_item_id(id)?;
+        let parsed_id = id.as_uuid();
         let (scope, account_id) = owner_scope_to_db(owner_scope);
         let row = entity::user_credentials::Entity::find()
             .filter(entity::user_credentials::Column::Id.eq(parsed_id))
@@ -343,10 +345,10 @@ impl UserConfigurationStore for Store {
     }
     async fn remove_user_credential(
         &self,
-        id: &str,
+        id: UserCredentialId,
         owner_scope: OwnerScope,
     ) -> Result<bool, StoreError> {
-        let parsed_id = parse_item_id(id)?;
+        let parsed_id = id.as_uuid();
         let (scope, account_id) = owner_scope_to_db(owner_scope);
         let txn = self.conn.begin().await?;
         let result = entity::user_credentials::Entity::delete_many()
@@ -367,12 +369,6 @@ impl UserConfigurationStore for Store {
         txn.commit().await?;
         Ok(true)
     }
-}
-fn parse_item_id(value: &str) -> Result<Uuid, StoreError> {
-    Uuid::parse_str(value).map_err(|_| StoreError::InvalidStoreValue {
-        column: "user_credentials.id",
-        detail: value.to_owned(),
-    })
 }
 async fn seal_user_value(
     account_id: AccountId,

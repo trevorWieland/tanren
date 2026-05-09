@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_configuration_secrets::{UserSettingKey, UserSettingValue};
+use tanren_configuration_secrets::{UserCredentialId, UserSettingKey, UserSettingValue};
 use tanren_identity_policy::AccountId;
 use uuid::Uuid;
 
@@ -142,6 +142,10 @@ pub(crate) fn server_info_for_capability_model(
 pub(crate) fn parse_account_id(raw: &str) -> Result<AccountId, String> {
     let parsed = Uuid::parse_str(raw).map_err(|_| "account_id must be a valid uuid".to_owned())?;
     Ok(AccountId::new(parsed))
+}
+
+pub(crate) fn parse_user_credential_id(raw: &str) -> Result<UserCredentialId, String> {
+    UserCredentialId::parse(raw).map_err(|_| "item_id must be a valid uuid".to_owned())
 }
 
 fn principal_from_context(

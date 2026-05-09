@@ -11,8 +11,8 @@ use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, UserCredentialKind, UserCredentialMetadata,
-    UserCredentialStatus, UserSettingKey, UserSettingValue,
+    ConfigurationValidationFailure, OwnerScope, UserCredentialId, UserCredentialKind,
+    UserCredentialMetadata, UserCredentialStatus, UserSettingKey, UserSettingValue,
 };
 use tanren_identity_policy::secret_serde;
 use utoipa::ToSchema;
@@ -97,7 +97,7 @@ pub struct UpdateUserCredentialRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UserCredentialView {
     /// Stable metadata id.
-    pub id: String,
+    pub id: UserCredentialId,
     /// Credential kind.
     pub kind: UserCredentialKind,
     /// Owning scope.

@@ -136,12 +136,11 @@ impl Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_user_credentials_account_kind_scope_unique")
+                    .name("idx_user_credentials_account_scope_kind")
                     .table(UserCredentials::Table)
                     .col(UserCredentials::AccountId)
                     .col(UserCredentials::OwnerScope)
                     .col(UserCredentials::Kind)
-                    .unique()
                     .to_owned(),
             )
             .await?;
@@ -278,7 +277,7 @@ impl Migration {
         manager
             .drop_index(
                 Index::drop()
-                    .name("idx_user_credentials_account_kind_scope_unique")
+                    .name("idx_user_credentials_account_scope_kind")
                     .table(UserCredentials::Table)
                     .to_owned(),
             )

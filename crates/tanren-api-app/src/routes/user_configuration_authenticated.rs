@@ -8,7 +8,8 @@ use secrecy::SecretString;
 use serde::Deserialize;
 use tanren_app_services::AuthenticatedConfigurationContext;
 use tanren_configuration_secrets::{
-    OwnerScope, UserCredentialKind, UserSettingKey, UserSettingValue,
+    OwnerScope, UserCredentialId, UserCredentialKind, UserSettingKey, UserSettingValue,
+    parse_user_setting_key as parse_user_setting_key_registry,
 };
 use tanren_contract::{
     ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
@@ -220,6 +221,10 @@ pub(crate) async fn update_authenticated_user_credential_route(
     Path(item_id): Path<String>,
     ValidatedJson(request): ValidatedJson<AuthenticatedUpdateUserCredentialRequest>,
 ) -> Response {
+    let item_id = match parse_user_credential_id(&item_id) {
+        Ok(value) => value,
+        Err(message) => return validation_failed(message),
+    };
     match state
         .handlers
         .update_user_credential_with_context(
@@ -228,7 +233,7 @@ pub(crate) async fn update_authenticated_user_credential_route(
                 account_id,
                 owner_scope_for(account_id),
             ),
-            &item_id,
+            item_id,
             UpdateUserCredentialRequest {
                 value: request.value,
             },
@@ -301,6 +306,10 @@ pub(crate) async fn remove_authenticated_user_credential_route(
     AuthenticatedAccountScope(account_id): AuthenticatedAccountScope,
     Path(item_id): Path<String>,
 ) -> Response {
+    let item_id = match parse_user_credential_id(&item_id) {
+        Ok(value) => value,
+        Err(message) => return validation_failed(message),
+    };
     match state
         .handlers
         .remove_user_credential_with_context(
@@ -309,7 +318,7 @@ pub(crate) async fn remove_authenticated_user_credential_route(
                 account_id,
                 owner_scope_for(account_id),
             ),
-            &item_id,
+            item_id,
         )
         .await
     {
@@ -388,11 +397,11 @@ fn validation_failed(summary: &str) -> Response {
 }
 
 fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, &'static str> {
-    match raw {
-        "theme" => Ok(UserSettingKey::Theme),
-        "editor" => Ok(UserSettingKey::Editor),
-        _ => Err("key must be one of: theme, editor"),
-    }
+    parse_user_setting_key_registry(raw).map_err(|_| "key must be one of: theme, editor")
+}
+
+fn parse_user_credential_id(raw: &str) -> Result<UserCredentialId, &'static str> {
+    UserCredentialId::parse(raw).map_err(|_| "item_id must be a valid uuid")
 }
 
 fn owner_scope_for(account_id: AccountId) -> OwnerScope {
