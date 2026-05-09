@@ -18,7 +18,8 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, RoleFailureReason, SignInRequest,
+    SignUpRequest,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
@@ -28,6 +29,8 @@ use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
+
+mod role;
 
 /// `@api` wire harness.
 pub struct ApiHarness {
@@ -438,6 +441,17 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_not_found" => AccountFailureReason::InvitationNotFound,
         "invitation_expired" => AccountFailureReason::InvitationExpired,
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
+        _ => return None,
+    })
+}
+
+pub(crate) fn role_code_to_reason(code: &str) -> Option<RoleFailureReason> {
+    Some(match code {
+        "validation_failed" => RoleFailureReason::ValidationFailed,
+        "not_found" => RoleFailureReason::NotFound,
+        "conflict" => RoleFailureReason::Conflict,
+        "permission_denied" => RoleFailureReason::PermissionDenied,
+        "role_as_principal_rejected" => RoleFailureReason::RoleAsPrincipalRejected,
         _ => return None,
     })
 }

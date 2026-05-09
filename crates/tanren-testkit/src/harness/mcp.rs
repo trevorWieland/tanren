@@ -15,15 +15,20 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
+    CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleTemplateView,
+    SignInRequest, SignUpRequest,
+};
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewRole, RoleStore};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_reason, role_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessRoleTemplate, HarnessSession, RoleHarness, RoleHarnessError, RoleHarnessResult,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -119,10 +124,42 @@ impl McpHarness {
         let text = first_text(&result.content).ok_or_else(|| {
             HarnessError::Transport(format!("tool {name} returned no text content"))
         })?;
-        let payload: Value = serde_json::from_str(&text)
+        let payload: Value = serde_json::from_str(text)
             .map_err(|e| HarnessError::Transport(format!("decode tool result: {e}")))?;
         if result.is_error == Some(true) {
             return Err(failure_from_payload(&payload));
+        }
+        Ok(payload)
+    }
+
+    async fn call_role_tool(
+        &mut self,
+        name: &'static str,
+        body: Value,
+    ) -> RoleHarnessResult<Value> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| RoleHarnessError::Transport("rmcp client gone".to_owned()))?;
+        let args: serde_json::Map<String, Value> = match body {
+            Value::Object(map) => map,
+            other => {
+                return Err(RoleHarnessError::Transport(format!(
+                    "tool args must be a JSON object, got {other}"
+                )));
+            }
+        };
+        let result: CallToolResult = client
+            .call_tool(CallToolRequestParams::new(name).with_arguments(args))
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("call_tool {name}: {e}")))?;
+        let text = first_text(&result.content).ok_or_else(|| {
+            RoleHarnessError::Transport(format!("tool {name} returned no text content"))
+        })?;
+        let payload: Value = serde_json::from_str(text)
+            .map_err(|e| RoleHarnessError::Transport(format!("decode tool result: {e}")))?;
+        if result.is_error == Some(true) {
+            return Err(role_failure_from_payload(&payload));
         }
         Ok(payload)
     }
@@ -204,10 +241,96 @@ impl AccountHarness for McpHarness {
     }
 }
 
-fn first_text(content: &[Content]) -> Option<String> {
+#[async_trait]
+impl RoleHarness for McpHarness {
+    async fn create_role(
+        &mut self,
+        req: CreateRoleRequest,
+    ) -> RoleHarnessResult<CreateRoleResponse> {
+        let payload = serde_json::to_value(req)
+            .map_err(|e| RoleHarnessError::Transport(format!("encode create_role: {e}")))?;
+        let payload = self.call_role_tool("role.create", payload).await?;
+        decode_role_payload(payload, "role.create")
+    }
+
+    async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse> {
+        let payload = serde_json::to_value(req)
+            .map_err(|e| RoleHarnessError::Transport(format!("encode edit_role: {e}")))?;
+        let payload = self.call_role_tool("role.edit", payload).await?;
+        decode_role_payload(payload, "role.edit")
+    }
+
+    async fn delete_role(
+        &mut self,
+        req: DeleteRoleRequest,
+    ) -> RoleHarnessResult<DeleteRoleResponse> {
+        let payload = serde_json::to_value(req)
+            .map_err(|e| RoleHarnessError::Transport(format!("encode delete_role: {e}")))?;
+        let payload = self.call_role_tool("role.delete", payload).await?;
+        decode_role_payload(payload, "role.delete")
+    }
+
+    async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse> {
+        let payload = serde_json::to_value(req)
+            .map_err(|e| RoleHarnessError::Transport(format!("encode apply_role: {e}")))?;
+        let payload = self.call_role_tool("role.apply", payload).await?;
+        decode_role_payload(payload, "role.apply")
+    }
+
+    async fn check_permission(
+        &mut self,
+        req: PermissionCheckRequest,
+    ) -> RoleHarnessResult<PermissionCheckResponse> {
+        let payload = serde_json::to_value(req)
+            .map_err(|e| RoleHarnessError::Transport(format!("encode permission_check: {e}")))?;
+        let payload = self.call_role_tool("permission.check", payload).await?;
+        decode_role_payload(payload, "permission.check")
+    }
+
+    async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()> {
+        self.store
+            .create_role(NewRole {
+                id: fixture.id,
+                scope: fixture.scope,
+                name: fixture.name,
+                permissions: fixture.permissions,
+                created_at: fixture.created_at,
+                updated_at: fixture.updated_at,
+            })
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("seed_role_template: {e}")))?;
+        Ok(())
+    }
+
+    async fn read_role_template(
+        &self,
+        role: tanren_identity_policy::ScopedRole,
+    ) -> RoleHarnessResult<Option<RoleTemplateView>> {
+        let maybe = self
+            .store
+            .find_role(role)
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("read_role_template: {e}")))?;
+        Ok(maybe.map(role_template_view))
+    }
+
+    async fn read_direct_grants(
+        &self,
+        principal: tanren_identity_policy::PrincipalRef,
+    ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
+        let grants = self
+            .store
+            .list_all_direct_grants(principal)
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("read_direct_grants: {e}")))?;
+        Ok(grants.into_iter().map(permission_grant_view).collect())
+    }
+}
+
+fn first_text(content: &[Content]) -> Option<&str> {
     for item in content {
         if let RawContent::Text(text) = &item.raw {
-            return Some(text.text.clone());
+            return Some(text.text.as_str());
         }
     }
     None
@@ -247,5 +370,54 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         HarnessError::Account(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
+    }
+}
+
+fn role_failure_from_payload(payload: &Value) -> RoleHarnessError {
+    let code = payload
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or("transport_error")
+        .to_owned();
+    let summary = payload
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown failure")
+        .to_owned();
+    if let Some(reason) = role_code_to_reason(&code) {
+        RoleHarnessError::Role(reason, summary)
+    } else {
+        RoleHarnessError::Transport(format!("{code}: {summary}"))
+    }
+}
+
+fn decode_role_payload<T: serde::de::DeserializeOwned>(
+    payload: Value,
+    tool_name: &str,
+) -> RoleHarnessResult<T> {
+    serde_json::from_value(payload).map_err(|e| {
+        RoleHarnessError::Transport(format!("decode tool result for {tool_name}: {e}"))
+    })
+}
+
+fn role_template_view(record: tanren_store::RoleRecord) -> RoleTemplateView {
+    RoleTemplateView {
+        id: record.id,
+        scope: record.scope,
+        name: record.name,
+        permissions: record.permissions,
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    }
+}
+
+fn permission_grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
+    PermissionGrantView {
+        id: record.id,
+        principal: record.principal,
+        scope: record.scope,
+        permission: record.permission,
+        source_role_id: record.source_role_id,
+        granted_at: record.granted_at,
     }
 }

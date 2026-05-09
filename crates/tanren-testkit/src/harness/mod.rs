@@ -57,9 +57,15 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ApplyRoleRequest,
+    ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
+    DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
+    PermissionCheckResponse, PermissionGrantView, RoleFailureReason, RoleTemplateView,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionName, RoleId, RoleName, RoleScope, ScopedRole,
+};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -173,6 +179,103 @@ impl HarnessError {
 
 /// Convenient alias for harness fallibility.
 pub type HarnessResult<T> = Result<T, HarnessError>;
+
+/// Role-harness failure surface.
+#[derive(Debug, thiserror::Error)]
+pub enum RoleHarnessError {
+    /// Role taxonomy failure with stable `code`.
+    #[error("{0:?}: {1}")]
+    Role(RoleFailureReason, String),
+    /// Non-taxonomy failure (transport, parse, connection, etc.).
+    #[error("transport: {0}")]
+    Transport(String),
+}
+
+impl RoleHarnessError {
+    /// Project wire `code` for this role failure.
+    #[must_use]
+    pub fn code(&self) -> String {
+        match self {
+            Self::Role(reason, _) => reason.code().to_owned(),
+            Self::Transport(_) => "transport_error".to_owned(),
+        }
+    }
+}
+
+/// Convenient alias for role-harness fallibility.
+pub type RoleHarnessResult<T> = Result<T, RoleHarnessError>;
+
+/// Seed fixture for inserting role templates directly into harness
+/// proof-state storage.
+#[derive(Debug, Clone)]
+pub struct HarnessRoleTemplate {
+    /// Stable role id to insert.
+    pub id: RoleId,
+    /// Role scope.
+    pub scope: RoleScope,
+    /// Role display name.
+    pub name: RoleName,
+    /// Permission bundle.
+    pub permissions: Vec<PermissionName>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last-updated timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl HarnessRoleTemplate {
+    /// Projection for request-driven interfaces that require a scoped role id.
+    #[must_use]
+    pub fn scoped_role(&self) -> ScopedRole {
+        ScopedRole {
+            role_id: self.id,
+            scope: self.scope,
+        }
+    }
+}
+
+/// Role methods available on wire harnesses.
+#[async_trait]
+pub trait RoleHarness: Send + std::fmt::Debug {
+    /// Create a role template through the harness wire surface.
+    async fn create_role(
+        &mut self,
+        req: CreateRoleRequest,
+    ) -> RoleHarnessResult<CreateRoleResponse>;
+
+    /// Edit a role template through the harness wire surface.
+    async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse>;
+
+    /// Delete a role template through the harness wire surface.
+    async fn delete_role(
+        &mut self,
+        req: DeleteRoleRequest,
+    ) -> RoleHarnessResult<DeleteRoleResponse>;
+
+    /// Apply a role template through the harness wire surface.
+    async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse>;
+
+    /// Check permission through the harness wire surface.
+    async fn check_permission(
+        &mut self,
+        req: PermissionCheckRequest,
+    ) -> RoleHarnessResult<PermissionCheckResponse>;
+
+    /// Seed role-template proof state directly through the harness store.
+    async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()>;
+
+    /// Read one role-template snapshot from harness proof-state storage.
+    async fn read_role_template(
+        &self,
+        role: ScopedRole,
+    ) -> RoleHarnessResult<Option<RoleTemplateView>>;
+
+    /// Read all direct grants for one principal from harness proof-state storage.
+    async fn read_direct_grants(
+        &self,
+        principal: tanren_identity_policy::PrincipalRef,
+    ) -> RoleHarnessResult<Vec<PermissionGrantView>>;
+}
 
 /// Specification for an invitation seeded into the harness's backing
 /// store. Per-harness implementations translate this into the shape

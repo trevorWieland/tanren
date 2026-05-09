@@ -11,9 +11,13 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
+    CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleFailureReason,
+    RoleTemplateView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -23,7 +27,9 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, map_app_error, map_role_error, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -98,6 +104,11 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        create_role_route,
+        edit_role_route,
+        delete_role_route,
+        apply_role_route,
+        permission_check_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,13 +120,34 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        CreateRoleRequest,
+        CreateRoleResponse,
+        EditRoleRequest,
+        EditRoleResponse,
+        DeleteRoleRequest,
+        DeleteRoleResponse,
+        ApplyRoleRequest,
+        ApplyRoleResponse,
+        PermissionCheckRequest,
+        PermissionCheckResponse,
+        RoleTemplateView,
+        PermissionGrantView,
+        RoleFailureReason,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "roles", description = "Role templates and permission checks."),
     )
 )]
 pub(crate) struct ApiDoc;
+
+/// Cached `OpenAPI` document for this process.
+///
+/// Building the document walks every registered path/schema and is
+/// startup-only work; caching avoids rebuilding it on each app bootstrap
+/// in test harnesses that repeatedly construct routers.
+static OPENAPI_DOC: LazyLock<utoipa::openapi::OpenApi> = LazyLock::new(ApiDoc::openapi);
 
 /// Liveness probe.
 #[utoipa::path(
@@ -308,17 +340,158 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Create a role template.
+#[utoipa::path(
+    post,
+    path = "/roles",
+    request_body = CreateRoleRequest,
+    responses(
+        (status = 201, body = CreateRoleResponse, description = "Role template created"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 409, body = AccountFailureBody, description = "conflict"),
+    ),
+    tag = "roles",
+)]
+pub(crate) async fn create_role_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<CreateRoleRequest>,
+) -> Response {
+    match state
+        .handlers
+        .create_role(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(err) => map_role_error(err),
+    }
+}
+
+/// Edit an existing role template.
+#[utoipa::path(
+    post,
+    path = "/roles/edit",
+    request_body = EditRoleRequest,
+    responses(
+        (status = 200, body = EditRoleResponse, description = "Role template updated"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 404, body = AccountFailureBody, description = "not_found"),
+        (status = 409, body = AccountFailureBody, description = "conflict"),
+    ),
+    tag = "roles",
+)]
+pub(crate) async fn edit_role_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<EditRoleRequest>,
+) -> Response {
+    match state
+        .handlers
+        .edit_role(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_role_error(err),
+    }
+}
+
+/// Delete an existing role template.
+#[utoipa::path(
+    post,
+    path = "/roles/delete",
+    request_body = DeleteRoleRequest,
+    responses(
+        (status = 200, body = DeleteRoleResponse, description = "Role template deleted"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 404, body = AccountFailureBody, description = "not_found"),
+    ),
+    tag = "roles",
+)]
+pub(crate) async fn delete_role_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<DeleteRoleRequest>,
+) -> Response {
+    match state
+        .handlers
+        .delete_role(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_role_error(err),
+    }
+}
+
+/// Apply a role template to a principal.
+#[utoipa::path(
+    post,
+    path = "/roles/apply",
+    request_body = ApplyRoleRequest,
+    responses(
+        (status = 200, body = ApplyRoleResponse, description = "Role applied"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 404, body = AccountFailureBody, description = "not_found"),
+        (status = 409, body = AccountFailureBody, description = "conflict"),
+    ),
+    tag = "roles",
+)]
+pub(crate) async fn apply_role_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<ApplyRoleRequest>,
+) -> Response {
+    match state
+        .handlers
+        .apply_role(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_role_error(err),
+    }
+}
+
+/// Check whether a principal has a permission in a scope.
+#[utoipa::path(
+    post,
+    path = "/permissions/check",
+    request_body = PermissionCheckRequest,
+    responses(
+        (status = 200, body = PermissionCheckResponse, description = "Permission check response"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed or role_as_principal_rejected"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+    ),
+    tag = "roles",
+)]
+pub(crate) async fn permission_check_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<PermissionCheckRequest>,
+) -> Response {
+    match state
+        .handlers
+        .check_permission(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_role_error(err),
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
 /// same module as the `#[utoipa::path]`-annotated handlers, so the
 /// router constructor lives here too.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
-    OpenApiRouter::with_openapi(ApiDoc::openapi())
+    OpenApiRouter::with_openapi(OPENAPI_DOC.clone())
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(create_role_route))
+        .routes(routes!(edit_role_route))
+        .routes(routes!(delete_role_route))
+        .routes(routes!(apply_role_route))
+        .routes(routes!(permission_check_route))
         .with_state(state)
 }
