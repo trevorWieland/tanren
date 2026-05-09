@@ -12,6 +12,7 @@ description = "Command and query handlers shared by every Tanren interface binar
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
 chrono = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }

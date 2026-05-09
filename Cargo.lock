@@ -4259,6 +4259,7 @@ dependencies = [
 name = "tanren-app-services"
 version = "0.0.0"
 dependencies = [
+ "base64",
  "chrono",
  "secrecy",
  "serde",

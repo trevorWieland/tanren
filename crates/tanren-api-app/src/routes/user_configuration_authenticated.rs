@@ -1,5 +1,6 @@
 use axum::Json;
-use axum::extract::{FromRequestParts, Path, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
@@ -12,10 +13,11 @@ use tanren_configuration_secrets::{
 use tanren_contract::{
     ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
     CredentialCapabilitiesView, CredentialCapabilityAction,
-    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    SettingCapabilitiesView, SettingCapabilityAction, UpdateUserCredentialRequest,
-    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsRequest,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, SettingCapabilitiesView,
+    SettingCapabilityAction, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
+    UpsertUserSettingRequest, UpsertUserSettingResponse,
 };
 use tanren_identity_policy::{AccountId, secret_serde};
 use tower_sessions::Session;
@@ -52,6 +54,10 @@ pub(crate) struct AuthenticatedUpdateUserCredentialRequest {
 #[utoipa::path(
     get,
     path = "/configuration/account/user-settings",
+    params(
+        ("limit" = Option<u16>, Query, description = "Bounded page size"),
+        ("after" = Option<String>, Query, description = "Opaque cursor from previous page"),
+    ),
     responses(
         (status = 200, body = ListUserSettingsResponse),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
@@ -62,12 +68,21 @@ pub(crate) struct AuthenticatedUpdateUserCredentialRequest {
 pub(crate) async fn list_authenticated_user_settings_route(
     State(state): State<AppState>,
     AuthenticatedAccountScope(account_id): AuthenticatedAccountScope,
+    query: Result<Query<AuthenticatedConfigurationListQuery>, QueryRejection>,
 ) -> Response {
+    let request = match query {
+        Ok(Query(value)) => ListUserSettingsRequest {
+            limit: value.limit,
+            after: value.after,
+        },
+        Err(_) => return validation_failed("query parameters are invalid"),
+    };
     match state
         .handlers
         .list_user_settings_with_context(
             state.store.as_ref(),
             AuthenticatedConfigurationContext::for_requested_account(account_id, account_id),
+            request,
         )
         .await
     {
@@ -228,6 +243,10 @@ pub(crate) async fn update_authenticated_user_credential_route(
 #[utoipa::path(
     get,
     path = "/configuration/account/user-credentials",
+    params(
+        ("limit" = Option<u16>, Query, description = "Bounded page size"),
+        ("after" = Option<String>, Query, description = "Opaque cursor from previous page"),
+    ),
     responses(
         (status = 200, body = ListUserCredentialsResponse),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
@@ -238,7 +257,15 @@ pub(crate) async fn update_authenticated_user_credential_route(
 pub(crate) async fn list_authenticated_user_credentials_route(
     State(state): State<AppState>,
     AuthenticatedAccountScope(account_id): AuthenticatedAccountScope,
+    query: Result<Query<AuthenticatedConfigurationListQuery>, QueryRejection>,
 ) -> Response {
+    let request = match query {
+        Ok(Query(value)) => ListUserCredentialsRequest {
+            limit: value.limit,
+            after: value.after,
+        },
+        Err(_) => return validation_failed("query parameters are invalid"),
+    };
     match state
         .handlers
         .list_user_credentials_with_context(
@@ -247,6 +274,7 @@ pub(crate) async fn list_authenticated_user_credentials_route(
                 account_id,
                 owner_scope_for(account_id),
             ),
+            request,
         )
         .await
     {
@@ -292,6 +320,13 @@ pub(crate) async fn remove_authenticated_user_credential_route(
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) struct AuthenticatedAccountScope(AccountId);
+
+#[derive(Debug, Clone, Deserialize, ToSchema)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct AuthenticatedConfigurationListQuery {
+    limit: Option<u16>,
+    after: Option<String>,
+}
 
 impl<S> FromRequestParts<S> for AuthenticatedAccountScope
 where

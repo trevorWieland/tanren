@@ -90,10 +90,11 @@ impl Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_user_config_values_account_updated")
+                    .name("idx_user_config_values_account_updated_key")
                     .table(UserConfigValues::Table)
                     .col(UserConfigValues::AccountId)
                     .col(UserConfigValues::UpdatedAt)
+                    .col(UserConfigValues::Key)
                     .to_owned(),
             )
             .await
@@ -147,10 +148,12 @@ impl Migration {
         manager
             .create_index(
                 Index::create()
-                    .name("idx_user_credentials_account_updated")
+                    .name("idx_user_credentials_scope_updated_id")
                     .table(UserCredentials::Table)
                     .col(UserCredentials::AccountId)
+                    .col(UserCredentials::OwnerScope)
                     .col(UserCredentials::UpdatedAt)
+                    .col(UserCredentials::Id)
                     .to_owned(),
             )
             .await
@@ -245,7 +248,7 @@ impl Migration {
         manager
             .drop_index(
                 Index::drop()
-                    .name("idx_user_config_values_account_updated")
+                    .name("idx_user_config_values_account_updated_key")
                     .table(UserConfigValues::Table)
                     .to_owned(),
             )
@@ -267,7 +270,7 @@ impl Migration {
         manager
             .drop_index(
                 Index::drop()
-                    .name("idx_user_credentials_account_updated")
+                    .name("idx_user_credentials_scope_updated_id")
                     .table(UserCredentials::Table)
                     .to_owned(),
             )

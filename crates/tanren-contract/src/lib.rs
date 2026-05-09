@@ -15,11 +15,12 @@ pub use account::{
 pub use configuration::{
     ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
     CredentialCapabilitiesView, CredentialCapabilityAction,
-    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    SettingCapabilitiesView, SettingCapabilityAction, UpdateUserCredentialRequest,
-    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserConfigurationFailureReason, UserCredentialView, UserSettingView,
+    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsRequest,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, SettingCapabilitiesView,
+    SettingCapabilityAction, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
+    UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
+    UserCredentialView, UserSettingView,
 };
 
 use serde::{Deserialize, Serialize};

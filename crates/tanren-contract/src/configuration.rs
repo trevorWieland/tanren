@@ -49,6 +49,17 @@ pub struct UpsertUserSettingResponse {
 pub struct ListUserSettingsResponse {
     /// Persisted setting views.
     pub items: Vec<UserSettingView>,
+    /// Opaque cursor for requesting the next page, if additional rows exist.
+    pub next_cursor: Option<String>,
+}
+
+/// List request for user-tier settings.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListUserSettingsRequest {
+    /// Maximum rows to return for this page.
+    pub limit: Option<u16>,
+    /// Opaque pagination cursor from a previous response.
+    pub after: Option<String>,
 }
 
 /// Remove response for a user-tier setting.
@@ -131,6 +142,17 @@ pub struct UpdateUserCredentialResponse {
 pub struct ListUserCredentialsResponse {
     /// Redacted metadata rows.
     pub items: Vec<UserCredentialView>,
+    /// Opaque cursor for requesting the next page, if additional rows exist.
+    pub next_cursor: Option<String>,
+}
+
+/// List request for user-owned credentials.
+#[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListUserCredentialsRequest {
+    /// Maximum rows to return for this page.
+    pub limit: Option<u16>,
+    /// Opaque pagination cursor from a previous response.
+    pub after: Option<String>,
 }
 
 /// Remove response for a user-owned credential.

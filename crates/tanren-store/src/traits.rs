@@ -293,11 +293,12 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 /// value bytes; reads return metadata only.
 #[async_trait]
 pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
-    /// List all user-tier settings for an account.
+    /// List one page of user-tier settings for an account.
     async fn list_user_settings(
         &self,
         account_id: AccountId,
-    ) -> Result<Vec<UserSettingRecord>, StoreError>;
+        page: UserConfigurationListPageRequest<UserSettingListCursor>,
+    ) -> Result<UserConfigurationListPage<UserSettingRecord, UserSettingListCursor>, StoreError>;
 
     /// Read one user-tier setting.
     async fn get_user_setting(
@@ -340,11 +341,12 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
         now: DateTime<Utc>,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError>;
 
-    /// List user-owned credential metadata for a scope.
+    /// List one page of user-owned credential metadata for a scope.
     async fn list_user_credentials(
         &self,
         owner_scope: OwnerScope,
-    ) -> Result<Vec<UserOwnedItemRecord>, StoreError>;
+        page: UserConfigurationListPageRequest<UserCredentialListCursor>,
+    ) -> Result<UserConfigurationListPage<UserOwnedItemRecord, UserCredentialListCursor>, StoreError>;
 
     /// Remove one user-owned credential metadata row and encrypted value row.
     async fn remove_user_credential(
@@ -352,6 +354,42 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
         id: &str,
         owner_scope: OwnerScope,
     ) -> Result<bool, StoreError>;
+}
+
+/// Generic page request shape for user-configuration list reads.
+#[derive(Debug, Clone, Copy)]
+pub struct UserConfigurationListPageRequest<TCursor> {
+    /// Maximum rows to return.
+    pub limit: u16,
+    /// Exclusive cursor from the previous page.
+    pub after: Option<TCursor>,
+}
+
+/// Generic page result shape for user-configuration list reads.
+#[derive(Debug, Clone)]
+pub struct UserConfigurationListPage<TItem, TCursor> {
+    /// Returned rows.
+    pub items: Vec<TItem>,
+    /// Cursor for the next page if more rows remain.
+    pub next_cursor: Option<TCursor>,
+}
+
+/// Cursor fields for paginating user-setting rows in stable order.
+#[derive(Debug, Clone, Copy)]
+pub struct UserSettingListCursor {
+    /// Primary sort key (descending).
+    pub updated_at: DateTime<Utc>,
+    /// Deterministic tie-breaker (ascending).
+    pub key: UserSettingKey,
+}
+
+/// Cursor fields for paginating user-credential rows in stable order.
+#[derive(Debug, Clone)]
+pub struct UserCredentialListCursor {
+    /// Primary sort key (descending).
+    pub updated_at: DateTime<Utc>,
+    /// Deterministic tie-breaker (descending).
+    pub id: String,
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

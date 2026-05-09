@@ -23,7 +23,8 @@ pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
     ConsumeInvitationError, ConsumedInvitation, SessionAuthenticationLookup,
-    UserConfigurationStore,
+    UserConfigurationListPage, UserConfigurationListPageRequest, UserConfigurationStore,
+    UserCredentialListCursor, UserSettingListCursor,
 };
 
 use async_trait::async_trait;

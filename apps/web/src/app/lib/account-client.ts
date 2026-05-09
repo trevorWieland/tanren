@@ -106,6 +106,11 @@ interface FailureBody {
   summary?: unknown;
 }
 
+export interface CursorListInput {
+  limit?: number;
+  after?: string;
+}
+
 /**
  * Map an `AccountFailure` to a localized message via paraglide. Falls back
  * to the API-supplied summary, then to a generic "Request failed" string,
@@ -212,8 +217,22 @@ export function fetchHealth(): Promise<HealthReport> {
 }
 
 export function listUserSettings(): Promise<ListUserSettingsResult> {
+  return listUserSettingsPage();
+}
+
+export function listUserSettingsPage(
+  input: CursorListInput = {},
+): Promise<ListUserSettingsResult> {
+  const params = new URLSearchParams();
+  if (typeof input.limit === "number") {
+    params.set("limit", String(input.limit));
+  }
+  if (typeof input.after === "string" && input.after !== "") {
+    params.set("after", input.after);
+  }
+  const suffix = params.toString();
   return requestJson<ListUserSettingsResult>(
-    "/configuration/account/user-settings",
+    `/configuration/account/user-settings${suffix === "" ? "" : `?${suffix}`}`,
     { method: "GET" },
   );
 }
@@ -241,8 +260,22 @@ export function removeUserSetting(
 }
 
 export function listUserCredentials(): Promise<ListUserCredentialsResult> {
+  return listUserCredentialsPage();
+}
+
+export function listUserCredentialsPage(
+  input: CursorListInput = {},
+): Promise<ListUserCredentialsResult> {
+  const params = new URLSearchParams();
+  if (typeof input.limit === "number") {
+    params.set("limit", String(input.limit));
+  }
+  if (typeof input.after === "string" && input.after !== "") {
+    params.set("after", input.after);
+  }
+  const suffix = params.toString();
   return requestJson<ListUserCredentialsResult>(
-    "/configuration/account/user-credentials",
+    `/configuration/account/user-credentials${suffix === "" ? "" : `?${suffix}`}`,
     { method: "GET" },
   );
 }

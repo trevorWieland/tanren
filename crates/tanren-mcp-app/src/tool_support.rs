@@ -15,6 +15,8 @@ use crate::auth::{ActorCapabilityModel, AuthenticatedPrincipal};
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct AccountScopeParams {
     pub(crate) account_id: String,
+    pub(crate) limit: Option<u16>,
+    pub(crate) after: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

@@ -5,6 +5,7 @@
 //! the form/menu key handlers together; rendering still lives in
 //! `draw.rs`, form factories + outcome adapters in `ui.rs`.
 
+mod app_forms;
 mod app_keys;
 mod app_submit;
 

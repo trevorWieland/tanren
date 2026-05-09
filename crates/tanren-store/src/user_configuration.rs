@@ -1,5 +1,13 @@
 //! User-tier configuration and credential persistence adapter.
-
+use crate::{
+    Store, StoreError, UserConfigurationListPage, UserConfigurationListPageRequest,
+    UserConfigurationStore, UserCredentialListCursor, UserOwnedItemRecord, UserSettingListCursor,
+    UserSettingRecord, entity,
+    records::{
+        owner_scope_to_db, user_item_kind_to_db, user_item_status_to_db, user_setting_key_to_db,
+        user_setting_kind_to_db,
+    },
+};
 use argon2::{Algorithm, Argon2, Params, Version};
 use async_trait::async_trait;
 use chacha20poly1305::{
@@ -8,8 +16,8 @@ use chacha20poly1305::{
 };
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder,
-    QuerySelect, QueryTrait, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, IntoActiveModel, QueryFilter,
+    QueryOrder, QuerySelect, QueryTrait, Set, TransactionTrait,
 };
 use secrecy::{ExposeSecret, SecretString};
 use tanren_configuration_secrets::{
@@ -20,15 +28,6 @@ use tanren_identity_policy::AccountId;
 use tokio::task;
 use uuid::Uuid;
 use zeroize::Zeroizing;
-
-use crate::{
-    Store, StoreError, UserConfigurationStore, UserOwnedItemRecord, UserSettingRecord, entity,
-    records::{
-        owner_scope_to_db, user_item_kind_to_db, user_item_status_to_db, user_setting_key_to_db,
-        user_setting_kind_to_db,
-    },
-};
-
 const KDF_VERSION_V1: i16 = 1;
 const KDF_SALT_LEN_BYTES: usize = 16;
 const CREDENTIAL_KEY_LEN_BYTES: usize = 32;
@@ -38,7 +37,6 @@ const ARGON2_PARALLELISM: u32 = 1;
 const CREDENTIAL_SEAL_PASSPHRASE_ENV: &str = "TANREN_CREDENTIAL_SEAL_PASSPHRASE";
 static CREDENTIAL_VALUE_ENCRYPTOR: std::sync::OnceLock<CredentialValueEncryptor> =
     std::sync::OnceLock::new();
-
 struct SealedValue {
     scheme: CredentialSealScheme,
     kdf_version: i16,
@@ -46,38 +44,69 @@ struct SealedValue {
     nonce: [u8; 12],
     ciphertext: Vec<u8>,
 }
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CredentialSealScheme {
     ChaCha20Poly1305V1,
 }
-
 impl CredentialSealScheme {
     const fn current() -> Self {
         Self::ChaCha20Poly1305V1
     }
-
     const fn as_db_value(self) -> &'static str {
         match self {
             Self::ChaCha20Poly1305V1 => "chacha20poly1305-v1",
         }
     }
 }
-
 #[async_trait]
 impl UserConfigurationStore for Store {
     async fn list_user_settings(
         &self,
         account_id: AccountId,
-    ) -> Result<Vec<UserSettingRecord>, StoreError> {
-        let rows = entity::user_config_values::Entity::find()
+        page: UserConfigurationListPageRequest<UserSettingListCursor>,
+    ) -> Result<UserConfigurationListPage<UserSettingRecord, UserSettingListCursor>, StoreError>
+    {
+        let limit = usize::from(page.limit);
+        let mut query = entity::user_config_values::Entity::find()
             .filter(entity::user_config_values::Column::AccountId.eq(account_id.as_uuid()))
-            .order_by_asc(entity::user_config_values::Column::Key)
+            .order_by_desc(entity::user_config_values::Column::UpdatedAt)
+            .order_by_asc(entity::user_config_values::Column::Key);
+        if let Some(after) = page.after {
+            query = query.filter(
+                Condition::any()
+                    .add(entity::user_config_values::Column::UpdatedAt.lt(after.updated_at))
+                    .add(
+                        Condition::all()
+                            .add(entity::user_config_values::Column::UpdatedAt.eq(after.updated_at))
+                            .add(
+                                entity::user_config_values::Column::Key
+                                    .gt(user_setting_key_to_db(after.key)),
+                            ),
+                    ),
+            );
+        }
+        let rows = query
+            .limit(u64::from(page.limit) + 1)
             .all(&self.conn)
             .await?;
-        rows.into_iter().map(UserSettingRecord::try_from).collect()
+        let mut items: Vec<UserSettingRecord> = rows
+            .into_iter()
+            .map(UserSettingRecord::try_from)
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_more = items.len() > limit;
+        if has_more {
+            let _ = items.pop();
+        }
+        let next_cursor = if has_more {
+            items.last().map(|record| UserSettingListCursor {
+                updated_at: record.updated_at,
+                key: record.key,
+            })
+        } else {
+            None
+        };
+        Ok(UserConfigurationListPage { items, next_cursor })
     }
-
     async fn get_user_setting(
         &self,
         account_id: AccountId,
@@ -90,7 +119,6 @@ impl UserConfigurationStore for Store {
             .await?;
         row.map(UserSettingRecord::try_from).transpose()
     }
-
     async fn set_user_setting(
         &self,
         account_id: AccountId,
@@ -117,7 +145,6 @@ impl UserConfigurationStore for Store {
             active.updated_at = Set(now);
             return UserSettingRecord::try_from(active.update(&self.conn).await?);
         }
-
         let inserted = entity::user_config_values::ActiveModel {
             id: Set(Uuid::now_v7()),
             account_id: Set(account_id.as_uuid()),
@@ -132,7 +159,6 @@ impl UserConfigurationStore for Store {
         .await?;
         UserSettingRecord::try_from(inserted)
     }
-
     async fn remove_user_setting(
         &self,
         account_id: AccountId,
@@ -145,7 +171,6 @@ impl UserConfigurationStore for Store {
             .await?;
         Ok(result.rows_affected > 0)
     }
-
     async fn add_user_credential(
         &self,
         write: UserCredentialWrite,
@@ -161,7 +186,6 @@ impl UserConfigurationStore for Store {
         let (scope, account_id) = owner_scope_to_db(owner_scope);
         let item_id = Uuid::now_v7();
         let sealed = seal_user_value(account_id, item_id, value).await?;
-
         let txn = self.conn.begin().await?;
         let inserted = entity::user_credentials::ActiveModel {
             id: Set(item_id),
@@ -174,7 +198,6 @@ impl UserConfigurationStore for Store {
         }
         .insert(&txn)
         .await?;
-
         entity::user_credential_values::ActiveModel {
             id: Set(Uuid::now_v7()),
             item_id: Set(item_id),
@@ -190,10 +213,8 @@ impl UserConfigurationStore for Store {
         .insert(&txn)
         .await?;
         txn.commit().await?;
-
         UserOwnedItemRecord::try_from(inserted)
     }
-
     async fn update_user_credential(
         &self,
         id: &str,
@@ -203,7 +224,6 @@ impl UserConfigurationStore for Store {
         now: DateTime<Utc>,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError> {
         validate_user_credential_value(&value).map_err(StoreError::InvalidConfiguration)?;
-
         let parsed_id = parse_item_id(id)?;
         let (scope, account_id) = owner_scope_to_db(owner_scope);
         let row = entity::user_credentials::Entity::find()
@@ -215,15 +235,12 @@ impl UserConfigurationStore for Store {
         let Some(row) = row else {
             return Ok(None);
         };
-
         let sealed = seal_user_value(account_id, parsed_id, value).await?;
         let txn = self.conn.begin().await?;
-
         let mut active = row.into_active_model();
         active.status = Set(user_item_status_to_db(status).to_owned());
         active.updated_at = Set(now);
         let updated = active.update(&txn).await?;
-
         if let Some(existing_value) = entity::user_credential_values::Entity::find()
             .filter(entity::user_credential_values::Column::ItemId.eq(parsed_id))
             .filter(entity::user_credential_values::Column::AccountId.eq(account_id.as_uuid()))
@@ -254,27 +271,60 @@ impl UserConfigurationStore for Store {
             .insert(&txn)
             .await?;
         }
-
         txn.commit().await?;
         Ok(Some(UserOwnedItemRecord::try_from(updated)?))
     }
-
     async fn list_user_credentials(
         &self,
         owner_scope: OwnerScope,
-    ) -> Result<Vec<UserOwnedItemRecord>, StoreError> {
+        page: UserConfigurationListPageRequest<UserCredentialListCursor>,
+    ) -> Result<UserConfigurationListPage<UserOwnedItemRecord, UserCredentialListCursor>, StoreError>
+    {
+        let limit = usize::from(page.limit);
         let (scope, account_id) = owner_scope_to_db(owner_scope);
-        let rows = entity::user_credentials::Entity::find()
+        let mut query = entity::user_credentials::Entity::find()
             .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
             .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
             .order_by_desc(entity::user_credentials::Column::UpdatedAt)
+            .order_by_desc(entity::user_credentials::Column::Id);
+        if let Some(after) = page.after {
+            let after_id = parse_item_id(&after.id)?;
+            query = query.filter(
+                Condition::any()
+                    .add(entity::user_credentials::Column::UpdatedAt.lt(after.updated_at))
+                    .add(
+                        Condition::all()
+                            .add(entity::user_credentials::Column::UpdatedAt.eq(after.updated_at))
+                            .add(entity::user_credentials::Column::Id.lt(after_id)),
+                    ),
+            );
+        }
+        let rows = query
+            .limit(u64::from(page.limit) + 1)
             .all(&self.conn)
             .await?;
-        rows.into_iter()
+        let mut items: Vec<UserOwnedItemRecord> = rows
+            .into_iter()
             .map(UserOwnedItemRecord::try_from)
-            .collect()
+            .collect::<Result<Vec<_>, _>>()?;
+        let has_more = items.len() > limit;
+        if has_more {
+            let _ = items.pop();
+        }
+        let next_cursor = if has_more {
+            let last = items.last().ok_or_else(|| StoreError::InvalidStoreValue {
+                column: "user_credentials.id",
+                detail: "credential pagination expected at least one item".to_owned(),
+            })?;
+            Some(UserCredentialListCursor {
+                updated_at: last.updated_at,
+                id: last.id.clone(),
+            })
+        } else {
+            None
+        };
+        Ok(UserConfigurationListPage { items, next_cursor })
     }
-
     async fn remove_user_credential(
         &self,
         id: &str,
@@ -308,14 +358,12 @@ impl UserConfigurationStore for Store {
         Ok(result.rows_affected > 0)
     }
 }
-
 fn parse_item_id(value: &str) -> Result<Uuid, StoreError> {
     Uuid::parse_str(value).map_err(|_| StoreError::InvalidStoreValue {
         column: "user_credentials.id",
         detail: value.to_owned(),
     })
 }
-
 async fn seal_user_value(
     account_id: AccountId,
     item_id: Uuid,
@@ -327,7 +375,6 @@ async fn seal_user_value(
             detail: "credential seal task failed".to_owned(),
         })?
 }
-
 fn seal_user_value_blocking(
     account_id: AccountId,
     item_id: Uuid,
@@ -335,12 +382,10 @@ fn seal_user_value_blocking(
 ) -> Result<SealedValue, StoreError> {
     credential_value_encryptor()?.seal(account_id, item_id, value)
 }
-
 fn credential_value_encryptor() -> Result<&'static CredentialValueEncryptor, StoreError> {
     if let Some(encryptor) = CREDENTIAL_VALUE_ENCRYPTOR.get() {
         return Ok(encryptor);
     }
-
     let encryptor = CredentialValueEncryptor::from_env()?;
     let _ = CREDENTIAL_VALUE_ENCRYPTOR.set(encryptor);
     CREDENTIAL_VALUE_ENCRYPTOR
@@ -349,11 +394,9 @@ fn credential_value_encryptor() -> Result<&'static CredentialValueEncryptor, Sto
             detail: "failed to initialize credential seal encryptor".to_owned(),
         })
 }
-
 struct CredentialValueEncryptor {
     passphrase: CredentialSealPassphrase,
 }
-
 impl CredentialValueEncryptor {
     fn from_env() -> Result<Self, StoreError> {
         let passphrase = Zeroizing::new(
@@ -377,7 +420,6 @@ impl CredentialValueEncryptor {
             passphrase: validated,
         })
     }
-
     fn seal(
         &self,
         account_id: AccountId,
@@ -397,7 +439,6 @@ impl CredentialValueEncryptor {
             .map_err(|_| StoreError::CredentialEncryption {
                 detail: "aead encryption failed".to_owned(),
             })?;
-
         Ok(SealedValue {
             scheme: CredentialSealScheme::current(),
             kdf_version: KDF_VERSION_V1,
@@ -406,7 +447,6 @@ impl CredentialValueEncryptor {
             ciphertext,
         })
     }
-
     fn cipher(
         &self,
         account_id: AccountId,
@@ -420,7 +460,6 @@ impl CredentialValueEncryptor {
             }
         })
     }
-
     fn derive_cipher_key(
         &self,
         account_id: AccountId,

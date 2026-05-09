@@ -10,17 +10,25 @@ use tanren_configuration_secrets::{
     UserSettingKey, validate_user_credential_value, validate_user_setting,
 };
 use tanren_contract::{
-    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
-    UpsertUserSettingResponse, UserConfigurationFailureReason, UserSettingView,
+    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason, UserSettingView,
 };
 use tanren_identity_policy::AccountId;
-use tanren_store::{AccountStore, StoreError, UserConfigurationStore, UserOwnedItemRecord};
+use tanren_store::{
+    AccountStore, StoreError, UserConfigurationListPageRequest, UserConfigurationStore,
+    UserCredentialListCursor, UserOwnedItemRecord,
+};
 
 use crate::events::{
     ConfigurationEventType, UserCredentialChanged, UserCredentialRemoved, UserSettingChanged,
     UserSettingRemoved, configuration_envelope,
+};
+use crate::user_configuration_pagination::{
+    DEFAULT_LIST_LIMIT, encode_credentials_cursor, encode_settings_cursor,
+    parse_credentials_page_request, parse_settings_page_request,
 };
 use crate::{AppServiceError, Clock};
 
@@ -89,15 +97,19 @@ impl AuthenticatedConfigurationContext {
 pub(crate) async fn list_user_settings<S>(
     store: &S,
     context: AuthenticatedConfigurationContext,
+    request: ListUserSettingsRequest,
 ) -> Result<ListUserSettingsResponse, AppServiceError>
 where
     S: UserConfigurationStore + ?Sized,
 {
     ensure_user_setting_scope(context)?;
+    let page = parse_settings_page_request(request)?;
     let rows = store
-        .list_user_settings(context.requested_account_id())
-        .await?;
+        .list_user_settings(context.requested_account_id(), page)
+        .await
+        .map_err(map_store_error)?;
     let items = rows
+        .items
         .into_iter()
         .map(|record| UserSettingView {
             key: record.key,
@@ -105,7 +117,10 @@ where
             updated_at: record.updated_at,
         })
         .collect();
-    Ok(ListUserSettingsResponse { items })
+    Ok(ListUserSettingsResponse {
+        items,
+        next_cursor: rows.next_cursor.map(encode_settings_cursor),
+    })
 }
 
 pub(crate) async fn upsert_user_setting<S>(
@@ -286,20 +301,26 @@ where
 pub(crate) async fn list_user_credentials<S>(
     store: &S,
     context: AuthenticatedConfigurationContext,
+    request: ListUserCredentialsRequest,
 ) -> Result<ListUserCredentialsResponse, AppServiceError>
 where
     S: UserConfigurationStore + ?Sized,
 {
     ensure_owner_scope(context)?;
+    let page = parse_credentials_page_request(request)?;
     let rows = store
-        .list_user_credentials(context.requested_owner_scope())
+        .list_user_credentials(context.requested_owner_scope(), page)
         .await
         .map_err(map_store_error)?;
     let items = rows
+        .items
         .into_iter()
         .map(|record| record.into_metadata().into())
         .collect();
-    Ok(ListUserCredentialsResponse { items })
+    Ok(ListUserCredentialsResponse {
+        items,
+        next_cursor: rows.next_cursor.as_ref().map(encode_credentials_cursor),
+    })
 }
 
 pub(crate) async fn remove_user_credential<S>(
@@ -313,12 +334,8 @@ where
 {
     ensure_owner_scope(context)?;
 
-    let item = store
-        .list_user_credentials(context.requested_owner_scope())
-        .await
-        .map_err(map_store_error)?
-        .into_iter()
-        .find(|record| record.id == item_id)
+    let item = find_user_credential_by_id(store, context.requested_owner_scope(), item_id)
+        .await?
         .ok_or_else(item_not_found)?;
 
     let removed = store
@@ -401,6 +418,36 @@ fn map_store_error(err: StoreError) -> AppServiceError {
     match err {
         StoreError::InvalidConfiguration(detail) => validation_error(detail),
         other => AppServiceError::Store(other),
+    }
+}
+
+async fn find_user_credential_by_id<S>(
+    store: &S,
+    owner_scope: OwnerScope,
+    item_id: &str,
+) -> Result<Option<UserOwnedItemRecord>, AppServiceError>
+where
+    S: UserConfigurationStore + ?Sized,
+{
+    let mut after: Option<UserCredentialListCursor> = None;
+    loop {
+        let page = store
+            .list_user_credentials(
+                owner_scope,
+                UserConfigurationListPageRequest {
+                    limit: DEFAULT_LIST_LIMIT,
+                    after,
+                },
+            )
+            .await
+            .map_err(map_store_error)?;
+        if let Some(found) = page.items.into_iter().find(|record| record.id == item_id) {
+            return Ok(Some(found));
+        }
+        let Some(next_cursor) = page.next_cursor else {
+            return Ok(None);
+        };
+        after = Some(next_cursor);
     }
 }
 

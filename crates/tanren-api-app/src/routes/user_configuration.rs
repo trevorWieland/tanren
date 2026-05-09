@@ -1,16 +1,19 @@
 use axum::Json;
-use axum::extract::{FromRequestParts, Path, State};
+use axum::extract::rejection::QueryRejection;
+use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
+use serde::Deserialize;
 use std::collections::HashMap;
 use tanren_app_services::AuthenticatedConfigurationContext;
 use tanren_configuration_secrets::{OwnerScope, UserSettingKey};
 use tanren_contract::{
-    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
-    UpsertUserSettingResponse, UserConfigurationFailureReason,
+    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason,
 };
 use tanren_identity_policy::AccountId;
 use tower_sessions::Session;
@@ -25,6 +28,8 @@ use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error};
     path = "/accounts/{account_id}/user-settings",
     params(
         ("account_id" = AccountId, Path, description = "Target account id"),
+        ("limit" = Option<u16>, Query, description = "Bounded page size"),
+        ("after" = Option<String>, Query, description = "Opaque cursor from previous page"),
     ),
     responses(
         (status = 200, body = ListUserSettingsResponse),
@@ -37,10 +42,18 @@ use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error};
 pub(crate) async fn list_user_settings_route(
     State(state): State<AppState>,
     SettingAccountScope(scope): SettingAccountScope,
+    query: Result<Query<ConfigurationListQuery>, QueryRejection>,
 ) -> Response {
+    let request = match query {
+        Ok(Query(value)) => ListUserSettingsRequest {
+            limit: value.limit,
+            after: value.after,
+        },
+        Err(_) => return validation_failed("query parameters are invalid"),
+    };
     match state
         .handlers
-        .list_user_settings_with_context(state.store.as_ref(), scope.context())
+        .list_user_settings_with_context(state.store.as_ref(), scope.context(), request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -53,6 +66,8 @@ pub(crate) async fn list_user_settings_route(
     path = "/accounts/{account_id}/user-settings",
     params(
         ("account_id" = AccountId, Path, description = "Target account id"),
+        ("limit" = Option<u16>, Query, description = "Bounded page size"),
+        ("after" = Option<String>, Query, description = "Opaque cursor from previous page"),
     ),
     request_body = UpsertUserSettingRequest,
     responses(
@@ -204,10 +219,18 @@ pub(crate) async fn update_user_credential_route(
 pub(crate) async fn list_user_credentials_route(
     State(state): State<AppState>,
     CredentialAccountScope(scope): CredentialAccountScope,
+    query: Result<Query<ConfigurationListQuery>, QueryRejection>,
 ) -> Response {
+    let request = match query {
+        Ok(Query(value)) => ListUserCredentialsRequest {
+            limit: value.limit,
+            after: value.after,
+        },
+        Err(_) => return validation_failed("query parameters are invalid"),
+    };
     match state
         .handlers
-        .list_user_credentials_with_context(state.store.as_ref(), scope.context())
+        .list_user_credentials_with_context(state.store.as_ref(), scope.context(), request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -250,6 +273,13 @@ pub(crate) async fn remove_user_credential_route(
 struct AuthorizedAccount {
     authenticated: AccountId,
     requested: AccountId,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub(crate) struct ConfigurationListQuery {
+    limit: Option<u16>,
+    after: Option<String>,
 }
 
 impl AuthorizedAccount {

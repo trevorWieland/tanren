@@ -47,7 +47,10 @@ pub(super) async fn list_user_settings(
         return Err(translate_cli_error(&output.stderr));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_setting_rows(&stdout).map(|items| ListUserSettingsResponse { items })
+    parse_setting_rows(&stdout).map(|items| ListUserSettingsResponse {
+        items,
+        next_cursor: parse_next_cursor(&stdout),
+    })
 }
 
 pub(super) async fn upsert_user_setting(
@@ -117,7 +120,10 @@ pub(super) async fn list_user_credentials(
         return Err(translate_cli_error(&output.stderr));
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
-    parse_credential_rows(&stdout).map(|items| ListUserCredentialsResponse { items })
+    parse_credential_rows(&stdout).map(|items| ListUserCredentialsResponse {
+        items,
+        next_cursor: parse_next_cursor(&stdout),
+    })
 }
 
 pub(super) async fn add_user_credential(
@@ -274,6 +280,13 @@ fn parse_credential_rows(stdout: &str) -> HarnessResult<Vec<UserCredentialView>>
         });
     }
     Ok(items)
+}
+
+fn parse_next_cursor(stdout: &str) -> Option<String> {
+    stdout
+        .lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("next_cursor=").map(str::to_owned))
 }
 
 fn parse_rfc3339(raw: &str) -> HarnessResult<chrono::DateTime<Utc>> {

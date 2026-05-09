@@ -1,24 +1,18 @@
-use chrono::Utc;
-use secrecy::SecretString;
-use tanren_app_services::{AccountStore, Handlers, Store};
-use tanren_configuration_secrets::OwnerScope;
-use tanren_contract::{
-    CreateUserCredentialRequest, SessionView, UpdateUserCredentialRequest, UpsertUserSettingRequest,
-};
-use tanren_identity_policy::AccountId;
-use tanren_store::SessionAuthenticationLookup;
-
-use crate::FormState;
+use super::{App, FormKind, Screen};
 use crate::ui::{
     accept_invitation_outcome, credential_item_outcome, credential_list_outcome,
     parse_accept_invitation, parse_account_id_field, parse_credential_kind_field,
-    parse_item_id_field, parse_setting_key_field, parse_setting_value_field, parse_sign_in,
-    parse_sign_up, render_error, setting_item_outcome, settings_list_outcome, sign_in_outcome,
-    sign_up_outcome,
+    parse_item_id_field, parse_list_after_field, parse_list_limit_field, parse_setting_key_field,
+    parse_setting_value_field, parse_sign_in, parse_sign_up, render_error, setting_item_outcome,
+    settings_list_outcome, sign_in_outcome, sign_up_outcome,
 };
-
-use super::{App, AuthenticatedSession, FormKind, Screen};
-
+use secrecy::SecretString;
+use tanren_app_services::{Handlers, Store};
+use tanren_configuration_secrets::OwnerScope;
+use tanren_contract::{
+    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest,
+    UpdateUserCredentialRequest, UpsertUserSettingRequest,
+};
 impl App {
     pub(super) fn submit(&mut self, kind: FormKind) {
         let Some(store) = self.store.clone() else {
@@ -59,7 +53,6 @@ impl App {
             }
         }
     }
-
     fn submit_sign_up(&mut self, store: &Store, handlers: &Handlers) {
         let parsed = {
             let Screen::SignUp(state) = &self.screen else {
@@ -89,7 +82,6 @@ impl App {
             }
         }
     }
-
     fn submit_sign_in(&mut self, store: &Store, handlers: &Handlers) {
         let parsed = {
             let Screen::SignIn(state) = &self.screen else {
@@ -119,7 +111,6 @@ impl App {
             }
         }
     }
-
     fn submit_accept_invitation(&mut self, store: &Store, handlers: &Handlers) {
         let parsed = {
             let Screen::AcceptInvitation(state) = &self.screen else {
@@ -151,26 +142,39 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_list_settings(&mut self, store: &Store, handlers: &Handlers) {
-        let requested_account_id = match self.active_form() {
-            Some(state) => match parse_account_id_field(state) {
-                Ok(value) => value,
-                Err(message) => return self.set_active_form_error(message),
-            },
+        let (requested_account_id, limit, after) = match self.active_form() {
+            Some(state) => {
+                let requested_account_id = match parse_account_id_field(state) {
+                    Ok(value) => value,
+                    Err(message) => return self.set_active_form_error(message),
+                };
+                let limit = match parse_list_limit_field(state, 1) {
+                    Ok(value) => value,
+                    Err(message) => return self.set_active_form_error(message),
+                };
+                let after = parse_list_after_field(state, 2);
+                (requested_account_id, limit, after)
+            }
             None => return,
         };
         let authenticated_account_id = match self.resolve_authenticated_account_id(store) {
             Ok(value) => value,
             Err(message) => return self.set_active_form_error(message),
         };
-        let result = self.runtime.block_on(handlers.list_user_settings(
+        let result = self.runtime.block_on(handlers.list_user_settings_page(
             store,
             authenticated_account_id,
             requested_account_id,
+            ListUserSettingsRequest { limit, after },
         ));
         match result {
-            Ok(response) => self.screen = Screen::Outcome(settings_list_outcome(&response.items)),
+            Ok(response) => {
+                self.screen = Screen::Outcome(settings_list_outcome(
+                    &response.items,
+                    response.next_cursor.as_deref(),
+                ));
+            }
             Err(reason) => {
                 if let Screen::UserConfigListSettings(state) = &mut self.screen {
                     state.error = Some(render_error(reason));
@@ -178,7 +182,6 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_set_setting(&mut self, store: &Store, handlers: &Handlers) {
         let (requested_account_id, key, value) = match self.active_form() {
             Some(state) => {
@@ -221,7 +224,6 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_remove_setting(&mut self, store: &Store, handlers: &Handlers) {
         let (requested_account_id, key) = match self.active_form() {
             Some(state) => {
@@ -259,28 +261,41 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_list_credentials(&mut self, store: &Store, handlers: &Handlers) {
-        let requested_account_id = match self.active_form() {
-            Some(state) => match parse_account_id_field(state) {
-                Ok(value) => value,
-                Err(message) => return self.set_active_form_error(message),
-            },
+        let (requested_account_id, limit, after) = match self.active_form() {
+            Some(state) => {
+                let requested_account_id = match parse_account_id_field(state) {
+                    Ok(value) => value,
+                    Err(message) => return self.set_active_form_error(message),
+                };
+                let limit = match parse_list_limit_field(state, 1) {
+                    Ok(value) => value,
+                    Err(message) => return self.set_active_form_error(message),
+                };
+                let after = parse_list_after_field(state, 2);
+                (requested_account_id, limit, after)
+            }
             None => return,
         };
         let authenticated_account_id = match self.resolve_authenticated_account_id(store) {
             Ok(value) => value,
             Err(message) => return self.set_active_form_error(message),
         };
-        let result = self.runtime.block_on(handlers.list_user_credentials(
+        let result = self.runtime.block_on(handlers.list_user_credentials_page(
             store,
             authenticated_account_id,
             OwnerScope::User {
                 account_id: requested_account_id,
             },
+            ListUserCredentialsRequest { limit, after },
         ));
         match result {
-            Ok(response) => self.screen = Screen::Outcome(credential_list_outcome(&response.items)),
+            Ok(response) => {
+                self.screen = Screen::Outcome(credential_list_outcome(
+                    &response.items,
+                    response.next_cursor.as_deref(),
+                ));
+            }
             Err(reason) => {
                 if let Screen::UserConfigListCredentials(state) = &mut self.screen {
                     state.error = Some(render_error(reason));
@@ -288,7 +303,6 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_add_credential(&mut self, store: &Store, handlers: &Handlers) {
         let (requested_account_id, kind, secret) = match &mut self.screen {
             Screen::UserConfigAddCredential(state) => {
@@ -334,7 +348,6 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_update_credential(&mut self, store: &Store, handlers: &Handlers) {
         let (requested_account_id, item_id, secret) = match &mut self.screen {
             Screen::UserConfigUpdateCredential(state) => {
@@ -382,7 +395,6 @@ impl App {
             }
         }
     }
-
     fn submit_user_config_remove_credential(&mut self, store: &Store, handlers: &Handlers) {
         let (requested_account_id, item_id) = match self.active_form() {
             Some(state) => {
@@ -423,75 +435,5 @@ impl App {
                 }
             }
         }
-    }
-
-    pub(super) fn active_form(&self) -> Option<&FormState> {
-        match &self.screen {
-            Screen::SignUp(s)
-            | Screen::SignIn(s)
-            | Screen::AcceptInvitation(s)
-            | Screen::UserConfigListSettings(s)
-            | Screen::UserConfigSetSetting(s)
-            | Screen::UserConfigRemoveSetting(s)
-            | Screen::UserConfigListCredentials(s)
-            | Screen::UserConfigAddCredential(s)
-            | Screen::UserConfigUpdateCredential(s)
-            | Screen::UserConfigRemoveCredential(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    pub(super) fn active_form_mut(&mut self) -> Option<&mut FormState> {
-        match &mut self.screen {
-            Screen::SignUp(s)
-            | Screen::SignIn(s)
-            | Screen::AcceptInvitation(s)
-            | Screen::UserConfigListSettings(s)
-            | Screen::UserConfigSetSetting(s)
-            | Screen::UserConfigRemoveSetting(s)
-            | Screen::UserConfigListCredentials(s)
-            | Screen::UserConfigAddCredential(s)
-            | Screen::UserConfigUpdateCredential(s)
-            | Screen::UserConfigRemoveCredential(s) => Some(s),
-            _ => None,
-        }
-    }
-
-    pub(super) fn set_active_form_error(&mut self, message: String) {
-        if let Some(state) = self.active_form_mut() {
-            state.error = Some(message);
-        }
-    }
-
-    fn set_authenticated_session(&mut self, account_id: AccountId, session: &SessionView) {
-        self.authenticated_session = Some(AuthenticatedSession {
-            account_id,
-            session_token: session.token.clone(),
-        });
-    }
-
-    fn resolve_authenticated_account_id(&self, store: &Store) -> Result<AccountId, String> {
-        let session = self.authenticated_session.as_ref().ok_or_else(|| {
-            "authentication_required: sign in, sign up, or accept an invitation first.".to_owned()
-        })?;
-        let authenticated = self
-            .runtime
-            .block_on(store.authenticate_session(SessionAuthenticationLookup {
-                session_token: session.session_token.clone(),
-                now: Utc::now(),
-            }))
-            .map_err(|_| "internal_error: Tanren encountered an internal error.".to_owned())?;
-        let account_id = authenticated
-            .ok_or_else(|| {
-                "authentication_required: active session expired or was revoked; sign in again."
-                    .to_owned()
-            })?
-            .authenticated_account_id;
-        if account_id != session.account_id {
-            return Err(
-                "authentication_required: session principal changed; sign in again.".to_owned(),
-            );
-        }
-        Ok(account_id)
     }
 }

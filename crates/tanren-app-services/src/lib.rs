@@ -8,15 +8,16 @@
 pub mod account;
 pub mod events;
 pub mod user_configuration;
+mod user_configuration_pagination;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UpdateUserCredentialRequest,
-    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserConfigurationFailureReason,
+    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
+    UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 use tanren_store::UserConfigurationStore;
@@ -27,21 +28,13 @@ use tanren_store::StoreError;
 use thiserror::Error;
 pub use user_configuration::AuthenticatedConfigurationContext;
 
-/// Stable response shape for the cross-interface health/liveness query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthReport {
-    /// Static "ok" string. Present so consumers can match on a discriminator
-    /// rather than HTTP status alone.
     pub status: &'static str,
-    /// Build-time package version of the binary that produced the report.
     pub version: &'static str,
-    /// Wire-contract version this binary speaks.
     pub contract_version: ContractVersion,
 }
 
-/// Injected wall-clock. BDD scenarios swap this for a deterministic
-/// fake; production binaries keep [`Clock::default`] (reads
-/// `chrono::Utc::now()`).
 #[derive(Clone)]
 pub struct Clock {
     inner: Arc<dyn Fn() -> DateTime<Utc> + Send + Sync>,
@@ -62,8 +55,6 @@ impl Default for Clock {
 }
 
 impl Clock {
-    /// Wrap a custom `now` impl. The BDD harness uses this to make
-    /// invitation-expiry scenarios deterministic.
     #[must_use]
     pub fn from_fn<F>(f: F) -> Self
     where
@@ -72,16 +63,12 @@ impl Clock {
         Self { inner: Arc::new(f) }
     }
 
-    /// Current wall-clock instant according to this `Clock`.
     #[must_use]
     pub fn now(&self) -> DateTime<Utc> {
         (self.inner)()
     }
 }
 
-/// Stateless handler facade. Holds an injectable [`Clock`] and
-/// [`CredentialVerifier`] so account flow handlers stay deterministic —
-/// and cheaply hashed — under the BDD harness.
 #[derive(Debug, Clone)]
 pub struct Handlers {
     clock: Clock,
@@ -98,15 +85,11 @@ impl Default for Handlers {
 }
 
 impl Handlers {
-    /// Construct a handler facade backed by [`Clock::default`] and the
-    /// production-strength [`Argon2idVerifier`].
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// Construct a handler facade backed by an explicit clock. Uses the
-    /// production-strength [`Argon2idVerifier`] for hashing.
     #[must_use]
     pub fn with_clock(clock: Clock) -> Self {
         Self {
@@ -115,17 +98,11 @@ impl Handlers {
         }
     }
 
-    /// Construct a handler facade backed by an explicit
-    /// [`CredentialVerifier`]. Production binaries that want to pin a
-    /// non-default verifier (alternate parameter set, hardware-backed
-    /// implementation) thread it in here.
     #[must_use]
     pub fn with_verifier(clock: Clock, verifier: Arc<dyn CredentialVerifier>) -> Self {
         Self { clock, verifier }
     }
 
-    /// Liveness query. Returns the same shape regardless of which interface
-    /// invoked it.
     #[must_use]
     pub fn health(&self, version: &'static str) -> HealthReport {
         HealthReport {
@@ -135,25 +112,12 @@ impl Handlers {
         }
     }
 
-    /// Apply all pending database migrations against the supplied URL.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Store`] if connection or migration fails.
     pub async fn migrate(&self, database_url: &str) -> Result<(), AppServiceError> {
         let store = Store::connect(database_url).await?;
         store.migrate().await?;
         Ok(())
     }
 
-    /// Self-signup command: create a new personal account, mint a
-    /// session, and append an `account_created` event.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Account`] for taxonomy failures
-    /// (duplicate identifier, invalid credential), or
-    /// [`AppServiceError::Store`] for unexpected database failures.
     pub async fn sign_up<S>(
         &self,
         store: &S,
@@ -165,15 +129,6 @@ impl Handlers {
         account::sign_up(store, &self.clock, self.verifier.as_ref(), request).await
     }
 
-    /// Sign-in command: verify an identifier+password against the
-    /// stored hash and mint a fresh session.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Account`] with
-    /// [`AccountFailureReason::InvalidCredential`] when the credential
-    /// does not verify; [`AppServiceError::Store`] for unexpected
-    /// database failures.
     pub async fn sign_in<S>(
         &self,
         store: &S,
@@ -185,16 +140,6 @@ impl Handlers {
         account::sign_in(store, &self.clock, self.verifier.as_ref(), request).await
     }
 
-    /// Invitation-acceptance command: consume the supplied token,
-    /// create an account joined to the inviting org, and append both
-    /// `account_created` and `invitation_accepted` events.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Account`] with the matching
-    /// invitation taxonomy variant when the token is unknown / expired
-    /// / already consumed; [`AppServiceError::Store`] for unexpected
-    /// database failures.
     pub async fn accept_invitation<S>(
         &self,
         store: &S,
@@ -206,13 +151,6 @@ impl Handlers {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
 
-    /// List all user-tier settings for the authenticated account.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] with
-    /// [`UserConfigurationFailureReason::SettingNotFound`] when the
-    /// requested account scope is not owned by the authenticated account.
     pub async fn list_user_settings<S>(
         &self,
         store: &S,
@@ -228,6 +166,7 @@ impl Handlers {
                 authenticated_account_id,
                 requested_account_id,
             ),
+            ListUserSettingsRequest::default(),
         )
         .await
     }
@@ -236,19 +175,35 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
+        request: ListUserSettingsRequest,
     ) -> Result<ListUserSettingsResponse, AppServiceError>
     where
         S: UserConfigurationStore + ?Sized,
     {
-        user_configuration::list_user_settings(store, context).await
+        user_configuration::list_user_settings(store, context, request).await
     }
 
-    /// Insert or update a user-tier setting.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] for invalid payloads or
-    /// unauthorized/not-found scope checks.
+    pub async fn list_user_settings_page<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        requested_account_id: AccountId,
+        request: ListUserSettingsRequest,
+    ) -> Result<ListUserSettingsResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + ?Sized,
+    {
+        self.list_user_settings_with_context(
+            store,
+            AuthenticatedConfigurationContext::for_requested_account(
+                authenticated_account_id,
+                requested_account_id,
+            ),
+            request,
+        )
+        .await
+    }
+
     pub async fn upsert_user_setting<S>(
         &self,
         store: &S,
@@ -282,13 +237,6 @@ impl Handlers {
         user_configuration::upsert_user_setting(store, &self.clock, context, request).await
     }
 
-    /// Remove a user-tier setting.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] with
-    /// [`UserConfigurationFailureReason::SettingNotFound`] for unknown or
-    /// unauthorized/not-found scopes.
     pub async fn remove_user_setting<S>(
         &self,
         store: &S,
@@ -322,12 +270,6 @@ impl Handlers {
         user_configuration::remove_user_setting(store, &self.clock, context, key).await
     }
 
-    /// Add one user-owned credential and return metadata-only output.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] for invalid payloads or
-    /// unauthorized/not-found scope checks.
     pub async fn add_user_credential<S>(
         &self,
         store: &S,
@@ -360,13 +302,6 @@ impl Handlers {
         user_configuration::add_user_credential(store, &self.clock, context, request).await
     }
 
-    /// Update one user-owned credential secret value and return
-    /// metadata-only output.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] for invalid payloads,
-    /// unknown item ids, or unauthorized/not-found scope checks.
     pub async fn update_user_credential<S>(
         &self,
         store: &S,
@@ -404,12 +339,6 @@ impl Handlers {
             .await
     }
 
-    /// List user-owned credential metadata rows for the requested scope.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] with
-    /// [`UserConfigurationFailureReason::ItemNotFound`] for unauthorized/not-found scopes.
     pub async fn list_user_credentials<S>(
         &self,
         store: &S,
@@ -425,6 +354,7 @@ impl Handlers {
                 authenticated_account_id,
                 owner_scope,
             ),
+            ListUserCredentialsRequest::default(),
         )
         .await
     }
@@ -433,19 +363,35 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
+        request: ListUserCredentialsRequest,
     ) -> Result<ListUserCredentialsResponse, AppServiceError>
     where
         S: UserConfigurationStore + ?Sized,
     {
-        user_configuration::list_user_credentials(store, context).await
+        user_configuration::list_user_credentials(store, context, request).await
     }
 
-    /// Remove one user-owned credential and return metadata-only output.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`AppServiceError::Configuration`] for unknown item ids or
-    /// unauthorized/not-found scope checks.
+    pub async fn list_user_credentials_page<S>(
+        &self,
+        store: &S,
+        authenticated_account_id: AccountId,
+        owner_scope: tanren_configuration_secrets::OwnerScope,
+        request: ListUserCredentialsRequest,
+    ) -> Result<ListUserCredentialsResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + ?Sized,
+    {
+        self.list_user_credentials_with_context(
+            store,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                authenticated_account_id,
+                owner_scope,
+            ),
+            request,
+        )
+        .await
+    }
+
     pub async fn remove_user_credential<S>(
         &self,
         store: &S,
@@ -480,21 +426,15 @@ impl Handlers {
     }
 }
 
-/// Errors raised by app-service handlers.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum AppServiceError {
-    /// A handler input failed validation.
     #[error("invalid input: {0}")]
     InvalidInput(String),
-    /// The underlying store layer raised an error.
     #[error(transparent)]
     Store(#[from] StoreError),
-    /// A taxonomy failure interface binaries map to a `{code, summary}`
-    /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
-    /// User-tier configuration and credential taxonomy failure.
     #[error("configuration: {}", .0.code())]
     Configuration(UserConfigurationFailureReason),
 }
