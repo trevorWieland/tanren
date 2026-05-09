@@ -1,6 +1,7 @@
 //! Shared install-step assertions that do not need scenario-local state.
 
 use std::collections::{BTreeMap, BTreeSet};
+use std::fmt::Write as _;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
@@ -9,6 +10,8 @@ use sha2::{Digest, Sha256};
 use super::install::InstallStepError;
 
 const NIBBLES: &[u8; 16] = b"0123456789abcdef";
+const TAMPERED_ENTRY_SHA256: &str =
+    "0000000000000000000000000000000000000000000000000000000000000000";
 
 pub(crate) fn assert_rust_cargo_default_assets_installed(
     repository_root: &Path,
@@ -171,6 +174,30 @@ pub(crate) fn append_stale_generated_manifest_entry(
     let entry =
         GeneratedManifestEntry::stale_methodology_command(relative_path.clone(), content_hash);
     manifest.push_str(&entry.to_manifest_block());
+}
+
+pub(crate) fn tamper_manifest_with_raw_generated_entry(
+    repository_root: &Path,
+    raw_path: &str,
+) -> Result<(), InstallStepError> {
+    let manifest_path = repository_root.join(".tanren/install-manifest.toml");
+    let mut manifest = read_to_string_with_context(&manifest_path, "read install manifest")?;
+    let path_line = format!("path = \"{raw_path}\"");
+    if manifest.contains(&path_line) {
+        return Err(InstallStepError::StaleManifestPathAlreadyPresent {
+            path: raw_path.to_owned(),
+        });
+    }
+    let _ = write!(
+        manifest,
+        "\n[[entries]]\npath = \"{raw_path}\"\ncontent_hash = \"{TAMPERED_ENTRY_SHA256}\"\nasset_class = \"methodology-command\"\nintegration = \"codex\"\npreservation = \"replace-generated\"\n"
+    );
+    fs::write(&manifest_path, manifest).map_err(|source| InstallStepError::WriteFile {
+        path: manifest_path,
+        action: "write install manifest with tampered raw entry",
+        source,
+    })?;
+    Ok(())
 }
 
 pub(crate) fn sha256_hex(bytes: &[u8]) -> String {

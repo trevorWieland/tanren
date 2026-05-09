@@ -339,6 +339,13 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn inject_manifest_raw_generated_entry_path(
+        &mut self,
+        raw_path: &str,
+    ) -> InstallStepResult<()> {
+        install_helpers::tamper_manifest_with_raw_generated_entry(&self.repository_root, raw_path)
+    }
+
     pub(crate) fn delete_fixture_file(
         &mut self,
         relative_path: &RepositoryRelativePath,
@@ -418,17 +425,6 @@ impl InstallContext {
         self.last_run
             .as_ref()
             .ok_or(InstallStepError::InstallCommandNotExecuted)
-    }
-}
-
-impl Default for InstallContext {
-    fn default() -> Self {
-        Self {
-            repository_root: PathBuf::new(),
-            baselines: BTreeMap::new(),
-            snapshot_before_last_run: None,
-            last_run: None,
-        }
     }
 }
 

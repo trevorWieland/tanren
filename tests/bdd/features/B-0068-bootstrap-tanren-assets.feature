@@ -90,6 +90,20 @@ Feature: Bootstrap Tanren assets into an existing repository
       And repository file "README.md" preserves its baseline content
 
     @falsification @cli
+    Scenario: Reject reinstall when manifest is tampered with traversal stale path
+      Given a clean repository fixture
+      And repository file "README.md" contains "repository-owned content"
+      And repository file "README.md" baseline is recorded
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given previous install manifest is tampered with raw generated path "../README.md"
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And no files are written in the repository fixture
+      And repository file "README.md" preserves its baseline content
+
+    @falsification @cli
     Scenario: Reinstall preserves stale generated file when content drifted after manifest hash
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"
