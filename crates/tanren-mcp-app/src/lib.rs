@@ -384,26 +384,20 @@ struct RemoveUserConfigParams {
     key: UserSettingKey,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 struct AddCredentialParams {
     account_id: String,
     kind: tanren_configuration_secrets::UserCredentialKind,
-    #[serde(
-        deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password",
-        serialize_with = "tanren_identity_policy::secret_serde::serialize_password_expose"
-    )]
+    #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
     #[schemars(with = "String")]
     value: secrecy::SecretString,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
 struct UpdateCredentialParams {
     account_id: String,
     item_id: String,
-    #[serde(
-        deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password",
-        serialize_with = "tanren_identity_policy::secret_serde::serialize_password_expose"
-    )]
+    #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
     #[schemars(with = "String")]
     value: secrecy::SecretString,
 }

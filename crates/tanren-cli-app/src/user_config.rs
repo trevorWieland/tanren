@@ -81,9 +81,6 @@ pub(crate) enum CredentialAction {
         /// Credential kind.
         #[arg(long, value_enum)]
         kind: CliCredentialKind,
-        /// Secret credential value.
-        #[arg(long)]
-        value: String,
     },
     /// Update one user-owned credential value.
     Update {
@@ -96,9 +93,6 @@ pub(crate) enum CredentialAction {
         /// Credential metadata id.
         #[arg(long)]
         item_id: String,
-        /// Replacement secret value.
-        #[arg(long)]
-        value: String,
     },
     /// List user-owned credential metadata.
     List {
@@ -263,12 +257,12 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
             database_url,
             account_id,
             kind,
-            value,
         } => {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
             let account_id = parse_account_id(&account_id)?;
+            let value = read_secret_from_stdin()?;
             let response = handlers
                 .add_user_credential(
                     &store,
@@ -276,7 +270,7 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
                     CreateUserCredentialRequest {
                         kind: kind.into(),
                         owner_scope: OwnerScope::User { account_id },
-                        value: SecretString::from(value),
+                        value,
                     },
                 )
                 .await
@@ -287,21 +281,19 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
             database_url,
             account_id,
             item_id,
-            value,
         } => {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
             let account_id = parse_account_id(&account_id)?;
+            let value = read_secret_from_stdin()?;
             let response = handlers
                 .update_user_credential(
                     &store,
                     account_id,
                     &item_id,
                     OwnerScope::User { account_id },
-                    UpdateUserCredentialRequest {
-                        value: SecretString::from(value),
-                    },
+                    UpdateUserCredentialRequest { value },
                 )
                 .await
                 .map_err(account_error)?;
@@ -350,6 +342,20 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
 fn parse_account_id(raw: &str) -> Result<AccountId> {
     let parsed = Uuid::parse_str(raw).with_context(|| format!("parse account id {raw}"))?;
     Ok(AccountId::new(parsed))
+}
+
+fn read_secret_from_stdin() -> Result<SecretString> {
+    let mut raw = String::new();
+    std::io::stdin()
+        .read_line(&mut raw)
+        .context("read credential value from stdin")?;
+    let value = raw.trim_end_matches(['\n', '\r']).to_owned();
+    if value.trim().is_empty() {
+        return Err(anyhow::anyhow!(
+            "credential value from stdin cannot be empty or whitespace"
+        ));
+    }
+    Ok(SecretString::from(value))
 }
 
 fn parse_setting_value(key: CliUserSettingKey, raw: &str) -> Result<UserSettingValue> {

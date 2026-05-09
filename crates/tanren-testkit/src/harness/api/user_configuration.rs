@@ -1,4 +1,5 @@
 use reqwest::{Client, Method};
+use secrecy::ExposeSecret;
 use serde_json::Value;
 use tanren_configuration_secrets::OwnerScope;
 use tanren_contract::{
@@ -85,12 +86,17 @@ pub(super) async fn add_user_credential(
     request.owner_scope = OwnerScope::User {
         account_id: requested_account_id,
     };
+    let body = serde_json::json!({
+        "kind": request.kind,
+        "owner_scope": request.owner_scope,
+        "value": request.value.expose_secret(),
+    });
     let url = format!("{base_url}/accounts/{requested_account_id}/user-credentials");
     let response = send_json(
         client,
         Method::POST,
         &url,
-        &request,
+        &body,
         "POST /accounts/{id}/user-credentials",
     )
     .await?;

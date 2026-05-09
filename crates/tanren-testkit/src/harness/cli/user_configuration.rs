@@ -14,6 +14,7 @@ use tanren_contract::{
     UpsertUserSettingResponse, UserCredentialView, UserSettingView,
 };
 use tanren_identity_policy::AccountId;
+use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -121,7 +122,7 @@ pub(super) async fn add_user_credential(
 ) -> HarnessResult<CreateUserCredentialResponse> {
     let kind = credential_kind_name(request.kind);
     let value = request.value.expose_secret().to_owned();
-    let output = Command::new(binary)
+    let mut child = Command::new(binary)
         .args([
             "credential",
             "add",
@@ -131,15 +132,28 @@ pub(super) async fn add_user_credential(
             &requested_account_id.to_string(),
             "--kind",
             kind,
-            "--value",
-            &value,
         ])
-        .stdin(Stdio::null())
+        .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
-        .output()
-        .await
+        .spawn()
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+    let mut stdin = child.stdin.take().ok_or_else(|| {
+        HarnessError::Transport("tanren-cli stdin was not piped for credential add".to_owned())
+    })?;
+    stdin
+        .write_all(value.as_bytes())
+        .await
+        .map_err(|e| HarnessError::Transport(format!("write credential value to stdin: {e}")))?;
+    stdin
+        .write_all(b"\n")
+        .await
+        .map_err(|e| HarnessError::Transport(format!("terminate credential stdin line: {e}")))?;
+    drop(stdin);
+    let output = child
+        .wait_with_output()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("wait for tanren-cli: {e}")))?;
     if !output.status.success() {
         return Err(translate_cli_error(&output.stderr));
     }

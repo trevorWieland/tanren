@@ -59,30 +59,24 @@ pub struct RemoveUserSettingResponse {
 }
 
 /// Create request for a user-owned credential.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateUserCredentialRequest {
     /// Credential kind.
     pub kind: UserCredentialKind,
     /// Owning scope.
     pub owner_scope: OwnerScope,
     /// Fresh secret value.
-    #[serde(
-        deserialize_with = "secret_serde::deserialize_password",
-        serialize_with = "secret_serde::serialize_password_expose"
-    )]
+    #[serde(deserialize_with = "secret_serde::deserialize_password")]
     #[schemars(with = "String")]
     #[schema(value_type = String, format = Password)]
     pub value: SecretString,
 }
 
 /// Update request for an existing user-owned credential.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
 pub struct UpdateUserCredentialRequest {
     /// Replacement secret value.
-    #[serde(
-        deserialize_with = "secret_serde::deserialize_password",
-        serialize_with = "secret_serde::serialize_password_expose"
-    )]
+    #[serde(deserialize_with = "secret_serde::deserialize_password")]
     #[schemars(with = "String")]
     #[schema(value_type = String, format = Password)]
     pub value: SecretString,
