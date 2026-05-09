@@ -5,6 +5,7 @@ use std::path::Path;
 use std::str::FromStr;
 
 pub mod catalog;
+pub mod cli;
 pub mod error;
 pub mod manifest;
 pub mod plan;

@@ -66,6 +66,8 @@ enum Command {
         #[command(subcommand)]
         action: AccountAction,
     },
+    /// Bootstrap Tanren assets into a repository.
+    Install(install::cli::InstallCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -124,6 +126,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Install(command)) => command.run(),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
