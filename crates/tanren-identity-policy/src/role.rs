@@ -164,6 +164,9 @@ pub enum RoleValueError {
     /// The supplied permission name contained an unsupported character.
     #[error("permission name contains an invalid character")]
     PermissionNameInvalidChar,
+    /// The supplied permission name did not include a namespace separator.
+    #[error("permission name must include a namespace separator")]
+    PermissionNameMissingNamespace,
 }
 
 /// Role template name.
@@ -180,10 +183,10 @@ impl RoleName {
     ///
     /// # Errors
     ///
-    /// Returns [`RoleValueError::EmptyRoleName`] when the value is empty after
-    /// trimming, [`RoleValueError::RoleNameTooLong`] when it exceeds the
-    /// maximum length, or [`RoleValueError::RoleNameInvalidChar`] when it
-    /// contains unsupported characters.
+    /// Returns `RoleValueError::EmptyRoleName` when the value is empty after
+    /// trimming, `RoleValueError::RoleNameTooLong` when it exceeds the maximum
+    /// length, or `RoleValueError::RoleNameInvalidChar` when it contains
+    /// unsupported characters.
     pub fn parse(raw: &str) -> Result<Self, RoleValueError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -232,11 +235,12 @@ impl PermissionName {
     ///
     /// # Errors
     ///
-    /// Returns [`RoleValueError::EmptyPermissionName`] when the value is empty
-    /// after trimming, [`RoleValueError::PermissionNameTooLong`] when it
-    /// exceeds the maximum length, or
-    /// [`RoleValueError::PermissionNameInvalidChar`] when it contains
-    /// unsupported characters.
+    /// Returns `RoleValueError::EmptyPermissionName` when the value is empty
+    /// after trimming, `RoleValueError::PermissionNameTooLong` when it exceeds
+    /// the maximum length, `RoleValueError::PermissionNameInvalidChar` when it
+    /// contains unsupported characters, or
+    /// `RoleValueError::PermissionNameMissingNamespace` when it is not
+    /// namespaced (for example `project.read`).
     pub fn parse(raw: &str) -> Result<Self, RoleValueError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
@@ -245,15 +249,41 @@ impl PermissionName {
         if trimmed.len() > PERMISSION_NAME_MAX_LEN {
             return Err(RoleValueError::PermissionNameTooLong);
         }
-        let canonical = trimmed.to_ascii_lowercase();
-        if !canonical.chars().all(is_valid_permission_name_char) {
+        let mut canonical = String::with_capacity(trimmed.len());
+        let mut saw_namespace_separator = false;
+        let mut previous = None;
+
+        // Parse, canonicalize, and validate in one pass to keep permission
+        // ingestion predictable under larger role/grant volumes.
+        for byte in trimmed.bytes() {
+            let lowered = byte.to_ascii_lowercase();
+            let ch = char::from(lowered);
+            if !is_valid_permission_name_char(ch) {
+                return Err(RoleValueError::PermissionNameInvalidChar);
+            }
+            if is_permission_separator(ch) && previous.is_none() {
+                return Err(RoleValueError::PermissionNameInvalidChar);
+            }
+            if (previous == Some(b'.') && lowered == b'.')
+                || (previous == Some(b':') && lowered == b':')
+            {
+                return Err(RoleValueError::PermissionNameInvalidChar);
+            }
+            if matches!(ch, '.' | ':') {
+                saw_namespace_separator = true;
+            }
+            canonical.push(ch);
+            previous = Some(lowered);
+        }
+
+        let Some(last) = previous else {
+            return Err(RoleValueError::EmptyPermissionName);
+        };
+        if is_permission_separator(char::from(last)) {
             return Err(RoleValueError::PermissionNameInvalidChar);
         }
-        let starts_or_ends_with_separator =
-            matches!(canonical.chars().next(), Some('.' | ':' | '-'))
-                || matches!(canonical.chars().next_back(), Some('.' | ':' | '-'));
-        if starts_or_ends_with_separator || canonical.contains("..") || canonical.contains("::") {
-            return Err(RoleValueError::PermissionNameInvalidChar);
+        if !saw_namespace_separator {
+            return Err(RoleValueError::PermissionNameMissingNamespace);
         }
         Ok(Self(canonical))
     }
@@ -262,6 +292,18 @@ impl PermissionName {
     #[must_use]
     pub fn as_str(&self) -> &str {
         &self.0
+    }
+
+    /// Borrow the namespace portion of this permission.
+    #[must_use]
+    pub fn namespace(&self) -> Option<&str> {
+        permission_name_parts(&self.0).map(|(namespace, _)| namespace)
+    }
+
+    /// Borrow the action portion of this permission.
+    #[must_use]
+    pub fn action(&self) -> Option<&str> {
+        permission_name_parts(&self.0).map(|(_, action)| action)
     }
 }
 
@@ -284,6 +326,27 @@ fn is_valid_role_name_char(ch: char) -> bool {
 
 fn is_valid_permission_name_char(ch: char) -> bool {
     ch.is_ascii_lowercase() || ch.is_ascii_digit() || matches!(ch, '.' | ':' | '_' | '-')
+}
+
+const fn is_permission_separator(ch: char) -> bool {
+    matches!(ch, '.' | ':' | '-')
+}
+
+fn permission_name_parts(raw: &str) -> Option<(&str, &str)> {
+    let mut split_at = None;
+    for (idx, ch) in raw.char_indices() {
+        if matches!(ch, '.' | ':') {
+            split_at = Some(idx);
+            break;
+        }
+    }
+    let split_at = split_at?;
+    let separator_len = raw[split_at..].chars().next()?.len_utf8();
+    let action_start = split_at + separator_len;
+    if split_at == 0 || action_start >= raw.len() {
+        return None;
+    }
+    Some((&raw[..split_at], &raw[action_start..]))
 }
 
 /// Scope where role templates can be created and resolved.
