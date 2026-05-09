@@ -85,7 +85,12 @@ export const Default: Story = {
     }) as typeof fetch;
 
     try {
+      const refreshButton = await c.findByRole("button");
+      await userEvent.click(refreshButton);
       const select = await c.findByRole("combobox");
+      await waitFor(() => {
+        expect((select as HTMLSelectElement).value).toBe(activeId);
+      });
       await expect(select).toBeVisible();
       await userEvent.selectOptions(select, secondId);
       await waitFor(() => {
@@ -144,8 +149,12 @@ export const RejectUnsignedAccount: Story = {
     }) as typeof fetch;
 
     try {
+      const refreshButton = await c.findByRole("button");
+      await userEvent.click(refreshButton);
       const select = (await c.findByRole("combobox")) as HTMLSelectElement;
-      await expect(select.value).toBe(activeId);
+      await waitFor(() => {
+        expect(select.value).toBe(activeId);
+      });
       await userEvent.selectOptions(select, secondId);
       const alert = await c.findByRole("alert");
       await expect(alert).toBeVisible();

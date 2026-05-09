@@ -1,13 +1,5 @@
-//! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
-//! drives it via `reqwest::Client` with `cookie_store(true)`.
-//!
-//! The harness owns the `SQLite` database (a per-scenario file under
-//! the OS temp directory). The same database is shared between (a)
-//! the `Arc<Store>` injected into the api app for account-flow data
-//! and (b) the tower-sessions sqlite-backed cookie store. Reading
-//! recent events for the `Then a "..." event is recorded` step
-//! goes through the harness's own `Store` handle (the api app's
-//! `Arc<Store>` is a clone of the same `Store`).
+//! `@api` harness — spawns `tanren-api-app` on an ephemeral port and drives it
+//! via `reqwest::Client` with `cookie_store(true)`.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -25,7 +17,6 @@ use tanren_contract::{
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
-use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
 use tokio::time::sleep;
 
@@ -36,6 +27,8 @@ use super::{
 };
 
 const WINDOW_ID_HEADER: &str = "x-tanren-window-id";
+const TRANSPORT_RETRY_ATTEMPTS: usize = 3;
+const TRANSPORT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// `@api` wire harness.
 pub struct ApiHarness {
@@ -58,14 +51,7 @@ impl std::fmt::Debug for ApiHarness {
 
 impl ApiHarness {
     /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file. Returns a harness ready to
-    /// drive sign-up / sign-in / accept-invitation calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
+    /// per-scenario `SQLite` database file.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -101,7 +87,7 @@ impl ApiHarness {
             let _ = axum::serve(listener, app).await;
         });
 
-        wait_for_server_ready(local_addr).await?;
+        wait_for_server_ready(&base_url).await?;
 
         let client = Client::builder()
             .cookie_store(true)
@@ -118,23 +104,57 @@ impl ApiHarness {
         })
     }
 }
-async fn wait_for_server_ready(local_addr: std::net::SocketAddr) -> HarnessResult<()> {
-    let mut last_error: Option<std::io::Error> = None;
+async fn wait_for_server_ready(base_url: &str) -> HarnessResult<()> {
+    let health_url = format!("{base_url}/accounts/active");
+    let probe = Client::builder()
+        .timeout(Duration::from_millis(250))
+        .build()
+        .map_err(|e| HarnessError::Transport(format!("probe client build: {e}")))?;
+    let mut last_error: Option<String> = None;
     for _ in 0..100 {
-        match TcpStream::connect(local_addr).await {
-            Ok(stream) => {
-                drop(stream);
+        match probe.get(&health_url).send().await {
+            Ok(_) => {
                 return Ok(());
             }
             Err(err) => {
-                last_error = Some(err);
+                last_error = Some(err.to_string());
                 sleep(Duration::from_millis(20)).await;
             }
         }
     }
-    let detail = last_error.map_or_else(|| "unknown error".to_owned(), |err| err.to_string());
+    let detail = last_error.unwrap_or_else(|| "unknown error".to_owned());
     Err(HarnessError::Transport(format!(
-        "api harness server did not become ready at {local_addr}: {detail}"
+        "api harness server did not become ready at {base_url}: {detail}"
+    )))
+}
+
+fn should_retry_transport(err: &reqwest::Error) -> bool {
+    err.is_connect() || err.is_timeout()
+}
+
+async fn send_with_retry<F>(
+    mut build_request: F,
+    operation: &'static str,
+) -> HarnessResult<reqwest::Response>
+where
+    F: FnMut() -> reqwest::RequestBuilder,
+{
+    let mut last_error: Option<String> = None;
+    for attempt in 1..=TRANSPORT_RETRY_ATTEMPTS {
+        match build_request().send().await {
+            Ok(response) => return Ok(response),
+            Err(err) if should_retry_transport(&err) && attempt < TRANSPORT_RETRY_ATTEMPTS => {
+                last_error = Some(err.to_string());
+                sleep(TRANSPORT_RETRY_DELAY).await;
+            }
+            Err(err) => {
+                return Err(HarnessError::Transport(format!("{operation}: {err}")));
+            }
+        }
+    }
+    let detail = last_error.unwrap_or_else(|| "unknown transport error".to_owned());
+    Err(HarnessError::Transport(format!(
+        "{operation}: exhausted retries ({TRANSPORT_RETRY_ATTEMPTS} attempts): {detail}"
     )))
 }
 
@@ -143,8 +163,6 @@ impl Drop for ApiHarness {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-        // Best-effort cleanup of the per-scenario DB file. Errors are
-        // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
     }
 }
@@ -158,13 +176,8 @@ impl AccountHarness for ApiHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let body = sign_up_body(&req);
         let url = format!("{}/accounts", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("POST /accounts: {e}")))?;
+        let response =
+            send_with_retry(|| self.client.post(&url).json(&body), "POST /accounts").await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -200,13 +213,8 @@ impl AccountHarness for ApiHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let body = sign_in_body(&req);
         let url = format!("{}/sessions", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("POST /sessions: {e}")))?;
+        let response =
+            send_with_retry(|| self.client.post(&url).json(&body), "POST /sessions").await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -246,15 +254,11 @@ impl AccountHarness for ApiHarness {
         let body = accept_invitation_body(&req);
         let token = req.invitation_token.as_str().to_owned();
         let url = format!("{}/invitations/{token}/accept", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
-            })?;
+        let response = send_with_retry(
+            || self.client.post(&url).json(&body),
+            "POST /invitations/{token}/accept",
+        )
+        .await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -296,17 +300,6 @@ impl AccountHarness for ApiHarness {
         &mut self,
         requests: Vec<AcceptInvitationRequest>,
     ) -> Vec<HarnessResult<HarnessAcceptance>> {
-        // Fan out via `tokio::spawn` so each acceptance issues its own
-        // POST against the live api server in parallel. Each task gets
-        // its own `reqwest::Client` (built fresh from a default
-        // configuration) so cookie state from one task doesn't bleed
-        // into another. The shared base URL is cheap to clone.
-        //
-        // Without this override, the trait's default impl would await
-        // each request serially — defeating the @falsification @api
-        // race scenario which is supposed to prove that
-        // `consume_invitation` serializes concurrent acceptances at
-        // the store layer (Codex P2 review on PR #133).
         let base_url = self.base_url.clone();
         let mut handles = Vec::with_capacity(requests.len());
         for req in requests {
@@ -316,8 +309,6 @@ impl AccountHarness for ApiHarness {
                 req.invitation_token.as_str()
             );
             let body = accept_invitation_body(&req);
-            // Each task builds its own client. cookie_store is irrelevant
-            // here — the race scenario doesn't reuse the session.
             let client = match Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {
@@ -435,14 +426,17 @@ impl ApiHarness {
         window_id: Option<&str>,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
         let url = format!("{}/accounts/active", self.base_url);
-        let mut request = self.client.get(&url);
-        if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
-            request = request.header(WINDOW_ID_HEADER, window_id);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("GET /accounts/active: {e}")))?;
+        let response = send_with_retry(
+            || {
+                let mut request = self.client.get(&url);
+                if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
+                    request = request.header(WINDOW_ID_HEADER, window_id);
+                }
+                request
+            },
+            "GET /accounts/active",
+        )
+        .await?;
         let status = response.status();
         let json: Value = response
             .json()
@@ -461,17 +455,20 @@ impl ApiHarness {
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
         let url = format!("{}/accounts/active/switch", self.base_url);
-        let mut request = self
-            .client
-            .post(&url)
-            .json(&SwitchActiveAccountRequest { target_account_id });
-        if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
-            request = request.header(WINDOW_ID_HEADER, window_id);
-        }
-        let response = request
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("POST /accounts/active/switch: {e}")))?;
+        let response = send_with_retry(
+            || {
+                let mut request = self
+                    .client
+                    .post(&url)
+                    .json(&SwitchActiveAccountRequest { target_account_id });
+                if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
+                    request = request.header(WINDOW_ID_HEADER, window_id);
+                }
+                request
+            },
+            "POST /accounts/active/switch",
+        )
+        .await?;
         let status = response.status();
         let json: Value = response
             .json()

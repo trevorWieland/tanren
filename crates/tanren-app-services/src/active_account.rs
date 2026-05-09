@@ -61,6 +61,11 @@ where
 {
     let signed_in_ids = dedupe_preserving_order(&context.signed_in_account_ids);
     let now = clock.now();
+    if !signed_in_ids.contains(&context.active_account_id) {
+        return Err(AppServiceError::InvalidInput(
+            "active account is not present in signed-in set".to_owned(),
+        ));
+    }
 
     if !signed_in_ids.contains(&request.target_account_id) {
         emit_switch_rejected(store, request.target_account_id, now).await?;
@@ -96,6 +101,11 @@ where
         if let Some(record) = store.find_account_by_id(*account_id).await? {
             accounts.push(account_view(&record));
         }
+    }
+    if accounts.len() != signed_in_ids.len() {
+        return Err(AppServiceError::InvalidInput(
+            "signed-in set contains unknown account id".to_owned(),
+        ));
     }
     Ok(accounts)
 }

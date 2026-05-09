@@ -32,6 +32,7 @@ const WINDOW_ID_MAX_LEN: usize = 128;
 enum WindowKeyError {
     InvalidUtf8,
     TooLong,
+    InvalidCharacter,
 }
 
 impl WindowKeyError {
@@ -39,6 +40,9 @@ impl WindowKeyError {
         match self {
             Self::InvalidUtf8 => "window id must be valid UTF-8",
             Self::TooLong => "window id must be 128 bytes or shorter",
+            Self::InvalidCharacter => {
+                "window id must use ASCII letters, numbers, '.', '_', '-', or ':'"
+            }
         }
     }
 }
@@ -445,8 +449,15 @@ fn resolve_window_key(headers: &HeaderMap) -> Result<Option<String>, WindowKeyEr
     if trimmed.len() > WINDOW_ID_MAX_LEN {
         return Err(WindowKeyError::TooLong);
     }
+    if !trimmed.bytes().all(is_valid_window_key_byte) {
+        return Err(WindowKeyError::InvalidCharacter);
+    }
 
     Ok(Some(trimmed.to_owned()))
+}
+
+fn is_valid_window_key_byte(byte: u8) -> bool {
+    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':')
 }
 
 fn missing_session_response() -> Response {

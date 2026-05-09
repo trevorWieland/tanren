@@ -5,7 +5,7 @@
 //! Split out of `lib.rs` so the api-app crate stays under the workspace
 //! 500-line line-budget.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
@@ -64,15 +64,10 @@ pub(crate) async fn install_cookie_session(
         .await
         .context("read signed_in_account_ids from session")?
         .unwrap_or_default();
-    if !signed_in_ids.contains(&write.account_id) {
-        signed_in_ids.push(write.account_id);
-    }
-    if signed_in_ids.len() > SESSION_SIGNED_IN_ACCOUNT_LIMIT {
-        let drop_count = signed_in_ids.len() - SESSION_SIGNED_IN_ACCOUNT_LIMIT;
-        signed_in_ids.drain(0..drop_count);
-    }
+    signed_in_ids.push(write.account_id);
+    let signed_in_ids = sanitize_signed_in_account_ids(signed_in_ids);
     session
-        .insert(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS, signed_in_ids)
+        .insert(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS, signed_in_ids.clone())
         .await
         .context("insert signed_in_account_ids into session")?;
 
@@ -81,17 +76,12 @@ pub(crate) async fn install_cookie_session(
         .await
         .context("read active_account_by_window from session")?
         .unwrap_or_default();
+    sanitize_active_by_window_map(&mut active_by_window, &signed_in_ids);
     active_by_window.insert(
         normalize_window_key(window_key).to_owned(),
         write.account_id,
     );
-    while active_by_window.len() > SESSION_WINDOW_MAP_LIMIT {
-        if let Some(oldest_key) = active_by_window.keys().next().cloned() {
-            active_by_window.remove(&oldest_key);
-        } else {
-            break;
-        }
-    }
+    trim_active_by_window_map(&mut active_by_window);
     session
         .insert(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW, active_by_window)
         .await
@@ -121,15 +111,17 @@ pub(crate) async fn read_session_account_context(
             signed_in_ids.push(account_id);
         }
     }
+    let signed_in_ids = sanitize_signed_in_account_ids(signed_in_ids);
     if signed_in_ids.is_empty() {
         return Ok(None);
     }
 
-    let active_by_window = session
+    let mut active_by_window = session
         .get::<BTreeMap<String, AccountId>>(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW)
         .await
         .context("read active_account_by_window from session")?
         .unwrap_or_default();
+    sanitize_active_by_window_map(&mut active_by_window, &signed_in_ids);
 
     let key = normalize_window_key(window_key);
     let active_for_window = active_by_window.get(key).copied();
@@ -158,22 +150,29 @@ pub(crate) async fn write_active_account_for_window(
         .await
         .context("insert account_id into session")?;
 
+    let mut signed_in_ids = session
+        .get::<Vec<AccountId>>(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS)
+        .await
+        .context("read signed_in_account_ids from session")?
+        .unwrap_or_default();
+    signed_in_ids.push(active_account_id);
+    let signed_in_ids = sanitize_signed_in_account_ids(signed_in_ids);
+    session
+        .insert(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS, signed_in_ids.clone())
+        .await
+        .context("insert signed_in_account_ids into session")?;
+
     let mut active_by_window = session
         .get::<BTreeMap<String, AccountId>>(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW)
         .await
         .context("read active_account_by_window from session")?
         .unwrap_or_default();
+    sanitize_active_by_window_map(&mut active_by_window, &signed_in_ids);
     active_by_window.insert(
         normalize_window_key(window_key).to_owned(),
         active_account_id,
     );
-    while active_by_window.len() > SESSION_WINDOW_MAP_LIMIT {
-        if let Some(oldest_key) = active_by_window.keys().next().cloned() {
-            active_by_window.remove(&oldest_key);
-        } else {
-            break;
-        }
-    }
+    trim_active_by_window_map(&mut active_by_window);
     session
         .insert(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW, active_by_window)
         .await
@@ -186,6 +185,40 @@ fn normalize_window_key(window_key: Option<&str>) -> &str {
         .map(str::trim)
         .filter(|value| !value.is_empty())
         .unwrap_or(SESSION_DEFAULT_WINDOW_KEY)
+}
+
+fn sanitize_signed_in_account_ids(ids: Vec<AccountId>) -> Vec<AccountId> {
+    let mut deduped = Vec::with_capacity(ids.len());
+    let mut seen = HashSet::new();
+    for account_id in ids {
+        if seen.insert(account_id) {
+            deduped.push(account_id);
+        }
+    }
+    if deduped.len() > SESSION_SIGNED_IN_ACCOUNT_LIMIT {
+        let drop_count = deduped.len() - SESSION_SIGNED_IN_ACCOUNT_LIMIT;
+        deduped.drain(0..drop_count);
+    }
+    deduped
+}
+
+fn sanitize_active_by_window_map(
+    active_by_window: &mut BTreeMap<String, AccountId>,
+    signed_in_ids: &[AccountId],
+) {
+    let signed_in = signed_in_ids.iter().copied().collect::<HashSet<_>>();
+    active_by_window.retain(|_, account_id| signed_in.contains(account_id));
+    trim_active_by_window_map(active_by_window);
+}
+
+fn trim_active_by_window_map(active_by_window: &mut BTreeMap<String, AccountId>) {
+    while active_by_window.len() > SESSION_WINDOW_MAP_LIMIT {
+        if let Some(oldest_key) = active_by_window.keys().next().cloned() {
+            active_by_window.remove(&oldest_key);
+        } else {
+            break;
+        }
+    }
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships
