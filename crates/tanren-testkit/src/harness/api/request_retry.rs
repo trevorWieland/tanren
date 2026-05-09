@@ -12,7 +12,7 @@ pub(super) async fn send(
     url: &str,
     operation: &str,
 ) -> HarnessResult<Response> {
-    send_once(operation, || client.request(method.clone(), url)).await
+    execute_with_retry(operation, || client.request(method.clone(), url)).await
 }
 
 pub(super) async fn send_get_with_retry(
@@ -30,17 +30,7 @@ pub(super) async fn send_json<T: serde::Serialize + ?Sized>(
     body: &T,
     operation: &str,
 ) -> HarnessResult<Response> {
-    send_once(operation, || client.request(method.clone(), url).json(body)).await
-}
-
-async fn send_once<F>(operation: &str, mut build_request: F) -> HarnessResult<Response>
-where
-    F: FnMut() -> RequestBuilder,
-{
-    build_request()
-        .send()
-        .await
-        .map_err(|error| HarnessError::Transport(format!("{operation}: {error}")))
+    execute_with_retry(operation, || client.request(method.clone(), url).json(body)).await
 }
 
 async fn execute_with_retry<F>(operation: &str, mut build_request: F) -> HarnessResult<Response>
