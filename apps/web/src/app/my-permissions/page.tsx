@@ -162,43 +162,25 @@ function ScopeCard({
   );
 }
 
-function mergePermissionPages(
+interface PermissionPageView {
+  pageNumber: number;
+  response: MyPermissionsResponse;
+  organizationScopes: Extract<PermissionScopeView, { kind: "organization" }>[];
+  projectScopes: Extract<PermissionScopeView, { kind: "project" }>[];
+}
+
+function permissionPageViews(
   pages: MyPermissionsResponse[],
-): MyPermissionsResponse | null {
-  const latest = pages.at(-1);
-  if (!latest) {
-    return null;
-  }
-
-  const organizationMap = new Map<string, MyPermissionEntry[]>();
-  const projectMap = new Map<string, MyPermissionEntry[]>();
-  for (const page of pages) {
-    for (const section of page.organizations) {
-      const existing = organizationMap.get(section.org_id) ?? [];
-      existing.push(...section.permissions);
-      organizationMap.set(section.org_id, existing);
-    }
-    for (const section of page.projects) {
-      const existing = projectMap.get(section.project_id) ?? [];
-      existing.push(...section.permissions);
-      projectMap.set(section.project_id, existing);
-    }
-  }
-
-  return {
-    page: latest.page,
-    freshness: latest.freshness,
-    organizations: [...organizationMap.entries()].map(
-      ([org_id, permissions]) => ({
-        org_id,
-        permissions,
-      }),
-    ),
-    projects: [...projectMap.entries()].map(([project_id, permissions]) => ({
-      project_id,
-      permissions,
-    })),
-  };
+): PermissionPageView[] {
+  return pages.map((response, index) => {
+    const scopes = permissionScopes(response);
+    return {
+      pageNumber: index + 1,
+      response,
+      organizationScopes: scopes.filter(isOrganizationScope),
+      projectScopes: scopes.filter(isProjectScope),
+    };
+  });
 }
 
 function cursorOrNone(cursor: null | string | undefined): string {
@@ -223,12 +205,9 @@ export default function MyPermissionsPage(): ReactNode {
   const [loadMoreFailure, setLoadMoreFailure] = useState<AccountFailure | null>(
     null,
   );
-  const data = mergePermissionPages(pages);
-  const latestPage = pages.at(-1) ?? null;
+  const pageViews = permissionPageViews(pages);
+  const latestPage = pageViews.at(-1)?.response ?? null;
   const nextCursor = latestPage?.page.next_cursor ?? null;
-  const scopes = data === null ? [] : permissionScopes(data);
-  const organizationScopes = scopes.filter(isOrganizationScope);
-  const projectScopes = scopes.filter(isProjectScope);
 
   useEffect(() => {
     let cancelled = false;
@@ -332,59 +311,22 @@ export default function MyPermissionsPage(): ReactNode {
             </p>
           )}
         </section>
-      ) : data === null ? (
+      ) : pageViews.length === 0 ? (
         <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm text-[--color-fg-muted]">
           {m.myPermissions_empty()}
         </section>
       ) : (
         <div className="space-y-6">
           <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm">
-            <h2 className="text-base font-semibold">
-              {m.myPermissions_metadataTitle()}
-            </h2>
-            <dl className="mt-3 grid gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataProjectionLabel()}
-              </dt>
-              <dd className="break-all">{data.freshness.projection}</dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataGeneratedAtLabel()}
-              </dt>
-              <dd>{new Date(data.freshness.generated_at).toLocaleString()}</dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataCheckpointLabel()}
-              </dt>
-              <dd className="break-all">
-                {cursorOrNone(data.freshness.checkpoint)}
-              </dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataStalenessLabel()}
-              </dt>
-              <dd>{data.freshness.staleness}</dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataLimitLabel()}
-              </dt>
-              <dd>{data.page.limit}</dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataReturnedLabel()}
-              </dt>
-              <dd>{data.page.returned}</dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataRequestCursorLabel()}
-              </dt>
-              <dd className="break-all">
-                {cursorOrNone(data.page.request_cursor)}
-              </dd>
-              <dt className="text-[--color-fg-muted]">
-                {m.myPermissions_metadataNextCursorLabel()}
-              </dt>
-              <dd className="break-all">
-                {cursorOrNone(data.page.next_cursor)}
-              </dd>
+            <dl className="grid gap-x-3 gap-y-1 sm:grid-cols-[auto_1fr]">
               <dt className="text-[--color-fg-muted]">
                 {m.myPermissions_metadataPagesLoadedLabel()}
               </dt>
-              <dd>{pages.length}</dd>
+              <dd>{pageViews.length}</dd>
+              <dt className="text-[--color-fg-muted]">
+                {m.myPermissions_metadataNextCursorLabel()}
+              </dt>
+              <dd className="break-all">{cursorOrNone(nextCursor)}</dd>
             </dl>
             {nextCursor ? (
               <div className="mt-4 space-y-2">
@@ -419,50 +361,110 @@ export default function MyPermissionsPage(): ReactNode {
             )}
           </section>
 
-          <div className="grid gap-6 lg:grid-cols-2">
-            <section className="space-y-3">
-              <h2 className="text-lg font-semibold">
-                {m.myPermissions_organizationsTitle()}
-              </h2>
-              {organizationScopes.length === 0 ? (
-                <p className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm text-[--color-fg-muted]">
-                  {m.myPermissions_organizationsEmpty()}
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {organizationScopes.map((scope) => (
-                    <ScopeCard
-                      key={`${scope.kind}-${scope.scope_id}`}
-                      scopeLabel={scopeDisplayLabel(scope)}
-                      scopeId={scope.scope_id}
-                      permissions={scope.permissions}
-                    />
-                  ))}
-                </div>
-              )}
-            </section>
+          <div className="space-y-6">
+            {pageViews.map((pageView) => (
+              <section
+                key={`permissions-page-${pageView.pageNumber}`}
+                data-testid={`permissions-page-${pageView.pageNumber}`}
+                className="space-y-4 rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4"
+              >
+                <h2 className="text-base font-semibold">
+                  {m.myPermissions_metadataTitle()} #{pageView.pageNumber}
+                </h2>
+                <dl className="grid gap-x-3 gap-y-1 text-sm sm:grid-cols-[auto_1fr]">
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataProjectionLabel()}
+                  </dt>
+                  <dd className="break-all">
+                    {pageView.response.freshness.projection}
+                  </dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataGeneratedAtLabel()}
+                  </dt>
+                  <dd>
+                    {new Date(
+                      pageView.response.freshness.generated_at,
+                    ).toLocaleString()}
+                  </dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataCheckpointLabel()}
+                  </dt>
+                  <dd className="break-all">
+                    {cursorOrNone(pageView.response.freshness.checkpoint)}
+                  </dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataStalenessLabel()}
+                  </dt>
+                  <dd>{pageView.response.freshness.staleness}</dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataLimitLabel()}
+                  </dt>
+                  <dd>{pageView.response.page.limit}</dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataReturnedLabel()}
+                  </dt>
+                  <dd>{pageView.response.page.returned}</dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataRequestCursorLabel()}
+                  </dt>
+                  <dd className="break-all">
+                    {cursorOrNone(pageView.response.page.request_cursor)}
+                  </dd>
+                  <dt className="text-[--color-fg-muted]">
+                    {m.myPermissions_metadataNextCursorLabel()}
+                  </dt>
+                  <dd className="break-all">
+                    {cursorOrNone(pageView.response.page.next_cursor)}
+                  </dd>
+                </dl>
 
-            <section className="space-y-3">
-              <h2 className="text-lg font-semibold">
-                {m.myPermissions_projectsTitle()}
-              </h2>
-              {projectScopes.length === 0 ? (
-                <p className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm text-[--color-fg-muted]">
-                  {m.myPermissions_projectsEmpty()}
-                </p>
-              ) : (
-                <div className="space-y-3">
-                  {projectScopes.map((scope) => (
-                    <ScopeCard
-                      key={`${scope.kind}-${scope.scope_id}`}
-                      scopeLabel={scopeDisplayLabel(scope)}
-                      scopeId={scope.scope_id}
-                      permissions={scope.permissions}
-                    />
-                  ))}
+                <div className="grid gap-6 lg:grid-cols-2">
+                  <section className="space-y-3">
+                    <h3 className="text-lg font-semibold">
+                      {m.myPermissions_organizationsTitle()}
+                    </h3>
+                    {pageView.organizationScopes.length === 0 ? (
+                      <p className="rounded-md border border-[--color-border] bg-[--color-bg-elevated] p-4 text-sm text-[--color-fg-muted]">
+                        {m.myPermissions_organizationsEmpty()}
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {pageView.organizationScopes.map((scope) => (
+                          <ScopeCard
+                            key={`${scope.kind}-${scope.scope_id}`}
+                            scopeLabel={scopeDisplayLabel(scope)}
+                            scopeId={scope.scope_id}
+                            permissions={scope.permissions}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
+
+                  <section className="space-y-3">
+                    <h3 className="text-lg font-semibold">
+                      {m.myPermissions_projectsTitle()}
+                    </h3>
+                    {pageView.projectScopes.length === 0 ? (
+                      <p className="rounded-md border border-[--color-border] bg-[--color-bg-elevated] p-4 text-sm text-[--color-fg-muted]">
+                        {m.myPermissions_projectsEmpty()}
+                      </p>
+                    ) : (
+                      <div className="space-y-3">
+                        {pageView.projectScopes.map((scope) => (
+                          <ScopeCard
+                            key={`${scope.kind}-${scope.scope_id}`}
+                            scopeLabel={scopeDisplayLabel(scope)}
+                            scopeId={scope.scope_id}
+                            permissions={scope.permissions}
+                          />
+                        ))}
+                      </div>
+                    )}
+                  </section>
                 </div>
-              )}
-            </section>
+              </section>
+            ))}
           </div>
         </div>
       )}
