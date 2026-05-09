@@ -121,9 +121,36 @@ impl AccountHarness for TuiHarness {
 
     async fn get_deployment_posture(
         &mut self,
+        _actor: AccountId,
         scope: DeploymentPostureScope,
     ) -> HarnessResult<Option<HarnessPostureView>> {
-        self.inner.get_deployment_posture(scope).await
+        let active_account = self.active_account.ok_or(HarnessError::FailureCode {
+            code: "permission_denied".to_owned(),
+            summary: "sign up, sign in, or accept invitation before reading deployment posture"
+                .to_owned(),
+        })?;
+
+        let DeploymentPostureScope::Account { account_id } = scope else {
+            return Err(HarnessError::FailureCode {
+                code: "permission_denied".to_owned(),
+                summary: "tui posture reads are restricted to the active account scope".to_owned(),
+            });
+        };
+        if account_id != active_account {
+            return Err(HarnessError::FailureCode {
+                code: "permission_denied".to_owned(),
+                summary: "tui posture reads must target the active account scope".to_owned(),
+            });
+        }
+
+        self.inner
+            .get_deployment_posture(
+                active_account,
+                DeploymentPostureScope::Account {
+                    account_id: active_account,
+                },
+            )
+            .await
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {

@@ -255,16 +255,20 @@ impl Handlers {
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError`] if the persistence query fails.
+    /// Returns [`deployment_posture::SetDeploymentPostureError::Contract`]
+    /// for permission denies and other contract-layer rejects;
+    /// [`deployment_posture::SetDeploymentPostureError::Store`] for
+    /// unexpected persistence failures.
     pub async fn deployment_posture<S>(
         &self,
         store: &S,
+        actor: AccountId,
         scope: DeploymentPostureScope,
-    ) -> Result<CurrentDeploymentPostureResponse, StoreError>
+    ) -> Result<CurrentDeploymentPostureResponse, deployment_posture::SetDeploymentPostureError>
     where
         S: DeploymentPostureStore + ?Sized,
     {
-        deployment_posture::deployment_posture(store, scope).await
+        deployment_posture::deployment_posture(store, actor, scope).await
     }
 }
 

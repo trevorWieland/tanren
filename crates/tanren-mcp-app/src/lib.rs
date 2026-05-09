@@ -154,15 +154,40 @@ impl TanrenMcp {
     )]
     async fn deployment_posture_get(
         &self,
+        request_context: RequestContext<rmcp::RoleServer>,
         Parameters(scope): Parameters<DeploymentPostureScope>,
     ) -> Result<CallToolResult, McpError> {
+        let Some(actor) = actor_from_principal(&request_context) else {
+            return Ok(permission_denied_result(
+                DeploymentPostureFailureReason::PermissionDenied.summary(),
+            ));
+        };
         match self
             .handlers
-            .deployment_posture(self.store.as_ref(), scope)
+            .deployment_posture(self.store.as_ref(), actor, scope)
             .await
         {
             Ok(current) => Ok(success(&current)),
-            Err(err) => Ok(internal_error_result(&format!("{err}"))),
+            Err(err) => {
+                if let Some(failure) = err.contract_failure() {
+                    tracing::warn!(
+                        target: "tanren_mcp",
+                        actor_id = %actor,
+                        scope = ?scope,
+                        failure_reason = failure.reason.code(),
+                        "deployment posture read denied"
+                    );
+                    return Ok(map_posture_failure(&err));
+                }
+                tracing::error!(
+                    target: "tanren_mcp",
+                    error = %err,
+                    actor_id = %actor,
+                    scope = ?scope,
+                    "deployment posture read store error"
+                );
+                Ok(internal_error_result(""))
+            }
         }
     }
 
@@ -177,7 +202,7 @@ impl TanrenMcp {
     ) -> Result<CallToolResult, McpError> {
         let Some(actor) = actor_from_principal(&request_context) else {
             return Ok(permission_denied_result(
-                "Authenticated MCP principal required for deployment_posture.set.",
+                DeploymentPostureFailureReason::PermissionDenied.summary(),
             ));
         };
         match self

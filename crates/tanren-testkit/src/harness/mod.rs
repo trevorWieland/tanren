@@ -280,8 +280,14 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     ) -> HarnessResult<HarnessPostureView>;
 
     /// Read the currently recorded deployment posture for `scope`.
+    ///
+    /// `actor` is the caller account for transports that surface an
+    /// explicit actor id (for example in-process). Session-based
+    /// transports (for example API and CLI) ignore the parameter and use
+    /// the authenticated session context.
     async fn get_deployment_posture(
         &mut self,
+        actor: AccountId,
         scope: DeploymentPostureScope,
     ) -> HarnessResult<Option<HarnessPostureView>>;
 

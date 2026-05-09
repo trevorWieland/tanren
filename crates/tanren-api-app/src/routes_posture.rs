@@ -44,6 +44,8 @@ pub(crate) async fn list_deployment_postures_route(
     ),
     responses(
         (status = 200, body = CurrentDeploymentPostureResponse, description = "Current posture for the scope"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 404, body = AccountFailureBody, description = "scope_not_found"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
         (status = 500, body = AccountFailureBody, description = "internal_error"),
     ),
@@ -51,8 +53,13 @@ pub(crate) async fn list_deployment_postures_route(
 )]
 pub(crate) async fn get_deployment_posture_route(
     State(state): State<AppState>,
+    session: Session,
     Path((scope_kind, scope_id)): Path<(String, String)>,
 ) -> Response {
+    let actor = match actor_from_session(&session).await {
+        Ok(actor) => actor,
+        Err(response) => return response,
+    };
     let parsed_scope = match parse_scope(&scope_kind, &scope_id) {
         Ok(scope) => scope,
         Err(response) => return *response,
@@ -60,12 +67,28 @@ pub(crate) async fn get_deployment_posture_route(
 
     match state
         .handlers
-        .deployment_posture(state.store.as_ref(), parsed_scope)
+        .deployment_posture(state.store.as_ref(), actor, parsed_scope)
         .await
     {
         Ok(current) => Json(current).into_response(),
         Err(err) => {
-            tracing::error!(target: "tanren_api", error = %err, "store error");
+            if let Some(failure) = err.contract_failure() {
+                tracing::warn!(
+                    target: "tanren_api",
+                    actor_id = %actor,
+                    scope = ?parsed_scope,
+                    failure_reason = failure.reason.code(),
+                    "deployment posture read denied"
+                );
+                return map_posture_error(&err);
+            }
+            tracing::error!(
+                target: "tanren_api",
+                error = %err,
+                actor_id = %actor,
+                scope = ?parsed_scope,
+                "deployment posture read store error"
+            );
             posture_internal_error_response()
         }
     }
@@ -131,9 +154,15 @@ fn permission_denied_response() -> Response {
 fn parse_scope(scope_kind: &str, scope_id: &str) -> Result<DeploymentPostureScope, Box<Response>> {
     let scope_kind = ScopeKind::parse(scope_kind)?;
     let parsed_uuid = Uuid::parse_str(scope_id).map_err(|err| {
+        tracing::warn!(
+            target: "tanren_api",
+            raw_scope_id = scope_id,
+            parse_error = %err,
+            "invalid deployment posture scope id"
+        );
         Box::new(posture_failure_response(
             DeploymentPostureFailureReason::ValidationFailed,
-            Some(&format!("Invalid scope_id `{scope_id}`: {err}")),
+            None,
         ))
     })?;
     Ok(scope_kind.into_scope(parsed_uuid))
@@ -152,12 +181,17 @@ impl ScopeKind {
             "account" => Ok(Self::Account),
             "project" => Ok(Self::Project),
             "installation" => Ok(Self::Installation),
-            other => Err(Box::new(posture_failure_response(
-                DeploymentPostureFailureReason::ValidationFailed,
-                Some(&format!(
-                    "Invalid scope_kind `{other}`. Supported values: account, project, installation."
-                )),
-            ))),
+            other => {
+                tracing::warn!(
+                    target: "tanren_api",
+                    raw_scope_kind = other,
+                    "invalid deployment posture scope kind"
+                );
+                Err(Box::new(posture_failure_response(
+                    DeploymentPostureFailureReason::ValidationFailed,
+                    None,
+                )))
+            }
         }
     }
 

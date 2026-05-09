@@ -13,7 +13,7 @@ use tanren_contract::{
 use tanren_identity_policy::AccountId;
 use tanren_policy::{
     Decision, DeploymentPosturePolicyInput, DeploymentPosturePolicyScope,
-    evaluate_deployment_posture_management,
+    evaluate_deployment_posture_management, evaluate_deployment_posture_read,
 };
 use tanren_store::{
     DeploymentPostureStore, NewDeploymentPosture, ResolvedDeploymentPostureScope, StoreError,
@@ -125,7 +125,7 @@ where
         })
     {
         return Err(SetDeploymentPostureError::Contract {
-            failure: permission_denied(actor, scope_from_store(resolved_scope.as_scope())),
+            failure: permission_denied(),
         });
     }
 
@@ -162,12 +162,31 @@ where
 /// Read the currently recorded posture view for a scope, if present.
 pub async fn deployment_posture<S>(
     store: &S,
+    actor: AccountId,
     scope: DeploymentPostureScope,
-) -> Result<CurrentDeploymentPostureResponse, StoreError>
+) -> Result<CurrentDeploymentPostureResponse, SetDeploymentPostureError>
 where
     S: DeploymentPostureStore + ?Sized,
 {
-    let row = store.get_deployment_posture(scope_to_store(scope)).await?;
+    let resolved_scope = store
+        .resolve_deployment_posture_scope(scope_to_store(scope))
+        .await?
+        .ok_or_else(|| SetDeploymentPostureError::Contract {
+            failure: scope_not_found(scope),
+        })?;
+
+    if let Decision::Deny(_) = evaluate_deployment_posture_read(DeploymentPosturePolicyInput {
+        actor,
+        scope: policy_scope_from_resolved(resolved_scope),
+    }) {
+        return Err(SetDeploymentPostureError::Contract {
+            failure: permission_denied(),
+        });
+    }
+
+    let row = store
+        .get_deployment_posture(resolved_scope.as_scope())
+        .await?;
     Ok(CurrentDeploymentPostureResponse {
         current: row.map(|stored| {
             to_read_model(
@@ -178,22 +197,21 @@ where
     })
 }
 
-fn permission_denied(
-    actor: AccountId,
-    scope: DeploymentPostureScope,
-) -> DeploymentPostureContractFailure {
+fn permission_denied() -> DeploymentPostureContractFailure {
     DeploymentPostureContractFailure {
         reason: DeploymentPostureFailureReason::PermissionDenied,
-        detail: format!(
-            "Actor {actor} may only change their own account-scope deployment posture; requested scope was {scope:?}."
-        ),
+        detail: DeploymentPostureFailureReason::PermissionDenied
+            .summary()
+            .to_owned(),
     }
 }
 
-fn scope_not_found(scope: DeploymentPostureScope) -> DeploymentPostureContractFailure {
+fn scope_not_found(_scope: DeploymentPostureScope) -> DeploymentPostureContractFailure {
     DeploymentPostureContractFailure {
         reason: DeploymentPostureFailureReason::ScopeNotFound,
-        detail: format!("Deployment posture scope {scope:?} does not exist."),
+        detail: DeploymentPostureFailureReason::ScopeNotFound
+            .summary()
+            .to_owned(),
     }
 }
 

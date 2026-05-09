@@ -264,6 +264,7 @@ impl AccountHarness for CliHarness {
 
     async fn get_deployment_posture(
         &mut self,
+        _actor: AccountId,
         scope: DeploymentPostureScope,
     ) -> HarnessResult<Option<HarnessPostureView>> {
         let (scope_kind, scope_id) = scope_args(scope);

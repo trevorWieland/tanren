@@ -330,11 +330,12 @@ async fn run_posture(action: PostureAction) -> Result<()> {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
+            let actor = resolve_actor_from_session(&handlers, &store).await?;
             let scope = parse_scope(scope_kind, &scope_id)?;
             let current = handlers
-                .deployment_posture(&store, scope)
+                .deployment_posture(&store, actor, scope)
                 .await
-                .context("read deployment posture")?;
+                .map_err(|err| posture_error(&err))?;
             let payload =
                 serde_json::to_value(current).context("encode current posture response")?;
             write_json_line(&payload)?;
@@ -375,8 +376,12 @@ async fn resolve_actor_from_session(handlers: &Handlers, store: &Store) -> Resul
 }
 
 fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureScope> {
-    let parsed_uuid = Uuid::parse_str(scope_id)
-        .with_context(|| format!("parse --scope-id `{scope_id}` as UUID"))?;
+    let parsed_uuid = Uuid::parse_str(scope_id).map_err(|_| {
+        anyhow::anyhow!(
+            "error: validation_failed — {}",
+            DeploymentPostureFailureReason::ValidationFailed.summary()
+        )
+    })?;
     let scope = match kind {
         ScopeKindArg::Account => DeploymentPostureScope::Account {
             account_id: AccountId::from(parsed_uuid),

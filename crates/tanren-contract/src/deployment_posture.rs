@@ -320,7 +320,7 @@ pub struct DeploymentPostureFailureBody {
 pub enum DeploymentPostureFailureReason {
     /// The provided posture wire value is not supported.
     UnsupportedPosture,
-    /// Authenticated actor does not have permission to change posture.
+    /// Authenticated actor does not have permission to access posture.
     PermissionDenied,
     /// The requested scope identifier does not exist.
     ScopeNotFound,
@@ -368,7 +368,7 @@ impl DeploymentPostureFailureReason {
                 "The provided deployment posture is unsupported. Use hosted, self_hosted, or local_only."
             }
             Self::PermissionDenied => {
-                "The authenticated actor does not have permission to change deployment posture for this scope."
+                "The authenticated actor does not have permission to access deployment posture for this scope."
             }
             Self::ScopeNotFound => "The requested posture scope does not exist.",
             Self::ValidationFailed => {

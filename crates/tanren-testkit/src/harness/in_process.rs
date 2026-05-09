@@ -157,13 +157,14 @@ impl AccountHarness for InProcessHarness {
 
     async fn get_deployment_posture(
         &mut self,
+        actor: tanren_identity_policy::AccountId,
         scope: DeploymentPostureScope,
     ) -> HarnessResult<Option<HarnessPostureView>> {
         self.handlers
-            .deployment_posture(&self.store, scope)
+            .deployment_posture(&self.store, actor, scope)
             .await
             .map(|current| current.current.map(Into::into))
-            .map_err(|err| HarnessError::Transport(format!("deployment_posture: {err}")))
+            .map_err(|err| translate_posture_error(&err))
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {

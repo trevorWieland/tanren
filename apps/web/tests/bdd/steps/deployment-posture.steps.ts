@@ -143,6 +143,30 @@ async function setPosture(
   postureActor.lastFailureCode = failure.code;
 }
 
+async function readPosture(
+  page: Page,
+  world: WebWorld,
+  accountId: string,
+): Promise<void> {
+  const postureActor = actor(world, "actor");
+  const state = stateFor(world);
+  const response = await browserJsonRequest(
+    page,
+    "GET",
+    `/deployment-postures/account/${encodeURIComponent(accountId)}`,
+  );
+  if (response.ok) {
+    delete state.lastFailureSummary;
+    postureActor.hasSession = true;
+    delete postureActor.lastFailureCode;
+    return;
+  }
+  const failure = normalizeFailureBody(response.json, response.status);
+  state.lastFailureSummary = failure.summary;
+  postureActor.hasSession = false;
+  postureActor.lastFailureCode = failure.code;
+}
+
 async function seedActorWithPermission(
   page: Page,
   world: WebWorld,
@@ -287,6 +311,19 @@ When(
   "the actor sets deployment posture {string} for a missing account scope over web",
   async ({ page, world }, posture: string) => {
     await setPosture(page, world, posture, crypto.randomUUID());
+  },
+);
+
+When(
+  "the actor reads deployment posture for another account scope over web",
+  async ({ page, world }) => {
+    const state = stateFor(world);
+    if (!state.otherAccountId) {
+      throw new Error(
+        "other account id missing before unauthorized posture read",
+      );
+    }
+    await readPosture(page, world, state.otherAccountId);
   },
 );
 

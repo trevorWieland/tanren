@@ -91,6 +91,16 @@ async fn when_set_for_missing_scope(world: &mut TanrenWorld, posture: String, in
     execute_set(world, &interface, "actor", actor_id, request).await;
 }
 
+#[when(expr = "the actor reads deployment posture for another account scope over {word}")]
+async fn when_get_for_another_scope(world: &mut TanrenWorld, interface: String) {
+    let actor_id = ensure_signed_in_actor(world, "actor").await;
+    let other_id = account_id_for(world, "other").await;
+    let scope = DeploymentPostureScope::Account {
+        account_id: other_id,
+    };
+    execute_get(world, &interface, "actor", actor_id, scope).await;
+}
+
 #[then(expr = "the {word} supported posture list includes capability summaries")]
 async fn then_supported_list_has_summaries(world: &mut TanrenWorld, interface: String) {
     let ctx = world.ensure_account_ctx().await;
@@ -154,14 +164,15 @@ async fn then_has_capability_summary(world: &mut TanrenWorld, interface: String)
 
 #[then(expr = "the recorded posture for the actor account over {word} is {string}")]
 async fn then_recorded_posture(world: &mut TanrenWorld, interface: String, posture: String) {
+    let actor_id = account_id_for(world, "actor").await;
     let scope = DeploymentPostureScope::Account {
-        account_id: account_id_for(world, "actor").await,
+        account_id: actor_id,
     };
     let ctx = world.ensure_account_ctx().await;
     assert_interface(ctx.harness.kind(), &interface);
     let current = ctx
         .harness
-        .get_deployment_posture(scope)
+        .get_deployment_posture(actor_id, scope)
         .await
         .expect("deployment posture should be readable");
     ctx.deployment_posture.last_get = Some(current.clone());
@@ -352,6 +363,30 @@ async fn execute_set(
         Ok(response) => {
             ctx.deployment_posture.last_set = Some(response);
             ctx.last_outcome = Some(HarnessOutcome::Other("deployment_posture_set".to_owned()));
+            entry.last_failure = None;
+            entry.last_failure_summary = None;
+        }
+        Err(err) => {
+            ctx.last_outcome = Some(record_failure(err, entry));
+        }
+    }
+}
+
+async fn execute_get(
+    world: &mut TanrenWorld,
+    interface: &str,
+    actor_label: &str,
+    actor_id: AccountId,
+    scope: DeploymentPostureScope,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    assert_interface(ctx.harness.kind(), interface);
+    let result = ctx.harness.get_deployment_posture(actor_id, scope).await;
+    let entry = ctx.actors.entry(actor_label.to_owned()).or_default();
+    match result {
+        Ok(current) => {
+            ctx.deployment_posture.last_get = Some(current);
+            ctx.last_outcome = Some(HarnessOutcome::Other("deployment_posture_get".to_owned()));
             entry.last_failure = None;
             entry.last_failure_summary = None;
         }

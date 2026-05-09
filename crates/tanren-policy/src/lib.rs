@@ -106,6 +106,15 @@ pub fn evaluate_deployment_posture_management(input: DeploymentPosturePolicyInpu
     }
 }
 
+/// Evaluate whether an actor may read deployment posture for a resolved scope.
+///
+/// Initial model: account owner only. The actor may read posture for their own
+/// account scope and is denied for all other scopes until grant models land.
+#[must_use]
+pub fn evaluate_deployment_posture_read(input: DeploymentPosturePolicyInput) -> Decision {
+    evaluate_deployment_posture_management(input)
+}
+
 /// Check whether runtime dispatch to the selected target is available under
 /// the supplied deployment posture.
 #[must_use]

@@ -30,6 +30,13 @@ Feature: Choose a deployment posture
       And the error summary is readable
 
     @falsification @api
+    Scenario: API denies reading another account's posture
+      Given a API account actor without posture permission
+      When the actor reads deployment posture for another account scope over API
+      Then the request fails with code "permission_denied"
+      And the error summary is readable
+
+    @falsification @api
     Scenario: API rejects an unsupported deployment posture value
       Given an API account actor with posture permission
       When the actor sets deployment posture "unsupported-value" for their account scope over API
@@ -63,6 +70,13 @@ Feature: Choose a deployment posture
     Scenario: Web denies changing another account's posture
       Given a web account actor without posture permission
       When the actor sets deployment posture "hosted" for another account scope over web
+      Then the request fails with code "permission_denied"
+      And the error summary is readable
+
+    @falsification @web
+    Scenario: Web denies reading another account's posture
+      Given a web account actor without posture permission
+      When the actor reads deployment posture for another account scope over web
       Then the request fails with code "permission_denied"
       And the error summary is readable
 
@@ -104,6 +118,13 @@ Feature: Choose a deployment posture
       And the error summary is readable
 
     @falsification @mcp
+    Scenario: MCP denies reading another account's posture
+      Given an MCP account actor without posture permission
+      When the actor reads deployment posture for another account scope over MCP
+      Then the request fails with code "permission_denied"
+      And the error summary is readable
+
+    @falsification @mcp
     Scenario: MCP rejects an unsupported deployment posture value
       Given an MCP account actor with posture permission
       When the actor sets deployment posture "unsupported-value" for their account scope over MCP
@@ -141,6 +162,13 @@ Feature: Choose a deployment posture
       And the error summary is readable
 
     @falsification @cli
+    Scenario: CLI denies reading another account's posture
+      Given a CLI account actor without posture permission
+      When the actor reads deployment posture for another account scope over CLI
+      Then the request fails with code "permission_denied"
+      And the error summary is readable
+
+    @falsification @cli
     Scenario: CLI rejects an unsupported deployment posture value
       Given a CLI account actor with posture permission
       When the actor sets deployment posture "unsupported-value" for their account scope over CLI
@@ -174,6 +202,13 @@ Feature: Choose a deployment posture
     Scenario: TUI denies changing another account's posture
       Given a TUI account actor without posture permission
       When the actor sets deployment posture "hosted" for another account scope over TUI
+      Then the request fails with code "permission_denied"
+      And the error summary is readable
+
+    @falsification @tui
+    Scenario: TUI denies reading another account's posture
+      Given a TUI account actor without posture permission
+      When the actor reads deployment posture for another account scope over TUI
       Then the request fails with code "permission_denied"
       And the error summary is readable
 

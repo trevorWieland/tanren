@@ -248,6 +248,7 @@ impl AccountHarness for McpHarness {
 
     async fn get_deployment_posture(
         &mut self,
+        _actor: AccountId,
         scope: DeploymentPostureScope,
     ) -> HarnessResult<Option<HarnessPostureView>> {
         let body = serde_json::to_value(scope)

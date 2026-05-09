@@ -91,9 +91,10 @@ impl AccountHarness for WebHarness {
 
     async fn get_deployment_posture(
         &mut self,
+        actor: AccountId,
         scope: DeploymentPostureScope,
     ) -> HarnessResult<Option<HarnessPostureView>> {
-        self.inner.get_deployment_posture(scope).await
+        self.inner.get_deployment_posture(actor, scope).await
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
