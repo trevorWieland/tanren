@@ -803,19 +803,31 @@ ci:
         shift
         local start
         start="$(now_ms)"
-        local output
+        local output_file
+        output_file="$(mktemp -t tanren-ci-stage.XXXXXX)"
+        # Always clean up even if the stage command is interrupted.
+        trap 'rm -f "${output_file}"' RETURN
+        # Cap failure output for noisy stages; override with CI_STAGE_LOG_LINES.
+        local -i max_failure_lines
+        max_failure_lines="${CI_STAGE_LOG_LINES:-400}"
         echo "==> ${name}"
         set +e
-        output="$("$@" 2>&1)"
-        local status="$?"
+        "$@" >"${output_file}" 2>&1
+        local -i status="$?"
         set -e
         local elapsed="$(( $(now_ms) - start ))"
         if [[ "${status}" -eq 0 ]]; then
             echo "<== ${name} ok ($(fmt_duration "${elapsed}"))"
         else
-            echo "${output}"
+            if [[ "${max_failure_lines}" -gt 0 ]]; then
+                tail -n "${max_failure_lines}" "${output_file}"
+            else
+                cat "${output_file}"
+            fi
             echo "<== ${name} failed ($(fmt_duration "${elapsed}"))"
         fi
+        trap - RETURN
+        rm -f "${output_file}"
         return "${status}"
     }
 
