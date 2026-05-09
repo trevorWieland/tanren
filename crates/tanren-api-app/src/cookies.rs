@@ -16,6 +16,8 @@ use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, Session, SessionManagerLayer};
 use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
 
+use crate::window_context::WindowContextId;
+
 const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
 const SESSION_KEY_ACCOUNT: &str = "account_id";
@@ -48,7 +50,7 @@ pub(crate) struct SessionAccountContext {
 pub(crate) async fn install_cookie_session(
     session: &Session,
     write: &SessionWrite,
-    window_key: Option<&str>,
+    window_context: Option<WindowContextId>,
 ) -> Result<()> {
     session
         .insert(SESSION_KEY_ACCOUNT, write.account_id)
@@ -77,10 +79,7 @@ pub(crate) async fn install_cookie_session(
         .context("read active_account_by_window from session")?
         .unwrap_or_default();
     sanitize_active_by_window_map(&mut active_by_window, &signed_in_ids);
-    active_by_window.insert(
-        normalize_window_key(window_key).to_owned(),
-        write.account_id,
-    );
+    active_by_window.insert(normalize_window_key(window_context), write.account_id);
     trim_active_by_window_map(&mut active_by_window);
     session
         .insert(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW, active_by_window)
@@ -94,7 +93,7 @@ pub(crate) async fn install_cookie_session(
 /// scope. Returns `Ok(None)` when no account session is present.
 pub(crate) async fn read_session_account_context(
     session: &Session,
-    window_key: Option<&str>,
+    window_context: Option<WindowContextId>,
 ) -> Result<Option<SessionAccountContext>> {
     let active_account = session
         .get::<AccountId>(SESSION_KEY_ACCOUNT)
@@ -123,8 +122,8 @@ pub(crate) async fn read_session_account_context(
         .unwrap_or_default();
     sanitize_active_by_window_map(&mut active_by_window, &signed_in_ids);
 
-    let key = normalize_window_key(window_key);
-    let active_for_window = active_by_window.get(key).copied();
+    let key = normalize_window_key(window_context);
+    let active_for_window = active_by_window.get(&key).copied();
     let mut active_account_id = active_for_window
         .or(active_account)
         .unwrap_or_else(|| signed_in_ids[0]);
@@ -142,7 +141,7 @@ pub(crate) async fn read_session_account_context(
 /// Persist a successful active-account switch for one window scope.
 pub(crate) async fn write_active_account_for_window(
     session: &Session,
-    window_key: Option<&str>,
+    window_context: Option<WindowContextId>,
     active_account_id: AccountId,
 ) -> Result<()> {
     session
@@ -168,10 +167,7 @@ pub(crate) async fn write_active_account_for_window(
         .context("read active_account_by_window from session")?
         .unwrap_or_default();
     sanitize_active_by_window_map(&mut active_by_window, &signed_in_ids);
-    active_by_window.insert(
-        normalize_window_key(window_key).to_owned(),
-        active_account_id,
-    );
+    active_by_window.insert(normalize_window_key(window_context), active_account_id);
     trim_active_by_window_map(&mut active_by_window);
     session
         .insert(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW, active_by_window)
@@ -180,11 +176,11 @@ pub(crate) async fn write_active_account_for_window(
     Ok(())
 }
 
-fn normalize_window_key(window_key: Option<&str>) -> &str {
-    window_key
-        .map(str::trim)
-        .filter(|value| !value.is_empty())
-        .unwrap_or(SESSION_DEFAULT_WINDOW_KEY)
+fn normalize_window_key(window_context: Option<WindowContextId>) -> String {
+    window_context.map_or_else(
+        || SESSION_DEFAULT_WINDOW_KEY.to_owned(),
+        WindowContextId::as_session_key,
+    )
 }
 
 fn sanitize_signed_in_account_ids(ids: Vec<AccountId>) -> Vec<AccountId> {

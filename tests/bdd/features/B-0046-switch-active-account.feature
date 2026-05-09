@@ -22,9 +22,9 @@ Feature: Switch the active account
     @positive @api
     Scenario: API keeps per-window active selection independent
       Given alice holds two signed-in accounts via the api
-      When alice switches the active account to the first account in window "api-window-a" via the api
-      And alice switches the active account to the second account in window "api-window-b" via the api
-      Then alice sees different active accounts between windows "api-window-a" and "api-window-b" via the api
+      When alice switches the active account to the first account in window "11111111-1111-4111-8111-11111111111a" via the api
+      And alice switches the active account to the second account in window "11111111-1111-4111-8111-11111111111b" via the api
+      Then alice sees different active accounts between windows "11111111-1111-4111-8111-11111111111a" and "11111111-1111-4111-8111-11111111111b" via the api
 
     @falsification @api
     Scenario: API rejects switching to an unsigned account
@@ -34,11 +34,18 @@ Feature: Switch the active account
       And a "active_account_switch_rejected" event is recorded
 
     @falsification @api
+    Scenario: API rejects non-UUID window ids without mutating active state
+      Given alice holds two signed-in accounts via the api
+      When alice switches the active account to the second account in window "api-window-invalid" via the api
+      Then the request fails with code "validation_failed"
+      And alice sees the second account as active via the api
+
+    @falsification @api
     Scenario: API switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the api
-      When alice switches the active account to the first account in window "api-window-a" via the api
-      And alice switches the active account to the second account in window "api-window-b" via the api
-      Then alice sees window "api-window-a" stay on the first account after window "api-window-b" switched via the api
+      When alice switches the active account to the first account in window "11111111-1111-4111-8111-11111111111a" via the api
+      And alice switches the active account to the second account in window "11111111-1111-4111-8111-11111111111b" via the api
+      Then alice sees window "11111111-1111-4111-8111-11111111111a" stay on the first account after window "11111111-1111-4111-8111-11111111111b" switched via the api
 
   Rule: Web surface
 
@@ -54,9 +61,9 @@ Feature: Switch the active account
     @positive @web
     Scenario: Web keeps per-window active selection independent
       Given alice holds two signed-in accounts via the web
-      When alice switches the active account to the first account in window "web-window-a" via the web
-      And alice switches the active account to the second account in window "web-window-b" via the web
-      Then alice sees different active accounts between windows "web-window-a" and "web-window-b" via the web
+      When alice switches the active account to the first account in window "22222222-2222-4222-8222-22222222222a" via the web
+      And alice switches the active account to the second account in window "22222222-2222-4222-8222-22222222222b" via the web
+      Then alice sees different active accounts between windows "22222222-2222-4222-8222-22222222222a" and "22222222-2222-4222-8222-22222222222b" via the web
 
     @falsification @web
     Scenario: Web rejects switching to an unsigned account
@@ -67,9 +74,9 @@ Feature: Switch the active account
     @falsification @web
     Scenario: Web switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the web
-      When alice switches the active account to the first account in window "web-window-a" via the web
-      And alice switches the active account to the second account in window "web-window-b" via the web
-      Then alice sees window "web-window-a" stay on the first account after window "web-window-b" switched via the web
+      When alice switches the active account to the first account in window "22222222-2222-4222-8222-22222222222a" via the web
+      And alice switches the active account to the second account in window "22222222-2222-4222-8222-22222222222b" via the web
+      Then alice sees window "22222222-2222-4222-8222-22222222222a" stay on the first account after window "22222222-2222-4222-8222-22222222222b" switched via the web
 
   Rule: CLI surface
 
@@ -85,9 +92,9 @@ Feature: Switch the active account
     @positive @cli
     Scenario: CLI keeps per-window active selection independent
       Given alice holds two signed-in accounts via the cli
-      When alice switches the active account to the first account in window "cli-window-a" via the cli
-      And alice switches the active account to the second account in window "cli-window-b" via the cli
-      Then alice sees different active accounts between windows "cli-window-a" and "cli-window-b" via the cli
+      When alice switches the active account to the first account in window "33333333-3333-4333-8333-33333333333a" via the cli
+      And alice switches the active account to the second account in window "33333333-3333-4333-8333-33333333333b" via the cli
+      Then alice sees different active accounts between windows "33333333-3333-4333-8333-33333333333a" and "33333333-3333-4333-8333-33333333333b" via the cli
 
     @falsification @cli
     Scenario: CLI rejects switching to an unsigned account
@@ -98,9 +105,9 @@ Feature: Switch the active account
     @falsification @cli
     Scenario: CLI switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the cli
-      When alice switches the active account to the first account in window "cli-window-a" via the cli
-      And alice switches the active account to the second account in window "cli-window-b" via the cli
-      Then alice sees window "cli-window-a" stay on the first account after window "cli-window-b" switched via the cli
+      When alice switches the active account to the first account in window "33333333-3333-4333-8333-33333333333a" via the cli
+      And alice switches the active account to the second account in window "33333333-3333-4333-8333-33333333333b" via the cli
+      Then alice sees window "33333333-3333-4333-8333-33333333333a" stay on the first account after window "33333333-3333-4333-8333-33333333333b" switched via the cli
 
   Rule: MCP surface
 
@@ -116,9 +123,9 @@ Feature: Switch the active account
     @positive @mcp
     Scenario: MCP keeps per-window active selection independent
       Given alice holds two signed-in accounts via the mcp
-      When alice switches the active account to the first account in window "mcp-window-a" via the mcp
-      And alice switches the active account to the second account in window "mcp-window-b" via the mcp
-      Then alice sees different active accounts between windows "mcp-window-a" and "mcp-window-b" via the mcp
+      When alice switches the active account to the first account in window "44444444-4444-4444-8444-44444444444a" via the mcp
+      And alice switches the active account to the second account in window "44444444-4444-4444-8444-44444444444b" via the mcp
+      Then alice sees different active accounts between windows "44444444-4444-4444-8444-44444444444a" and "44444444-4444-4444-8444-44444444444b" via the mcp
 
     @falsification @mcp
     Scenario: MCP rejects switching to an unsigned account
@@ -129,9 +136,9 @@ Feature: Switch the active account
     @falsification @mcp
     Scenario: MCP switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the mcp
-      When alice switches the active account to the first account in window "mcp-window-a" via the mcp
-      And alice switches the active account to the second account in window "mcp-window-b" via the mcp
-      Then alice sees window "mcp-window-a" stay on the first account after window "mcp-window-b" switched via the mcp
+      When alice switches the active account to the first account in window "44444444-4444-4444-8444-44444444444a" via the mcp
+      And alice switches the active account to the second account in window "44444444-4444-4444-8444-44444444444b" via the mcp
+      Then alice sees window "44444444-4444-4444-8444-44444444444a" stay on the first account after window "44444444-4444-4444-8444-44444444444b" switched via the mcp
 
   Rule: TUI surface
 
@@ -147,9 +154,9 @@ Feature: Switch the active account
     @positive @tui
     Scenario: TUI keeps per-window active selection independent
       Given alice holds two signed-in accounts via the tui
-      When alice switches the active account to the first account in window "tui-window-a" via the tui
-      And alice switches the active account to the second account in window "tui-window-b" via the tui
-      Then alice sees different active accounts between windows "tui-window-a" and "tui-window-b" via the tui
+      When alice switches the active account to the first account in window "55555555-5555-4555-8555-55555555555a" via the tui
+      And alice switches the active account to the second account in window "55555555-5555-4555-8555-55555555555b" via the tui
+      Then alice sees different active accounts between windows "55555555-5555-4555-8555-55555555555a" and "55555555-5555-4555-8555-55555555555b" via the tui
 
     @falsification @tui
     Scenario: TUI rejects switching to an unsigned account
@@ -160,6 +167,6 @@ Feature: Switch the active account
     @falsification @tui
     Scenario: TUI switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the tui
-      When alice switches the active account to the first account in window "tui-window-a" via the tui
-      And alice switches the active account to the second account in window "tui-window-b" via the tui
-      Then alice sees window "tui-window-a" stay on the first account after window "tui-window-b" switched via the tui
+      When alice switches the active account to the first account in window "55555555-5555-4555-8555-55555555555a" via the tui
+      And alice switches the active account to the second account in window "55555555-5555-4555-8555-55555555555b" via the tui
+      Then alice sees window "55555555-5555-4555-8555-55555555555a" stay on the first account after window "55555555-5555-4555-8555-55555555555b" switched via the tui

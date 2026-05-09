@@ -435,7 +435,8 @@ for the caller's current window scope.
 For cookie-backed web and API traffic, callers may include
 `x-tanren-window-id` so concurrent windows keep independent active
 account state. Missing or blank window IDs fall back to a default window
-scope; non-UTF8 or overlong values fail with `validation_failed`.
+scope; present values must be UUID strings. Non-UTF8, overlong, or
+non-UUID values fail with `validation_failed`.
 
 Switch requests are constrained to the caller's signed-in account set.
 Requests that target an account outside that set fail with

@@ -24,28 +24,7 @@ use crate::cookies::{
     write_active_account_for_window,
 };
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
-
-const WINDOW_ID_HEADER: &str = "x-tanren-window-id";
-const WINDOW_ID_MAX_LEN: usize = 128;
-
-#[derive(Debug, Clone, Copy)]
-enum WindowKeyError {
-    InvalidUtf8,
-    TooLong,
-    InvalidCharacter,
-}
-
-impl WindowKeyError {
-    const fn summary(self) -> &'static str {
-        match self {
-            Self::InvalidUtf8 => "window id must be valid UTF-8",
-            Self::TooLong => "window id must be 128 bytes or shorter",
-            Self::InvalidCharacter => {
-                "window id must use ASCII letters, numbers, '.', '_', '-', or ':'"
-            }
-        }
-    }
-}
+use crate::window_context::resolve_window_context;
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -158,7 +137,7 @@ pub(crate) async fn sign_up_route(
     headers: HeaderMap,
     ValidatedJson(request): ValidatedJson<SignUpRequest>,
 ) -> Response {
-    let window_key = match resolve_window_key(&headers) {
+    let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
         Err(err) => return window_id_validation_error(err.summary()),
     };
@@ -168,7 +147,7 @@ pub(crate) async fn sign_up_route(
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
-            match install_cookie_session(&session, &write, window_key.as_deref()).await {
+            match install_cookie_session(&session, &write, window_context).await {
                 Ok(()) => (
                     StatusCode::CREATED,
                     Json(SignUpResponseCookie {
@@ -201,7 +180,7 @@ pub(crate) async fn sign_in_route(
     headers: HeaderMap,
     ValidatedJson(request): ValidatedJson<SignInRequest>,
 ) -> Response {
-    let window_key = match resolve_window_key(&headers) {
+    let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
         Err(err) => return window_id_validation_error(err.summary()),
     };
@@ -211,7 +190,7 @@ pub(crate) async fn sign_in_route(
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
-            match install_cookie_session(&session, &write, window_key.as_deref()).await {
+            match install_cookie_session(&session, &write, window_context).await {
                 Ok(()) => (
                     StatusCode::OK,
                     Json(SignInResponseCookie {
@@ -249,7 +228,7 @@ pub(crate) async fn accept_invitation_route(
     Path(token): Path<String>,
     ValidatedJson(body): ValidatedJson<AcceptInvitationBody>,
 ) -> Response {
-    let window_key = match resolve_window_key(&headers) {
+    let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
         Err(err) => return window_id_validation_error(err.summary()),
     };
@@ -282,7 +261,7 @@ pub(crate) async fn accept_invitation_route(
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
-            match install_cookie_session(&session, &write, window_key.as_deref()).await {
+            match install_cookie_session(&session, &write, window_context).await {
                 Ok(()) => (
                     StatusCode::CREATED,
                     Json(AcceptInvitationResponseCookie {
@@ -314,12 +293,11 @@ pub(crate) async fn list_active_accounts_route(
     session: Session,
     headers: HeaderMap,
 ) -> Response {
-    let window_key = match resolve_window_key(&headers) {
+    let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
         Err(err) => return window_id_validation_error(err.summary()),
     };
-    let session_context = match read_session_account_context(&session, window_key.as_deref()).await
-    {
+    let session_context = match read_session_account_context(&session, window_context).await {
         Ok(Some(context)) => context,
         Ok(None) => return missing_session_response(),
         Err(err) => return session_read_error(&err),
@@ -362,12 +340,11 @@ pub(crate) async fn switch_active_account_route(
     headers: HeaderMap,
     ValidatedJson(request): ValidatedJson<SwitchActiveAccountRequest>,
 ) -> Response {
-    let window_key = match resolve_window_key(&headers) {
+    let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
         Err(err) => return window_id_validation_error(err.summary()),
     };
-    let session_context = match read_session_account_context(&session, window_key.as_deref()).await
-    {
+    let session_context = match read_session_account_context(&session, window_context).await {
         Ok(Some(context)) => context,
         Ok(None) => return missing_session_response(),
         Err(err) => return session_read_error(&err),
@@ -386,7 +363,7 @@ pub(crate) async fn switch_active_account_route(
         Ok(response) => {
             if let Err(err) = write_active_account_for_window(
                 &session,
-                window_key.as_deref(),
+                window_context,
                 response.active_account_id,
             )
             .await
@@ -432,32 +409,6 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(switch_active_account_route))
         .routes(routes!(revoke_route))
         .with_state(state)
-}
-
-fn resolve_window_key(headers: &HeaderMap) -> Result<Option<String>, WindowKeyError> {
-    let Some(value) = headers.get(WINDOW_ID_HEADER) else {
-        return Ok(None);
-    };
-    let Ok(value) = value.to_str() else {
-        return Err(WindowKeyError::InvalidUtf8);
-    };
-
-    let trimmed = value.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    if trimmed.len() > WINDOW_ID_MAX_LEN {
-        return Err(WindowKeyError::TooLong);
-    }
-    if !trimmed.bytes().all(is_valid_window_key_byte) {
-        return Err(WindowKeyError::InvalidCharacter);
-    }
-
-    Ok(Some(trimmed.to_owned()))
-}
-
-fn is_valid_window_key_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || matches!(byte, b'.' | b'_' | b'-' | b':')
 }
 
 fn missing_session_response() -> Response {

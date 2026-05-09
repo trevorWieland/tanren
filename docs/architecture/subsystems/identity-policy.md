@@ -259,6 +259,9 @@ an unsigned target are denied with
 
 Window-scoped active-account state is independent: switching in one window or
 session key must not leak into another window's actor context.
+For web/API cookie sessions, window selectors are opaque UUID header values
+validated server-side before they can address session-scoped active-account
+state.
 
 ## Worker-Scoped Access
 
