@@ -11,6 +11,12 @@ adopting repository.
 
 ## Current `tanren-cli install` Surface
 
+Delivery architecture is the source of truth for install lifecycle and
+manifest contract details. Keep this section as a quick summary aligned to
+`docs/architecture/delivery.md` (`Generated Repository Assets`,
+`Install Preview`, `Upgrades And Migrations`, `Stack Uninstall`,
+`Repo Uninstall`).
+
 `tanren-cli install` currently exposes:
 
 ```text
@@ -33,12 +39,6 @@ Install output is manifest-driven:
   reinstall, while missing tracked standards files are restored.
 - Stale Tanren-generated command files tracked in the prior manifest are
   removed on reinstall.
-
-Out of scope for this install node:
-
-- projection drift detection/remediation workflows;
-- upgrade flows;
-- uninstall flows.
 
 > **Note (rewrite reset):** the `spec/` directory and the
 > `assess-implementation` command have been removed during the architecture

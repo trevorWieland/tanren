@@ -308,6 +308,20 @@ Manual edits to Tanren-owned projections are drift. Changes should happen
 through Tanren actions, imports, or approved editing surfaces that emit typed
 events and regenerate projections.
 
+For the current `tanren-cli install` repository-local slice (R-0023), the
+generated install artifacts are:
+
+- selected integration command assets under `.claude/commands/`,
+  `.codex/skills/`, and `.opencode/commands/`;
+- standards profile assets tracked by the install manifest;
+- install metadata at `.tanren/install-manifest.toml`.
+
+Reinstall applies replace semantics to Tanren-owned generated command assets:
+the selected integration set is regenerated from canonical command sources, and
+stale Tanren-generated command files tracked in the prior manifest are removed.
+Standards profile assets use preserve-user-edits semantics: reinstall restores
+missing tracked files while keeping user-edited content.
+
 ## Harness Asset Generation
 
 Tanren generates harness-specific assets for Codex, Claude Code, and OpenCode.
@@ -353,8 +367,11 @@ Current behavior:
   restores missing tracked standards files and keeps user-edited content.
 
 This command slice is intentionally limited to install materialization. For
-this node, drift detection/remediation workflows, upgrade flows, and uninstall
-flows remain out of scope.
+this node, `tanren-cli install` only writes install assets and updates install
+state; it does not run upgrade or uninstall flows. Upgrade behavior is owned by
+[Upgrades And Migrations](#upgrades-and-migrations). Stack removal is owned by
+[Stack Uninstall](#stack-uninstall). Repository asset removal is owned by
+[Repo Uninstall](#repo-uninstall).
 
 ## Standards Profiles
 
@@ -421,6 +438,13 @@ A preview shows:
 
 A preview does not create a dev-only path. Applying the preview still happens
 through the control plane or deployment mechanism that owns the real action.
+
+For R-0023 install writes, `.tanren/install-manifest.toml` is a Tanren-owned
+install state record. The install command owns writing and replacing this
+manifest; users do not edit it as canonical input. During reinstall preview and
+apply, stale generated command cleanup is driven by manifest ownership: files
+recorded as Tanren-generated in the prior manifest that are no longer part of
+the selected integration set are scheduled for and then removed.
 
 ## Upgrades And Migrations
 
