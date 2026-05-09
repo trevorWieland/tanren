@@ -34,12 +34,10 @@ pub struct TanrenWorld {
 impl TanrenWorld {
     /// Construct (or return) the lazy account context.
     pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
-        if self.account.is_none() {
-            self.account = Some(AccountContext::new_in_process().await);
+        match &mut self.account {
+            Some(account) => account,
+            slot @ None => slot.insert(AccountContext::new_in_process().await),
         }
-        self.account
-            .as_mut()
-            .expect("account context just initialized")
     }
 
     /// Construct (or return) the lazy install context.
