@@ -1,19 +1,16 @@
-//! Axum route handlers + per-handler `#[utoipa::path(...)]` annotations
-//! + the top-level `ApiDoc` struct that the `OpenApi` derive walks.
-//!
-//! Split out of `lib.rs` so the api-app crate stays under the workspace
-//! 500-line line-budget. The wiring (router, openapi-json route,
-//! tower-sessions layer) lives in `lib.rs::build_app`.
+//! Axum route handlers + utoipa path annotations for the API surface.
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
+use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
+use tanren_app_services::{ActiveAccountContext, Handlers};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ListActiveAccountsRequest,
+    ListActiveAccountsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
+    SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -22,8 +19,29 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
+use crate::cookies::{
+    SessionWrite, install_cookie_session, read_session_account_context,
+    write_active_account_for_window,
+};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+
+const WINDOW_ID_HEADER: &str = "x-tanren-window-id";
+const WINDOW_ID_MAX_LEN: usize = 128;
+
+#[derive(Debug, Clone, Copy)]
+enum WindowKeyError {
+    InvalidUtf8,
+    TooLong,
+}
+
+impl WindowKeyError {
+    const fn summary(self) -> &'static str {
+        match self {
+            Self::InvalidUtf8 => "window id must be valid UTF-8",
+            Self::TooLong => "window id must be 128 bytes or shorter",
+        }
+    }
+}
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -36,55 +54,33 @@ pub struct HealthResponse {
     pub contract_version: u32,
 }
 
-/// Cookie-transport response shape for the api surface. Mirrors
-/// `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
-/// projects the session into [`SessionEnvelope::Cookie`] (no token in
-/// body — it ships in the `Set-Cookie` header).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignUpResponseCookie {
-    /// View of the freshly created account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
 }
 
-/// Cookie-transport projection of a sign-in response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignInResponseCookie {
-    /// View of the signed-in account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
 }
 
-/// Cookie-transport projection of an invitation-acceptance response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationResponseCookie {
-    /// View of the newly created account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
-    /// Organization the new account joined.
     pub joined_org: OrgId,
 }
 
-/// Path body for `POST /invitations/{token}/accept`. Splits the password
-/// into a `String` here (then re-wraps as `SecretString` before handing
-/// off to app-services) so utoipa can document the schema; the secret
-/// stays in memory only for the lifetime of this function.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationBody {
-    /// Email the invitee chose.
     pub email: Email,
-    /// Plaintext password.
     #[schema(value_type = String, format = Password)]
     pub password: String,
-    /// Display name.
     pub display_name: String,
 }
 
-/// Top-level `OpenAPI` doc. Each handler is annotated with
-/// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
 #[openapi(
     info(
@@ -97,6 +93,8 @@ pub struct AcceptInvitationBody {
         sign_up_route,
         sign_in_route,
         accept_invitation_route,
+        list_active_accounts_route,
+        switch_active_account_route,
         revoke_route,
     ),
     components(schemas(
@@ -107,17 +105,20 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        ListActiveAccountsRequest,
+        ListActiveAccountsResponse,
+        SwitchActiveAccountRequest,
+        SwitchActiveAccountResponse,
         AccountFailureBody,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
-        (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, active-account switch, sign-out."),
     )
 )]
 pub(crate) struct ApiDoc;
 
-/// Liveness probe.
 #[utoipa::path(
     get,
     path = "/health",
@@ -135,8 +136,6 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
     })
 }
 
-/// Self-signup: create a new personal account and mint a cookie-bound
-/// session.
 #[utoipa::path(
     post,
     path = "/accounts",
@@ -152,15 +151,20 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
 pub(crate) async fn sign_up_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     ValidatedJson(request): ValidatedJson<SignUpRequest>,
 ) -> Response {
+    let window_key = match resolve_window_key(&headers) {
+        Ok(value) => value,
+        Err(err) => return window_id_validation_error(err.summary()),
+    };
     match state.handlers.sign_up(state.store.as_ref(), request).await {
         Ok(response) => {
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
-            match install_cookie_session(&session, &write).await {
+            match install_cookie_session(&session, &write, window_key.as_deref()).await {
                 Ok(()) => (
                     StatusCode::CREATED,
                     Json(SignUpResponseCookie {
@@ -176,7 +180,6 @@ pub(crate) async fn sign_up_route(
     }
 }
 
-/// Sign-in: mint a cookie-bound session for an existing account.
 #[utoipa::path(
     post,
     path = "/sessions",
@@ -191,15 +194,20 @@ pub(crate) async fn sign_up_route(
 pub(crate) async fn sign_in_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     ValidatedJson(request): ValidatedJson<SignInRequest>,
 ) -> Response {
+    let window_key = match resolve_window_key(&headers) {
+        Ok(value) => value,
+        Err(err) => return window_id_validation_error(err.summary()),
+    };
     match state.handlers.sign_in(state.store.as_ref(), request).await {
         Ok(response) => {
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
-            match install_cookie_session(&session, &write).await {
+            match install_cookie_session(&session, &write, window_key.as_deref()).await {
                 Ok(()) => (
                     StatusCode::OK,
                     Json(SignInResponseCookie {
@@ -215,7 +223,6 @@ pub(crate) async fn sign_in_route(
     }
 }
 
-/// Accept an organization invitation and mint a cookie-bound session.
 #[utoipa::path(
     post,
     path = "/invitations/{token}/accept",
@@ -234,9 +241,14 @@ pub(crate) async fn sign_in_route(
 pub(crate) async fn accept_invitation_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     Path(token): Path<String>,
     ValidatedJson(body): ValidatedJson<AcceptInvitationBody>,
 ) -> Response {
+    let window_key = match resolve_window_key(&headers) {
+        Ok(value) => value,
+        Err(err) => return window_id_validation_error(err.summary()),
+    };
     let invitation_token = match InvitationToken::parse(&token) {
         Ok(t) => t,
         Err(err) => {
@@ -266,7 +278,7 @@ pub(crate) async fn accept_invitation_route(
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
-            match install_cookie_session(&session, &write).await {
+            match install_cookie_session(&session, &write, window_key.as_deref()).await {
                 Ok(()) => (
                     StatusCode::CREATED,
                     Json(AcceptInvitationResponseCookie {
@@ -283,8 +295,106 @@ pub(crate) async fn accept_invitation_route(
     }
 }
 
-/// Revoke (sign out) the current session. Clears the cookie via
-/// `Session::flush` and returns 204.
+#[utoipa::path(
+    get,
+    path = "/accounts/active",
+    responses(
+        (status = 200, body = ListActiveAccountsResponse, description = "Signed-in accounts returned"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+    ),
+    tag = "accounts",
+)]
+pub(crate) async fn list_active_accounts_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+) -> Response {
+    let window_key = match resolve_window_key(&headers) {
+        Ok(value) => value,
+        Err(err) => return window_id_validation_error(err.summary()),
+    };
+    let session_context = match read_session_account_context(&session, window_key.as_deref()).await
+    {
+        Ok(Some(context)) => context,
+        Ok(None) => return missing_session_response(),
+        Err(err) => return session_read_error(&err),
+    };
+
+    let context = ActiveAccountContext::from_account_ids(
+        session_context.active_account_id,
+        session_context.signed_in_account_ids,
+    );
+
+    match state
+        .handlers
+        .list_active_accounts(
+            state.store.as_ref(),
+            &context,
+            ListActiveAccountsRequest::default(),
+        )
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/accounts/active/switch",
+    request_body = SwitchActiveAccountRequest,
+    responses(
+        (status = 200, body = SwitchActiveAccountResponse, description = "Active account switched"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+        (status = 403, body = AccountFailureBody, description = "target_account_not_signed_in"),
+    ),
+    tag = "accounts",
+)]
+pub(crate) async fn switch_active_account_route(
+    State(state): State<AppState>,
+    session: Session,
+    headers: HeaderMap,
+    ValidatedJson(request): ValidatedJson<SwitchActiveAccountRequest>,
+) -> Response {
+    let window_key = match resolve_window_key(&headers) {
+        Ok(value) => value,
+        Err(err) => return window_id_validation_error(err.summary()),
+    };
+    let session_context = match read_session_account_context(&session, window_key.as_deref()).await
+    {
+        Ok(Some(context)) => context,
+        Ok(None) => return missing_session_response(),
+        Err(err) => return session_read_error(&err),
+    };
+
+    let context = ActiveAccountContext::from_account_ids(
+        session_context.active_account_id,
+        session_context.signed_in_account_ids,
+    );
+
+    match state
+        .handlers
+        .switch_active_account(state.store.as_ref(), &context, request)
+        .await
+    {
+        Ok(response) => {
+            if let Err(err) = write_active_account_for_window(
+                &session,
+                window_key.as_deref(),
+                response.active_account_id,
+            )
+            .await
+            {
+                return session_install_error(&err);
+            }
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(err) => map_app_error(err),
+    }
+}
+
 #[utoipa::path(
     post,
     path = "/sessions/revoke",
@@ -308,17 +418,68 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Build the `OpenApiRouter` carrying every account-flow route. Called
-/// from `lib.rs::build_app` after the cookie/CORS layers are
-/// constructed; the macros that `routes!()` expands need to live in the
-/// same module as the `#[utoipa::path]`-annotated handlers, so the
-/// router constructor lives here too.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
+        .routes(routes!(list_active_accounts_route))
+        .routes(routes!(switch_active_account_route))
         .routes(routes!(revoke_route))
         .with_state(state)
+}
+
+fn resolve_window_key(headers: &HeaderMap) -> Result<Option<String>, WindowKeyError> {
+    let Some(value) = headers.get(WINDOW_ID_HEADER) else {
+        return Ok(None);
+    };
+    let Ok(value) = value.to_str() else {
+        return Err(WindowKeyError::InvalidUtf8);
+    };
+
+    let trimmed = value.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    if trimmed.len() > WINDOW_ID_MAX_LEN {
+        return Err(WindowKeyError::TooLong);
+    }
+
+    Ok(Some(trimmed.to_owned()))
+}
+
+fn missing_session_response() -> Response {
+    let reason = AccountFailureReason::InvalidCredential;
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AccountFailureBody {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+fn window_id_validation_error(summary: &str) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(AccountFailureBody {
+            code: AccountFailureReason::ValidationFailed.code().to_owned(),
+            summary: summary.to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+fn session_read_error(err: &anyhow::Error) -> Response {
+    tracing::error!(target: "tanren_api", error = %err, "session read");
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(AccountFailureBody {
+            code: "internal_error".to_owned(),
+            summary: "Tanren encountered an internal error.".to_owned(),
+        }),
+    )
+        .into_response()
 }

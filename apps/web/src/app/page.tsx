@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { AccountSwitcher } from "@/components/account/AccountSwitcher";
 import * as m from "@/i18n/paraglide/messages";
 
 interface HealthReport {
@@ -42,12 +43,17 @@ export default function Home(): ReactNode {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <main className="flex min-h-screen flex-col items-center gap-6 p-4 pt-8 sm:p-8">
       <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
-      <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
-      <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
+      <p className="text-center text-[--color-fg-muted]">
+        {m.app_placeholder()}
+      </p>
+      <AccountSwitcher />
+      <section className="w-full max-w-2xl rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-4 font-mono sm:px-6">
         {report !== null ? (
-          <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
+          <pre className="m-0 overflow-x-auto">
+            {JSON.stringify(report, null, 2)}
+          </pre>
         ) : error !== null ? (
           <span className="text-[--color-error]">
             {m.app_health_unreachable()}: {error}

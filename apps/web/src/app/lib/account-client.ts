@@ -1,6 +1,8 @@
 import * as m from "@/i18n/paraglide/messages";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const WINDOW_ID_HEADER = "x-tanren-window-id";
+const WINDOW_ID_STORAGE_KEY = "tanren.window_id";
 
 export interface SignUpInput {
   email: string;
@@ -25,6 +27,11 @@ export interface AccountView {
   identifier: string;
   display_name: string;
   org: string | null;
+}
+
+export interface SignedInAccountView {
+  account: AccountView;
+  is_active: boolean;
 }
 
 /**
@@ -53,6 +60,19 @@ export interface AcceptInvitationResult {
   joined_org: string;
 }
 
+export interface ListActiveAccountsResult {
+  accounts: SignedInAccountView[];
+}
+
+export interface SwitchActiveAccountInput {
+  target_account_id: string;
+}
+
+export interface SwitchActiveAccountResult {
+  active_account_id: string;
+  accounts: SignedInAccountView[];
+}
+
 /**
  * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
  * Kept in lock-step with the Rust enum so BDD web steps can match on the
@@ -65,6 +85,7 @@ export type AccountFailureCode =
   | "invitation_already_consumed"
   | "invitation_expired"
   | "validation_failed"
+  | "target_account_not_signed_in"
   | "unavailable"
   | "internal_error";
 
@@ -106,17 +127,27 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  method: "GET" | "POST",
+  body?: unknown,
+): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+    const init: RequestInit = {
+      method,
+      headers: {
+        ...(method === "POST" ? { "content-type": "application/json" } : {}),
+        ...windowIdentityHeader(),
+      },
       // Cookie transport: send/receive HTTP-only session cookie on every
       // request. Replaces localStorage token storage (M2).
       credentials: "include",
-    });
+    };
+    if (method === "POST" && body !== undefined) {
+      init.body = JSON.stringify(body);
+    }
+    response = await fetch(`${API_URL}${path}`, init);
   } catch (cause: unknown) {
     throw new AccountRequestError({
       code: "unavailable",
@@ -144,11 +175,11 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return postJson<SignUpResult>("/accounts", input);
+  return requestJson<SignUpResult>("/accounts", "POST", input);
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return postJson<SignInResult>("/sessions", input);
+  return requestJson<SignInResult>("/sessions", "POST", input);
 }
 
 export function acceptInvitation(
@@ -156,11 +187,25 @@ export function acceptInvitation(
   input: Omit<AcceptInvitationInput, "invitation_token">,
 ): Promise<AcceptInvitationResult> {
   const path = `/invitations/${encodeURIComponent(token)}/accept`;
-  return postJson<AcceptInvitationResult>(path, {
+  return requestJson<AcceptInvitationResult>(path, "POST", {
     email: input.email,
     password: input.password,
     display_name: input.display_name,
   });
+}
+
+export function listActiveAccounts(): Promise<ListActiveAccountsResult> {
+  return requestJson<ListActiveAccountsResult>("/accounts/active", "GET");
+}
+
+export function switchActiveAccount(
+  input: SwitchActiveAccountInput,
+): Promise<SwitchActiveAccountResult> {
+  return requestJson<SwitchActiveAccountResult>(
+    "/accounts/active/switch",
+    "POST",
+    input,
+  );
 }
 
 /**
@@ -172,6 +217,7 @@ export async function signOut(): Promise<void> {
   try {
     response = await fetch(`${API_URL}/sessions/revoke`, {
       method: "POST",
+      headers: windowIdentityHeader(),
       credentials: "include",
     });
   } catch (cause: unknown) {
@@ -185,5 +231,33 @@ export async function signOut(): Promise<void> {
       code: "internal_error",
       summary: `HTTP ${response.status}`,
     });
+  }
+}
+
+function windowIdentityHeader(): Record<string, string> {
+  const windowId = getWindowId();
+  if (windowId === null) {
+    return {};
+  }
+  return { [WINDOW_ID_HEADER]: windowId };
+}
+
+function getWindowId(): string | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  try {
+    const existing = window.sessionStorage.getItem(WINDOW_ID_STORAGE_KEY);
+    if (existing !== null && existing.trim() !== "") {
+      return existing;
+    }
+    const created =
+      typeof globalThis.crypto?.randomUUID === "function"
+        ? globalThis.crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+    window.sessionStorage.setItem(WINDOW_ID_STORAGE_KEY, created);
+    return created;
+  } catch {
+    return null;
   }
 }
