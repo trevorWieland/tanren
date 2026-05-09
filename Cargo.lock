@@ -4251,7 +4251,6 @@ dependencies = [
  "tanren-identity-policy",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4494,7 +4493,6 @@ dependencies = [
  "tanren-identity-policy",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
