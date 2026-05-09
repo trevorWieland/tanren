@@ -15,8 +15,8 @@ pub use account::{
 pub use role::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
-    PermissionCheckResponse, PermissionGrantView, RoleFailureBody, RoleFailureReason,
-    RoleTemplateView,
+    PermissionCheckResponse, PermissionGrantView, RoleActor, RoleAdminAction,
+    RoleAdminCapabilities, RoleFailureBody, RoleFailureReason, RoleTemplateView,
 };
 
 use serde::{Deserialize, Serialize};

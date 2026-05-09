@@ -35,7 +35,9 @@ pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
     db_url: String,
+    session_path: PathBuf,
     binary: PathBuf,
+    role_actor: Option<AccountId>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -74,7 +76,9 @@ impl CliHarness {
             store,
             db_path,
             db_url,
+            session_path: scenario_db_path("cli-session"),
             binary,
+            role_actor: None,
         })
     }
 }
@@ -82,6 +86,7 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_path);
     }
 }
 
@@ -105,6 +110,7 @@ impl AccountHarness for CliHarness {
                 "--display-name",
                 &req.display_name,
             ])
+            .env("TANREN_SESSION_FILE", &self.session_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -116,6 +122,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
+            self.role_actor = Some(account.id);
             HarnessSession {
                 account_id: account.id,
                 account,
@@ -137,6 +144,7 @@ impl AccountHarness for CliHarness {
                 "--password",
                 req.password.expose_secret(),
             ])
+            .env("TANREN_SESSION_FILE", &self.session_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -147,11 +155,14 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| {
+            self.role_actor = Some(account.id);
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -174,6 +185,7 @@ impl AccountHarness for CliHarness {
                 "--invitation",
                 req.invitation_token.as_str(),
             ])
+            .env("TANREN_SESSION_FILE", &self.session_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -185,6 +197,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        self.role_actor = Some(account.id);
         let joined_org = parse_joined_org(&stdout)?;
         // The CLI binary returns the AccountView reconstituted from
         // the row; re-decorate it with `org = Some(joined_org)` to

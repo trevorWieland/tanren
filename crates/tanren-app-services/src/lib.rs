@@ -13,7 +13,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    RoleFailureReason, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    RoleActor, RoleAdminCapabilities, RoleFailureReason, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, RoleStore, Store};
@@ -211,12 +212,13 @@ impl Handlers {
     pub async fn create_role<S>(
         &self,
         store: &S,
+        actor: RoleActor,
         request: tanren_contract::CreateRoleRequest,
     ) -> Result<tanren_contract::CreateRoleResponse, RoleServiceError>
     where
         S: RoleStore + AccountStore + ?Sized,
     {
-        role::create_role(store, &self.clock, request).await
+        role::create_role(store, &self.clock, actor, request).await
     }
 
     /// Edit a role template and emit a typed role event.
@@ -229,12 +231,13 @@ impl Handlers {
     pub async fn edit_role<S>(
         &self,
         store: &S,
+        actor: RoleActor,
         request: tanren_contract::EditRoleRequest,
     ) -> Result<tanren_contract::EditRoleResponse, RoleServiceError>
     where
         S: RoleStore + AccountStore + ?Sized,
     {
-        role::edit_role(store, &self.clock, request).await
+        role::edit_role(store, &self.clock, actor, request).await
     }
 
     /// Delete a role template and emit a typed role event.
@@ -247,12 +250,13 @@ impl Handlers {
     pub async fn delete_role<S>(
         &self,
         store: &S,
+        actor: RoleActor,
         request: tanren_contract::DeleteRoleRequest,
     ) -> Result<tanren_contract::DeleteRoleResponse, RoleServiceError>
     where
         S: RoleStore + AccountStore + ?Sized,
     {
-        role::delete_role(store, &self.clock, request).await
+        role::delete_role(store, &self.clock, actor, request).await
     }
 
     /// Apply a role template to a principal, creating direct grants
@@ -266,12 +270,13 @@ impl Handlers {
     pub async fn apply_role<S>(
         &self,
         store: &S,
+        actor: RoleActor,
         request: tanren_contract::ApplyRoleRequest,
     ) -> Result<tanren_contract::ApplyRoleResponse, RoleServiceError>
     where
         S: RoleStore + AccountStore + ?Sized,
     {
-        role::apply_role(store, &self.clock, request).await
+        role::apply_role(store, &self.clock, actor, request).await
     }
 
     /// Check whether a principal has a direct permission grant.
@@ -285,12 +290,29 @@ impl Handlers {
     pub async fn check_permission<S>(
         &self,
         store: &S,
+        actor: RoleActor,
         request: tanren_contract::PermissionCheckRequest,
     ) -> Result<tanren_contract::PermissionCheckResponse, RoleServiceError>
     where
         S: RoleStore + AccountStore + ?Sized,
     {
-        role::check_permission(store, &self.clock, request).await
+        role::check_permission(store, &self.clock, actor, request).await
+    }
+
+    /// Discover role administration capabilities for the supplied actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Store`] for unexpected database failures.
+    pub async fn role_admin_capabilities<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+    ) -> Result<RoleAdminCapabilities, RoleServiceError>
+    where
+        S: RoleStore + ?Sized,
+    {
+        role::role_admin_capabilities(store, actor).await
     }
 }
 

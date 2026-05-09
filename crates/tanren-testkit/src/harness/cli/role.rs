@@ -14,7 +14,9 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 use super::super::api::role_code_to_reason;
-use super::super::{HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult};
+use super::super::{
+    HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult, seed_role_admin_grants,
+};
 use super::CliHarness;
 
 #[async_trait]
@@ -167,6 +169,17 @@ impl RoleHarness for CliHarness {
         Ok(())
     }
 
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: RoleScope,
+        permissions: Vec<tanren_identity_policy::PermissionName>,
+    ) -> RoleHarnessResult<()> {
+        let actor = self
+            .role_actor
+            .ok_or_else(|| RoleHarnessError::Transport("missing role actor".to_owned()))?;
+        seed_role_admin_grants(self.store.as_ref(), actor, scope, permissions).await
+    }
+
     async fn read_role_template(
         &self,
         role: ScopedRole,
@@ -208,6 +221,7 @@ fn translate_cli_role_error(stderr: &[u8]) -> RoleHarnessError {
 async fn run_cli(harness: &CliHarness, args: &[String]) -> RoleHarnessResult<std::process::Output> {
     Command::new(&harness.binary)
         .args(args)
+        .env("TANREN_SESSION_FILE", &harness.session_path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())

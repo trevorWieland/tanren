@@ -7,7 +7,9 @@ use tanren_contract::{
 };
 use tanren_store::{NewRole, RoleStore};
 
-use super::super::{HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult};
+use super::super::{
+    HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult, seed_role_admin_grants,
+};
 use super::{ApiHarness, role_code_to_reason};
 
 #[async_trait]
@@ -20,6 +22,10 @@ impl RoleHarness for ApiHarness {
         let response = self
             .client
             .post(&url)
+            .header(
+                "x-csrf-token",
+                self.csrf_token.as_deref().unwrap_or("missing-csrf-token"),
+            )
             .json(&req)
             .send()
             .await
@@ -32,6 +38,10 @@ impl RoleHarness for ApiHarness {
         let response = self
             .client
             .post(&url)
+            .header(
+                "x-csrf-token",
+                self.csrf_token.as_deref().unwrap_or("missing-csrf-token"),
+            )
             .json(&req)
             .send()
             .await
@@ -47,6 +57,10 @@ impl RoleHarness for ApiHarness {
         let response = self
             .client
             .post(&url)
+            .header(
+                "x-csrf-token",
+                self.csrf_token.as_deref().unwrap_or("missing-csrf-token"),
+            )
             .json(&req)
             .send()
             .await
@@ -59,6 +73,10 @@ impl RoleHarness for ApiHarness {
         let response = self
             .client
             .post(&url)
+            .header(
+                "x-csrf-token",
+                self.csrf_token.as_deref().unwrap_or("missing-csrf-token"),
+            )
             .json(&req)
             .send()
             .await
@@ -94,6 +112,17 @@ impl RoleHarness for ApiHarness {
             .await
             .map_err(|e| RoleHarnessError::Transport(format!("seed_role_template: {e}")))?;
         Ok(())
+    }
+
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: tanren_identity_policy::RoleScope,
+        permissions: Vec<tanren_identity_policy::PermissionName>,
+    ) -> RoleHarnessResult<()> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
+        seed_role_admin_grants(self.store.as_ref(), actor, scope, permissions).await
     }
 
     async fn read_role_template(

@@ -21,6 +21,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, RoleFailureReason, SignInRequest,
     SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -37,6 +38,8 @@ pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
+    role_actor: Option<AccountId>,
+    csrf_token: Option<String>,
     server: Option<JoinHandle<()>>,
     /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
@@ -106,6 +109,8 @@ impl ApiHarness {
             base_url,
             client,
             store,
+            role_actor: None,
+            csrf_token: None,
             server: Some(server),
             db_path,
         })
@@ -156,6 +161,10 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
+        self.csrf_token = json
+            .get("csrf_token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
         let expires_at = json["session"]["expires_at"]
@@ -169,6 +178,7 @@ impl AccountHarness for ApiHarness {
             expires_at,
             has_token: cookies_set,
         })
+        .inspect(|session| self.role_actor = Some(session.account_id))
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -198,6 +208,10 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
+        self.csrf_token = json
+            .get("csrf_token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
         let expires_at = json["session"]["expires_at"]
@@ -211,6 +225,7 @@ impl AccountHarness for ApiHarness {
             expires_at,
             has_token: cookies_set,
         })
+        .inspect(|session| self.role_actor = Some(session.account_id))
     }
 
     async fn accept_invitation(
@@ -246,6 +261,10 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
+        self.csrf_token = json
+            .get("csrf_token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
         let expires_at = json["session"]["expires_at"]
@@ -264,6 +283,7 @@ impl AccountHarness for ApiHarness {
             },
             joined_org,
         })
+        .inspect(|acceptance| self.role_actor = Some(acceptance.session.account_id))
     }
 
     async fn accept_invitations_concurrent(

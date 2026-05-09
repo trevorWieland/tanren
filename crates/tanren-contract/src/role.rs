@@ -7,8 +7,8 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    PermissionGrantId, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleName, RoleScope,
-    ScopedRole,
+    AccountId, PermissionGrantId, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleName,
+    RoleScope, ScopedRole,
 };
 use utoipa::ToSchema;
 
@@ -106,6 +106,40 @@ pub struct PermissionCheckResponse {
     pub allowed: bool,
     /// Matching grant ids. Empty when `allowed` is `false`.
     pub matching_grant_ids: Vec<PermissionGrantId>,
+}
+
+/// Authenticated actor context for role administration requests.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleActor {
+    /// Account identity resolved by the interface authentication layer.
+    pub account_id: AccountId,
+}
+
+/// Individual role-administration action surfaced by capability discovery.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RoleAdminAction {
+    /// Create role templates.
+    CreateRole,
+    /// Edit role templates.
+    EditRole,
+    /// Delete role templates.
+    DeleteRole,
+    /// Apply role templates to principals.
+    ApplyRole,
+    /// List and read role templates.
+    ReadRoles,
+    /// Run direct permission checks.
+    CheckPermission,
+}
+
+/// Capability metadata for role administration controls.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RoleAdminCapabilities {
+    /// Authenticated actor this capability snapshot applies to.
+    pub actor: RoleActor,
+    /// Role administration actions this actor is currently allowed to execute.
+    pub actions: Vec<RoleAdminAction>,
 }
 
 /// External-facing view of a role template.

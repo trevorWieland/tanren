@@ -73,6 +73,23 @@ export interface PermissionCheckResponse {
   matching_grant_ids: string[];
 }
 
+export interface RoleActor {
+  account_id: string;
+}
+
+export type RoleAdminAction =
+  | "create_role"
+  | "edit_role"
+  | "delete_role"
+  | "apply_role"
+  | "read_roles"
+  | "check_permission";
+
+export interface RoleAdminCapabilities {
+  actor: RoleActor;
+  actions: RoleAdminAction[];
+}
+
 export interface RoleTemplateView {
   id: string;
   scope: RoleScope;

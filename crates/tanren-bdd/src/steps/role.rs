@@ -6,11 +6,13 @@
 use std::collections::BTreeSet;
 
 use cucumber::{given, then, when};
+use secrecy::SecretString;
 use tanren_contract::{
-    ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest, EditRoleRequest, PermissionCheckRequest,
+    ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest, EditRoleRequest,
+    PermissionCheckRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleName, RoleScope,
+    AccountId, Email, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleName, RoleScope,
     ScopedRole,
 };
 
@@ -19,6 +21,16 @@ use crate::{RoleScenarioState, TanrenWorld};
 #[given(expr = "a clean role-template environment")]
 async fn given_clean_role_env(world: &mut TanrenWorld) {
     let ctx = world.ensure_account_ctx().await;
+    let operator_email = Email::parse("role-operator@tanren.test")
+        .expect("role-operator scenario email literal must parse");
+    ctx.harness
+        .sign_up(SignUpRequest {
+            email: operator_email,
+            password: SecretString::from("role-operator-password".to_owned()),
+            display_name: "Role Operator".to_owned(),
+        })
+        .await
+        .expect("role-operator sign-up should succeed");
     ctx.role = RoleScenarioState::default();
 }
 
@@ -26,7 +38,20 @@ async fn given_clean_role_env(world: &mut TanrenWorld) {
 async fn given_org_role_scope(world: &mut TanrenWorld) {
     let ctx = world.ensure_account_ctx().await;
     let org_id = OrgId::fresh();
-    ctx.role.scope = Some(RoleScope::Organization { org_id });
+    let scope = RoleScope::Organization { org_id };
+    ctx.harness
+        .seed_role_admin_for_authenticated_actor(
+            scope,
+            vec![
+                PermissionName::parse("roles.manage")
+                    .expect("roles.manage permission literal must parse"),
+                PermissionName::parse("roles.read")
+                    .expect("roles.read permission literal must parse"),
+            ],
+        )
+        .await
+        .expect("seed role-admin permissions for authenticated actor");
+    ctx.role.scope = Some(scope);
 }
 
 #[when(expr = "the operator creates role template {string} with permissions {string}")]

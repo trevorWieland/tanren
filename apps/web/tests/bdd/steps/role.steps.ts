@@ -22,6 +22,9 @@ interface RoleWorld {
   activeRole: ScopedRole | undefined;
   activeRolePermissions: string[] | undefined;
   principals: Map<string, string>;
+  operatorAccountId: string | undefined;
+  operatorSessionCookie: string | undefined;
+  operatorCsrfToken: string | undefined;
   lastPermissionCheck: boolean | undefined;
   lastErrorCode: string | undefined;
 }
@@ -35,6 +38,9 @@ export const test: RoleTest = base.extend<{ world: RoleWorld }>({
       activeRole: undefined,
       activeRolePermissions: undefined,
       principals: new Map(),
+      operatorAccountId: undefined,
+      operatorSessionCookie: undefined,
+      operatorCsrfToken: undefined,
       lastPermissionCheck: undefined,
       lastErrorCode: undefined,
     });
@@ -55,12 +61,21 @@ Given("a clean role-template environment", async ({ world }) => {
   world.activeRole = undefined;
   world.activeRolePermissions = undefined;
   world.principals.clear();
+  world.operatorAccountId = undefined;
+  world.operatorSessionCookie = undefined;
+  world.operatorCsrfToken = undefined;
   world.lastPermissionCheck = undefined;
   world.lastErrorCode = undefined;
+  await signUpRoleOperator(world);
 });
 
 Given("an organization role scope", async ({ world }) => {
-  world.scope = { scope: "organization", org_id: crypto.randomUUID() };
+  const scope: RoleScope = {
+    scope: "organization",
+    org_id: crypto.randomUUID(),
+  };
+  world.scope = scope;
+  await seedRoleAdminGrants(world, scope);
 });
 
 When(
@@ -71,7 +86,11 @@ When(
       name,
       permissions: parsePermissionsCsv(permissions),
     };
-    const response = await postJson<CreateRoleResponse>("/roles", request);
+    const response = await postJson<CreateRoleResponse>(
+      world,
+      "/roles",
+      request,
+    );
     if (!response.ok) {
       throw new Error(
         `create role failed (${response.code}): ${response.summary}`,
@@ -98,7 +117,11 @@ When(
       name,
       permissions: parsePermissionsCsv(permissions),
     };
-    const response = await postJson<EditRoleResponse>("/roles/edit", request);
+    const response = await postJson<EditRoleResponse>(
+      world,
+      "/roles/edit",
+      request,
+    );
     if (!response.ok) {
       throw new Error(
         `edit role failed (${response.code}): ${response.summary}`,
@@ -119,7 +142,11 @@ When(
 When("the operator deletes the active role template", async ({ world }) => {
   const activeRole = requiredActiveRole(world);
   const request: DeleteRoleRequest = { role: activeRole };
-  const response = await postJson<DeleteRoleResponse>("/roles/delete", request);
+  const response = await postJson<DeleteRoleResponse>(
+    world,
+    "/roles/delete",
+    request,
+  );
   if (!response.ok) {
     throw new Error(
       `delete role failed (${response.code}): ${response.summary}`,
@@ -145,7 +172,11 @@ When(
       principal,
       grant_scope: permissionScopeFromRoleScope(roleScope(world)),
     };
-    const response = await postJson<ApplyRoleResponse>("/roles/apply", request);
+    const response = await postJson<ApplyRoleResponse>(
+      world,
+      "/roles/apply",
+      request,
+    );
     if (!response.ok) {
       throw new Error(
         `apply role failed (${response.code}): ${response.summary}`,
@@ -190,6 +221,7 @@ When(
       scope: permissionScopeFromRoleScope(roleScope(world)),
     };
     const response = await postJson<PermissionCheckResponse>(
+      world,
       "/permissions/check",
       request,
     );
@@ -216,6 +248,7 @@ When(
       scope: permissionScopeFromRoleScope(roleScope(world)),
     };
     const response = await postJson<PermissionCheckResponse>(
+      world,
       "/permissions/check",
       request,
     );
@@ -251,7 +284,11 @@ Then("the active role template no longer exists", async ({ world }) => {
     },
     grant_scope: permissionScopeFromRoleScope(roleScope(world)),
   };
-  const response = await postJson<ApplyRoleResponse>("/roles/apply", request);
+  const response = await postJson<ApplyRoleResponse>(
+    world,
+    "/roles/apply",
+    request,
+  );
   if (response.ok) {
     throw new Error("expected deleted role apply to fail with not_found");
   }
@@ -407,6 +444,7 @@ async function assertDirectGrantPermissions(
       scope,
     };
     const result = await postJson<PermissionCheckResponse>(
+      world,
       "/permissions/check",
       request,
     );
@@ -431,6 +469,7 @@ async function assertDirectGrantPermissions(
       scope,
     };
     const result = await postJson<PermissionCheckResponse>(
+      world,
       "/permissions/check",
       request,
     );
@@ -447,15 +486,97 @@ async function assertDirectGrantPermissions(
   }
 }
 
+interface SignUpCookieResponse {
+  account: { id: string };
+  csrf_token: string;
+}
+
+async function signUpRoleOperator(world: RoleWorld): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const response = await fetch(`${apiUrl}/accounts`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      email: `role-operator-${crypto.randomUUID()}@tanren.test`,
+      password: "role-operator-password",
+      display_name: "Role Operator",
+    }),
+  });
+  const payload = (await response.json()) as unknown;
+  if (!response.ok) {
+    throw new Error(
+      `role operator sign-up failed: ${response.status} ${JSON.stringify(payload)}`,
+    );
+  }
+  const typed = payload as Partial<SignUpCookieResponse>;
+  if (typed.account?.id === undefined || typed.csrf_token === undefined) {
+    throw new Error(
+      "role operator sign-up response missing account or csrf token",
+    );
+  }
+  const sessionCookie = response.headers.get("set-cookie");
+  if (sessionCookie === null) {
+    throw new Error("role operator sign-up response missing session cookie");
+  }
+  world.operatorAccountId = typed.account.id;
+  world.operatorCsrfToken = typed.csrf_token;
+  world.operatorSessionCookie = extractCookieValue(sessionCookie);
+}
+
+async function seedRoleAdminGrants(
+  world: RoleWorld,
+  scope: RoleScope,
+): Promise<void> {
+  if (world.operatorAccountId === undefined) {
+    throw new Error("missing operator account id");
+  }
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const response = await fetch(`${apiUrl}/test-hooks/role-admin-grants`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      actor_account_id: world.operatorAccountId,
+      scope,
+      permissions: ["roles.manage", "roles.read"],
+    }),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `seed role admin grants failed: ${response.status} ${await response.text()}`,
+    );
+  }
+}
+
+function extractCookieValue(setCookie: string): string {
+  const cookie = setCookie.split(";")[0];
+  if (cookie === undefined || cookie.length === 0) {
+    throw new Error("invalid set-cookie header");
+  }
+  return cookie;
+}
+
 type ApiResult<T> =
   | { ok: true; json: T }
   | { ok: false; status: number; code: string; summary: string };
 
-async function postJson<T>(path: string, body: unknown): Promise<ApiResult<T>> {
+async function postJson<T>(
+  world: RoleWorld,
+  path: string,
+  body: unknown,
+): Promise<ApiResult<T>> {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (world.operatorSessionCookie !== undefined) {
+    headers["cookie"] = world.operatorSessionCookie;
+  }
+  if (world.operatorCsrfToken !== undefined) {
+    headers["x-csrf-token"] = world.operatorCsrfToken;
+  }
   const response = await fetch(`${apiUrl}${path}`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify(body),
   });
   const payload = (await response.json()) as unknown;

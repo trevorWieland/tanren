@@ -16,32 +16,6 @@
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
 //!
-//! ## Status of each harness (PR 9)
-//!
-//! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
-//!   on an ephemeral port, drives via `reqwest::Client` with
-//!   `cookie_store(true)`. The "session token received" check passes
-//!   when the cookie jar contains a `tanren_session` cookie OR the
-//!   response body returned a bearer token.
-//! - `@cli` — full impl. Spawns the `tanren-cli` binary via
-//!   `tokio::process::Command` against a shared `SQLite` file. Parses
-//!   the `account_id=... session=...` stdout shape.
-//! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
-//!   on an ephemeral port and drives the three account-flow tools via
-//!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
-//!   parallel Node-side Playwright harness for the same `@web` Gherkin
-//!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
-//! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
-//!   dispatch on an ephemeral `SQLite` store).
-
 mod api;
 mod cli;
 mod in_process;
@@ -64,9 +38,10 @@ use tanren_contract::{
     SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, InvitationToken, OrgId, PermissionName, RoleId, RoleName, RoleScope, ScopedRole,
+    AccountId, InvitationToken, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleId,
+    RoleName, RoleScope, ScopedRole,
 };
-use tanren_store::EventEnvelope;
+use tanren_store::{ApplyRole, EventEnvelope, NewRole, RoleStore};
 
 pub use api::ApiHarness;
 pub use cli::CliHarness;
@@ -264,6 +239,13 @@ pub trait RoleHarness: Send + std::fmt::Debug {
     /// Seed role-template proof state directly through the harness store.
     async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()>;
 
+    /// Seed role-admin direct grants for the currently authenticated actor.
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: RoleScope,
+        permissions: Vec<PermissionName>,
+    ) -> RoleHarnessResult<()>;
+
     /// Read one role-template snapshot from harness proof-state storage.
     async fn read_role_template(
         &self,
@@ -273,7 +255,7 @@ pub trait RoleHarness: Send + std::fmt::Debug {
     /// Read all direct grants for one principal from harness proof-state storage.
     async fn read_direct_grants(
         &self,
-        principal: tanren_identity_policy::PrincipalRef,
+        principal: PrincipalRef,
     ) -> RoleHarnessResult<Vec<PermissionGrantView>>;
 }
 
@@ -414,6 +396,49 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
         }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
+}
+
+pub(crate) async fn seed_role_admin_grants<S>(
+    store: &S,
+    actor: AccountId,
+    scope: RoleScope,
+    permissions: Vec<PermissionName>,
+) -> RoleHarnessResult<()>
+where
+    S: RoleStore + ?Sized,
+{
+    if permissions.is_empty() {
+        return Ok(());
+    }
+    let now = Utc::now();
+    let role = store
+        .create_role(NewRole {
+            id: RoleId::fresh(),
+            scope,
+            name: RoleName::parse("bdd-role-admin-bootstrap")
+                .expect("bdd bootstrap role name literal must parse"),
+            permissions,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .map_err(|e| RoleHarnessError::Transport(format!("seed_role_admin/create_role: {e}")))?;
+    let grant_scope = match role.scope {
+        RoleScope::Account { account_id } => PermissionScope::Account { account_id },
+        RoleScope::Organization { org_id } => PermissionScope::Organization { org_id },
+        RoleScope::Project { project_id } => PermissionScope::Project { project_id },
+    };
+    store
+        .apply_role(ApplyRole {
+            role: role.scoped_role(),
+            principal: PrincipalRef::Account { account_id: actor },
+            grant_scope,
+            granted_by: PrincipalRef::Account { account_id: actor },
+            granted_at: now,
+        })
+        .await
+        .map_err(|e| RoleHarnessError::Transport(format!("seed_role_admin/apply_role: {e}")))?;
+    Ok(())
 }
 
 /// Filter `recent_events` rows by their `payload.kind` field — the

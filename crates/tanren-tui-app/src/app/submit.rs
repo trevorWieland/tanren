@@ -58,7 +58,12 @@ impl App {
         };
         let result = self.runtime.block_on(self.handlers.sign_up(store, request));
         match result {
-            Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+            Ok(response) => {
+                self.authenticated_actor = Some(tanren_contract::RoleActor {
+                    account_id: response.account.id,
+                });
+                self.screen = Screen::Outcome(sign_up_outcome(&response));
+            }
             Err(reason) => {
                 if let Screen::SignUp(state) = &mut self.screen {
                     state.error = Some(render_error(reason));
@@ -85,7 +90,12 @@ impl App {
         };
         let result = self.runtime.block_on(self.handlers.sign_in(store, request));
         match result {
-            Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+            Ok(response) => {
+                self.authenticated_actor = Some(tanren_contract::RoleActor {
+                    account_id: response.account.id,
+                });
+                self.screen = Screen::Outcome(sign_in_outcome(&response));
+            }
             Err(reason) => {
                 if let Screen::SignIn(state) = &mut self.screen {
                     state.error = Some(render_error(reason));
@@ -115,6 +125,9 @@ impl App {
             .block_on(self.handlers.accept_invitation(store, request));
         match result {
             Ok(response) => {
+                self.authenticated_actor = Some(tanren_contract::RoleActor {
+                    account_id: response.account.id,
+                });
                 self.screen = Screen::Outcome(accept_invitation_outcome(&response));
             }
             Err(reason) => {
@@ -126,6 +139,12 @@ impl App {
     }
 
     fn submit_create_role(&mut self, store: &tanren_app_services::Store) {
+        let Some(actor) = self.role_actor() else {
+            if let Screen::CreateRole(state) = &mut self.screen {
+                state.error = Some("sign in before role administration".to_owned());
+            }
+            return;
+        };
         let parsed = {
             let Screen::CreateRole(state) = &self.screen else {
                 return;
@@ -143,7 +162,7 @@ impl App {
         };
         let result = self
             .runtime
-            .block_on(self.handlers.create_role(store, request));
+            .block_on(self.handlers.create_role(store, actor, request));
         match result {
             Ok(response) => self.screen = Screen::Outcome(create_role_outcome(&response)),
             Err(reason) => {
@@ -155,6 +174,12 @@ impl App {
     }
 
     fn submit_edit_role(&mut self, store: &tanren_app_services::Store) {
+        let Some(actor) = self.role_actor() else {
+            if let Screen::EditRole(state) = &mut self.screen {
+                state.error = Some("sign in before role administration".to_owned());
+            }
+            return;
+        };
         let parsed = {
             let Screen::EditRole(state) = &self.screen else {
                 return;
@@ -172,7 +197,7 @@ impl App {
         };
         let result = self
             .runtime
-            .block_on(self.handlers.edit_role(store, request));
+            .block_on(self.handlers.edit_role(store, actor, request));
         match result {
             Ok(response) => self.screen = Screen::Outcome(edit_role_outcome(&response)),
             Err(reason) => {
@@ -184,6 +209,12 @@ impl App {
     }
 
     fn submit_delete_role(&mut self, store: &tanren_app_services::Store) {
+        let Some(actor) = self.role_actor() else {
+            if let Screen::DeleteRole(state) = &mut self.screen {
+                state.error = Some("sign in before role administration".to_owned());
+            }
+            return;
+        };
         let parsed = {
             let Screen::DeleteRole(state) = &self.screen else {
                 return;
@@ -199,10 +230,11 @@ impl App {
                 return;
             }
         };
-        let result = self.runtime.block_on(
-            self.handlers
-                .delete_role(store, tanren_contract::DeleteRoleRequest { role }),
-        );
+        let result = self.runtime.block_on(self.handlers.delete_role(
+            store,
+            actor,
+            tanren_contract::DeleteRoleRequest { role },
+        ));
         match result {
             Ok(response) => {
                 self.screen = Screen::Outcome(delete_role_outcome(response.role));
@@ -216,6 +248,12 @@ impl App {
     }
 
     fn submit_apply_role(&mut self, store: &tanren_app_services::Store) {
+        let Some(actor) = self.role_actor() else {
+            if let Screen::ApplyRole(state) = &mut self.screen {
+                state.error = Some("sign in before role administration".to_owned());
+            }
+            return;
+        };
         let parsed = {
             let Screen::ApplyRole(state) = &self.screen else {
                 return;
@@ -233,7 +271,7 @@ impl App {
         };
         let result = self
             .runtime
-            .block_on(self.handlers.apply_role(store, request));
+            .block_on(self.handlers.apply_role(store, actor, request));
         match result {
             Ok(response) => self.screen = Screen::Outcome(apply_role_outcome(&response)),
             Err(reason) => {
@@ -245,6 +283,12 @@ impl App {
     }
 
     fn submit_check_permission(&mut self, store: &tanren_app_services::Store) {
+        let Some(actor) = self.role_actor() else {
+            if let Screen::CheckPermission(state) = &mut self.screen {
+                state.error = Some("sign in before role administration".to_owned());
+            }
+            return;
+        };
         let parsed = {
             let Screen::CheckPermission(state) = &self.screen else {
                 return;
@@ -262,7 +306,7 @@ impl App {
         };
         let result = self
             .runtime
-            .block_on(self.handlers.check_permission(store, request));
+            .block_on(self.handlers.check_permission(store, actor, request));
         match result {
             Ok(response) => {
                 self.screen = Screen::Outcome(permission_check_outcome(&response));
@@ -287,5 +331,9 @@ impl App {
             | Screen::CheckPermission(s) => Some(s),
             _ => None,
         }
+    }
+
+    fn role_actor(&self) -> Option<tanren_contract::RoleActor> {
+        self.authenticated_actor
     }
 }

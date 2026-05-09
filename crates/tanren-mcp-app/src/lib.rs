@@ -27,7 +27,9 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use tanren_app_services::{Handlers, Store};
+use tanren_identity_policy::AccountId;
 use tokio::net::TcpListener;
+use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
@@ -66,6 +68,7 @@ impl Config {
 pub(crate) struct TanrenMcp {
     handlers: Handlers,
     store: Arc<Store>,
+    authenticated_actor: Arc<RwLock<Option<AccountId>>>,
     /// Cached tool router built from the `#[rmcp::tool]` methods on this
     /// type. Read by the macro-generated `ServerHandler` impl below.
     tool_router: ToolRouter<Self>,

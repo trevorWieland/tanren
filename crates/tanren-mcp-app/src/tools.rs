@@ -4,14 +4,18 @@ use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
+use schemars::JsonSchema;
+use serde::Deserialize;
 use serde::Serialize;
 use serde_json::json;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, RoleServiceError, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest,
-    EditRoleRequest, PermissionCheckRequest, SignInRequest, SignUpRequest,
+    EditRoleRequest, PermissionCheckRequest, RoleActor, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
+use tokio::sync::RwLock;
 
 use crate::TanrenMcp;
 
@@ -21,6 +25,7 @@ impl TanrenMcp {
         Self {
             handlers,
             store,
+            authenticated_actor: Arc::new(RwLock::new(None)),
             tool_router: Self::tool_router(),
         }
     }
@@ -34,7 +39,10 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignUpRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_up(self.store.as_ref(), request).await {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => {
+                self.set_authenticated_actor(response.account.id).await;
+                Ok(success(&response))
+            }
             Err(err) => Ok(map_account_failure(err)),
         }
     }
@@ -48,7 +56,10 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignInRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_in(self.store.as_ref(), request).await {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => {
+                self.set_authenticated_actor(response.account.id).await;
+                Ok(success(&response))
+            }
             Err(err) => Ok(map_account_failure(err)),
         }
     }
@@ -66,7 +77,10 @@ impl TanrenMcp {
             .accept_invitation(self.store.as_ref(), request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => {
+                self.set_authenticated_actor(response.account.id).await;
+                Ok(success(&response))
+            }
             Err(err) => Ok(map_account_failure(err)),
         }
     }
@@ -79,9 +93,12 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<CreateRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let Some(actor) = self.require_authenticated_actor().await else {
+            return Ok(unauthenticated_role_failure());
+        };
         match self
             .handlers
-            .create_role(self.store.as_ref(), request)
+            .create_role(self.store.as_ref(), actor, request)
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -97,7 +114,14 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<EditRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        match self.handlers.edit_role(self.store.as_ref(), request).await {
+        let Some(actor) = self.require_authenticated_actor().await else {
+            return Ok(unauthenticated_role_failure());
+        };
+        match self
+            .handlers
+            .edit_role(self.store.as_ref(), actor, request)
+            .await
+        {
             Ok(response) => Ok(success(&response)),
             Err(err) => Ok(map_role_failure(err)),
         }
@@ -111,9 +135,12 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<DeleteRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let Some(actor) = self.require_authenticated_actor().await else {
+            return Ok(unauthenticated_role_failure());
+        };
         match self
             .handlers
-            .delete_role(self.store.as_ref(), request)
+            .delete_role(self.store.as_ref(), actor, request)
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -129,7 +156,14 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<ApplyRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        match self.handlers.apply_role(self.store.as_ref(), request).await {
+        let Some(actor) = self.require_authenticated_actor().await else {
+            return Ok(unauthenticated_role_failure());
+        };
+        match self
+            .handlers
+            .apply_role(self.store.as_ref(), actor, request)
+            .await
+        {
             Ok(response) => Ok(success(&response)),
             Err(err) => Ok(map_role_failure(err)),
         }
@@ -143,9 +177,33 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<PermissionCheckRequest>,
     ) -> Result<CallToolResult, McpError> {
+        let Some(actor) = self.require_authenticated_actor().await else {
+            return Ok(unauthenticated_role_failure());
+        };
         match self
             .handlers
-            .check_permission(self.store.as_ref(), request)
+            .check_permission(self.store.as_ref(), actor, request)
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_role_failure(err)),
+        }
+    }
+
+    #[rmcp::tool(
+        name = "role.capabilities",
+        description = "Discover role administration capabilities for the authenticated MCP actor."
+    )]
+    async fn role_capabilities(
+        &self,
+        Parameters(_): Parameters<RoleCapabilitiesRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(actor) = self.require_authenticated_actor().await else {
+            return Ok(unauthenticated_role_failure());
+        };
+        match self
+            .handlers
+            .role_admin_capabilities(self.store.as_ref(), actor)
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -155,6 +213,16 @@ impl TanrenMcp {
 
     pub(crate) fn router(&self) -> &ToolRouter<Self> {
         &self.tool_router
+    }
+
+    async fn set_authenticated_actor(&self, account_id: AccountId) {
+        let mut actor = self.authenticated_actor.write().await;
+        *actor = Some(account_id);
+    }
+
+    async fn require_authenticated_actor(&self) -> Option<RoleActor> {
+        let actor = self.authenticated_actor.read().await;
+        (*actor).map(|account_id| RoleActor { account_id })
     }
 }
 
@@ -220,3 +288,13 @@ fn failure(code: &str, summary: &str) -> CallToolResult {
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
 }
+
+fn unauthenticated_role_failure() -> CallToolResult {
+    failure(
+        "permission_denied",
+        "Authentication is required for role operations. Call account.sign_in, account.create, or account.accept_invitation first.",
+    )
+}
+
+#[derive(Debug, Clone, Deserialize, JsonSchema)]
+struct RoleCapabilitiesRequest {}

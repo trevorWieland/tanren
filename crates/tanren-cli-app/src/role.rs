@@ -1,16 +1,19 @@
 use std::io::Write;
 
-use anyhow::{Context, Result};
+use crate::read_authenticated_actor;
+use anyhow::{Context, Result, anyhow};
 use clap::{Subcommand, ValueEnum};
 use tanren_app_services::{Handlers, RoleServiceError, Store};
 use tanren_contract::{
-    ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest, EditRoleRequest, PermissionCheckRequest,
+    ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest, EditRoleRequest,
+    PermissionCheckRequest, RoleActor,
 };
-use tanren_identity_policy::{
-    AccountId, OrgId, PermissionName, PermissionScope, PrincipalRef, ProjectId, RoleId, RoleName,
-    RoleScope, ScopedRole,
+use tanren_identity_policy::{PermissionName, RoleName, ScopedRole};
+#[path = "role_parse.rs"]
+mod parse;
+use parse::{
+    parse_permission_scope, parse_permissions, parse_principal, parse_role_id, parse_role_scope,
 };
-use uuid::Uuid;
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub(crate) enum ScopeKind {
@@ -141,38 +144,77 @@ pub(crate) fn dispatch(action: RoleAction) -> Result<()> {
 
 async fn run_role(action: RoleAction) -> Result<()> {
     match action {
-        RoleAction::Create {
-            database_url,
-            scope_kind,
-            scope_id,
-            name,
-            permissions,
-        } => run_create(database_url, scope_kind, scope_id, name, permissions).await,
-        RoleAction::Edit {
+        RoleAction::Create { .. } => run_create_from_action(action).await,
+        RoleAction::Edit { .. } => run_edit_from_action(action).await,
+        RoleAction::Delete { .. } => run_delete_from_action(action).await,
+        RoleAction::Apply { .. } => run_apply_from_action(action).await,
+        RoleAction::Check { .. } => run_check_from_action(action).await,
+    }
+}
+
+async fn run_create_from_action(action: RoleAction) -> Result<()> {
+    if let RoleAction::Create {
+        database_url,
+        scope_kind,
+        scope_id,
+        name,
+        permissions,
+    } = action
+    {
+        return run_create(database_url, scope_kind, scope_id, name, permissions).await;
+    }
+    Err(anyhow!("internal role action dispatch mismatch"))
+}
+
+async fn run_edit_from_action(action: RoleAction) -> Result<()> {
+    if let RoleAction::Edit {
+        database_url,
+        role_id,
+        scope_kind,
+        scope_id,
+        name,
+        permissions,
+    } = action
+    {
+        return run_edit(
             database_url,
             role_id,
             scope_kind,
             scope_id,
             name,
             permissions,
-        } => {
-            run_edit(
-                database_url,
-                role_id,
-                scope_kind,
-                scope_id,
-                name,
-                permissions,
-            )
-            .await
-        }
-        RoleAction::Delete {
-            database_url,
-            role_id,
-            scope_kind,
-            scope_id,
-        } => run_delete(database_url, role_id, scope_kind, scope_id).await,
-        RoleAction::Apply {
+        )
+        .await;
+    }
+    Err(anyhow!("internal role action dispatch mismatch"))
+}
+
+async fn run_delete_from_action(action: RoleAction) -> Result<()> {
+    if let RoleAction::Delete {
+        database_url,
+        role_id,
+        scope_kind,
+        scope_id,
+    } = action
+    {
+        return run_delete(database_url, role_id, scope_kind, scope_id).await;
+    }
+    Err(anyhow!("internal role action dispatch mismatch"))
+}
+
+async fn run_apply_from_action(action: RoleAction) -> Result<()> {
+    if let RoleAction::Apply {
+        database_url,
+        role_id,
+        role_scope_kind,
+        role_scope_id,
+        principal_kind,
+        principal_id,
+        grant_scope_kind,
+        grant_scope_id,
+    } = action
+    {
+        return run_apply(ApplyArgs {
             database_url,
             role_id,
             role_scope_kind,
@@ -181,38 +223,33 @@ async fn run_role(action: RoleAction) -> Result<()> {
             principal_id,
             grant_scope_kind,
             grant_scope_id,
-        } => {
-            run_apply(ApplyArgs {
-                database_url,
-                role_id,
-                role_scope_kind,
-                role_scope_id,
-                principal_kind,
-                principal_id,
-                grant_scope_kind,
-                grant_scope_id,
-            })
-            .await
-        }
-        RoleAction::Check {
+        })
+        .await;
+    }
+    Err(anyhow!("internal role action dispatch mismatch"))
+}
+
+async fn run_check_from_action(action: RoleAction) -> Result<()> {
+    if let RoleAction::Check {
+        database_url,
+        principal_kind,
+        principal_id,
+        permission,
+        scope_kind,
+        scope_id,
+    } = action
+    {
+        return run_check(
             database_url,
             principal_kind,
             principal_id,
             permission,
             scope_kind,
             scope_id,
-        } => {
-            run_check(
-                database_url,
-                principal_kind,
-                principal_id,
-                permission,
-                scope_kind,
-                scope_id,
-            )
-            .await
-        }
+        )
+        .await;
     }
+    Err(anyhow!("internal role action dispatch mismatch"))
 }
 
 async fn run_create(
@@ -228,9 +265,11 @@ async fn run_create(
     let scope = parse_role_scope(scope_kind, &scope_id, "--scope-id")?;
     let name = RoleName::parse(&name).context("parse --name as role name")?;
     let permissions = parse_permissions(permissions)?;
+    let actor = authenticated_role_actor()?;
     let response = Handlers::new()
         .create_role(
             &store,
+            actor,
             CreateRoleRequest {
                 scope,
                 name,
@@ -259,9 +298,11 @@ async fn run_edit(
     };
     let name = RoleName::parse(&name).context("parse --name as role name")?;
     let permissions = parse_permissions(permissions)?;
+    let actor = authenticated_role_actor()?;
     let response = Handlers::new()
         .edit_role(
             &store,
+            actor,
             EditRoleRequest {
                 role,
                 name,
@@ -282,9 +323,11 @@ async fn run_delete(
     let store = Store::connect(&database_url)
         .await
         .context("connect to store")?;
+    let actor = authenticated_role_actor()?;
     let response = Handlers::new()
         .delete_role(
             &store,
+            actor,
             DeleteRoleRequest {
                 role: ScopedRole {
                     role_id: parse_role_id(&role_id)?,
@@ -312,9 +355,11 @@ async fn run_apply(args: ApplyArgs) -> Result<()> {
     let store = Store::connect(&args.database_url)
         .await
         .context("connect to store")?;
+    let actor = authenticated_role_actor()?;
     let response = Handlers::new()
         .apply_role(
             &store,
+            actor,
             ApplyRoleRequest {
                 role: ScopedRole {
                     role_id: parse_role_id(&args.role_id)?,
@@ -350,9 +395,11 @@ async fn run_check(
         .context("connect to store")?;
     let permission =
         PermissionName::parse(&permission).context("parse --permission as permission")?;
+    let actor = authenticated_role_actor()?;
     let response = Handlers::new()
         .check_permission(
             &store,
+            actor,
             PermissionCheckRequest {
                 principal: parse_principal(principal_kind, &principal_id)?,
                 permission,
@@ -379,66 +426,6 @@ fn role_error(err: RoleServiceError) -> anyhow::Error {
     }
 }
 
-fn parse_permissions(raw: Vec<String>) -> Result<Vec<PermissionName>> {
-    raw.into_iter()
-        .map(|value| {
-            PermissionName::parse(&value)
-                .with_context(|| format!("parse --permission `{value}` as permission name"))
-        })
-        .collect()
-}
-
-fn parse_role_scope(kind: ScopeKind, id: &str, field_name: &str) -> Result<RoleScope> {
-    let uuid = parse_uuid(id, field_name)?;
-    Ok(match kind {
-        ScopeKind::Account => RoleScope::Account {
-            account_id: AccountId::from(uuid),
-        },
-        ScopeKind::Organization => RoleScope::Organization {
-            org_id: OrgId::from(uuid),
-        },
-        ScopeKind::Project => RoleScope::Project {
-            project_id: ProjectId::from(uuid),
-        },
-    })
-}
-
-fn parse_permission_scope(kind: ScopeKind, id: &str, field_name: &str) -> Result<PermissionScope> {
-    let uuid = parse_uuid(id, field_name)?;
-    Ok(match kind {
-        ScopeKind::Account => PermissionScope::Account {
-            account_id: AccountId::from(uuid),
-        },
-        ScopeKind::Organization => PermissionScope::Organization {
-            org_id: OrgId::from(uuid),
-        },
-        ScopeKind::Project => PermissionScope::Project {
-            project_id: ProjectId::from(uuid),
-        },
-    })
-}
-
-fn parse_principal(kind: PrincipalKind, id: &str) -> Result<PrincipalRef> {
-    let uuid = parse_uuid(id, "--principal-id")?;
-    Ok(match kind {
-        PrincipalKind::Account => PrincipalRef::Account {
-            account_id: AccountId::from(uuid),
-        },
-        PrincipalKind::Role => PrincipalRef::Role {
-            role_id: RoleId::from(uuid),
-        },
-    })
-}
-
-fn parse_role_id(raw: &str) -> Result<RoleId> {
-    let uuid = parse_uuid(raw, "--role-id")?;
-    Ok(RoleId::from(uuid))
-}
-
-fn parse_uuid(raw: &str, field_name: &str) -> Result<Uuid> {
-    Uuid::parse_str(raw).with_context(|| format!("parse {field_name} as uuid"))
-}
-
 fn write_json_response<T>(response: &T) -> Result<()>
 where
     T: serde::Serialize,
@@ -447,4 +434,10 @@ where
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(handle, "{encoded}").context("write response json")
+}
+
+fn authenticated_role_actor() -> Result<RoleActor> {
+    Ok(RoleActor {
+        account_id: read_authenticated_actor().context("load authenticated actor from session")?,
+    })
 }

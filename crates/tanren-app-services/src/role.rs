@@ -6,12 +6,15 @@
 use tanren_contract::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
-    PermissionCheckResponse, PermissionGrantView, RoleFailureReason, RoleTemplateView,
+    PermissionCheckResponse, PermissionGrantView, RoleActor, RoleAdminAction,
+    RoleAdminCapabilities, RoleFailureReason, RoleTemplateView,
 };
-use tanren_identity_policy::{PrincipalRef, RoleId};
+use tanren_identity_policy::{
+    AccountId, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope,
+};
 use tanren_store::{
     AccountStore, ApplyRole, ApplyRoleError, CreateRoleError, EditRole, EditRoleError, NewRole,
-    RoleRecord, RoleStore,
+    RoleRecord, RoleStore, StoreError,
 };
 
 use crate::events::{
@@ -20,14 +23,64 @@ use crate::events::{
 };
 use crate::{Clock, RoleServiceError};
 
+const ROLE_MANAGE_PERMISSION: &str = "roles.manage";
+const ROLE_READ_PERMISSION: &str = "roles.read";
+
+pub(crate) trait RoleAdminCapabilityPort {
+    async fn actor_has_capability_in_scope(
+        &self,
+        actor: AccountId,
+        scope: PermissionScope,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError>;
+
+    async fn actor_has_capability_any_scope(
+        &self,
+        actor: AccountId,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError>;
+}
+
+impl<T> RoleAdminCapabilityPort for T
+where
+    T: RoleStore + ?Sized,
+{
+    async fn actor_has_capability_in_scope(
+        &self,
+        actor: AccountId,
+        scope: PermissionScope,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError> {
+        self.has_direct_grant(
+            PrincipalRef::Account { account_id: actor },
+            scope,
+            permission,
+        )
+        .await
+    }
+
+    async fn actor_has_capability_any_scope(
+        &self,
+        actor: AccountId,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError> {
+        let grants = self
+            .list_all_direct_grants(PrincipalRef::Account { account_id: actor })
+            .await?;
+        Ok(grants.iter().any(|grant| grant.permission == *permission))
+    }
+}
+
 pub(crate) async fn create_role<S>(
     store: &S,
     clock: &Clock,
+    actor: RoleActor,
     request: CreateRoleRequest,
 ) -> Result<CreateRoleResponse, RoleServiceError>
 where
     S: RoleStore + AccountStore + ?Sized,
 {
+    authorize_manage_role_scope(store, actor.account_id, request.scope).await?;
     let now = clock.now();
     let role = store
         .create_role(NewRole {
@@ -62,11 +115,13 @@ where
 pub(crate) async fn edit_role<S>(
     store: &S,
     clock: &Clock,
+    actor: RoleActor,
     request: EditRoleRequest,
 ) -> Result<EditRoleResponse, RoleServiceError>
 where
     S: RoleStore + AccountStore + ?Sized,
 {
+    authorize_manage_role_scope(store, actor.account_id, request.role.scope).await?;
     let now = clock.now();
     let role = store
         .edit_role(EditRole {
@@ -99,11 +154,13 @@ where
 pub(crate) async fn delete_role<S>(
     store: &S,
     clock: &Clock,
+    actor: RoleActor,
     request: DeleteRoleRequest,
 ) -> Result<DeleteRoleResponse, RoleServiceError>
 where
     S: RoleStore + AccountStore + ?Sized,
 {
+    authorize_manage_role_scope(store, actor.account_id, request.role.scope).await?;
     let now = clock.now();
     let deleted = store.delete_role(request.role).await?;
     if !deleted {
@@ -127,11 +184,13 @@ where
 pub(crate) async fn apply_role<S>(
     store: &S,
     clock: &Clock,
+    actor: RoleActor,
     request: ApplyRoleRequest,
 ) -> Result<ApplyRoleResponse, RoleServiceError>
 where
     S: RoleStore + AccountStore + ?Sized,
 {
+    authorize_manage_permission_scope(store, actor.account_id, request.grant_scope).await?;
     if matches!(request.principal, PrincipalRef::Role { .. }) {
         return Err(RoleServiceError::Role(
             RoleFailureReason::RoleAsPrincipalRejected,
@@ -143,9 +202,9 @@ where
             role: request.role,
             principal: request.principal,
             grant_scope: request.grant_scope,
-            // Until interface auth context is threaded in, grant provenance
-            // is the grantee principal that initiated self-application.
-            granted_by: request.principal,
+            granted_by: PrincipalRef::Account {
+                account_id: actor.account_id,
+            },
             granted_at: now,
         })
         .await
@@ -179,11 +238,13 @@ where
 pub(crate) async fn check_permission<S>(
     store: &S,
     clock: &Clock,
+    actor: RoleActor,
     request: PermissionCheckRequest,
 ) -> Result<PermissionCheckResponse, RoleServiceError>
 where
     S: RoleStore + AccountStore + ?Sized,
 {
+    authorize_read_permission_scope(store, actor.account_id, request.scope).await?;
     if matches!(request.principal, PrincipalRef::Role { .. }) {
         let now = clock.now();
         store
@@ -217,6 +278,118 @@ where
         allowed: !matching_grant_ids.is_empty(),
         matching_grant_ids,
     })
+}
+
+pub(crate) async fn role_admin_capabilities<S>(
+    store: &S,
+    actor: RoleActor,
+) -> Result<RoleAdminCapabilities, RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    let manage_permission = role_manage_permission()?;
+    let read_permission = role_read_permission()?;
+    let can_manage = store
+        .actor_has_capability_any_scope(actor.account_id, &manage_permission)
+        .await?;
+    let can_read = store
+        .actor_has_capability_any_scope(actor.account_id, &read_permission)
+        .await?;
+    let mut actions = Vec::new();
+    if can_manage {
+        actions.extend_from_slice(&[
+            RoleAdminAction::CreateRole,
+            RoleAdminAction::EditRole,
+            RoleAdminAction::DeleteRole,
+            RoleAdminAction::ApplyRole,
+        ]);
+    }
+    if can_read || can_manage {
+        actions.extend_from_slice(&[RoleAdminAction::ReadRoles, RoleAdminAction::CheckPermission]);
+    }
+    Ok(RoleAdminCapabilities { actor, actions })
+}
+
+async fn authorize_manage_role_scope<S>(
+    store: &S,
+    actor: AccountId,
+    scope: RoleScope,
+) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    authorize_role_permission(
+        store,
+        actor,
+        permission_scope_from_role_scope(scope),
+        &role_manage_permission()?,
+    )
+    .await
+}
+
+async fn authorize_manage_permission_scope<S>(
+    store: &S,
+    actor: AccountId,
+    scope: PermissionScope,
+) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    authorize_role_permission(store, actor, scope, &role_manage_permission()?).await
+}
+
+async fn authorize_read_permission_scope<S>(
+    store: &S,
+    actor: AccountId,
+    scope: PermissionScope,
+) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    let can_read = store
+        .actor_has_capability_in_scope(actor, scope, &role_read_permission()?)
+        .await?;
+    if can_read {
+        return Ok(());
+    }
+    authorize_manage_permission_scope(store, actor, scope).await
+}
+
+async fn authorize_role_permission<S>(
+    store: &S,
+    actor: AccountId,
+    scope: PermissionScope,
+    permission: &PermissionName,
+) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    let allowed = store
+        .actor_has_capability_in_scope(actor, scope, permission)
+        .await?;
+    if allowed {
+        Ok(())
+    } else {
+        Err(RoleServiceError::Role(RoleFailureReason::PermissionDenied))
+    }
+}
+
+fn role_manage_permission() -> Result<PermissionName, RoleServiceError> {
+    PermissionName::parse(ROLE_MANAGE_PERMISSION)
+        .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
+}
+
+fn role_read_permission() -> Result<PermissionName, RoleServiceError> {
+    PermissionName::parse(ROLE_READ_PERMISSION)
+        .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
+}
+
+fn permission_scope_from_role_scope(scope: RoleScope) -> PermissionScope {
+    match scope {
+        RoleScope::Account { account_id } => PermissionScope::Account { account_id },
+        RoleScope::Organization { org_id } => PermissionScope::Organization { org_id },
+        RoleScope::Project { project_id } => PermissionScope::Project { project_id },
+    }
 }
 
 fn map_create_role_error(err: CreateRoleError) -> RoleServiceError {

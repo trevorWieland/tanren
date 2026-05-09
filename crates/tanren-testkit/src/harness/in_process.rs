@@ -12,8 +12,8 @@ use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
     CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
-    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleTemplateView,
-    SignInRequest, SignUpRequest,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleActor,
+    RoleTemplateView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewRole, RoleStore};
@@ -31,6 +31,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    role_actor: Option<RoleActor>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -68,6 +69,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            role_actor: None,
         })
     }
 
@@ -89,24 +91,34 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.role_actor = Some(RoleActor {
+                    account_id: response.account.id,
+                });
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.role_actor = Some(RoleActor {
+                    account_id: response.account.id,
+                });
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -116,15 +128,20 @@ impl AccountHarness for InProcessHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         match self.handlers.accept_invitation(&self.store, req).await {
-            Ok(response) => Ok(HarnessAcceptance {
-                session: HarnessSession {
-                    account: response.account.clone(),
+            Ok(response) => {
+                self.role_actor = Some(RoleActor {
                     account_id: response.account.id,
-                    expires_at: response.session.expires_at,
-                    has_token: !response.session.token.expose_secret().is_empty(),
-                },
-                joined_org: response.joined_org,
-            }),
+                });
+                Ok(HarnessAcceptance {
+                    session: HarnessSession {
+                        account: response.account.clone(),
+                        account_id: response.account.id,
+                        expires_at: response.session.expires_at,
+                        has_token: !response.session.token.expose_secret().is_empty(),
+                    },
+                    joined_org: response.joined_org,
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -154,15 +171,21 @@ impl RoleHarness for InProcessHarness {
         &mut self,
         req: CreateRoleRequest,
     ) -> RoleHarnessResult<CreateRoleResponse> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
         self.handlers
-            .create_role(&self.store, req)
+            .create_role(&self.store, actor, req)
             .await
             .map_err(translate_role_error)
     }
 
     async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
         self.handlers
-            .edit_role(&self.store, req)
+            .edit_role(&self.store, actor, req)
             .await
             .map_err(translate_role_error)
     }
@@ -171,15 +194,21 @@ impl RoleHarness for InProcessHarness {
         &mut self,
         req: DeleteRoleRequest,
     ) -> RoleHarnessResult<DeleteRoleResponse> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
         self.handlers
-            .delete_role(&self.store, req)
+            .delete_role(&self.store, actor, req)
             .await
             .map_err(translate_role_error)
     }
 
     async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
         self.handlers
-            .apply_role(&self.store, req)
+            .apply_role(&self.store, actor, req)
             .await
             .map_err(translate_role_error)
     }
@@ -188,8 +217,11 @@ impl RoleHarness for InProcessHarness {
         &mut self,
         req: PermissionCheckRequest,
     ) -> RoleHarnessResult<PermissionCheckResponse> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
         self.handlers
-            .check_permission(&self.store, req)
+            .check_permission(&self.store, actor, req)
             .await
             .map_err(translate_role_error)
     }
@@ -207,6 +239,17 @@ impl RoleHarness for InProcessHarness {
             .await
             .map_err(|e| RoleHarnessError::Transport(format!("seed_role_template: {e}")))?;
         Ok(())
+    }
+
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: tanren_identity_policy::RoleScope,
+        permissions: Vec<tanren_identity_policy::PermissionName>,
+    ) -> RoleHarnessResult<()> {
+        let actor = self.role_actor.ok_or_else(|| {
+            RoleHarnessError::Transport("missing authenticated role actor".to_owned())
+        })?;
+        super::seed_role_admin_grants(&self.store, actor.account_id, scope, permissions).await
     }
 
     async fn read_role_template(

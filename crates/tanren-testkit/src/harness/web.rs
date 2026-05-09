@@ -122,6 +122,16 @@ impl RoleHarness for WebHarness {
         self.inner.seed_role_template(fixture).await
     }
 
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: tanren_identity_policy::RoleScope,
+        permissions: Vec<tanren_identity_policy::PermissionName>,
+    ) -> RoleHarnessResult<()> {
+        self.inner
+            .seed_role_admin_for_authenticated_actor(scope, permissions)
+            .await
+    }
+
     async fn read_role_template(
         &self,
         role: tanren_identity_policy::ScopedRole,
