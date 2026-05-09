@@ -3,7 +3,9 @@ import {
   type OrganizationAdminPermission,
 } from "@/lib/organization-api";
 
-export const ORGANIZATION_WEB_ROUTE = "/organizations" as const;
+export const ORGANIZATION_RUNTIME_ROUTE = "/organizations" as const;
+export const ORGANIZATION_WEB_HARNESS_ROUTE =
+  "/harness/b-0066/organizations" as const;
 
 export { ORGANIZATION_API_ROUTES };
 export type { OrganizationAdminPermission };

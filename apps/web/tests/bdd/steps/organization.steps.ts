@@ -1,6 +1,7 @@
 // playwright-bdd step definitions for the `@web` slice of B-0066.
 //
-// These steps drive the web-owned organization wire surface (`/organizations`).
+// These steps drive the harness-owned B-0066 web witness surface
+// (`/harness/b-0066/organizations`).
 
 import { createBdd } from "playwright-bdd";
 

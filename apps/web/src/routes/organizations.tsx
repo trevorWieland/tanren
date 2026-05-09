@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -14,12 +15,13 @@ import {
   type OrganizationSourceLink,
 } from "@/lib/organization-api";
 import {
+  ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
+  normalizeOrganizationName,
   organizationIdTestId,
   organizationInitialProjectsTestId,
   organizationPermissionsTestId,
   organizationRowTestId,
-  normalizeOrganizationName,
 } from "@/lib/organization-routes";
 
 const ORGANIZATION_PERMISSION_CACHE_KEY = "tanren.organization.permissions";
@@ -34,6 +36,37 @@ interface OrganizationRecord {
 }
 
 export default function OrganizationsRoute(): ReactNode {
+  return (
+    <main className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 p-8">
+      <header className="flex flex-col gap-2">
+        <h1 className="text-2xl font-semibold">Organizations</h1>
+        <p className="text-sm text-[--color-fg-muted]">
+          The B-0066 behavior-proof witness surface is harness-owned at{" "}
+          <code>{ORGANIZATION_WEB_HARNESS_ROUTE}</code>.
+        </p>
+        <p className="text-sm text-[--color-fg-muted]">
+          This runtime route remains product-facing and does not mirror
+          harness-side browser state.
+        </p>
+        <p>
+          <Link className="underline" href={ORGANIZATION_WEB_HARNESS_ROUTE}>
+            Open B-0066 harness witness surface
+          </Link>
+        </p>
+      </header>
+
+      <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4">
+        <h2 className="mb-3 text-lg font-medium">Runtime route scope</h2>
+        <p className="text-sm text-[--color-fg-muted]">
+          Product-facing organization experiences stay on this route. Behavior
+          proof witnesses are exercised through harness-owned routes only.
+        </p>
+      </section>
+    </main>
+  );
+}
+
+export function OrganizationHarnessRoute(): ReactNode {
   const [createName, setCreateName] = useState("");
   const [permissionOrgId, setPermissionOrgId] = useState("");
   const [permission, setPermission] = useState<
@@ -193,10 +226,11 @@ export default function OrganizationsRoute(): ReactNode {
       className="mx-auto flex min-h-screen w-full max-w-3xl flex-col gap-6 p-8"
       data-testid={ORGANIZATION_WIRE_TEST_IDS.page}
     >
-      <h1 className="text-2xl font-semibold">Organization Wire Surface</h1>
+      <h1 className="text-2xl font-semibold">
+        B-0066 Organization Harness Witness Surface
+      </h1>
       <p className="text-sm text-[--color-fg-muted]">
-        Web-owned harness for B-0066 organization create/list/permission
-        witness.
+        Harness-owned web witness for create/list/permission checks.
       </p>
 
       <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4">

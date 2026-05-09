@@ -13,7 +13,7 @@ import {
 } from "@/lib/organization-api";
 import {
   ORGANIZATION_API_ROUTES,
-  ORGANIZATION_WEB_ROUTE,
+  ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
   normalizeOrganizationName,
   organizationIdTestId,
@@ -50,7 +50,7 @@ export interface CheckPermissionOperation {
 }
 
 export async function openOrganizationWireSurface(page: Page): Promise<void> {
-  await page.goto(ORGANIZATION_WEB_ROUTE);
+  await page.goto(ORGANIZATION_WEB_HARNESS_ROUTE);
   await waitForHydration(page);
 }
 
