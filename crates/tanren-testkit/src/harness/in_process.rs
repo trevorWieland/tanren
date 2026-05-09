@@ -151,7 +151,7 @@ impl AccountHarness for InProcessHarness {
             .await
         {
             Ok(response) => Ok(response.into()),
-            Err(err) => Err(translate_posture_error(err)),
+            Err(err) => Err(translate_posture_error(&err)),
         }
     }
 
@@ -198,17 +198,11 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
 }
 
 fn translate_posture_error(
-    err: tanren_app_services::deployment_posture::SetDeploymentPostureError,
+    err: &tanren_app_services::deployment_posture::SetDeploymentPostureError,
 ) -> HarnessError {
-    use tanren_app_services::deployment_posture::SetDeploymentPostureError;
-    match err {
-        SetDeploymentPostureError::Contract { failure } => HarnessError::FailureCode {
-            code: failure.reason.code().to_owned(),
-            summary: failure.detail,
-        },
-        SetDeploymentPostureError::Store { source } => {
-            HarnessError::Transport(format!("store: {source}"))
-        }
-        _ => HarnessError::Transport("unknown posture failure".to_owned()),
+    let rendered = err.render();
+    HarnessError::FailureCode {
+        code: rendered.code,
+        summary: rendered.summary,
     }
 }

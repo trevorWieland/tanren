@@ -304,6 +304,15 @@ pub struct SetDeploymentPostureResponse {
     pub capability_summary: DeploymentPostureCapabilitySummary,
 }
 
+/// Canonical rendered failure payload for posture interfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct DeploymentPostureFailureBody {
+    /// Stable machine-readable failure code.
+    pub code: String,
+    /// User-readable summary.
+    pub summary: String,
+}
+
 /// Closed taxonomy for posture-flow failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -317,6 +326,10 @@ pub enum DeploymentPostureFailureReason {
     ScopeNotFound,
     /// A contract-level validation rule failed.
     ValidationFailed,
+    /// The service is temporarily unavailable.
+    Unavailable,
+    /// An unexpected internal error occurred.
+    InternalError,
 }
 
 impl DeploymentPostureFailureReason {
@@ -328,6 +341,22 @@ impl DeploymentPostureFailureReason {
             Self::PermissionDenied => "permission_denied",
             Self::ScopeNotFound => "scope_not_found",
             Self::ValidationFailed => "validation_failed",
+            Self::Unavailable => "unavailable",
+            Self::InternalError => "internal_error",
+        }
+    }
+
+    /// Parse a failure reason from a wire code.
+    #[must_use]
+    pub fn from_code(code: &str) -> Option<Self> {
+        match code {
+            "unsupported_posture" => Some(Self::UnsupportedPosture),
+            "permission_denied" => Some(Self::PermissionDenied),
+            "scope_not_found" => Some(Self::ScopeNotFound),
+            "validation_failed" => Some(Self::ValidationFailed),
+            "unavailable" => Some(Self::Unavailable),
+            "internal_error" => Some(Self::InternalError),
+            _ => None,
         }
     }
 
@@ -345,6 +374,8 @@ impl DeploymentPostureFailureReason {
             Self::ValidationFailed => {
                 "The submitted posture request did not satisfy contract-level validation."
             }
+            Self::Unavailable => "Tanren is temporarily unavailable. Please try again shortly.",
+            Self::InternalError => "Tanren encountered an internal error.",
         }
     }
 
@@ -355,6 +386,23 @@ impl DeploymentPostureFailureReason {
             Self::UnsupportedPosture | Self::ValidationFailed => 400,
             Self::PermissionDenied => 403,
             Self::ScopeNotFound => 404,
+            Self::Unavailable => 503,
+            Self::InternalError => 500,
+        }
+    }
+
+    /// Render this failure reason as a wire body with optional detail.
+    ///
+    /// Empty detail values fall back to the canonical default summary.
+    #[must_use]
+    pub fn render(self, detail: Option<&str>) -> DeploymentPostureFailureBody {
+        let summary = detail
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map_or_else(|| self.summary().to_owned(), str::to_owned);
+        DeploymentPostureFailureBody {
+            code: self.code().to_owned(),
+            summary,
         }
     }
 }
@@ -380,5 +428,12 @@ impl DeploymentPostureContractFailure {
             reason: DeploymentPostureFailureReason::UnsupportedPosture,
             detail,
         }
+    }
+
+    /// Render this contract failure into the canonical `{code, summary}`
+    /// wire payload.
+    #[must_use]
+    pub fn render(&self) -> DeploymentPostureFailureBody {
+        self.reason.render(Some(&self.detail))
     }
 }

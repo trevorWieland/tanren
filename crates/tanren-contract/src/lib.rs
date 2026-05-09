@@ -15,9 +15,10 @@ pub use account::{
 pub use deployment_posture::{
     CurrentDeploymentPostureResponse, DeploymentPosture, DeploymentPostureCapability,
     DeploymentPostureCapabilitySummary, DeploymentPostureCapabilityUnavailableReason,
-    DeploymentPostureContractFailure, DeploymentPostureFailureReason, DeploymentPostureReadModel,
-    DeploymentPostureScope, DeploymentPostureUnavailableCapability, SetDeploymentPostureRequest,
-    SetDeploymentPostureResponse, SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
+    DeploymentPostureContractFailure, DeploymentPostureFailureBody, DeploymentPostureFailureReason,
+    DeploymentPostureReadModel, DeploymentPostureScope, DeploymentPostureUnavailableCapability,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SupportedDeploymentPosture,
+    SupportedDeploymentPosturesResponse,
 };
 
 use serde::{Deserialize, Serialize};

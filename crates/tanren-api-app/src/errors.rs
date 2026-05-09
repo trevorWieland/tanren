@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
 use tanren_app_services::deployment_posture::SetDeploymentPostureError;
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{AccountFailureReason, DeploymentPostureFailureReason};
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -73,40 +73,37 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
 
 /// Map deployment-posture app-service failures to the shared
 /// `{code, summary}` body.
-pub(crate) fn map_posture_error(err: SetDeploymentPostureError) -> Response {
-    match err {
-        SetDeploymentPostureError::Contract { failure } => {
-            let status = StatusCode::from_u16(failure.reason.http_status())
-                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-            (
-                status,
-                Json(AccountFailureBody {
-                    code: failure.reason.code().to_owned(),
-                    summary: failure.detail,
-                }),
-            )
-                .into_response()
-        }
-        SetDeploymentPostureError::Store { source } => {
-            tracing::error!(target: "tanren_api", error = %source, "store error");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
-                    code: "internal_error".to_owned(),
-                    summary: "Tanren encountered an internal error.".to_owned(),
-                }),
-            )
-                .into_response()
-        }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
-                code: "internal_error".to_owned(),
-                summary: "Tanren encountered an internal error.".to_owned(),
-            }),
-        )
-            .into_response(),
+pub(crate) fn map_posture_error(err: &SetDeploymentPostureError) -> Response {
+    if let SetDeploymentPostureError::Store { source } = err {
+        tracing::error!(target: "tanren_api", error = %source, "store error");
     }
+    let rendered = err.render();
+    let reason = DeploymentPostureFailureReason::from_code(rendered.code.as_str())
+        .unwrap_or(DeploymentPostureFailureReason::InternalError);
+    posture_failure_response(reason, Some(rendered.summary.as_str()))
+}
+
+/// Build a posture failure response using the shared contract taxonomy.
+pub(crate) fn posture_failure_response(
+    reason: DeploymentPostureFailureReason,
+    detail: Option<&str>,
+) -> Response {
+    let status =
+        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    let body = reason.render(detail);
+    (
+        status,
+        Json(AccountFailureBody {
+            code: body.code,
+            summary: body.summary,
+        }),
+    )
+        .into_response()
+}
+
+/// Shared posture internal-error response.
+pub(crate) fn posture_internal_error_response() -> Response {
+    posture_failure_response(DeploymentPostureFailureReason::InternalError, None)
 }
 
 fn failure_body(reason: AccountFailureReason) -> Response {

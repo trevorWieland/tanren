@@ -2,7 +2,6 @@
 
 use axum::Json;
 use axum::extract::{Path, State};
-use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use tanren_contract::{
@@ -15,7 +14,10 @@ use uuid::Uuid;
 
 use crate::AppState;
 use crate::cookies::session_actor;
-use crate::errors::{AccountFailureBody, ValidatedJson, map_posture_error};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, map_posture_error, posture_failure_response,
+    posture_internal_error_response,
+};
 
 /// List every supported deployment posture with capability summary.
 #[utoipa::path(
@@ -64,14 +66,7 @@ pub(crate) async fn get_deployment_posture_route(
         Ok(current) => Json(current).into_response(),
         Err(err) => {
             tracing::error!(target: "tanren_api", error = %err, "store error");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
-                    code: "internal_error".to_owned(),
-                    summary: "Tanren encountered an internal error.".to_owned(),
-                }),
-            )
-                .into_response()
+            posture_internal_error_response()
         }
     }
 }
@@ -106,7 +101,7 @@ pub(crate) async fn set_deployment_posture_route(
         .await
     {
         Ok(response) => Json(response).into_response(),
-        Err(err) => map_posture_error(err),
+        Err(err) => map_posture_error(&err),
     }
 }
 
@@ -124,46 +119,22 @@ async fn actor_from_session(session: &Session) -> Result<AccountId, Response> {
         Ok(None) => Err(permission_denied_response()),
         Err(err) => {
             tracing::error!(target: "tanren_api", error = %err, "session read");
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
-                    code: "internal_error".to_owned(),
-                    summary: "Tanren encountered an internal error.".to_owned(),
-                }),
-            )
-                .into_response())
+            Err(posture_internal_error_response())
         }
     }
 }
 
 fn permission_denied_response() -> Response {
-    (
-        StatusCode::FORBIDDEN,
-        Json(AccountFailureBody {
-            code: DeploymentPostureFailureReason::PermissionDenied
-                .code()
-                .to_owned(),
-            summary: DeploymentPostureFailureReason::PermissionDenied
-                .summary()
-                .to_owned(),
-        }),
-    )
-        .into_response()
+    posture_failure_response(DeploymentPostureFailureReason::PermissionDenied, None)
 }
 
 fn parse_scope(scope_kind: &str, scope_id: &str) -> Result<DeploymentPostureScope, Box<Response>> {
     let scope_kind = ScopeKind::parse(scope_kind)?;
     let parsed_uuid = Uuid::parse_str(scope_id).map_err(|err| {
-        Box::new(
-            (
-                StatusCode::BAD_REQUEST,
-                Json(AccountFailureBody {
-                    code: "validation_failed".to_owned(),
-                    summary: format!("Invalid scope_id `{scope_id}`: {err}"),
-                }),
-            )
-                .into_response(),
-        )
+        Box::new(posture_failure_response(
+            DeploymentPostureFailureReason::ValidationFailed,
+            Some(&format!("Invalid scope_id `{scope_id}`: {err}")),
+        ))
     })?;
     Ok(scope_kind.into_scope(parsed_uuid))
 }
@@ -181,18 +152,12 @@ impl ScopeKind {
             "account" => Ok(Self::Account),
             "project" => Ok(Self::Project),
             "installation" => Ok(Self::Installation),
-            other => Err(Box::new(
-                (
-                    StatusCode::BAD_REQUEST,
-                    Json(AccountFailureBody {
-                        code: "validation_failed".to_owned(),
-                        summary: format!(
-                            "Invalid scope_kind `{other}`. Supported values: account, project, installation."
-                        ),
-                    }),
-                )
-                    .into_response(),
-            )),
+            other => Err(Box::new(posture_failure_response(
+                DeploymentPostureFailureReason::ValidationFailed,
+                Some(&format!(
+                    "Invalid scope_kind `{other}`. Supported values: account, project, installation."
+                )),
+            ))),
         }
     }
 

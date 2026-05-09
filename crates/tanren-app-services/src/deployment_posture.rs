@@ -6,9 +6,9 @@
 
 use tanren_contract::{
     CurrentDeploymentPostureResponse, DeploymentPosture, DeploymentPostureCapabilitySummary,
-    DeploymentPostureContractFailure, DeploymentPostureFailureReason, DeploymentPostureReadModel,
-    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
-    SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
+    DeploymentPostureContractFailure, DeploymentPostureFailureBody, DeploymentPostureFailureReason,
+    DeploymentPostureReadModel, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::AccountId;
 use tanren_policy::{
@@ -66,6 +66,15 @@ impl SetDeploymentPostureError {
             Some(failure)
         } else {
             None
+        }
+    }
+
+    /// Render this error using the shared posture failure taxonomy.
+    #[must_use]
+    pub fn render(&self) -> DeploymentPostureFailureBody {
+        match self {
+            Self::Contract { failure } => failure.render(),
+            Self::Store { .. } => DeploymentPostureFailureReason::InternalError.render(None),
         }
     }
 }

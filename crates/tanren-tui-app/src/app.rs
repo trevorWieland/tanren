@@ -301,7 +301,7 @@ impl App {
             }
             Err(reason) => {
                 if let Screen::Posture(state) = &mut self.screen {
-                    state.error = Some(render_posture_error(reason));
+                    state.error = Some(render_posture_error(&reason));
                 }
             }
         }

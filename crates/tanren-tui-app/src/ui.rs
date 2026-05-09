@@ -184,14 +184,9 @@ pub(crate) fn render_error(err: AppServiceError) -> String {
     }
 }
 
-pub(crate) fn render_posture_error(err: SetDeploymentPostureError) -> String {
-    match err {
-        SetDeploymentPostureError::Contract { failure } => {
-            format!("{}: {}", failure.reason.code(), failure.detail)
-        }
-        SetDeploymentPostureError::Store { source } => format!("internal_error: {source}"),
-        _ => "internal_error: unknown posture failure".to_owned(),
-    }
+pub(crate) fn render_posture_error(err: &SetDeploymentPostureError) -> String {
+    let rendered = err.render();
+    format!("{}: {}", rendered.code, rendered.summary)
 }
 
 fn validation_message(err: &ValidationError) -> String {

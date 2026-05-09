@@ -358,7 +358,7 @@ async fn run_posture(action: PostureAction) -> Result<()> {
                     SetDeploymentPostureRequest { scope, posture },
                 )
                 .await
-                .map_err(posture_error)?;
+                .map_err(|err| posture_error(&err))?;
             let payload = serde_json::json!({ "current": response });
             write_json_line(&payload)?;
         }
@@ -371,7 +371,7 @@ async fn resolve_actor_from_session(handlers: &Handlers, store: &Store) -> Resul
     handlers
         .resolve_active_session_account(store, &token)
         .await
-        .map_err(posture_error)
+        .map_err(|err| posture_error(&err))
 }
 
 fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureScope> {
@@ -415,28 +415,21 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
     }
 }
 
-fn posture_error(err: SetDeploymentPostureError) -> anyhow::Error {
-    match err {
-        SetDeploymentPostureError::Contract { failure } => {
-            anyhow::anyhow!("error: {} — {}", failure.reason.code(), failure.detail)
-        }
-        SetDeploymentPostureError::Store { source } => {
-            anyhow::anyhow!("error: internal_error — {source}")
-        }
-        _ => anyhow::anyhow!("error: internal_error — unknown posture failure"),
-    }
+fn posture_error(err: &SetDeploymentPostureError) -> anyhow::Error {
+    let rendered = err.render();
+    anyhow::anyhow!("error: {} — {}", rendered.code, rendered.summary)
 }
 
 fn load_persisted_session_token() -> Result<SessionToken> {
     let path = session_path();
     let raw = fs::read_to_string(&path).map_err(|_| {
         let failure = missing_or_expired_session_failure();
-        posture_error(failure)
+        posture_error(&failure)
     })?;
     let token = raw.trim();
     if token.is_empty() {
         let failure = missing_or_expired_session_failure();
-        return Err(posture_error(failure));
+        return Err(posture_error(&failure));
     }
     Ok(SessionToken::from_secret(SecretString::from(
         token.to_owned(),

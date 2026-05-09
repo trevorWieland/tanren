@@ -3,6 +3,7 @@ import { TANREN_API_BASE_URL } from "@/app/lib/api-base-url";
 import type {
   CurrentDeploymentPostureResponse,
   DeploymentPosture,
+  DeploymentPostureFailureCode,
   SetDeploymentPostureRequest,
   SetDeploymentPostureResponse,
   SupportedDeploymentPosture,
@@ -82,12 +83,7 @@ export type AccountFailureCode =
   | "invitation_not_found"
   | "invitation_already_consumed"
   | "invitation_expired"
-  | "unsupported_posture"
-  | "permission_denied"
-  | "scope_not_found"
-  | "validation_failed"
-  | "unavailable"
-  | "internal_error";
+  | DeploymentPostureFailureCode;
 
 export interface AccountFailure {
   code: AccountFailureCode | string;

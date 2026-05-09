@@ -6,6 +6,14 @@
 
 export type DeploymentPosture = "hosted" | "self_hosted" | "local_only";
 
+export type DeploymentPostureFailureCode =
+  | "unsupported_posture"
+  | "permission_denied"
+  | "scope_not_found"
+  | "validation_failed"
+  | "unavailable"
+  | "internal_error";
+
 export type DeploymentPostureCapability =
   | "managed_control_plane"
   | "provider_integrations"

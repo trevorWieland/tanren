@@ -33,8 +33,8 @@ use std::sync::Arc;
 use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest,
-    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, DeploymentPostureFailureReason, DeploymentPostureScope,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -186,7 +186,7 @@ impl TanrenMcp {
             .await
         {
             Ok(response) => Ok(success::<SetDeploymentPostureResponse>(&response)),
-            Err(err) => Ok(map_posture_failure(err)),
+            Err(err) => Ok(map_posture_failure(&err)),
         }
     }
 
@@ -235,28 +235,26 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     CallToolResult::error(vec![Content::text(text)])
 }
 
-fn map_posture_failure(err: SetDeploymentPostureError) -> CallToolResult {
-    match err {
-        SetDeploymentPostureError::Contract { failure } => {
-            let body = json!({
-                "code": failure.reason.code(),
-                "summary": failure.detail,
-            });
-            let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-            CallToolResult::error(vec![Content::text(text)])
-        }
-        SetDeploymentPostureError::Store { source } => internal_error_result(&format!("{source}")),
-        _ => internal_error_result("unknown posture failure"),
+fn map_posture_failure(err: &SetDeploymentPostureError) -> CallToolResult {
+    if let SetDeploymentPostureError::Store { source } = err {
+        tracing::error!(target: "tanren_mcp", error = %source, "store error");
     }
+    let rendered = err.render();
+    let reason = DeploymentPostureFailureReason::from_code(rendered.code.as_str())
+        .unwrap_or(DeploymentPostureFailureReason::InternalError);
+    failure_result(reason, Some(rendered.summary.as_str()))
 }
 
 fn internal_error_result(summary: &str) -> CallToolResult {
-    let body = json!({
-        "code": "internal_error",
-        "summary": format!("Tanren encountered an internal error: {summary}"),
-    });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
+    let detail = if summary.is_empty() {
+        None
+    } else {
+        Some(format!("Tanren encountered an internal error: {summary}"))
+    };
+    failure_result(
+        DeploymentPostureFailureReason::InternalError,
+        detail.as_deref(),
+    )
 }
 
 fn actor_from_principal(
@@ -269,9 +267,17 @@ fn actor_from_principal(
 }
 
 fn permission_denied_result(summary: &str) -> CallToolResult {
+    failure_result(
+        DeploymentPostureFailureReason::PermissionDenied,
+        Some(summary),
+    )
+}
+
+fn failure_result(reason: DeploymentPostureFailureReason, detail: Option<&str>) -> CallToolResult {
+    let rendered = reason.render(detail);
     let body = json!({
-        "code": "permission_denied",
-        "summary": summary,
+        "code": rendered.code,
+        "summary": rendered.summary,
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
