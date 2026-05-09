@@ -114,11 +114,19 @@ where
     P: SourceControlProvider + ?Sized,
 {
     let designated_host = &command.request.designated_host;
+    let provider_family = provider.family();
 
     validate_actor_scope(
         store,
         command.actor_account_id,
         command.request.owning_account_id,
+    )
+    .await?;
+    ensure_repository_not_registered(
+        store,
+        command.request.owning_account_id,
+        &provider_family,
+        &command.request.repository,
     )
     .await?;
 
@@ -151,13 +159,18 @@ where
     let setup = register_project_repository(
         store,
         command.request.owning_account_id,
-        provider.family(),
+        provider_family,
         designated_host.clone(),
         created_repository,
         command.request.select_as_active,
         clock,
     )
     .await?;
+    // If a concurrent command registers the same account+provider+repository
+    // between the preflight lookup and this insert, the store returns
+    // `DuplicateRepository` and this call propagates the same conflict taxonomy.
+    // Callers reconcile by re-listing visible projects and using the existing
+    // registration as the canonical binding.
 
     Ok(CreateProjectResponse {
         project: project_view(&setup),
@@ -232,6 +245,28 @@ where
     Ok(())
 }
 
+async fn ensure_repository_not_registered<S>(
+    store: &S,
+    owning_account_id: AccountId,
+    provider_family: &ProviderFamily,
+    repository: &RepositoryRef,
+) -> Result<(), AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+{
+    if store
+        .find_project_repository(owning_account_id, provider_family, repository)
+        .await?
+        .is_some()
+    {
+        return Err(AppServiceError::Project(
+            ProjectFailureReason::DuplicateRepository,
+        ));
+    }
+
+    Ok(())
+}
+
 async fn register_project_repository<S>(
     store: &S,
     owning_account_id: AccountId,
@@ -244,16 +279,6 @@ async fn register_project_repository<S>(
 where
     S: ProjectStore + ?Sized,
 {
-    if store
-        .find_project_repository(owning_account_id, &provider_family, &repository)
-        .await?
-        .is_some()
-    {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::DuplicateRepository,
-        ));
-    }
-
     let now = clock.now();
     let project_id = ProjectId::fresh();
     let setup = store

@@ -29,6 +29,17 @@ Feature: Create a new project from scratch
       And repository "ApiTeam/Denied" does not exist at designated host "api-private-host"
       And alice has exactly 0 connected project records
 
+    @falsification @api
+    Scenario: API rejects duplicate project creation and keeps one registration
+      Given alice has a project account
+      And designated fixture host "api-fixture-host" is accessible to alice
+      When alice creates new repository "ApiTeam/Single" at designated host "api-fixture-host" as an active project
+      Then the project creation succeeds
+      When alice creates new repository "ApiTeam/Single" at designated host "api-fixture-host" as an active project
+      Then the project request fails with code "duplicate_repository"
+      And repository "ApiTeam/Single" exists at designated host "api-fixture-host"
+      And alice has exactly 1 connected project records
+
   Rule: Web surface
 
     @positive @web
@@ -51,6 +62,17 @@ Feature: Create a new project from scratch
       Then the project request fails with code "no_access"
       And repository "WebTeam/Denied" does not exist at designated host "web-private-host"
       And alice has exactly 0 connected project records
+
+    @falsification @web
+    Scenario: Web rejects duplicate project creation and keeps one registration
+      Given alice has a project account
+      And designated fixture host "web-fixture-host" is accessible to alice
+      When alice creates new repository "WebTeam/Single" at designated host "web-fixture-host" as an active project
+      Then the project creation succeeds
+      When alice creates new repository "WebTeam/Single" at designated host "web-fixture-host" as an active project
+      Then the project request fails with code "duplicate_repository"
+      And repository "WebTeam/Single" exists at designated host "web-fixture-host"
+      And alice has exactly 1 connected project records
 
   Rule: CLI surface
 
@@ -75,6 +97,17 @@ Feature: Create a new project from scratch
       And repository "CliTeam/Denied" does not exist at designated host "cli-private-host"
       And alice has exactly 0 connected project records
 
+    @falsification @cli
+    Scenario: CLI rejects duplicate project creation and keeps one registration
+      Given alice has a project account
+      And designated fixture host "cli-fixture-host" is accessible to alice
+      When alice creates new repository "CliTeam/Single" at designated host "cli-fixture-host" as an active project
+      Then the project creation succeeds
+      When alice creates new repository "CliTeam/Single" at designated host "cli-fixture-host" as an active project
+      Then the project request fails with code "duplicate_repository"
+      And repository "CliTeam/Single" exists at designated host "cli-fixture-host"
+      And alice has exactly 1 connected project records
+
   Rule: MCP surface
 
     @positive @mcp
@@ -98,6 +131,17 @@ Feature: Create a new project from scratch
       And repository "McpTeam/Denied" does not exist at designated host "mcp-private-host"
       And alice has exactly 0 connected project records
 
+    @falsification @mcp
+    Scenario: MCP rejects duplicate project creation and keeps one registration
+      Given alice has a project account
+      And designated fixture host "mcp-fixture-host" is accessible to alice
+      When alice creates new repository "McpTeam/Single" at designated host "mcp-fixture-host" as an active project
+      Then the project creation succeeds
+      When alice creates new repository "McpTeam/Single" at designated host "mcp-fixture-host" as an active project
+      Then the project request fails with code "duplicate_repository"
+      And repository "McpTeam/Single" exists at designated host "mcp-fixture-host"
+      And alice has exactly 1 connected project records
+
   Rule: TUI surface
 
     @positive @tui
@@ -120,3 +164,14 @@ Feature: Create a new project from scratch
       Then the project request fails with code "no_access"
       And repository "TuiTeam/Denied" does not exist at designated host "tui-private-host"
       And alice has exactly 0 connected project records
+
+    @falsification @tui
+    Scenario: TUI rejects duplicate project creation and keeps one registration
+      Given alice has a project account
+      And designated fixture host "tui-fixture-host" is accessible to alice
+      When alice creates new repository "TuiTeam/Single" at designated host "tui-fixture-host" as an active project
+      Then the project creation succeeds
+      When alice creates new repository "TuiTeam/Single" at designated host "tui-fixture-host" as an active project
+      Then the project request fails with code "duplicate_repository"
+      And repository "TuiTeam/Single" exists at designated host "tui-fixture-host"
+      And alice has exactly 1 connected project records

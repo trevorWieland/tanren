@@ -47,16 +47,10 @@ impl ProjectStore for Store {
             designated_host: Set(new.designated_host.as_str().to_owned()),
             created_at: Set(new.created_at),
         };
-        let inserted = match model.insert(&self.conn).await {
-            Ok(row) => row,
-            Err(err) => {
-                let lower = err.to_string().to_lowercase();
-                if lower.contains("unique") || lower.contains("duplicate") {
-                    return Err(ProjectStoreError::DuplicateRepository);
-                }
-                return Err(ProjectStoreError::Store(StoreError::from(err)));
-            }
-        };
+        let inserted = model
+            .insert(&self.conn)
+            .await
+            .map_err(map_project_repository_insert_error)?;
         ProjectRepositoryRecord::try_from(inserted).map_err(ProjectStoreError::Store)
     }
 
@@ -82,7 +76,7 @@ impl ProjectStore for Store {
                     .map_err(StoreError::from)
                     .map_err(ProjectStoreError::Store)?;
 
-                    let inserted_repository = match (entity::project_repositories::ActiveModel {
+                    let inserted_repository = (entity::project_repositories::ActiveModel {
                         project_id: Set(repository.project_id.as_uuid()),
                         owning_account_id: Set(repository.owning_account_id.as_uuid()),
                         repository_ref: Set(repository.repository_ref.as_str().to_owned()),
@@ -92,16 +86,7 @@ impl ProjectStore for Store {
                     })
                     .insert(txn)
                     .await
-                    {
-                        Ok(row) => row,
-                        Err(err) => {
-                            let lower = err.to_string().to_lowercase();
-                            if lower.contains("unique") || lower.contains("duplicate") {
-                                return Err(ProjectStoreError::DuplicateRepository);
-                            }
-                            return Err(ProjectStoreError::Store(StoreError::from(err)));
-                        }
-                    };
+                    .map_err(map_project_repository_insert_error)?;
 
                     let selected_at = if select_as_active {
                         entity::projects::Entity::update_many()
@@ -270,4 +255,12 @@ fn map_project_transaction_error(
         }
         sea_orm::TransactionError::Transaction(inner) => inner,
     }
+}
+
+fn map_project_repository_insert_error(err: sea_orm::DbErr) -> ProjectStoreError {
+    let lower = err.to_string().to_lowercase();
+    if lower.contains("unique") || lower.contains("duplicate") {
+        return ProjectStoreError::DuplicateRepository;
+    }
+    ProjectStoreError::Store(StoreError::from(err))
 }
