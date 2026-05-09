@@ -52,7 +52,7 @@ These slices assert the concrete `tanren-cli install` surface:
 
 - required `--profile` (current value: `rust-cargo`);
 - optional `--repo` defaulting to current directory;
-- optional `--integrations` with `claude`, `codex`, `opencode` (default: all);
+- optional `--integrations` with `claude`, `codex`, `open-code` (default: all);
 - generated command assets per selected integrations;
 - standards files installed and preserved by policy;
 - stale manifest-tracked generated assets removed;

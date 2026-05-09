@@ -65,7 +65,7 @@ impl InstallIntegration {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
-            Self::OpenCode => "opencode",
+            Self::OpenCode => "open-code",
         }
     }
 
@@ -85,7 +85,7 @@ impl FromStr for InstallIntegration {
         match value.trim() {
             "claude" => Ok(Self::Claude),
             "codex" => Ok(Self::Codex),
-            "opencode" => Ok(Self::OpenCode),
+            "open-code" | "opencode" => Ok(Self::OpenCode),
             unknown => Err(InstallError::UnsupportedIntegration {
                 name: unknown.to_owned(),
             }),

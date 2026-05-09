@@ -12,12 +12,18 @@
 #![cfg(feature = "test-hooks")]
 
 pub mod harness;
+pub mod install_contract;
 
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliCommandOutcome, CliHarness,
     ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
     HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, McpHarness, TuiHarness,
     WebHarness, event_kinds, execute_tanren_cli, locate_workspace_binary, record_failure,
+};
+pub use install_contract::{
+    INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,
+    InstallProofContractError, InstallProofIntegration, InstallProofProfile,
+    RUST_CARGO_PROFILE_ROOT, parse_install_integration_selection,
 };
 
 use chrono::{DateTime, Duration, Utc};

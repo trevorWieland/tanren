@@ -184,15 +184,9 @@ impl InstallContext {
         &self,
         integrations: &str,
     ) -> InstallStepResult<()> {
-        let selected = integrations
-            .split(',')
-            .map(str::trim)
-            .filter(|integration| !integration.is_empty())
-            .map(ToOwned::to_owned)
-            .collect::<Vec<_>>();
         manifest_helpers::assert_selected_integration_command_assets(
             &self.repository_root,
-            &selected,
+            integrations,
         )
     }
 

@@ -357,7 +357,7 @@ Current behavior:
 
 - `--profile` is required. Current supported value is `rust-cargo`.
 - `--repo` defaults to the current working directory (`.`).
-- `--integrations` supports `claude`, `codex`, and `opencode`; omitting the
+- `--integrations` supports `claude`, `codex`, and `open-code`; omitting the
   flag installs all supported integrations.
 - Selected integration command assets are written to `.claude/commands/`,
   `.codex/skills/`, and `.opencode/commands/`.

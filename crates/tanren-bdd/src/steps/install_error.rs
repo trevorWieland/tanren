@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use tanren_testkit::{HarnessError, HarnessKind};
+use tanren_testkit::{HarnessError, HarnessKind, InstallProofContractError};
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallStepError {
@@ -62,12 +62,11 @@ pub(crate) enum InstallStepError {
     AbsoluteRepositoryRelativePath { path: String },
     #[error("repository-relative path must not contain traversal components: {path}")]
     TraversalRepositoryRelativePath { path: String },
-    #[error("unsupported integration in BDD assertion: {integration}")]
-    UnsupportedIntegrationForAssertion { integration: String },
-    #[error("expected workspace catalog root to exist: {path}")]
-    MissingCatalogRoot { path: PathBuf },
-    #[error("expected workspace catalog `{catalog_root}` to have at least one file")]
-    CatalogEmpty { catalog_root: &'static str },
+    #[error("invalid integration selection in BDD assertion '{selection}': {source}")]
+    InvalidIntegrationSelectionForAssertion {
+        selection: String,
+        source: InstallProofContractError,
+    },
     #[error("failed to canonicalize workspace root for BDD install steps: {source}")]
     CanonicalizeWorkspaceRoot { source: std::io::Error },
     #[error("failed to read directory `{path}`: {source}")]
@@ -114,6 +113,11 @@ pub(crate) enum InstallStepError {
         expected: String,
         manifest_path: PathBuf,
         manifest: String,
+    },
+    #[error("failed to parse install manifest `{manifest_path}` as TOML: {source}")]
+    InstallManifestTomlParse {
+        manifest_path: PathBuf,
+        source: toml::de::Error,
     },
     #[error("install context should be available after initialization")]
     InstallContextUnavailable,
