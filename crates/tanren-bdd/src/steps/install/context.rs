@@ -1,9 +1,9 @@
 use std::collections::BTreeMap;
+use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::locate_workspace_binary;
-use tokio::process::Command;
+use tanren_testkit::{CliCommandOutcome, execute_tanren_cli};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -43,26 +43,22 @@ impl InstallContext {
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
         let before = RepositorySnapshot::capture(&self.repository_root)?;
-        let binary = locate_workspace_binary("tanren-cli")
-            .map_err(|source| InstallStepError::LocateCliBinary { source })?;
-
-        let mut command = Command::new(binary);
-        command
-            .arg("install")
-            .arg("--repo")
-            .arg(&self.repository_root)
-            .arg("--profile")
-            .arg(profile);
+        let mut args = vec![
+            OsString::from("install"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+            OsString::from("--profile"),
+            OsString::from(profile),
+        ];
         if let Some(selected) = integrations {
-            command.arg("--integrations").arg(selected);
+            args.push(OsString::from("--integrations"));
+            args.push(OsString::from(selected));
         }
-
-        let output = command
-            .output()
+        let outcome = execute_tanren_cli(args)
             .await
-            .map_err(|source| InstallStepError::RunInstallSubprocess { source })?;
+            .map_err(|source| InstallStepError::RunInstallCommand { source })?;
         self.snapshot_before_last_run = Some(before);
-        self.last_run = Some(InstallCommandOutcome::from(output));
+        self.last_run = Some(outcome);
         Ok(())
     }
 
@@ -78,21 +74,4 @@ impl InstallContext {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct InstallCommandOutcome {
-    pub(super) status_code: Option<i32>,
-    pub(super) success: bool,
-    pub(super) stdout: String,
-    pub(super) stderr: String,
-}
-
-impl From<std::process::Output> for InstallCommandOutcome {
-    fn from(output: std::process::Output) -> Self {
-        Self {
-            status_code: output.status.code(),
-            success: output.status.success(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
-        }
-    }
-}
+pub(super) type InstallCommandOutcome = CliCommandOutcome;

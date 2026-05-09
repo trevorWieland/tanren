@@ -16,10 +16,8 @@ pub(crate) enum InstallStepError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("failed to locate tanren-cli binary for BDD install steps: {source}")]
-    LocateCliBinary { source: HarnessError },
-    #[error("failed to execute tanren-cli install subprocess: {source}")]
-    RunInstallSubprocess { source: std::io::Error },
+    #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
+    RunInstallCommand { source: HarnessError },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
     #[error("install command must run before no-write assertion")]

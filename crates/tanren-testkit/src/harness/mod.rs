@@ -63,7 +63,7 @@ use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
-pub use cli::{CliHarness, locate_workspace_binary};
+pub use cli::{CliCommandOutcome, CliHarness, execute_tanren_cli, locate_workspace_binary};
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
 pub use tui::TuiHarness;

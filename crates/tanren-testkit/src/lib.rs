@@ -14,10 +14,10 @@
 pub mod harness;
 
 pub use harness::{
-    AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
-    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
-    HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    locate_workspace_binary, record_failure,
+    AccountHarness, ActorState, ApiHarness, CliCommandOutcome, CliHarness,
+    ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, McpHarness, TuiHarness,
+    WebHarness, event_kinds, execute_tanren_cli, locate_workspace_binary, record_failure,
 };
 
 use chrono::{DateTime, Duration, Utc};

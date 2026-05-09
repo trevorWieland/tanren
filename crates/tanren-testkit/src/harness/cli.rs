@@ -28,6 +28,30 @@ use super::{
     HarnessSession,
 };
 
+/// Captured output from a `tanren-cli` subprocess invocation.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct CliCommandOutcome {
+    /// Exit status code, or `None` when unavailable.
+    pub status_code: Option<i32>,
+    /// `true` when the command exited with code 0.
+    pub success: bool,
+    /// Process standard output decoded as UTF-8 lossily.
+    pub stdout: String,
+    /// Process standard error decoded as UTF-8 lossily.
+    pub stderr: String,
+}
+
+impl From<std::process::Output> for CliCommandOutcome {
+    fn from(output: std::process::Output) -> Self {
+        Self {
+            status_code: output.status.code(),
+            success: output.status.success(),
+            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+        }
+    }
+}
+
 /// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
@@ -90,25 +114,22 @@ impl AccountHarness for CliHarness {
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
-        let output = Command::new(&self.binary)
-            .args([
+        let output = run_binary_command(
+            &self.binary,
+            [
                 "account",
                 "create",
                 "--database-url",
-                &self.db_url,
+                self.db_url.as_str(),
                 "--identifier",
                 req.email.as_str(),
                 "--password",
                 req.password.expose_secret(),
                 "--display-name",
-                &req.display_name,
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+                req.display_name.as_str(),
+            ],
+        )
+        .await?;
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
@@ -124,23 +145,20 @@ impl AccountHarness for CliHarness {
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
-        let output = Command::new(&self.binary)
-            .args([
+        let output = run_binary_command(
+            &self.binary,
+            [
                 "account",
                 "sign-in",
                 "--database-url",
-                &self.db_url,
+                self.db_url.as_str(),
                 "--identifier",
                 req.email.as_str(),
                 "--password",
                 req.password.expose_secret(),
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+            ],
+        )
+        .await?;
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
@@ -157,27 +175,24 @@ impl AccountHarness for CliHarness {
         &mut self,
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
-        let output = Command::new(&self.binary)
-            .args([
+        let output = run_binary_command(
+            &self.binary,
+            [
                 "account",
                 "create",
                 "--database-url",
-                &self.db_url,
+                self.db_url.as_str(),
                 "--identifier",
                 req.email.as_str(),
                 "--password",
                 req.password.expose_secret(),
                 "--display-name",
-                &req.display_name,
+                req.display_name.as_str(),
                 "--invitation",
                 req.invitation_token.as_str(),
-            ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+            ],
+        )
+        .await?;
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
@@ -220,6 +235,18 @@ impl AccountHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+}
+
+/// Execute `tanren-cli` via the CLI harness adapter and return the
+/// captured process output.
+pub async fn execute_tanren_cli<I, S>(args: I) -> HarnessResult<CliCommandOutcome>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    let binary = locate_workspace_binary("tanren-cli")?;
+    let output = run_binary_command(&binary, args).await?;
+    Ok(CliCommandOutcome::from(output))
 }
 
 /// Locate a workspace binary by name. The BDD runner is at
@@ -266,6 +293,24 @@ pub fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
         "binary `{name}` not found alongside test executable {} — run `cargo build --workspace`",
         exe.display()
     )))
+}
+
+async fn run_binary_command<I, S>(
+    binary: &std::path::Path,
+    args: I,
+) -> HarnessResult<std::process::Output>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<std::ffi::OsStr>,
+{
+    Command::new(binary)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))
 }
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
