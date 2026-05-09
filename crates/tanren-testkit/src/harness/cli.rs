@@ -278,7 +278,14 @@ impl AccountHarness for CliHarness {
         account_id: AccountId,
         name: OrganizationName,
     ) -> HarnessResult<CreateOrganizationResponse> {
-        let session_file = self.session_file_for(account_id)?;
+        // Keep unsigned-create falsification on the real CLI command
+        // path: if the actor has no known session file, point the CLI
+        // at a fresh path so it reports `auth_required` itself.
+        let session_file = self
+            .session_files
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_else(Self::fresh_session_file);
         let output = Command::new(&self.binary)
             .args([
                 "organization",
@@ -290,7 +297,7 @@ impl AccountHarness for CliHarness {
                 "--name",
                 name.as_str(),
             ])
-            .env("TANREN_SESSION_FILE", session_file)
+            .env("TANREN_SESSION_FILE", &session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())

@@ -9,6 +9,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use secrecy::SecretString;
 use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, CheckOrganizationPermissionRequest,
@@ -150,9 +151,11 @@ impl AccountHarness for InProcessHarness {
         account_id: AccountId,
         name: OrganizationName,
     ) -> HarnessResult<CreateOrganizationResponse> {
-        let Some(session_token) = self.sessions.get(&account_id).cloned() else {
-            return Err(super::auth_required_failure());
-        };
+        let session_token = self
+            .sessions
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_else(|| SessionToken::from_secret(SecretString::from("")));
         self.handlers
             .create_organization(
                 &self.store,

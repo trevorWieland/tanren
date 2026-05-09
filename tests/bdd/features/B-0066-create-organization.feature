@@ -21,6 +21,12 @@ Feature: Create an organization
       Then organization "alpha api org" is listed for alice
       When alice checks organization permission "invite" in "alpha api org"
       Then the operation succeeds
+      When alice checks organization permission "manage_access" in "alpha api org"
+      Then the operation succeeds
+      When alice checks organization permission "configure" in "alpha api org"
+      Then the operation succeeds
+      When alice checks organization permission "set_policy" in "alpha api org"
+      Then the operation succeeds
 
     @falsification @api
     Scenario: API rejects unsigned organization create
@@ -34,6 +40,12 @@ Feature: Create an organization
       When alice creates organization "api owner org"
       Then the operation succeeds
       When bob checks organization permission "invite" in "api owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "manage_access" in "api owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "configure" in "api owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "set_policy" in "api owner org"
       Then the request fails with code "permission_denied"
 
   Rule: Web surface
@@ -49,6 +61,12 @@ Feature: Create an organization
       Then organization "alpha web org" is listed for alice
       When alice checks organization permission "invite" in "alpha web org"
       Then the operation succeeds
+      When alice checks organization permission "manage_access" in "alpha web org"
+      Then the operation succeeds
+      When alice checks organization permission "configure" in "alpha web org"
+      Then the operation succeeds
+      When alice checks organization permission "set_policy" in "alpha web org"
+      Then the operation succeeds
 
     @falsification @web
     Scenario: Web rejects unsigned organization create
@@ -62,6 +80,12 @@ Feature: Create an organization
       When alice creates organization "web owner org"
       Then the operation succeeds
       When bob checks organization permission "invite" in "web owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "manage_access" in "web owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "configure" in "web owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "set_policy" in "web owner org"
       Then the request fails with code "permission_denied"
 
   Rule: CLI surface
@@ -77,6 +101,12 @@ Feature: Create an organization
       Then organization "alpha-cli-org" is listed for alice
       When alice checks organization permission "invite" in "alpha-cli-org"
       Then the operation succeeds
+      When alice checks organization permission "manage_access" in "alpha-cli-org"
+      Then the operation succeeds
+      When alice checks organization permission "configure" in "alpha-cli-org"
+      Then the operation succeeds
+      When alice checks organization permission "set_policy" in "alpha-cli-org"
+      Then the operation succeeds
 
     @falsification @cli
     Scenario: CLI rejects unsigned organization create
@@ -90,6 +120,12 @@ Feature: Create an organization
       When alice creates organization "cli-owner-org"
       Then the operation succeeds
       When bob checks organization permission "invite" in "cli-owner-org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "manage_access" in "cli-owner-org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "configure" in "cli-owner-org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "set_policy" in "cli-owner-org"
       Then the request fails with code "permission_denied"
 
   Rule: MCP surface
@@ -105,6 +141,12 @@ Feature: Create an organization
       Then organization "alpha mcp org" is listed for alice
       When alice checks organization permission "invite" in "alpha mcp org"
       Then the operation succeeds
+      When alice checks organization permission "manage_access" in "alpha mcp org"
+      Then the operation succeeds
+      When alice checks organization permission "configure" in "alpha mcp org"
+      Then the operation succeeds
+      When alice checks organization permission "set_policy" in "alpha mcp org"
+      Then the operation succeeds
 
     @falsification @mcp
     Scenario: MCP rejects unsigned organization create
@@ -118,6 +160,12 @@ Feature: Create an organization
       When alice creates organization "mcp owner org"
       Then the operation succeeds
       When bob checks organization permission "invite" in "mcp owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "manage_access" in "mcp owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "configure" in "mcp owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "set_policy" in "mcp owner org"
       Then the request fails with code "permission_denied"
 
   Rule: TUI surface
@@ -133,6 +181,12 @@ Feature: Create an organization
       Then organization "alpha tui org" is listed for alice
       When alice checks organization permission "invite" in "alpha tui org"
       Then the operation succeeds
+      When alice checks organization permission "manage_access" in "alpha tui org"
+      Then the operation succeeds
+      When alice checks organization permission "configure" in "alpha tui org"
+      Then the operation succeeds
+      When alice checks organization permission "set_policy" in "alpha tui org"
+      Then the operation succeeds
 
     @falsification @tui
     Scenario: TUI rejects unsigned organization create
@@ -146,4 +200,10 @@ Feature: Create an organization
       When alice creates organization "tui owner org"
       Then the operation succeeds
       When bob checks organization permission "invite" in "tui owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "manage_access" in "tui owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "configure" in "tui owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "set_policy" in "tui owner org"
       Then the request fails with code "permission_denied"

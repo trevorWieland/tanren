@@ -211,8 +211,13 @@ impl AccountHarness for McpHarness {
         account_id: AccountId,
         name: OrganizationName,
     ) -> HarnessResult<CreateOrganizationResponse> {
+        let session_token = self
+            .session_tokens
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_else(|| SessionToken::from_secret(SecretString::from("")));
         let body = serde_json::json!({
-            "session_token": self.session_token(account_id)?,
+            "session_token": session_token,
             "account_id": account_id,
             "name": name,
         });

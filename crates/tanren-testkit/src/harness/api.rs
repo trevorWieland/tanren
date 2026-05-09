@@ -124,7 +124,6 @@ impl ApiHarness {
             .ok_or_else(super::auth_required_failure)
     }
 }
-
 impl Drop for ApiHarness {
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {
@@ -288,8 +287,12 @@ impl AccountHarness for ApiHarness {
     ) -> HarnessResult<CreateOrganizationResponse> {
         let body = serde_json::json!({ "name": name });
         let url = format!("{}/organizations", self.base_url);
-        let response = self
-            .session_client(account_id)?
+        let client = if let Some(client) = self.session_clients.get(&account_id) {
+            client.clone()
+        } else {
+            Self::new_client()?
+        };
+        let response = client
             .post(&url)
             .json(&body)
             .send()
