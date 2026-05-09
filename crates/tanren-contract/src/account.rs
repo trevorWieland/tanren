@@ -125,6 +125,46 @@ pub struct SessionView {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Request to list all accounts currently signed in for the caller.
+///
+/// The transport carries caller authentication (`Cookie` for web/api,
+/// `Bearer` for cli/mcp/tui), but all interfaces still share this typed
+/// request shape.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+pub struct ListActiveAccountsRequest {}
+
+/// Account entry returned by the active-account switcher.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SignedInAccountView {
+    /// Account currently available in the caller's session set.
+    pub account: AccountView,
+    /// True when this entry is the currently active account.
+    pub is_active: bool,
+}
+
+/// Response that lists every account currently signed in for the caller.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListActiveAccountsResponse {
+    /// Signed-in accounts for the current caller.
+    pub accounts: Vec<SignedInAccountView>,
+}
+
+/// Request to switch the active account to a signed-in target.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SwitchActiveAccountRequest {
+    /// Account that should become active for the current window/session.
+    pub target_account_id: AccountId,
+}
+
+/// Successful active-account switch response.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SwitchActiveAccountResponse {
+    /// Account that is now active for this window/session.
+    pub active_account_id: AccountId,
+    /// Signed-in account set after the switch.
+    pub accounts: Vec<SignedInAccountView>,
+}
+
 /// Transport-aware projection of a freshly minted session.
 ///
 /// The `@web` and `@api` surfaces deliver session tokens via an
@@ -212,6 +252,9 @@ pub enum AccountFailureReason {
     InvitationExpired,
     /// Invitation token has already been accepted or revoked.
     InvitationAlreadyConsumed,
+    /// The requested switch target is not currently signed in for this
+    /// caller, so it cannot be selected as active.
+    TargetAccountNotSignedIn,
 }
 
 impl AccountFailureReason {
@@ -225,6 +268,7 @@ impl AccountFailureReason {
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
+            Self::TargetAccountNotSignedIn => "target_account_not_signed_in",
         }
     }
 
@@ -244,6 +288,9 @@ impl AccountFailureReason {
             Self::InvitationAlreadyConsumed => {
                 "The invitation has already been accepted or was revoked."
             }
+            Self::TargetAccountNotSignedIn => {
+                "The requested target account is not currently signed in."
+            }
         }
     }
 
@@ -258,6 +305,7 @@ impl AccountFailureReason {
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
+            Self::TargetAccountNotSignedIn => 403,
         }
     }
 }

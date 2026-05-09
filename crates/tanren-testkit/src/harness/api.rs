@@ -438,6 +438,7 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_not_found" => AccountFailureReason::InvitationNotFound,
         "invitation_expired" => AccountFailureReason::InvitationExpired,
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
+        "target_account_not_signed_in" => AccountFailureReason::TargetAccountNotSignedIn,
         _ => return None,
     })
 }
