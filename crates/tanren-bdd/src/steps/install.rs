@@ -5,7 +5,7 @@
 
 use std::collections::BTreeMap;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -15,6 +15,8 @@ use tokio::process::Command;
 use tanren_testkit::locate_workspace_binary;
 
 use crate::TanrenWorld;
+use crate::steps::install_helpers;
+use crate::steps::install_helpers::RepositoryRelativePath;
 
 static SCENARIO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -22,7 +24,7 @@ static SCENARIO_COUNTER: AtomicU64 = AtomicU64::new(0);
 #[derive(Debug)]
 pub(crate) struct InstallContext {
     repository_root: PathBuf,
-    baselines: BTreeMap<String, Vec<u8>>,
+    baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
     snapshot_before_last_run: Option<RepositorySnapshot>,
     last_run: Option<InstallCommandOutcome>,
 }
@@ -139,22 +141,22 @@ impl InstallContext {
         );
     }
 
-    fn write_fixture_file(&mut self, relative_path: String, content: String) {
-        let absolute = self.repository_path_owned(relative_path);
+    fn write_fixture_file(&mut self, relative_path: &RepositoryRelativePath, content: String) {
+        let absolute = self.repository_path(relative_path.as_str());
         if let Some(parent) = absolute.parent() {
             fs::create_dir_all(parent).expect("create parent directories in repository fixture");
         }
         fs::write(&absolute, content).expect("write repository fixture file");
     }
 
-    fn record_baseline(&mut self, relative_path: String) {
-        let absolute = self.repository_path(&relative_path);
+    fn record_baseline(&mut self, relative_path: RepositoryRelativePath) {
+        let absolute = self.repository_path(relative_path.as_str());
         let bytes = fs::read(&absolute).expect("read repository fixture file for baseline");
         self.baselines.insert(relative_path, bytes);
     }
 
-    fn assert_file_exists(&self, relative_path: String) {
-        let absolute = self.repository_path_owned(relative_path);
+    fn assert_file_exists(&self, relative_path: &RepositoryRelativePath) {
+        let absolute = self.repository_path(relative_path.as_str());
         assert!(
             absolute.exists(),
             "expected repository file to exist: {}",
@@ -162,8 +164,8 @@ impl InstallContext {
         );
     }
 
-    fn assert_file_absent(&self, relative_path: String) {
-        let absolute = self.repository_path_owned(relative_path);
+    fn assert_file_absent(&self, relative_path: &RepositoryRelativePath) {
+        let absolute = self.repository_path(relative_path.as_str());
         assert!(
             !absolute.exists(),
             "expected repository file to be absent: {}",
@@ -171,8 +173,8 @@ impl InstallContext {
         );
     }
 
-    fn assert_exact_file_content(&self, relative_path: String, expected: String) {
-        let absolute = self.repository_path_owned(relative_path);
+    fn assert_exact_file_content(&self, relative_path: &RepositoryRelativePath, expected: String) {
+        let absolute = self.repository_path(relative_path.as_str());
         let bytes = fs::read(&absolute).expect("read repository fixture file");
         assert_eq!(
             bytes,
@@ -182,12 +184,12 @@ impl InstallContext {
         );
     }
 
-    fn assert_file_content_preserved(&self, relative_path: String) {
+    fn assert_file_content_preserved(&self, relative_path: &RepositoryRelativePath) {
         let baseline = self
             .baselines
-            .get(&relative_path)
+            .get(relative_path)
             .expect("baseline must be recorded before preservation assertion");
-        let absolute = self.repository_path_owned(relative_path);
+        let absolute = self.repository_path(relative_path.as_str());
         let bytes = fs::read(&absolute).expect("read repository fixture file");
         assert_eq!(
             &bytes,
@@ -197,12 +199,12 @@ impl InstallContext {
         );
     }
 
-    fn assert_file_content_replaced(&self, relative_path: String) {
+    fn assert_file_content_replaced(&self, relative_path: &RepositoryRelativePath) {
         let baseline = self
             .baselines
-            .get(&relative_path)
+            .get(relative_path)
             .expect("baseline must be recorded before replacement assertion");
-        let absolute = self.repository_path_owned(relative_path);
+        let absolute = self.repository_path(relative_path.as_str());
         let bytes = fs::read(&absolute).expect("read repository fixture file");
         assert_ne!(
             &bytes,
@@ -212,13 +214,41 @@ impl InstallContext {
         );
     }
 
-    fn repository_path(&self, relative_path: &str) -> PathBuf {
-        validate_relative_path(relative_path);
-        self.repository_root.join(relative_path)
+    fn assert_rust_cargo_default_assets_installed(&self) {
+        install_helpers::assert_rust_cargo_default_assets_installed(&self.repository_root);
     }
 
-    fn repository_path_owned(&self, relative_path: String) -> PathBuf {
-        validate_relative_path(&relative_path);
+    fn assert_manifest_rust_cargo_defaults(&self) {
+        install_helpers::assert_manifest_rust_cargo_defaults(&self.repository_root);
+    }
+
+    fn inject_manifest_stale_generated_entry(&mut self, relative_path: &RepositoryRelativePath) {
+        self.assert_file_exists(relative_path);
+
+        let manifest_path = self.repository_path(".tanren/install-manifest.toml");
+        let mut manifest = fs::read_to_string(&manifest_path).expect("read install manifest");
+        let path_line = format!("path = \"{}\"", relative_path.as_str());
+        assert!(
+            !manifest.contains(&path_line),
+            "expected stale path to be absent before manifest injection: {}",
+            relative_path.as_str(),
+        );
+        install_helpers::append_stale_generated_manifest_entry(&mut manifest, relative_path);
+        fs::write(&manifest_path, manifest).expect("write install manifest with stale entry");
+    }
+
+    fn delete_fixture_file(&mut self, relative_path: &RepositoryRelativePath) {
+        let absolute = self.repository_path(relative_path.as_str());
+        assert!(
+            absolute.exists(),
+            "expected repository file to exist before deletion: {}",
+            absolute.display()
+        );
+        fs::remove_file(&absolute).expect("delete repository fixture file");
+    }
+
+    fn repository_path(&self, relative_path: &str) -> PathBuf {
+        install_helpers::validate_relative_path(relative_path);
         self.repository_root.join(relative_path)
     }
 
@@ -298,22 +328,6 @@ fn collect_files(root: &Path, cursor: &Path, out: &mut BTreeMap<String, Vec<u8>>
     }
 }
 
-fn validate_relative_path(path: &str) {
-    assert!(!path.is_empty(), "repository-relative path cannot be empty");
-    let candidate = Path::new(path);
-    assert!(
-        !candidate.is_absolute(),
-        "repository-relative path must not be absolute: {path}"
-    );
-    let is_valid = candidate
-        .components()
-        .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-    assert!(
-        is_valid,
-        "repository-relative path must not contain traversal components: {path}"
-    );
-}
-
 fn scenario_repository_root() -> PathBuf {
     let now_nanos = SystemTime::now()
         .duration_since(UNIX_EPOCH)
@@ -334,13 +348,28 @@ fn given_clean_repository_fixture(world: &mut TanrenWorld) {
 #[given(expr = "repository file {string} contains {string}")]
 fn given_repository_file_contains(world: &mut TanrenWorld, path: String, content: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.write_fixture_file(path, content);
+    let relative_path = RepositoryRelativePath::parse(path);
+    ctx.write_fixture_file(&relative_path, content);
 }
 
 #[given(expr = "repository file {string} baseline is recorded")]
 fn given_repository_file_baseline(world: &mut TanrenWorld, path: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.record_baseline(path);
+    ctx.record_baseline(RepositoryRelativePath::parse(path));
+}
+
+#[given(expr = "previous install manifest tracks stale generated file {string}")]
+fn given_previous_manifest_tracks_stale_generated_file(world: &mut TanrenWorld, path: String) {
+    let ctx = world.ensure_install_ctx();
+    let relative_path = RepositoryRelativePath::parse(path);
+    ctx.inject_manifest_stale_generated_entry(&relative_path);
+}
+
+#[given(expr = "repository file {string} is deleted from the repository fixture")]
+fn given_repository_file_deleted(world: &mut TanrenWorld, path: String) {
+    let ctx = world.ensure_install_ctx();
+    let relative_path = RepositoryRelativePath::parse(path);
+    ctx.delete_fixture_file(&relative_path);
 }
 
 #[when(expr = "tanren-cli install runs with profile {string}")]
@@ -381,6 +410,18 @@ fn then_install_output_reports_summaries(world: &mut TanrenWorld) {
     ctx.assert_summary_output();
 }
 
+#[then(expr = "rust-cargo defaults install all methodology command assets and standards files")]
+fn then_rust_cargo_defaults_install_all_assets(world: &mut TanrenWorld) {
+    let ctx = world.ensure_install_ctx();
+    ctx.assert_rust_cargo_default_assets_installed();
+}
+
+#[then(expr = "the install manifest records the rust-cargo profile and default integrations")]
+fn then_install_manifest_records_rust_cargo_defaults(world: &mut TanrenWorld) {
+    let ctx = world.ensure_install_ctx();
+    ctx.assert_manifest_rust_cargo_defaults();
+}
+
 #[then(expr = "the install output reports a validation failure")]
 fn then_install_output_reports_validation_failure(world: &mut TanrenWorld) {
     let ctx = world.ensure_install_ctx();
@@ -397,35 +438,35 @@ fn then_no_files_are_written(world: &mut TanrenWorld) {
 #[then(expr = "repository file {string} exists")]
 fn then_repository_file_exists(world: &mut TanrenWorld, path: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.assert_file_exists(path);
+    ctx.assert_file_exists(&RepositoryRelativePath::parse(path));
 }
 
 #[then(expr = "repository file {string} does not exist")]
 fn then_repository_file_absent(world: &mut TanrenWorld, path: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.assert_file_absent(path);
+    ctx.assert_file_absent(&RepositoryRelativePath::parse(path));
 }
 
 #[then(expr = "repository file {string} contains {string}")]
 fn then_repository_file_contains(world: &mut TanrenWorld, path: String, content: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.assert_exact_file_content(path, content);
+    ctx.assert_exact_file_content(&RepositoryRelativePath::parse(path), content);
 }
 
 #[then(expr = "repository file {string} preserves its baseline content")]
 fn then_repository_file_preserved(world: &mut TanrenWorld, path: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.assert_file_content_preserved(path);
+    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(path));
 }
 
 #[then(expr = "repository file {string} is replaced from its baseline content")]
 fn then_repository_file_replaced(world: &mut TanrenWorld, path: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.assert_file_content_replaced(path);
+    ctx.assert_file_content_replaced(&RepositoryRelativePath::parse(path));
 }
 
 #[then(expr = "stale generated file {string} is removed")]
 fn then_stale_generated_file_removed(world: &mut TanrenWorld, path: String) {
     let ctx = world.ensure_install_ctx();
-    ctx.assert_file_absent(path);
+    ctx.assert_file_absent(&RepositoryRelativePath::parse(path));
 }

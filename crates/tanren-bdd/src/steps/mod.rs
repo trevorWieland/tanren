@@ -4,3 +4,4 @@
 
 pub mod account;
 pub mod install;
+pub mod install_helpers;
