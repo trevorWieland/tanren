@@ -7,12 +7,12 @@ use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
     DeploymentPosture, DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
-    DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
 };
 use tanren_identity_policy::{AccountId, Email};
 use tanren_testkit::{HarnessError, HarnessKind, HarnessOutcome, record_failure};
 
-use super::{poll_until, retry_on_transport};
+use super::{poll_until, retry_on_transport, sign_up_actor_with_duplicate_sign_in_fallback};
 use crate::TanrenWorld;
 
 #[given(expr = "an {word} account actor with posture permission")]
@@ -323,45 +323,15 @@ async fn sign_up_actor(
     password: &str,
     display_name: &str,
 ) {
+    sign_up_actor_with_duplicate_sign_in_fallback(
+        world,
+        actor_label,
+        email,
+        password,
+        display_name,
+    )
+    .await;
     let ctx = world.ensure_account_ctx().await;
-    let result = retry_on_transport!({
-        let parsed_email = Email::parse(email).expect("scenario email must parse");
-        let request = SignUpRequest {
-            email: parsed_email,
-            password: SecretString::from(password.to_owned()),
-            display_name: display_name.to_owned(),
-        };
-        ctx.harness.sign_up(request)
-    });
-    let entry = ctx.actors.entry(actor_label.to_owned()).or_default();
-    entry.identifier = Some(email.to_owned());
-    entry.password = Some(SecretString::from(password.to_owned()));
-    let outcome = match result {
-        Ok(session) => {
-            entry.sign_up = Some(session.clone());
-            HarnessOutcome::SignedUp(session)
-        }
-        Err(err) if err.code() == "duplicate_identifier" => {
-            let parsed_email = Email::parse(email).expect("scenario email must parse");
-            let sign_in = ctx
-                .harness
-                .sign_in(SignInRequest {
-                    email: parsed_email,
-                    password: SecretString::from(password.to_owned()),
-                })
-                .await;
-            match sign_in {
-                Ok(session) => {
-                    entry.sign_up = Some(session.clone());
-                    entry.sign_in = Some(session.clone());
-                    HarnessOutcome::SignedUp(session)
-                }
-                Err(sign_in_err) => record_failure(sign_in_err, entry),
-            }
-        }
-        Err(err) => record_failure(err, entry),
-    };
-    ctx.last_outcome = Some(outcome);
     assert!(
         matches!(ctx.last_outcome, Some(HarnessOutcome::SignedUp(_))),
         "{actor_label} sign-up must succeed for posture scenarios"

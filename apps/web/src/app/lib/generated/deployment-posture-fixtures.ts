@@ -1,0 +1,65 @@
+import type {
+  DeploymentPosture,
+  DeploymentPostureCapabilitySummary,
+} from "./deployment-posture-contract";
+
+export const SUPPORTED_DEPLOYMENT_POSTURES: readonly DeploymentPosture[] = [
+  "hosted",
+  "self_hosted",
+  "local_only",
+];
+
+const CAPABILITY_SUMMARY_BY_POSTURE: Record<
+  DeploymentPosture,
+  DeploymentPostureCapabilitySummary
+> = {
+  hosted: {
+    available: [
+      "managed_control_plane",
+      "provider_integrations",
+      "remote_runtime_dispatch",
+    ],
+    unavailable: [
+      {
+        capability: "local_runtime_dispatch",
+        reason: "requires_local_runtime_dispatch",
+      },
+    ],
+  },
+  self_hosted: {
+    available: [
+      "provider_integrations",
+      "remote_runtime_dispatch",
+      "local_runtime_dispatch",
+    ],
+    unavailable: [
+      {
+        capability: "managed_control_plane",
+        reason: "requires_managed_control_plane",
+      },
+    ],
+  },
+  local_only: {
+    available: ["local_runtime_dispatch"],
+    unavailable: [
+      {
+        capability: "managed_control_plane",
+        reason: "requires_managed_control_plane",
+      },
+      {
+        capability: "provider_integrations",
+        reason: "requires_provider_integrations",
+      },
+      {
+        capability: "remote_runtime_dispatch",
+        reason: "requires_remote_runtime_dispatch",
+      },
+    ],
+  },
+};
+
+export function capabilitySummaryForPosture(
+  posture: DeploymentPosture,
+): DeploymentPostureCapabilitySummary {
+  return CAPABILITY_SUMMARY_BY_POSTURE[posture];
+}

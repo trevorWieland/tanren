@@ -13,13 +13,13 @@ use std::cell::RefCell;
 use chrono::{Duration as ChronoDuration, Utc};
 use cucumber::{given, then, when};
 use secrecy::SecretString;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{AcceptInvitationRequest, SignInRequest};
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tanren_testkit::{
     ConcurrentAcceptanceTally, HarnessInvitation, HarnessOutcome, record_failure,
 };
 
-use super::{poll_until, retry_on_transport};
+use super::{poll_until, retry_on_transport, sign_up_actor_with_duplicate_sign_in_fallback};
 use crate::TanrenWorld;
 
 #[given(expr = "a clean Tanren environment")]
@@ -363,55 +363,8 @@ async fn do_sign_up(
     password: String,
     display_name: String,
 ) {
-    let ctx = world.ensure_account_ctx().await;
-    let result = retry_on_transport!({
-        let parsed_email = Email::parse(&email).expect("scenario emails must parse");
-        let request = SignUpRequest {
-            email: parsed_email,
-            password: SecretString::from(password.clone()),
-            display_name: display_name.clone(),
-        };
-        ctx.harness.sign_up(request)
-    });
-    let entry = ctx.actors.entry(actor.clone()).or_default();
-    entry.identifier = Some(email.clone());
-    entry.password = Some(SecretString::from(password));
-    let outcome = match result {
-        Ok(session) => {
-            entry.sign_up = Some(session.clone());
-            HarnessOutcome::SignedUp(session)
-        }
-        Err(err) if err.code() == "duplicate_identifier" => {
-            let duplicate_err = err;
-            let parsed_email = Email::parse(&email).expect("scenario emails must parse");
-            let sign_in = ctx
-                .harness
-                .sign_in(SignInRequest {
-                    email: parsed_email,
-                    password: SecretString::from(
-                        entry
-                            .password
-                            .as_ref()
-                            .map_or("", secrecy::ExposeSecret::expose_secret)
-                            .to_owned(),
-                    ),
-                })
-                .await;
-            match sign_in {
-                Ok(session) => {
-                    entry.sign_up = Some(session.clone());
-                    entry.sign_in = Some(session.clone());
-                    HarnessOutcome::SignedUp(session)
-                }
-                Err(sign_in_err) if sign_in_err.code() == "invalid_credential" => {
-                    record_failure(duplicate_err, entry)
-                }
-                Err(sign_in_err) => record_failure(sign_in_err, entry),
-            }
-        }
-        Err(err) => record_failure(err, entry),
-    };
-    ctx.last_outcome = Some(outcome);
+    sign_up_actor_with_duplicate_sign_in_fallback(world, &actor, &email, &password, &display_name)
+        .await;
 }
 
 #[derive(Debug, serde::Serialize, serde::Deserialize)]

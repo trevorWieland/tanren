@@ -1,4 +1,3 @@
-/* eslint-disable */
 // playwright-bdd step definitions for the `@web` slice of B-0137.
 //
 // The Web BDD runner uses the same canonical feature file as the Rust
@@ -8,72 +7,30 @@
 import { createBdd } from "playwright-bdd";
 import type { Page } from "@playwright/test";
 
+import {
+  type CurrentDeploymentPostureResponse,
+  type SetDeploymentPostureResponse,
+  type SupportedDeploymentPosturesResponse,
+} from "../../../src/app/lib/generated/deployment-posture-contract";
 import { test } from "./account.steps";
-
-type DeploymentPosture = "hosted" | "self_hosted" | "local_only";
-type Capability =
-  | "managed_control_plane"
-  | "provider_integrations"
-  | "remote_runtime_dispatch"
-  | "local_runtime_dispatch";
-
-interface ActorState {
-  email?: string;
-  password?: string;
-  hasSession?: boolean;
-  lastFailureCode?: string;
-}
-
-interface WebWorld {
-  actors: Map<string, ActorState>;
-}
-
-interface Scope {
-  scope: "account";
-  account_id: string;
-}
-
-interface UnavailableCapability {
-  capability: Capability;
-  reason:
-    | "requires_managed_control_plane"
-    | "requires_provider_integrations"
-    | "requires_remote_runtime_dispatch"
-    | "requires_local_runtime_dispatch";
-}
-
-interface CapabilitySummary {
-  available: Capability[];
-  unavailable: UnavailableCapability[];
-}
-
-interface SupportedPosture {
-  posture: DeploymentPosture;
-  capability_summary: CapabilitySummary;
-}
-
-interface SetPostureResponse {
-  scope: Scope;
-  posture: DeploymentPosture;
-  capability_summary: CapabilitySummary;
-}
-
-interface FailureBody {
-  code: string;
-  summary: string;
-}
-
-interface PostureScenarioState {
-  actorAccountId?: string;
-  otherAccountId?: string;
-  lastSupported?: SupportedPosture[];
-  lastSet?: SetPostureResponse;
-  lastFailureSummary?: string;
-}
+import {
+  assertCapabilitySummary,
+  assertCanonicalSupportedPostures,
+  isDeploymentPosture,
+  type PostureScenarioState,
+  unsupportedPostureFailure,
+} from "./support/deployment-posture";
+import {
+  actor,
+  apiUrl,
+  browserJsonRequest,
+  normalizeFailureBody,
+  uniqueEmail,
+  type WebWorld,
+} from "./support/web-wire";
 
 const { Given, When, Then } = createBdd(test);
 const scenarioState = new WeakMap<WebWorld, PostureScenarioState>();
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 
 function stateFor(world: WebWorld): PostureScenarioState {
   let state = scenarioState.get(world);
@@ -84,89 +41,6 @@ function stateFor(world: WebWorld): PostureScenarioState {
   return state;
 }
 
-function actor(world: WebWorld, name: string): ActorState {
-  let value = world.actors.get(name);
-  if (!value) {
-    value = {};
-    world.actors.set(name, value);
-  }
-  return value;
-}
-
-function uniqueEmail(prefix: string): string {
-  const nonce = `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
-  return `${prefix}-${nonce}@example.com`;
-}
-
-function expectedSummary(posture: DeploymentPosture): CapabilitySummary {
-  switch (posture) {
-    case "hosted":
-      return {
-        available: [
-          "managed_control_plane",
-          "provider_integrations",
-          "remote_runtime_dispatch",
-        ],
-        unavailable: [
-          {
-            capability: "local_runtime_dispatch",
-            reason: "requires_local_runtime_dispatch",
-          },
-        ],
-      };
-    case "self_hosted":
-      return {
-        available: [
-          "provider_integrations",
-          "remote_runtime_dispatch",
-          "local_runtime_dispatch",
-        ],
-        unavailable: [
-          {
-            capability: "managed_control_plane",
-            reason: "requires_managed_control_plane",
-          },
-        ],
-      };
-    case "local_only":
-      return {
-        available: ["local_runtime_dispatch"],
-        unavailable: [
-          {
-            capability: "managed_control_plane",
-            reason: "requires_managed_control_plane",
-          },
-          {
-            capability: "provider_integrations",
-            reason: "requires_provider_integrations",
-          },
-          {
-            capability: "remote_runtime_dispatch",
-            reason: "requires_remote_runtime_dispatch",
-          },
-        ],
-      };
-  }
-}
-
-function isDeploymentPosture(raw: string): raw is DeploymentPosture {
-  return raw === "hosted" || raw === "self_hosted" || raw === "local_only";
-}
-
-function asFailureBody(raw: unknown, fallbackStatus: number): FailureBody {
-  if (typeof raw === "object" && raw !== null) {
-    const body = raw as Record<string, unknown>;
-    const code =
-      typeof body["code"] === "string" ? body["code"] : "internal_error";
-    const summary =
-      typeof body["summary"] === "string"
-        ? body["summary"]
-        : `HTTP ${fallbackStatus}`;
-    return { code, summary };
-  }
-  return { code: "internal_error", summary: `HTTP ${fallbackStatus}` };
-}
-
 async function signUpActor(
   page: Page,
   world: WebWorld,
@@ -175,7 +49,7 @@ async function signUpActor(
   password: string,
   displayName: string,
 ): Promise<string> {
-  const response = await page.request.post(`${API_URL}/accounts`, {
+  const response = await page.request.post(`${apiUrl()}/accounts`, {
     data: {
       email,
       password,
@@ -183,7 +57,7 @@ async function signUpActor(
     },
   });
   if (!response.ok()) {
-    const parsed = asFailureBody(
+    const parsed = normalizeFailureBody(
       await response.json().catch(() => ({})),
       response.status(),
     );
@@ -209,43 +83,6 @@ async function signUpActor(
   return accountId;
 }
 
-async function browserJsonRequest(
-  page: Page,
-  method: "GET" | "POST",
-  path: string,
-  body?: unknown,
-): Promise<{ status: number; ok: boolean; json: unknown }> {
-  if (page.url() === "about:blank") {
-    await page.goto("/");
-  }
-  return page.evaluate(
-    async ({ apiUrl, reqMethod, reqPath, reqBody }) => {
-      const init: RequestInit = {
-        method: reqMethod,
-        credentials: "include",
-      };
-      if (reqBody !== undefined) {
-        init.headers = { "content-type": "application/json" };
-        init.body = JSON.stringify(reqBody);
-      }
-      const response = await fetch(`${apiUrl}${reqPath}`, init);
-      let json: unknown = {};
-      try {
-        json = (await response.json()) as unknown;
-      } catch {
-        json = {};
-      }
-      return { status: response.status, ok: response.ok, json };
-    },
-    {
-      apiUrl: API_URL,
-      reqMethod: method,
-      reqPath: path,
-      reqBody: body,
-    },
-  );
-}
-
 async function signInActor(
   page: Page,
   world: WebWorld,
@@ -260,7 +97,7 @@ async function signInActor(
     password: entry.password,
   });
   if (!response.ok) {
-    const parsed = asFailureBody(response.json, response.status);
+    const parsed = normalizeFailureBody(response.json, response.status);
     throw new Error(
       `sign-in failed for ${actorName}: ${parsed.code} (${parsed.summary})`,
     );
@@ -271,15 +108,16 @@ async function signInActor(
 async function setPosture(
   page: Page,
   world: WebWorld,
-  posture: string,
+  postureRaw: string,
   accountId: string,
 ): Promise<void> {
   const postureActor = actor(world, "actor");
   const state = stateFor(world);
-  if (!isDeploymentPosture(posture)) {
-    state.lastFailureSummary = `Unsupported deployment posture \`${posture}\`. Supported values: hosted, self_hosted, local_only.`;
+  if (!isDeploymentPosture(postureRaw)) {
+    const failure = unsupportedPostureFailure(postureRaw);
+    state.lastFailureSummary = failure.summary;
     postureActor.hasSession = false;
-    postureActor.lastFailureCode = "unsupported_posture";
+    postureActor.lastFailureCode = failure.code;
     return;
   }
 
@@ -289,113 +127,114 @@ async function setPosture(
     "/deployment-postures",
     {
       scope: { scope: "account", account_id: accountId },
-      posture,
+      posture: postureRaw,
     },
   );
   if (response.ok) {
-    state.lastSet = response.json as SetPostureResponse;
+    state.lastSet = response.json as SetDeploymentPostureResponse;
     delete state.lastFailureSummary;
     postureActor.hasSession = true;
     delete postureActor.lastFailureCode;
     return;
   }
-  const failure = asFailureBody(response.json, response.status);
+  const failure = normalizeFailureBody(response.json, response.status);
   state.lastFailureSummary = failure.summary;
   postureActor.hasSession = false;
   postureActor.lastFailureCode = failure.code;
 }
 
+async function seedActorWithPermission(
+  page: Page,
+  world: WebWorld,
+): Promise<void> {
+  const state = stateFor(world);
+  const actorEmail = uniqueEmail("actor-web-posture");
+  state.actorAccountId = await signUpActor(
+    page,
+    world,
+    "actor",
+    actorEmail,
+    "actor-posture-pw",
+    "Posture actor",
+  );
+  delete state.lastFailureSummary;
+}
+
+async function seedActorWithoutPermission(
+  page: Page,
+  world: WebWorld,
+): Promise<void> {
+  const state = stateFor(world);
+  await seedActorWithPermission(page, world);
+
+  const otherEmail = uniqueEmail("other-web-posture");
+  state.otherAccountId = await signUpActor(
+    page,
+    world,
+    "other",
+    otherEmail,
+    "other-posture-pw",
+    "Other account",
+  );
+
+  await page.context().clearCookies();
+  await signInActor(page, world, "actor");
+  delete state.lastFailureSummary;
+}
+
+interface EventEnvelope {
+  payload?: {
+    family?: string;
+    kind?: string;
+    payload?: {
+      changed_by?: string;
+      posture?: string;
+    };
+  };
+}
+
+async function readRecentEvents(
+  page: Page,
+  limit: number,
+): Promise<EventEnvelope[]> {
+  const response = await page.request.get(
+    `${apiUrl()}/test-hooks/events/recent?limit=${encodeURIComponent(String(limit))}`,
+  );
+  if (!response.ok()) {
+    throw new Error(`recent event read failed with HTTP ${response.status()}`);
+  }
+  const payload = (await response.json()) as { events?: unknown };
+  if (!Array.isArray(payload.events)) {
+    throw new Error("recent event payload did not include an events array");
+  }
+  return payload.events as EventEnvelope[];
+}
+
 Given(
   "a web account actor with posture permission",
   async ({ page, world }) => {
-    const state = stateFor(world);
-    const actorEmail = uniqueEmail("actor-web-posture");
-    state.actorAccountId = await signUpActor(
-      page,
-      world,
-      "actor",
-      actorEmail,
-      "actor-posture-pw",
-      "Posture actor",
-    );
-    delete state.lastFailureSummary;
+    await seedActorWithPermission(page, world);
   },
 );
 
 Given(
   "an web account actor with posture permission",
   async ({ page, world }) => {
-    const state = stateFor(world);
-    const actorEmail = uniqueEmail("actor-web-posture");
-    state.actorAccountId = await signUpActor(
-      page,
-      world,
-      "actor",
-      actorEmail,
-      "actor-posture-pw",
-      "Posture actor",
-    );
-    delete state.lastFailureSummary;
+    await seedActorWithPermission(page, world);
   },
 );
 
 Given(
   "a web account actor without posture permission",
   async ({ page, world }) => {
-    const state = stateFor(world);
-    const actorEmail = uniqueEmail("actor-web-posture");
-    state.actorAccountId = await signUpActor(
-      page,
-      world,
-      "actor",
-      actorEmail,
-      "actor-posture-pw",
-      "Posture actor",
-    );
-
-    const otherEmail = uniqueEmail("other-web-posture");
-    state.otherAccountId = await signUpActor(
-      page,
-      world,
-      "other",
-      otherEmail,
-      "other-posture-pw",
-      "Other account",
-    );
-
-    await page.context().clearCookies();
-    await signInActor(page, world, "actor");
-    delete state.lastFailureSummary;
+    await seedActorWithoutPermission(page, world);
   },
 );
 
 Given(
   "an web account actor without posture permission",
   async ({ page, world }) => {
-    const state = stateFor(world);
-    const actorEmail = uniqueEmail("actor-web-posture");
-    state.actorAccountId = await signUpActor(
-      page,
-      world,
-      "actor",
-      actorEmail,
-      "actor-posture-pw",
-      "Posture actor",
-    );
-
-    const otherEmail = uniqueEmail("other-web-posture");
-    state.otherAccountId = await signUpActor(
-      page,
-      world,
-      "other",
-      otherEmail,
-      "other-posture-pw",
-      "Other account",
-    );
-
-    await page.context().clearCookies();
-    await signInActor(page, world, "actor");
-    delete state.lastFailureSummary;
+    await seedActorWithoutPermission(page, world);
   },
 );
 
@@ -412,11 +251,11 @@ When(
         `list supported postures failed with HTTP ${response.status}`,
       );
     }
-    const data = response.json as { supported?: unknown };
+    const data = response.json as SupportedDeploymentPosturesResponse;
     if (!Array.isArray(data.supported)) {
       throw new Error("supported posture payload did not include an array");
     }
-    stateFor(world).lastSupported = data.supported as SupportedPosture[];
+    stateFor(world).lastSupported = data.supported;
   },
 );
 
@@ -458,28 +297,7 @@ Then(
     if (!supported) {
       throw new Error("supported posture list was not captured");
     }
-    if (supported.length !== 3) {
-      throw new Error(`expected 3 supported postures, got ${supported.length}`);
-    }
-
-    const byPosture = new Map<DeploymentPosture, SupportedPosture>(
-      supported.map((entry) => [entry.posture, entry]),
-    );
-    for (const posture of ["hosted", "self_hosted", "local_only"] as const) {
-      const entry = byPosture.get(posture);
-      if (!entry) {
-        throw new Error(`missing supported posture ${posture}`);
-      }
-      const expected = expectedSummary(posture);
-      if (
-        JSON.stringify(entry.capability_summary.available) !==
-          JSON.stringify(expected.available) ||
-        JSON.stringify(entry.capability_summary.unavailable) !==
-          JSON.stringify(expected.unavailable)
-      ) {
-        throw new Error(`capability summary mismatch for posture ${posture}`);
-      }
-    }
+    assertCanonicalSupportedPostures(supported);
   },
 );
 
@@ -499,11 +317,14 @@ Then(
 Then(
   "the web view shows available and unavailable capability summaries",
   async ({ world }) => {
-    const summary = stateFor(world).lastSet?.capability_summary;
-    if (!summary) {
+    const last = stateFor(world).lastSet;
+    if (!last) {
       throw new Error("no posture capability summary recorded");
     }
-    if (summary.available.length === 0 || summary.unavailable.length === 0) {
+    if (
+      last.capability_summary.available.length === 0 ||
+      last.capability_summary.unavailable.length === 0
+    ) {
       throw new Error(
         "expected non-empty available and unavailable capability lists",
       );
@@ -528,18 +349,13 @@ Then(
         `get deployment posture failed with HTTP ${response.status}`,
       );
     }
-    const payload = response.json as {
-      current?: {
-        posture?: unknown;
-      } | null;
-    };
-    const current = payload.current;
-    if (!current || typeof current.posture !== "string") {
+    const payload = response.json as CurrentDeploymentPostureResponse;
+    if (!payload.current) {
       throw new Error("expected an existing recorded posture");
     }
-    if (current.posture !== posture) {
+    if (payload.current.posture !== posture) {
       throw new Error(
-        `expected recorded posture ${posture}, got ${current.posture}`,
+        `expected recorded posture ${posture}, got ${payload.current.posture}`,
       );
     }
   },
@@ -547,16 +363,32 @@ Then(
 
 Then(
   "recent events attribute the posture change to the actor with posture {string}",
-  async ({ world }, posture: string) => {
-    // The web runner cannot query recent events over HTTP today; we
-    // proxy this witness through the same set-response posture assertion.
-    const last = stateFor(world).lastSet;
-    if (!last) {
-      throw new Error("no posture-set response recorded for attribution proxy");
+  async ({ page, world }, posture: string) => {
+    const actorId = stateFor(world).actorAccountId;
+    if (!actorId) {
+      throw new Error(
+        "actor account id missing before event attribution check",
+      );
     }
-    if (last.posture !== posture) {
-      throw new Error(`expected posture ${posture} in latest set response`);
+
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const events = await readRecentEvents(page, 40);
+      const matched = events.some((event) => {
+        const payload = event.payload?.payload;
+        return (
+          event.payload?.family === "deployment_posture" &&
+          event.payload?.kind === "changed" &&
+          payload?.changed_by === actorId &&
+          payload?.posture === posture
+        );
+      });
+      if (matched) {
+        return;
+      }
+      await page.waitForTimeout(50);
     }
+
+    throw new Error("expected attributed deployment posture event");
   },
 );
 
@@ -567,18 +399,14 @@ Then(
     if (!last) {
       throw new Error("no posture-set response recorded");
     }
-    const posture = postureRaw as DeploymentPosture;
-    const expected = expectedSummary(posture);
-    if (
-      JSON.stringify(last.capability_summary.available) !==
-        JSON.stringify(expected.available) ||
-      JSON.stringify(last.capability_summary.unavailable) !==
-        JSON.stringify(expected.unavailable)
-    ) {
-      throw new Error(
-        `capability inheritance mismatch for posture ${postureRaw}`,
-      );
+    if (!isDeploymentPosture(postureRaw)) {
+      throw new Error(`unsupported posture under test: ${postureRaw}`);
     }
+    assertCapabilitySummary(
+      postureRaw,
+      last.capability_summary,
+      "set response",
+    );
   },
 );
 

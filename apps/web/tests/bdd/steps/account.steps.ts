@@ -26,16 +26,7 @@
 
 import { createBdd, test as base } from "playwright-bdd";
 
-interface ActorState {
-  email?: string;
-  password?: string;
-  hasSession?: boolean;
-  lastFailureCode?: string;
-}
-
-interface WebWorld {
-  actors: Map<string, ActorState>;
-}
+import { actor, type WebWorld } from "./support/web-wire";
 
 // Per-scenario `WebWorld` fixture. playwright-bdd consumes its own `test`
 // (re-exported from `playwright-bdd`); we extend it to thread an
@@ -47,15 +38,6 @@ export const test = base.extend<{ world: WebWorld }>({
 });
 
 const { Given, When, Then } = createBdd(test);
-
-function actor(world: WebWorld, name: string): ActorState {
-  let state = world.actors.get(name);
-  if (!state) {
-    state = {};
-    world.actors.set(name, state);
-  }
-  return state;
-}
 
 Given("a clean Tanren environment", async ({ page, world }) => {
   // Per-scenario state; the API DB is shared across the run (one ephemeral
