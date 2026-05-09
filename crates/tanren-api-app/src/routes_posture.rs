@@ -4,16 +4,17 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use tanren_contract::{
-    CurrentDeploymentPostureResponse, DeploymentPostureScope, SetDeploymentPostureRequest,
-    SetDeploymentPostureResponse, SupportedDeploymentPosturesResponse,
+    CurrentDeploymentPostureResponse, DeploymentPostureFailureReason, DeploymentPostureScope,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::{AccountId, InstallationId, ProjectId};
 use tower_sessions::Session;
 use uuid::Uuid;
 
 use crate::AppState;
-use crate::cookies::session_account_id;
+use crate::cookies::session_actor;
 use crate::errors::{AccountFailureBody, ValidatedJson, map_posture_error};
 
 /// List every supported deployment posture with capability summary.
@@ -110,16 +111,17 @@ pub(crate) async fn set_deployment_posture_route(
 }
 
 async fn actor_from_session(session: &Session) -> Result<AccountId, Response> {
-    match session_account_id(session).await {
-        Ok(Some(account_id)) => Ok(account_id),
-        Ok(None) => Err((
-            StatusCode::FORBIDDEN,
-            Json(AccountFailureBody {
-                code: "permission_denied".to_owned(),
-                summary: "Sign in before changing deployment posture.".to_owned(),
-            }),
-        )
-            .into_response()),
+    match session_actor(session).await {
+        Ok(Some(actor)) => {
+            if actor.expires_at <= Utc::now() {
+                if let Err(err) = session.flush().await {
+                    tracing::error!(target: "tanren_api", error = %err, "session flush");
+                }
+                return Err(permission_denied_response());
+            }
+            Ok(actor.account_id)
+        }
+        Ok(None) => Err(permission_denied_response()),
         Err(err) => {
             tracing::error!(target: "tanren_api", error = %err, "session read");
             Err((
@@ -134,7 +136,23 @@ async fn actor_from_session(session: &Session) -> Result<AccountId, Response> {
     }
 }
 
+fn permission_denied_response() -> Response {
+    (
+        StatusCode::FORBIDDEN,
+        Json(AccountFailureBody {
+            code: DeploymentPostureFailureReason::PermissionDenied
+                .code()
+                .to_owned(),
+            summary: DeploymentPostureFailureReason::PermissionDenied
+                .summary()
+                .to_owned(),
+        }),
+    )
+        .into_response()
+}
+
 fn parse_scope(scope_kind: &str, scope_id: &str) -> Result<DeploymentPostureScope, Box<Response>> {
+    let scope_kind = ScopeKind::parse(scope_kind)?;
     let parsed_uuid = Uuid::parse_str(scope_id).map_err(|err| {
         Box::new(
             (
@@ -147,29 +165,48 @@ fn parse_scope(scope_kind: &str, scope_id: &str) -> Result<DeploymentPostureScop
                 .into_response(),
         )
     })?;
+    Ok(scope_kind.into_scope(parsed_uuid))
+}
 
-    let scope = match scope_kind {
-        "account" => DeploymentPostureScope::Account {
-            account_id: AccountId::from(parsed_uuid),
-        },
-        "project" => DeploymentPostureScope::Project {
-            project_id: ProjectId::from(parsed_uuid),
-        },
-        "installation" => DeploymentPostureScope::Installation {
-            installation_id: InstallationId::from(parsed_uuid),
-        },
-        other => {
-            return Err(Box::new((
-                StatusCode::BAD_REQUEST,
-                Json(AccountFailureBody {
-                    code: "validation_failed".to_owned(),
-                    summary: format!(
-                        "Invalid scope_kind `{other}`. Supported values: account, project, installation."
-                    ),
-                }),
-            )
-                .into_response()));
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ScopeKind {
+    Account,
+    Project,
+    Installation,
+}
+
+impl ScopeKind {
+    fn parse(raw: &str) -> Result<Self, Box<Response>> {
+        match raw {
+            "account" => Ok(Self::Account),
+            "project" => Ok(Self::Project),
+            "installation" => Ok(Self::Installation),
+            other => Err(Box::new(
+                (
+                    StatusCode::BAD_REQUEST,
+                    Json(AccountFailureBody {
+                        code: "validation_failed".to_owned(),
+                        summary: format!(
+                            "Invalid scope_kind `{other}`. Supported values: account, project, installation."
+                        ),
+                    }),
+                )
+                    .into_response(),
+            )),
         }
-    };
-    Ok(scope)
+    }
+
+    fn into_scope(self, id: Uuid) -> DeploymentPostureScope {
+        match self {
+            Self::Account => DeploymentPostureScope::Account {
+                account_id: AccountId::from(id),
+            },
+            Self::Project => DeploymentPostureScope::Project {
+                project_id: ProjectId::from(id),
+            },
+            Self::Installation => DeploymentPostureScope::Installation {
+                installation_id: InstallationId::from(id),
+            },
+        }
+    }
 }
