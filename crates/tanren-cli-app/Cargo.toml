@@ -22,4 +22,5 @@ tanren-client-integrations = { path = "../tanren-client-integrations" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 tokio = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }

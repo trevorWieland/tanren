@@ -30,7 +30,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use tanren_app_services::{ActiveAccountContextError, AppServiceError, Clock, Handlers, Store};
+use tanren_app_services::{
+    AccountErrorProjection, ActiveAccountContextError, AppServiceError, Clock, Handlers, Store,
+    project_account_error,
+};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, ListActiveAccountsRequest, SignInRequest,
     SignUpRequest, SwitchActiveAccountRequest,
@@ -115,7 +118,7 @@ impl TanrenMcp {
                     .note_signed_in(response.account.id, response.session.token.clone());
                 Ok(success(&response))
             }
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_failure(&err)),
         }
     }
 
@@ -135,7 +138,7 @@ impl TanrenMcp {
                     .note_signed_in(response.account.id, response.session.token.clone());
                 Ok(success(&response))
             }
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_failure(&err)),
         }
     }
 
@@ -161,7 +164,7 @@ impl TanrenMcp {
                     .note_signed_in(response.account.id, response.session.token.clone());
                 Ok(success(&response))
             }
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_failure(&err)),
         }
     }
 
@@ -196,7 +199,7 @@ impl TanrenMcp {
             .await
         {
             Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_failure(&err)),
         }
     }
 
@@ -233,7 +236,7 @@ impl TanrenMcp {
                 self.active_accounts.set_active(response.active_account_id);
                 Ok(success(&response))
             }
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_failure(&err)),
         }
     }
 
@@ -275,31 +278,22 @@ fn success<T: Serialize>(value: &T) -> CallToolResult {
 
 /// Encode an [`AppServiceError`] as the shared `{code, summary}` error
 /// body and surface it as an MCP tool failure result.
-fn map_failure(err: AppServiceError) -> CallToolResult {
-    let (code, summary) = match err {
-        AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
-            "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
-        ),
-    };
+fn map_failure(err: &AppServiceError) -> CallToolResult {
+    if let AppServiceError::Store(store_err) = err {
+        tracing::error!(target: "tanren_mcp", error = %store_err, "store error");
+    }
+    let projected = project_account_error(err);
     let body = json!({
-        "code": code,
-        "summary": summary,
+        "code": projected.code,
+        "summary": projected.summary,
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
 }
 
 fn missing_session_failure() -> CallToolResult {
-    map_failure(AppServiceError::Account(
-        AccountFailureReason::InvalidCredential,
-    ))
+    let err = AppServiceError::Account(AccountFailureReason::InvalidCredential);
+    map_failure(&err)
 }
 
 fn active_context_failure(err: &ActiveAccountContextError) -> CallToolResult {
@@ -311,9 +305,11 @@ fn active_context_failure(err: &ActiveAccountContextError) -> CallToolResult {
 }
 
 fn active_context_store_failure(err: &str) -> CallToolResult {
+    tracing::error!(target: "tanren_mcp", error = %err, "active-account context store failure");
+    let projected = AccountErrorProjection::internal();
     let body = json!({
-        "code": "internal_error",
-        "summary": format!("Tanren encountered an internal error: {err}"),
+        "code": projected.code,
+        "summary": projected.summary,
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])

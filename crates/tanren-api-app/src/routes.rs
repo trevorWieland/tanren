@@ -6,7 +6,9 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::{ActiveAccountContext, ActiveAccountContextError, Handlers};
+use tanren_app_services::{
+    AccountErrorProjection, ActiveAccountContext, ActiveAccountContextError, Handlers,
+};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, ListActiveAccountsRequest,
     ListActiveAccountsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
@@ -159,7 +161,7 @@ pub(crate) async fn sign_up_route(
                 Err(err) => session_install_error(&err),
             }
         }
-        Err(err) => map_app_error(err),
+        Err(err) => map_app_error(&err),
     }
 }
 
@@ -202,7 +204,7 @@ pub(crate) async fn sign_in_route(
                 Err(err) => session_install_error(&err),
             }
         }
-        Err(err) => map_app_error(err),
+        Err(err) => map_app_error(&err),
     }
 }
 
@@ -274,7 +276,7 @@ pub(crate) async fn accept_invitation_route(
                 Err(err) => session_install_error(&err),
             }
         }
-        Err(err) => map_app_error(err),
+        Err(err) => map_app_error(&err),
     }
 }
 
@@ -321,7 +323,7 @@ pub(crate) async fn list_active_accounts_route(
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
+        Err(err) => map_app_error(&err),
     }
 }
 
@@ -378,7 +380,7 @@ pub(crate) async fn switch_active_account_route(
             }
             (StatusCode::OK, Json(response)).into_response()
         }
-        Err(err) => map_app_error(err),
+        Err(err) => map_app_error(&err),
     }
 }
 
@@ -393,11 +395,12 @@ pub(crate) async fn switch_active_account_route(
 pub(crate) async fn revoke_route(session: Session) -> Response {
     if let Err(err) = session.flush().await {
         tracing::error!(target: "tanren_api", error = %err, "session flush");
+        let projected = AccountErrorProjection::internal();
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(AccountFailureBody {
-                code: "internal_error".to_owned(),
-                summary: "Tanren encountered an internal error.".to_owned(),
+                code: projected.code,
+                summary: projected.summary,
             }),
         )
             .into_response();
@@ -453,11 +456,12 @@ fn active_account_context_validation_error(err: &ActiveAccountContextError) -> R
 
 fn session_read_error(err: &anyhow::Error) -> Response {
     tracing::error!(target: "tanren_api", error = %err, "session read");
+    let projected = AccountErrorProjection::internal();
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(AccountFailureBody {
-            code: "internal_error".to_owned(),
-            summary: "Tanren encountered an internal error.".to_owned(),
+            code: projected.code,
+            summary: projected.summary,
         }),
     )
         .into_response()

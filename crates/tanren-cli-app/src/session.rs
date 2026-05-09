@@ -5,7 +5,9 @@ use std::error::Error as StdError;
 use anyhow::Result;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::{AccountStore, ActiveAccountContext, ActiveAccountContextError, Clock};
+use tanren_app_services::{
+    AccountErrorProjection, AccountStore, ActiveAccountContext, ActiveAccountContextError, Clock,
+};
 use tanren_client_integrations::session_file_store::SessionFileStore;
 use tanren_identity_policy::{AccountId, SessionToken};
 
@@ -68,7 +70,13 @@ where
             }
             Err(err) => {
                 if StdError::source(&err).is_some() {
-                    return Err(anyhow::anyhow!("error: internal_error — {err}"));
+                    tracing::error!(target: "tanren_cli", error = %err, "session token validation");
+                    let projected = AccountErrorProjection::internal();
+                    return Err(anyhow::anyhow!(
+                        "error: {} — {}",
+                        projected.code,
+                        projected.summary
+                    ));
                 }
                 mutated = true;
             }

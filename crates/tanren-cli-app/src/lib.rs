@@ -22,7 +22,9 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Clock, Handlers, Store};
+use tanren_app_services::{
+    AccountErrorProjection, AppServiceError, Clock, Handlers, Store, project_account_error,
+};
 use tanren_contract::{
     AcceptInvitationRequest, ListActiveAccountsRequest, SignInRequest, SignUpRequest,
     SwitchActiveAccountRequest,
@@ -242,9 +244,7 @@ async fn run_account_create(
     display_name: String,
     invitation: Option<String>,
 ) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+    let store = connect_account_store(database_url).await?;
     let email = Email::parse(identifier).context("parse --identifier as email")?;
     let password = SecretString::from(password);
     match invitation {
@@ -259,7 +259,7 @@ async fn run_account_create(
                     },
                 )
                 .await
-                .map_err(account_error)?;
+                .map_err(|err| account_error(&err))?;
             persist_session(response.account.id, response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
@@ -285,7 +285,7 @@ async fn run_account_create(
                     },
                 )
                 .await
-                .map_err(account_error)?;
+                .map_err(|err| account_error(&err))?;
             persist_session(response.account.id, response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
@@ -308,15 +308,13 @@ async fn run_account_sign_in(
     identifier: &str,
     password: String,
 ) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+    let store = connect_account_store(database_url).await?;
     let email = Email::parse(identifier).context("parse --identifier as email")?;
     let password = SecretString::from(password);
     let response = handlers
         .sign_in(&store, SignInRequest { email, password })
         .await
-        .map_err(account_error)?;
+        .map_err(|err| account_error(&err))?;
     persist_session(response.account.id, response.session.token.expose_secret())?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -335,14 +333,12 @@ async fn run_account_list_active(
     clock: &Clock,
     database_url: &str,
 ) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+    let store = connect_account_store(database_url).await?;
     let context = active_context_from_session(&store, clock).await?;
     let response = handlers
         .list_active_accounts(&store, &context, ListActiveAccountsRequest::default())
         .await
-        .map_err(account_error)?;
+        .map_err(|err| account_error(&err))?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let body = serde_json::to_string(&response).context("serialize active-account list result")?;
@@ -356,9 +352,7 @@ async fn run_account_switch_active(
     database_url: &str,
     target_account_id: &str,
 ) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+    let store = connect_account_store(database_url).await?;
     let context = active_context_from_session(&store, clock).await?;
     let target_account_id = AccountId::from(
         Uuid::from_str(target_account_id).context("parse --target-account-id as uuid")?,
@@ -370,7 +364,7 @@ async fn run_account_switch_active(
             SwitchActiveAccountRequest { target_account_id },
         )
         .await
-        .map_err(account_error)?;
+        .map_err(|err| account_error(&err))?;
     set_active_account(response.active_account_id)?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -380,17 +374,25 @@ async fn run_account_switch_active(
     Ok(())
 }
 
-fn account_error(err: AppServiceError) -> anyhow::Error {
-    match err {
-        AppServiceError::Account(reason) => {
-            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
+fn account_error(err: &AppServiceError) -> anyhow::Error {
+    if let AppServiceError::Store(store_err) = err {
+        tracing::error!(target: "tanren_cli", error = %store_err, "store error");
+    }
+    let projected = project_account_error(err);
+    anyhow::anyhow!("error: {} — {}", projected.code, projected.summary)
+}
+
+async fn connect_account_store(database_url: &str) -> Result<Store> {
+    match Store::connect(database_url).await {
+        Ok(store) => Ok(store),
+        Err(err) => {
+            tracing::error!(target: "tanren_cli", error = %err, "connect to store");
+            let projected = AccountErrorProjection::internal();
+            Err(anyhow::anyhow!(
+                "error: {} — {}",
+                projected.code,
+                projected.summary
+            ))
         }
-        AppServiceError::InvalidInput(message) => {
-            anyhow::anyhow!("error: validation_failed — {message}")
-        }
-        AppServiceError::Store(err) => {
-            anyhow::anyhow!("error: internal_error — {err}")
-        }
-        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }
 }

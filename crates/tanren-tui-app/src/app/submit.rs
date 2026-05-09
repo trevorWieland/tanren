@@ -4,6 +4,7 @@ use crate::ui::{
     accept_invitation_outcome, parse_accept_invitation, parse_sign_in, parse_sign_up, render_error,
     sign_in_outcome, sign_up_outcome,
 };
+use tanren_app_services::AccountErrorProjection;
 
 impl App {
     pub(super) fn submit_sign_up(&mut self) {
@@ -40,8 +41,10 @@ impl App {
                 if let Err(err) =
                     persist_session(response.account.id, response.session.token.expose_secret())
                 {
+                    tracing::error!(target: "tanren_tui", error = %err, "persist session");
+                    let projected = AccountErrorProjection::internal();
                     if let Screen::SignUp(state) = &mut self.screen {
-                        state.error = Some(format!("internal_error: {err}"));
+                        state.error = Some(format!("{}: {}", projected.code, projected.summary));
                     }
                     return;
                 }
@@ -49,7 +52,7 @@ impl App {
             }
             Err(reason) => {
                 if let Screen::SignUp(state) = &mut self.screen {
-                    state.error = Some(render_error(reason));
+                    state.error = Some(render_error(&reason));
                 }
             }
         }
@@ -89,8 +92,10 @@ impl App {
                 if let Err(err) =
                     persist_session(response.account.id, response.session.token.expose_secret())
                 {
+                    tracing::error!(target: "tanren_tui", error = %err, "persist session");
+                    let projected = AccountErrorProjection::internal();
                     if let Screen::SignIn(state) = &mut self.screen {
-                        state.error = Some(format!("internal_error: {err}"));
+                        state.error = Some(format!("{}: {}", projected.code, projected.summary));
                     }
                     return;
                 }
@@ -98,7 +103,7 @@ impl App {
             }
             Err(reason) => {
                 if let Screen::SignIn(state) = &mut self.screen {
-                    state.error = Some(render_error(reason));
+                    state.error = Some(render_error(&reason));
                 }
             }
         }
@@ -138,8 +143,10 @@ impl App {
                 if let Err(err) =
                     persist_session(response.account.id, response.session.token.expose_secret())
                 {
+                    tracing::error!(target: "tanren_tui", error = %err, "persist session");
+                    let projected = AccountErrorProjection::internal();
                     if let Screen::AcceptInvitation(state) = &mut self.screen {
-                        state.error = Some(format!("internal_error: {err}"));
+                        state.error = Some(format!("{}: {}", projected.code, projected.summary));
                     }
                     return;
                 }
@@ -147,7 +154,7 @@ impl App {
             }
             Err(reason) => {
                 if let Screen::AcceptInvitation(state) = &mut self.screen {
-                    state.error = Some(render_error(reason));
+                    state.error = Some(render_error(&reason));
                 }
             }
         }

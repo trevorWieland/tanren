@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Clock, Handlers, Store};
+use tanren_app_services::{AccountErrorProjection, Clock, Handlers, Store};
 use tanren_contract::{ListActiveAccountsRequest, SignedInAccountView, SwitchActiveAccountRequest};
 use tokio::runtime::Runtime;
 
@@ -71,7 +71,14 @@ impl App {
         let (store, store_error) = match env::var(DATABASE_URL_ENV) {
             Ok(url) if !url.is_empty() => match runtime.block_on(Store::connect(&url)) {
                 Ok(store) => (Some(Arc::new(store)), None),
-                Err(err) => (None, Some(format!("store unavailable: {err}"))),
+                Err(err) => {
+                    tracing::error!(target: "tanren_tui", error = %err, "connect to store");
+                    let projected = AccountErrorProjection::internal();
+                    (
+                        None,
+                        Some(format!("{}: {}", projected.code, projected.summary)),
+                    )
+                }
             },
             _ => (
                 None,
@@ -215,7 +222,7 @@ impl App {
             Err(err) => {
                 self.screen = Screen::Outcome(OutcomeView {
                     title: "List signed-in accounts failed",
-                    lines: vec![format!("validation_failed: {err}")],
+                    lines: vec![err.to_string()],
                 });
                 return;
             }
@@ -231,7 +238,7 @@ impl App {
             Err(reason) => {
                 self.screen = Screen::Outcome(OutcomeView {
                     title: "List signed-in accounts failed",
-                    lines: vec![render_error(reason)],
+                    lines: vec![render_error(&reason)],
                 });
             }
         }
@@ -257,7 +264,7 @@ impl App {
             Err(err) => {
                 self.screen = Screen::Outcome(OutcomeView {
                     title: "Switch active account failed",
-                    lines: vec![format!("validation_failed: {err}")],
+                    lines: vec![err.to_string()],
                 });
                 return;
             }
@@ -282,7 +289,7 @@ impl App {
             Err(reason) => {
                 self.screen = Screen::Outcome(OutcomeView {
                     title: "Switch active account failed",
-                    lines: vec![render_error(reason)],
+                    lines: vec![render_error(&reason)],
                 });
             }
         }
@@ -319,7 +326,7 @@ impl App {
             Ok(context) => context,
             Err(err) => {
                 if let Screen::SwitchActive { error, .. } = &mut self.screen {
-                    *error = Some(format!("validation_failed: {err}"));
+                    *error = Some(err.to_string());
                 }
                 return;
             }
@@ -333,8 +340,10 @@ impl App {
         match result {
             Ok(response) => {
                 if let Err(err) = set_active_account(response.active_account_id) {
+                    tracing::error!(target: "tanren_tui", error = %err, "set active account");
+                    let projected = AccountErrorProjection::internal();
                     if let Screen::SwitchActive { error, .. } = &mut self.screen {
-                        *error = Some(format!("internal_error: {err}"));
+                        *error = Some(format!("{}: {}", projected.code, projected.summary));
                     }
                     return;
                 }
@@ -342,7 +351,7 @@ impl App {
             }
             Err(reason) => {
                 if let Screen::SwitchActive { error, .. } = &mut self.screen {
-                    *error = Some(render_error(reason));
+                    *error = Some(render_error(&reason));
                 }
             }
         }

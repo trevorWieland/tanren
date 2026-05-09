@@ -3,11 +3,10 @@
 //! workspace 500-line budget.
 
 use secrecy::SecretString;
-use tanren_app_services::AppServiceError;
+use tanren_app_services::{AppServiceError, project_account_error};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse, SignedInAccountView,
-    SwitchActiveAccountResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse, SignedInAccountView, SwitchActiveAccountResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, ValidationError};
 
@@ -136,17 +135,12 @@ pub(crate) fn switch_active_outcome(response: &SwitchActiveAccountResponse) -> O
     }
 }
 
-pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
-    format!("{}: {}", reason.code(), reason.summary())
-}
-
-pub(crate) fn render_error(err: AppServiceError) -> String {
-    match err {
-        AppServiceError::Account(reason) => format_failure(reason),
-        AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
-        AppServiceError::Store(err) => format!("internal_error: {err}"),
-        _ => "internal_error: unknown app-service failure".to_owned(),
+pub(crate) fn render_error(err: &AppServiceError) -> String {
+    if let AppServiceError::Store(store_err) = &err {
+        tracing::error!(target: "tanren_tui", error = %store_err, "store error");
     }
+    let projected = project_account_error(err);
+    format!("{}: {}", projected.code, projected.summary)
 }
 
 fn validation_message(err: &ValidationError) -> String {

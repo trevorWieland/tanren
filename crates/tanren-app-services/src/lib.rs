@@ -264,3 +264,42 @@ pub enum AppServiceError {
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
 }
+
+/// Shared account/session-facing error projection used by API, MCP, CLI, and
+/// TUI surfaces.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AccountErrorProjection {
+    /// Stable machine-readable code.
+    pub code: String,
+    /// Human-readable summary safe to show at interface boundaries.
+    pub summary: String,
+}
+
+impl AccountErrorProjection {
+    /// Shared internal-error projection used whenever details must stay in
+    /// tracing diagnostics.
+    #[must_use]
+    pub fn internal() -> Self {
+        Self {
+            code: "internal_error".to_owned(),
+            summary: "Tanren encountered an internal error.".to_owned(),
+        }
+    }
+}
+
+/// Project an [`AppServiceError`] into a safe `{code, summary}` shape for
+/// public interfaces.
+#[must_use]
+pub fn project_account_error(err: &AppServiceError) -> AccountErrorProjection {
+    match err {
+        AppServiceError::Account(reason) => AccountErrorProjection {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        },
+        AppServiceError::InvalidInput(message) => AccountErrorProjection {
+            code: "validation_failed".to_owned(),
+            summary: message.clone(),
+        },
+        AppServiceError::Store(_) => AccountErrorProjection::internal(),
+    }
+}
