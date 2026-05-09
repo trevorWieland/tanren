@@ -1,7 +1,8 @@
 {
   "$schema": "https://inlang.com/schema/inlang-message-format",
   "app_title": "Tanren",
-  "app_placeholder": "F-0001 placeholder — minimum buildable Tanren.",
+  "app_placeholder": "Operations surfaces are exposed on dedicated routes.",
+  "app_deploymentPostureLink": "Open deployment posture operations",
   "app_health_loading": "Loading health…",
   "app_health_unreachable": "API unreachable",
   "posture_title": "Deployment posture",

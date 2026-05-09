@@ -1,6 +1,13 @@
 import * as m from "@/i18n/paraglide/messages";
-
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+import { TANREN_API_BASE_URL } from "@/app/lib/api-base-url";
+import type {
+  CurrentDeploymentPostureResponse,
+  DeploymentPosture,
+  SetDeploymentPostureRequest,
+  SetDeploymentPostureResponse,
+  SupportedDeploymentPosture,
+  SupportedDeploymentPosturesResponse,
+} from "@/app/lib/generated/deployment-posture-contract";
 
 export interface SignUpInput {
   email: string;
@@ -26,50 +33,16 @@ export interface AccountView {
   display_name: string;
   org: string | null;
 }
+export type {
+  CurrentDeploymentPostureResponse as DeploymentPostureGetResponse,
+  DeploymentPosture,
+  SetDeploymentPostureRequest,
+  SetDeploymentPostureResponse,
+  SupportedDeploymentPosture,
+  SupportedDeploymentPosturesResponse as DeploymentPostureListResponse,
+};
 
-export type DeploymentPosture = "hosted" | "self_hosted" | "local_only";
-
-export type DeploymentPostureCapability =
-  | "managed_control_plane"
-  | "provider_integrations"
-  | "remote_runtime_dispatch"
-  | "local_runtime_dispatch";
-
-export interface DeploymentPostureCapabilitySummary {
-  available: DeploymentPostureCapability[];
-  unavailable: DeploymentPostureCapability[];
-}
-
-export type DeploymentPostureScope =
-  | { scope: "account"; account_id: string }
-  | { scope: "project"; project_id: string }
-  | { scope: "installation"; installation_id: string };
-
-export interface SupportedDeploymentPosture {
-  posture: DeploymentPosture;
-  capability_summary: DeploymentPostureCapabilitySummary;
-}
-
-export interface SetDeploymentPostureResponse {
-  scope: DeploymentPostureScope;
-  posture: DeploymentPosture;
-  capability_summary: DeploymentPostureCapabilitySummary;
-}
-
-export interface SetDeploymentPostureRequest {
-  scope: DeploymentPostureScope;
-  posture: string;
-}
-
-export interface DeploymentPostureListResponse {
-  supported: SupportedDeploymentPosture[];
-}
-
-export interface DeploymentPostureGetResponse {
-  current: SetDeploymentPostureResponse | null;
-}
-
-let deploymentPostureListCache: Promise<DeploymentPostureListResponse> | null =
+let deploymentPostureListCache: Promise<SupportedDeploymentPosturesResponse> | null =
   null;
 
 /**
@@ -171,7 +144,7 @@ async function requestJson<T>(
       request.headers = { "content-type": "application/json" };
       request.body = JSON.stringify(body);
     }
-    response = await fetch(`${API_URL}${path}`, request);
+    response = await fetch(`${TANREN_API_BASE_URL}${path}`, request);
   } catch (cause: unknown) {
     throw new AccountRequestError({
       code: "unavailable",
@@ -226,13 +199,16 @@ export function acceptInvitation(
   });
 }
 
-export function listDeploymentPostures(): Promise<DeploymentPostureListResponse> {
-  return getJson<DeploymentPostureListResponse>("/deployment-postures");
+export function listDeploymentPostures(): Promise<SupportedDeploymentPosturesResponse> {
+  return getJson<SupportedDeploymentPosturesResponse>("/deployment-postures");
 }
 
-export function listDeploymentPosturesCached(): Promise<DeploymentPostureListResponse> {
+export function listDeploymentPosturesCached(): Promise<SupportedDeploymentPosturesResponse> {
   if (deploymentPostureListCache === null) {
-    deploymentPostureListCache = listDeploymentPostures();
+    deploymentPostureListCache = listDeploymentPostures().catch((error) => {
+      deploymentPostureListCache = null;
+      throw error;
+    });
   }
   return deploymentPostureListCache;
 }
@@ -240,9 +216,9 @@ export function listDeploymentPosturesCached(): Promise<DeploymentPostureListRes
 export function getDeploymentPosture(
   scopeKind: "account" | "project" | "installation",
   scopeId: string,
-): Promise<DeploymentPostureGetResponse> {
+): Promise<CurrentDeploymentPostureResponse> {
   const path = `/deployment-postures/${encodeURIComponent(scopeKind)}/${encodeURIComponent(scopeId)}`;
-  return getJson<DeploymentPostureGetResponse>(path);
+  return getJson<CurrentDeploymentPostureResponse>(path);
 }
 
 export function setDeploymentPosture(
@@ -261,7 +237,7 @@ export function setDeploymentPosture(
 export async function signOut(): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/sessions/revoke`, {
+    response = await fetch(`${TANREN_API_BASE_URL}/sessions/revoke`, {
       method: "POST",
       credentials: "include",
     });

@@ -199,6 +199,10 @@ product-state setup.
 
 CLI and TUI are valid operator and power-user clients.
 
+For operator parity across public surfaces, the web UI exposes deployment
+posture operations on a dedicated route (`/deployment-posture`) rather than on
+the root placeholder page.
+
 They may:
 
 - initialize or validate a deployment bundle;
