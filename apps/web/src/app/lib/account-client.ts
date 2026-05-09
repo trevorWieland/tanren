@@ -53,6 +53,40 @@ export interface AcceptInvitationResult {
   joined_org: string;
 }
 
+export interface MyPermissionsResponse {
+  organizations: MyOrganizationPermissions[];
+  projects: MyProjectPermissions[];
+}
+
+export interface MyOrganizationPermissions {
+  org_id: string;
+  permissions: MyPermissionEntry[];
+}
+
+export interface MyProjectPermissions {
+  project_id: string;
+  permissions: MyPermissionEntry[];
+}
+
+export type PermissionEffectiveState = "granted" | "constrained" | string;
+
+export type PermissionGrantSource =
+  | { kind: "direct" }
+  | { kind: "role_template"; role_template: string }
+  | { kind: string; role_template?: string | undefined };
+
+export interface PermissionConstraintView {
+  reason: string;
+  source: "organization_policy" | "project_policy" | string;
+}
+
+export interface MyPermissionEntry {
+  permission: string;
+  effective_state: PermissionEffectiveState;
+  grant_source: PermissionGrantSource;
+  policy_constraint: PermissionConstraintView | null;
+}
+
 /**
  * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
  * Kept in lock-step with the Rust enum so BDD web steps can match on the
@@ -65,6 +99,8 @@ export type AccountFailureCode =
   | "invitation_already_consumed"
   | "invitation_expired"
   | "validation_failed"
+  | "auth_required"
+  | "permission_denied"
   | "unavailable"
   | "internal_error";
 
@@ -106,17 +142,28 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function requestJson<T>(
+  path: string,
+  method: "GET" | "POST",
+  body?: unknown,
+): Promise<T> {
+  const requestInit: RequestInit =
+    method === "POST"
+      ? {
+          method,
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+          credentials: "include",
+        }
+      : {
+          method,
+          credentials: "include",
+        };
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-      // Cookie transport: send/receive HTTP-only session cookie on every
-      // request. Replaces localStorage token storage (M2).
-      credentials: "include",
-    });
+    // Cookie transport: send/receive HTTP-only session cookie on every
+    // request. Replaces localStorage token storage (M2).
+    response = await fetch(`${API_URL}${path}`, requestInit);
   } catch (cause: unknown) {
     throw new AccountRequestError({
       code: "unavailable",
@@ -143,6 +190,10 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(path, "POST", body);
+}
+
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
   return postJson<SignUpResult>("/accounts", input);
 }
@@ -161,6 +212,10 @@ export function acceptInvitation(
     password: input.password,
     display_name: input.display_name,
   });
+}
+
+export function myPermissions(): Promise<MyPermissionsResponse> {
+  return requestJson<MyPermissionsResponse>("/me/permissions", "GET");
 }
 
 /**

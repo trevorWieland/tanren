@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -42,12 +43,36 @@ export default function Home(): ReactNode {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
-      <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
-      <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
-      <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 px-4 py-8 sm:px-6">
+      <header className="space-y-2">
+        <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
+        <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
+      </header>
+      <nav className="flex flex-wrap gap-3">
+        <Link
+          href="/sign-up"
+          className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-2 text-sm hover:bg-[--color-bg-elevated]"
+        >
+          {m.app_nav_signUp()}
+        </Link>
+        <Link
+          href="/sign-in"
+          className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-2 text-sm hover:bg-[--color-bg-elevated]"
+        >
+          {m.app_nav_signIn()}
+        </Link>
+        <Link
+          href="/my-permissions"
+          className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-2 text-sm hover:bg-[--color-bg-elevated]"
+        >
+          {m.app_nav_myPermissions()}
+        </Link>
+      </nav>
+      <section className="w-full rounded-md border border-[--color-border] bg-[--color-bg-surface] px-4 py-4 font-mono sm:px-6">
         {report !== null ? (
-          <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
+          <pre className="m-0 overflow-x-auto">
+            {JSON.stringify(report, null, 2)}
+          </pre>
         ) : error !== null ? (
           <span className="text-[--color-error]">
             {m.app_health_unreachable()}: {error}

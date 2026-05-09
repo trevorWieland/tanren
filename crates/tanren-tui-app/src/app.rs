@@ -14,13 +14,16 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{Handlers, MyPermissionsContext, Store};
+use tanren_contract::MyPermissionsRequest;
+use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, accept_invitation_outcome, my_permissions_outcome,
+    parse_accept_invitation, parse_sign_in, parse_sign_up, render_error, sign_in_fields,
+    sign_in_outcome, sign_up_fields, sign_up_outcome,
 };
 use crate::{FormState, MenuChoice};
 
@@ -47,6 +50,7 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    active_account_id: Option<AccountId>,
     screen: Screen,
 }
 
@@ -71,6 +75,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            active_account_id: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -103,9 +108,12 @@ impl App {
         let effect = match &mut self.screen {
             Screen::Menu { selected } => {
                 let mut next: Option<Screen> = None;
-                let exit = handle_menu_key(selected, key, &mut next);
+                let mut load_my_permissions = false;
+                let exit = handle_menu_key(selected, key, &mut next, &mut load_my_permissions);
                 if exit {
                     Effect::Exit
+                } else if load_my_permissions {
+                    Effect::LoadMyPermissions
                 } else if let Some(screen) = next {
                     Effect::ReplaceScreen(screen)
                 } else {
@@ -142,6 +150,10 @@ impl App {
                 self.screen = screen;
                 false
             }
+            Effect::LoadMyPermissions => {
+                self.load_my_permissions();
+                false
+            }
             Effect::Form(action, kind) => {
                 self.dispatch_form_action(action, kind);
                 false
@@ -159,14 +171,7 @@ impl App {
     }
 
     fn submit(&mut self, kind: FormKind) {
-        let Some(store) = self.store.clone() else {
-            let message = self
-                .store_error
-                .clone()
-                .unwrap_or_else(|| "store unavailable".to_owned());
-            if let Some(state) = self.active_form_mut() {
-                state.error = Some(message);
-            }
+        let Some(store) = self.store_for_submit() else {
             return;
         };
         let handlers = &self.handlers;
@@ -191,7 +196,10 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_up(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+                    Ok(response) => {
+                        self.active_account_id = Some(response.account.id);
+                        self.screen = Screen::Outcome(sign_up_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignUp(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -219,7 +227,10 @@ impl App {
                     .runtime
                     .block_on(handlers.sign_in(store.as_ref(), request));
                 match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+                    Ok(response) => {
+                        self.active_account_id = Some(response.account.id);
+                        self.screen = Screen::Outcome(sign_in_outcome(&response));
+                    }
                     Err(reason) => {
                         if let Screen::SignIn(state) = &mut self.screen {
                             state.error = Some(render_error(reason));
@@ -248,6 +259,7 @@ impl App {
                     .block_on(handlers.accept_invitation(store.as_ref(), request));
                 match result {
                     Ok(response) => {
+                        self.active_account_id = Some(response.account.id);
                         self.screen = Screen::Outcome(accept_invitation_outcome(&response));
                     }
                     Err(reason) => {
@@ -256,6 +268,61 @@ impl App {
                         }
                     }
                 }
+            }
+        }
+    }
+
+    fn store_for_submit(&mut self) -> Option<Arc<Store>> {
+        let Some(store) = self.store.clone() else {
+            let message = self
+                .store_error
+                .clone()
+                .unwrap_or_else(|| "store unavailable".to_owned());
+            if let Some(state) = self.active_form_mut() {
+                state.error = Some(message);
+            }
+            return None;
+        };
+        Some(store)
+    }
+
+    fn load_my_permissions(&mut self) {
+        let Some(store) = self.store.clone() else {
+            let message = self
+                .store_error
+                .clone()
+                .unwrap_or_else(|| "store unavailable".to_owned());
+            self.screen = Screen::Outcome(OutcomeView {
+                title: "My permissions",
+                lines: vec![format!("internal_error: {message}")],
+            });
+            return;
+        };
+
+        let Some(account_id) = self.active_account_id else {
+            self.screen = Screen::Outcome(OutcomeView {
+                title: "My permissions",
+                lines: vec![
+                    "auth_required: sign in or sign up before loading permissions".to_owned(),
+                ],
+            });
+            return;
+        };
+
+        let response = self.runtime.block_on(self.handlers.my_permissions(
+            store.as_ref(),
+            MyPermissionsContext::self_scoped(account_id),
+            MyPermissionsRequest,
+        ));
+        match response {
+            Ok(permissions) => {
+                self.screen = Screen::Outcome(my_permissions_outcome(&permissions));
+            }
+            Err(err) => {
+                self.screen = Screen::Outcome(OutcomeView {
+                    title: "My permissions",
+                    lines: vec![render_error(err)],
+                });
             }
         }
     }
@@ -299,10 +366,16 @@ enum Effect {
     None,
     Exit,
     ReplaceScreen(Screen),
+    LoadMyPermissions,
     Form(FormAction, FormKind),
 }
 
-fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
+fn handle_menu_key(
+    selected: &mut usize,
+    key: KeyEvent,
+    next: &mut Option<Screen>,
+    load_my_permissions: &mut bool,
+) -> bool {
     match key.code {
         KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
         KeyCode::Up => {
@@ -322,6 +395,10 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::MyPermissions => {
+                    *load_my_permissions = true;
+                    return false;
                 }
             });
         }
