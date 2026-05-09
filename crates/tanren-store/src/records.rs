@@ -106,6 +106,28 @@ impl From<entity::memberships::Model> for MembershipRecord {
     }
 }
 
+/// Organization-membership summary for an account.
+///
+/// Active-scope flows only need org availability assertions, not full
+/// membership row metadata, so this envelope keeps just the fields
+/// needed by callers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AccountMembershipSummary {
+    /// Account that holds this organization membership.
+    pub account_id: AccountId,
+    /// Organization available to the account.
+    pub org_id: OrgId,
+}
+
+impl From<entity::memberships::Model> for AccountMembershipSummary {
+    fn from(model: entity::memberships::Model) -> Self {
+        Self {
+            account_id: AccountId::new(model.account_id),
+            org_id: OrgId::new(model.org_id),
+        }
+    }
+}
+
 /// Persisted session row — issued by `tanren-app-services` on
 /// successful sign-up / sign-in / invitation acceptance.
 ///

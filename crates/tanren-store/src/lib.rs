@@ -15,12 +15,13 @@ mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountMembershipSummary, AccountRecord, InvitationRecord, MembershipRecord, NewAccount,
+    NewInvitation, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, SessionLookupError,
 };
 
 use async_trait::async_trait;
@@ -141,6 +142,63 @@ impl AccountStore for Store {
     ) -> Result<Option<AccountRecord>, StoreError> {
         let identifier = Identifier::from_email(email);
         AccountStore::find_account_by_identifier(self, &identifier).await
+    }
+
+    async fn find_account_by_id(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<AccountRecord>, StoreError> {
+        let row = entity::accounts::Entity::find_by_id(account_id.as_uuid())
+            .one(&self.conn)
+            .await?;
+        row.map(AccountRecord::try_from).transpose()
+    }
+
+    async fn validate_session_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<AccountRecord, SessionLookupError> {
+        let token_raw = token.expose_secret().to_owned();
+        let Some(session_row) = entity::account_sessions::Entity::find_by_id(token_raw)
+            .one(&self.conn)
+            .await
+            .map_err(StoreError::from)?
+        else {
+            return Err(SessionLookupError::SessionNotFound);
+        };
+
+        if session_row.expires_at <= now {
+            return Err(SessionLookupError::SessionExpired);
+        }
+
+        let Some(account_row) = entity::accounts::Entity::find_by_id(session_row.account_id)
+            .one(&self.conn)
+            .await
+            .map_err(StoreError::from)?
+        else {
+            return Err(SessionLookupError::Store(StoreError::Database(
+                DbErr::Custom("account session refers to missing account row".to_owned()),
+            )));
+        };
+
+        AccountRecord::try_from(account_row).map_err(SessionLookupError::Store)
+    }
+
+    async fn list_account_membership_summaries(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<AccountMembershipSummary>, StoreError> {
+        let rows = entity::memberships::Entity::find()
+            .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+            .order_by_asc(entity::memberships::Column::CreatedAt)
+            .order_by_asc(entity::memberships::Column::OrgId)
+            .all(&self.conn)
+            .await?;
+        Ok(rows
+            .into_iter()
+            .map(AccountMembershipSummary::from)
+            .collect())
     }
 
     async fn insert_account(&self, new: NewAccount) -> Result<AccountRecord, StoreError> {

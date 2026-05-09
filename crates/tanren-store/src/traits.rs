@@ -32,7 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountMembershipSummary, AccountRecord, EventEnvelope, InvitationRecord, NewAccount,
+    SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -149,6 +150,21 @@ pub enum AcceptInvitationError {
     Store(#[from] StoreError),
 }
 
+/// Failure taxonomy for validating a session token against the
+/// `account_sessions` table and loading the associated account.
+#[derive(Debug, thiserror::Error)]
+pub enum SessionLookupError {
+    /// No session matches the supplied token.
+    #[error("session not found")]
+    SessionNotFound,
+    /// Session exists but `expires_at <= now`.
+    #[error("session expired")]
+    SessionExpired,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Port the account-flow handlers consume. The SeaORM-backed adapter is
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
@@ -168,6 +184,39 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         email: &Email,
     ) -> Result<Option<AccountRecord>, StoreError>;
+
+    /// Look up an account by stable account id.
+    async fn find_account_by_id(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Option<AccountRecord>, StoreError>;
+
+    /// Validate that a session token exists and has not expired, then
+    /// return the associated account.
+    ///
+    /// Returns:
+    /// - `Ok(AccountRecord)` when the token maps to an unexpired
+    ///   session and the account row exists.
+    /// - `Err(SessionLookupError::SessionNotFound)` when no session
+    ///   row matches the token.
+    /// - `Err(SessionLookupError::SessionExpired)` when the session
+    ///   row exists but `expires_at <= now`.
+    /// - `Err(SessionLookupError::Store(_))` for unexpected DB
+    ///   failures.
+    async fn validate_session_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<AccountRecord, SessionLookupError>;
+
+    /// Return organization-membership summaries for the supplied
+    /// account id. Used by active-scope flows to assert which orgs are
+    /// available for a signed-in account without exposing row-shaped
+    /// entities outside this crate.
+    async fn list_account_membership_summaries(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<AccountMembershipSummary>, StoreError>;
 
     /// Insert a new account row.
     async fn insert_account(&self, new: NewAccount) -> Result<AccountRecord, StoreError>;
