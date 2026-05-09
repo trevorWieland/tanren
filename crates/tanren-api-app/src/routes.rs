@@ -26,6 +26,7 @@ use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 mod user_configuration;
+mod user_configuration_authenticated;
 
 use self::user_configuration::{
     __path_add_user_credential_route, __path_list_user_credentials_route,
@@ -34,6 +35,20 @@ use self::user_configuration::{
     __path_upsert_user_setting_route, add_user_credential_route, list_user_credentials_route,
     list_user_settings_route, remove_user_credential_route, remove_user_setting_route,
     update_user_credential_route, upsert_user_setting_route,
+};
+use self::user_configuration_authenticated::{
+    __path_add_authenticated_user_credential_route,
+    __path_list_authenticated_user_credentials_route,
+    __path_list_authenticated_user_settings_route,
+    __path_remove_authenticated_user_credential_route,
+    __path_remove_authenticated_user_setting_route,
+    __path_update_authenticated_user_credential_route,
+    __path_upsert_authenticated_user_setting_route, AuthenticatedCreateUserCredentialRequest,
+    AuthenticatedUpdateUserCredentialRequest, AuthenticatedUpsertUserSettingRequest,
+    add_authenticated_user_credential_route, list_authenticated_user_credentials_route,
+    list_authenticated_user_settings_route, remove_authenticated_user_credential_route,
+    remove_authenticated_user_setting_route, update_authenticated_user_credential_route,
+    upsert_authenticated_user_setting_route,
 };
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
@@ -112,6 +127,13 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        list_authenticated_user_settings_route,
+        upsert_authenticated_user_setting_route,
+        remove_authenticated_user_setting_route,
+        add_authenticated_user_credential_route,
+        update_authenticated_user_credential_route,
+        list_authenticated_user_credentials_route,
+        remove_authenticated_user_credential_route,
         list_user_settings_route,
         upsert_user_setting_route,
         remove_user_setting_route,
@@ -128,12 +150,15 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        AuthenticatedUpsertUserSettingRequest,
         UpsertUserSettingRequest,
         UpsertUserSettingResponse,
         ListUserSettingsResponse,
         RemoveUserSettingResponse,
+        AuthenticatedCreateUserCredentialRequest,
         CreateUserCredentialRequest,
         CreateUserCredentialResponse,
+        AuthenticatedUpdateUserCredentialRequest,
         UpdateUserCredentialRequest,
         UpdateUserCredentialResponse,
         ListUserCredentialsResponse,
@@ -353,6 +378,13 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(list_authenticated_user_settings_route))
+        .routes(routes!(upsert_authenticated_user_setting_route))
+        .routes(routes!(remove_authenticated_user_setting_route))
+        .routes(routes!(add_authenticated_user_credential_route))
+        .routes(routes!(update_authenticated_user_credential_route))
+        .routes(routes!(list_authenticated_user_credentials_route))
+        .routes(routes!(remove_authenticated_user_credential_route))
         .routes(routes!(list_user_settings_route))
         .routes(routes!(upsert_user_setting_route))
         .routes(routes!(remove_user_setting_route))

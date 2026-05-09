@@ -10,7 +10,8 @@ export interface AcceptInvitationFormShellProps {
 }
 
 /**
- * Client wrapper around `AcceptInvitationForm` that redirects to `/`
+ * Client wrapper around `AcceptInvitationForm` that redirects to
+ * `/configuration/account`
  * after a successful acceptance, mirroring the sign-up / sign-in pages.
  * Lives next to the server-rendered `page.tsx` so the page itself can
  * stay a server component (preserving the same-origin POST property
@@ -24,7 +25,7 @@ export function AcceptInvitationFormShell({
     <AcceptInvitationForm
       token={token}
       onSuccess={() => {
-        router.push("/");
+        router.push("/configuration/account");
       }}
     />
   );

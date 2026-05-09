@@ -65,6 +65,9 @@ Feature: Manage user-tier configuration and credentials
       Then bob sees 0 user credential metadata rows
 
   Rule: Web surface
+    The browser workflow uses the session-scoped
+    `/configuration/account/*` API paths and never sends account scope in
+    credential request bodies.
 
     @positive @web
     Scenario: Web manages user-tier settings and credential metadata

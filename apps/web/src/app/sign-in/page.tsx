@@ -13,7 +13,7 @@ export default function SignInPage(): ReactNode {
       <h1 className="text-2xl font-semibold">{m.signIn_title()}</h1>
       <SignInForm
         onSuccess={() => {
-          router.push("/");
+          router.push("/configuration/account");
         }}
       />
     </main>

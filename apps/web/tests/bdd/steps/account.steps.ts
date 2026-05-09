@@ -107,9 +107,10 @@ When(
     await page.getByLabel(/password/i).fill(password);
     await page.getByLabel(/display name/i).fill(name);
     await page.getByRole("button", { name: /create account/i }).click();
-    // The form's onSuccess pushes to "/"; failure surfaces an alert.
+    // The form's onSuccess pushes to "/configuration/account";
+    // failure surfaces an alert.
     const result = await Promise.race([
-      page.waitForURL("/").then(() => "ok" as const),
+      page.waitForURL("/configuration/account").then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()
@@ -137,7 +138,7 @@ Given(
     await page.getByLabel(/password/i).fill(password);
     await page.getByLabel(/display name/i).fill(name);
     await page.getByRole("button", { name: /create account/i }).click();
-    await page.waitForURL("/", { timeout: 10_000 });
+    await page.waitForURL("/configuration/account", { timeout: 10_000 });
     a.hasSession = true;
     // Sign out for the next step by clearing cookies — the alternative
     // (a real sign-out UI) lives in a future PR.
@@ -159,7 +160,7 @@ When(
     await page.getByLabel(/password/i).fill(a.password);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     const result = await Promise.race([
-      page.waitForURL("/").then(() => "ok" as const),
+      page.waitForURL("/configuration/account").then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()
@@ -186,7 +187,7 @@ When(
     await page.getByLabel(/password/i).fill(password);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     const result = await Promise.race([
-      page.waitForURL("/").then(() => "ok" as const),
+      page.waitForURL("/configuration/account").then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()
@@ -309,7 +310,7 @@ When(
     await page.getByLabel(/display name/i).fill(displayName);
     await page.getByRole("button", { name: /accept and join/i }).click();
     const result = await Promise.race([
-      page.waitForURL("/").then(() => "ok" as const),
+      page.waitForURL("/configuration/account").then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()
@@ -367,7 +368,7 @@ When(
   async ({ page, world }, name: string) => {
     const self = await ensureSignedInActor(page, world, name);
     const response = await page.request.get(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-settings`,
+      `${apiBaseUrl()}/configuration/account/user-settings`,
     );
     await recordSettingsOutcome(response, self);
   },
@@ -394,7 +395,7 @@ When(
       throw new Error(value.message);
     }
     const response = await page.request.post(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-settings`,
+      `${apiBaseUrl()}/configuration/account/user-settings`,
       {
         data: { key, value: value.payload },
       },
@@ -419,7 +420,7 @@ When(
   async ({ page, world }, name: string) => {
     const self = await ensureSignedInActor(page, world, name);
     const response = await page.request.post(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-settings`,
+      `${apiBaseUrl()}/configuration/account/user-settings`,
       {
         data: {
           key: "editor",
@@ -450,11 +451,10 @@ When(
   async ({ page, world }, name: string, kind: string, value: string) => {
     const self = await ensureSignedInActor(page, world, name);
     const response = await page.request.post(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials`,
+      `${apiBaseUrl()}/configuration/account/user-credentials`,
       {
         data: {
           kind,
-          owner_scope: { scope: "user", account_id: self.accountId },
           value,
         },
       },
@@ -479,11 +479,10 @@ When(
   async ({ page, world }, name: string, kind: string) => {
     const self = await ensureSignedInActor(page, world, name);
     const response = await page.request.post(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials`,
+      `${apiBaseUrl()}/configuration/account/user-credentials`,
       {
         data: {
           kind,
-          owner_scope: { scope: "user", account_id: self.accountId },
           value: "s".repeat(USER_CREDENTIAL_SECRET_MAX_BYTES + 1),
         },
       },
@@ -508,7 +507,7 @@ When(
   async ({ page, world }, name: string) => {
     const self = await ensureSignedInActor(page, world, name);
     const response = await page.request.get(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials`,
+      `${apiBaseUrl()}/configuration/account/user-credentials`,
     );
     await recordCredentialsOutcome(response, self);
   },
@@ -535,7 +534,7 @@ When(
       throw new Error(`${name} has no remembered credential id`);
     }
     const response = await page.request.delete(
-      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials/${encodeURIComponent(itemId)}`,
+      `${apiBaseUrl()}/configuration/account/user-credentials/${encodeURIComponent(itemId)}`,
     );
     if (!response.ok()) {
       self.lastFailureCode = await responseFailureCode(response);

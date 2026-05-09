@@ -13,7 +13,7 @@ export default function SignUpPage(): ReactNode {
       <h1 className="text-2xl font-semibold">{m.signUp_title()}</h1>
       <SignUpForm
         onSuccess={() => {
-          router.push("/");
+          router.push("/configuration/account");
         }}
       />
     </main>

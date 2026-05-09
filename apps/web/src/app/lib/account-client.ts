@@ -54,20 +54,92 @@ export interface AcceptInvitationResult {
   joined_org: string;
 }
 
+export interface HealthReport {
+  status: string;
+  version: string;
+  contract_version: number;
+}
+
+export type UserSettingKey = "theme" | "editor";
+export type UserCredentialKind = "provider_api_token" | "harness_api_token";
+
+export type UserSettingValue =
+  | { kind: "theme"; value: "system" | "light" | "dark" }
+  | { kind: "editor"; value: string };
+
+export interface UserSettingView {
+  key: UserSettingKey;
+  value: UserSettingValue;
+  updated_at: string;
+}
+
+export interface UserCredentialView {
+  id: string;
+  kind: UserCredentialKind;
+  owner_scope: { scope: "user"; account_id: string };
+  status: "pending" | "active" | "invalid";
+  created_at: string;
+  updated_at: string;
+}
+
+export interface UpsertUserSettingInput {
+  key: UserSettingKey;
+  value: UserSettingValue;
+}
+
+export interface UpsertUserSettingResult {
+  setting: UserSettingView;
+}
+
+export interface ListUserSettingsResult {
+  items: UserSettingView[];
+}
+
+export interface RemoveUserSettingResult {
+  setting: UserSettingView;
+}
+
+export interface CreateUserCredentialInput {
+  kind: UserCredentialKind;
+  value: string;
+}
+
+export interface CreateUserCredentialResult {
+  item: UserCredentialView;
+}
+
+export interface UpdateUserCredentialInput {
+  value: string;
+}
+
+export interface UpdateUserCredentialResult {
+  item: UserCredentialView;
+}
+
+export interface ListUserCredentialsResult {
+  items: UserCredentialView[];
+}
+
+export interface RemoveUserCredentialResult {
+  item: UserCredentialView;
+}
+
 /**
- * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
- * Kept in lock-step with the Rust enum so BDD web steps can match on the
- * same taxonomy regardless of transport.
+ * Stable wire codes from `AccountFailureReason` and user-configuration
+ * failures in `tanren-contract`.
  */
 export type AccountFailureCode =
+  | "auth_required"
   | "duplicate_identifier"
+  | "internal_error"
   | "invalid_credential"
-  | "invitation_not_found"
   | "invitation_already_consumed"
   | "invitation_expired"
-  | "validation_failed"
+  | "invitation_not_found"
+  | "item_not_found"
+  | "setting_not_found"
   | "unavailable"
-  | "internal_error";
+  | "validation_failed";
 
 export interface AccountFailure {
   code: AccountFailureCode | string;
@@ -107,15 +179,10 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  let response: Response;
+async function request(path: string, init: RequestInit): Promise<Response> {
   try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: withJsonContentType(),
-      body: JSON.stringify(body),
-      // Cookie transport: send/receive HTTP-only session cookie on every
-      // request. Replaces localStorage token storage (M2).
+    return await fetch(`${API_URL}${path}`, {
+      ...init,
       credentials: "include",
     });
   } catch (cause: unknown) {
@@ -124,24 +191,45 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       summary: cause instanceof Error ? cause.message : String(cause),
     });
   }
+}
 
-  if (!response.ok) {
-    let parsed: FailureBody = {};
-    try {
-      parsed = (await response.json()) as FailureBody;
-    } catch {
-      parsed = {};
-    }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
-    const summary =
-      typeof parsed.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    throw new AccountRequestError({ code, summary });
+async function parseFailure(response: Response): Promise<AccountFailure> {
+  let parsed: FailureBody = {};
+  try {
+    parsed = (await response.json()) as FailureBody;
+  } catch {
+    parsed = {};
   }
+  const code = typeof parsed.code === "string" ? parsed.code : "internal_error";
+  const summary =
+    typeof parsed.summary === "string"
+      ? parsed.summary
+      : `HTTP ${response.status}`;
+  return { code, summary };
+}
 
+async function requestJson<T>(
+  path: string,
+  init: RequestInit,
+  expectedStatus: readonly number[] = [200],
+): Promise<T> {
+  const response = await request(path, init);
+  if (!expectedStatus.includes(response.status)) {
+    throw new AccountRequestError(await parseFailure(response));
+  }
   return (await response.json()) as T;
+}
+
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>(
+    path,
+    {
+      method: "POST",
+      headers: withJsonContentType(),
+      body: JSON.stringify(body),
+    },
+    [200, 201],
+  );
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
@@ -164,27 +252,92 @@ export function acceptInvitation(
   });
 }
 
+export function fetchHealth(): Promise<HealthReport> {
+  return requestJson<HealthReport>("/health", { method: "GET" });
+}
+
+export function listUserSettings(): Promise<ListUserSettingsResult> {
+  return requestJson<ListUserSettingsResult>(
+    "/configuration/account/user-settings",
+    { method: "GET" },
+  );
+}
+
+export function upsertUserSetting(
+  input: UpsertUserSettingInput,
+): Promise<UpsertUserSettingResult> {
+  return requestJson<UpsertUserSettingResult>(
+    "/configuration/account/user-settings",
+    {
+      method: "POST",
+      headers: withJsonContentType(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function removeUserSetting(
+  key: UserSettingKey,
+): Promise<RemoveUserSettingResult> {
+  return requestJson<RemoveUserSettingResult>(
+    `/configuration/account/user-settings/${encodeURIComponent(key)}`,
+    { method: "DELETE" },
+  );
+}
+
+export function listUserCredentials(): Promise<ListUserCredentialsResult> {
+  return requestJson<ListUserCredentialsResult>(
+    "/configuration/account/user-credentials",
+    { method: "GET" },
+  );
+}
+
+export function addUserCredential(
+  input: CreateUserCredentialInput,
+): Promise<CreateUserCredentialResult> {
+  return requestJson<CreateUserCredentialResult>(
+    "/configuration/account/user-credentials",
+    {
+      method: "POST",
+      headers: withJsonContentType(),
+      body: JSON.stringify(input),
+    },
+    [201],
+  );
+}
+
+export function updateUserCredential(
+  itemId: string,
+  input: UpdateUserCredentialInput,
+): Promise<UpdateUserCredentialResult> {
+  return requestJson<UpdateUserCredentialResult>(
+    `/configuration/account/user-credentials/${encodeURIComponent(itemId)}`,
+    {
+      method: "PUT",
+      headers: withJsonContentType(),
+      body: JSON.stringify(input),
+    },
+  );
+}
+
+export function removeUserCredential(
+  itemId: string,
+): Promise<RemoveUserCredentialResult> {
+  return requestJson<RemoveUserCredentialResult>(
+    `/configuration/account/user-credentials/${encodeURIComponent(itemId)}`,
+    { method: "DELETE" },
+  );
+}
+
 /**
  * Sign-out clears the session row server-side and the cookie via
  * `Set-Cookie: tanren_session=; Max-Age=0`.
  */
 export async function signOut(): Promise<void> {
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}/sessions/revoke`, {
-      method: "POST",
-      credentials: "include",
-    });
-  } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
-  }
-  if (!response.ok) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: `HTTP ${response.status}`,
-    });
+  const response = await request("/sessions/revoke", {
+    method: "POST",
+  });
+  if (response.status !== 204) {
+    throw new AccountRequestError(await parseFailure(response));
   }
 }
