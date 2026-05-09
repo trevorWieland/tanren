@@ -75,11 +75,12 @@ impl InstallContext {
             action: "read stale generated file for manifest hash",
             source,
         })?;
+        let stale_hash = manifest_helpers::sha256_hex_string(&stale_bytes);
         manifest_helpers::append_stale_generated_manifest_entry(
             &mut manifest,
             relative_path,
-            manifest_helpers::sha256_hex(&stale_bytes),
-        );
+            stale_hash.as_str(),
+        )?;
         fs::write(&manifest_path, manifest).map_err(|source| InstallStepError::WriteFile {
             path: manifest_path,
             action: "write install manifest with stale entry",

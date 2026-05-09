@@ -1,8 +1,9 @@
 use std::path::PathBuf;
 
+use tanren_cli_app::install::contract::InstallProofError;
 use thiserror::Error;
 
-use tanren_testkit::{HarnessError, HarnessKind, InstallProofContractError};
+use tanren_testkit::{HarnessError, HarnessKind};
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallStepError {
@@ -62,13 +63,10 @@ pub(crate) enum InstallStepError {
     AbsoluteRepositoryRelativePath { path: String },
     #[error("repository-relative path must not contain traversal components: {path}")]
     TraversalRepositoryRelativePath { path: String },
-    #[error("invalid integration selection in BDD assertion '{selection}': {source}")]
-    InvalidIntegrationSelectionForAssertion {
-        selection: String,
-        source: InstallProofContractError,
-    },
-    #[error("failed to canonicalize workspace root for BDD install steps: {source}")]
-    CanonicalizeWorkspaceRoot { source: std::io::Error },
+    #[error("repository-relative path failed delivery path contract validation: {path}")]
+    InstallPathContractRejected { path: String },
+    #[error("delivery-owned install proof assertion failed: {source}")]
+    InstallProofFailure { source: InstallProofError },
     #[error("failed to read directory `{path}`: {source}")]
     ReadDirectory {
         path: PathBuf,
@@ -107,17 +105,6 @@ pub(crate) enum InstallStepError {
         path: PathBuf,
         action: &'static str,
         source: std::io::Error,
-    },
-    #[error("install manifest `{manifest_path}` is missing `{expected}`\nmanifest:\n{manifest}")]
-    ManifestMissingContent {
-        expected: String,
-        manifest_path: PathBuf,
-        manifest: String,
-    },
-    #[error("failed to parse install manifest `{manifest_path}` as TOML: {source}")]
-    InstallManifestTomlParse {
-        manifest_path: PathBuf,
-        source: toml::de::Error,
     },
     #[error("install context should be available after initialization")]
     InstallContextUnavailable,

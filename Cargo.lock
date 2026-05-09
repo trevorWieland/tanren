@@ -4269,13 +4269,12 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
- "sha2 0.11.0",
+ "tanren-cli-app",
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-testkit",
  "thiserror 2.0.18",
  "tokio",
- "toml",
 ]
 
 [[package]]

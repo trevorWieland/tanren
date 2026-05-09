@@ -11,6 +11,10 @@ description = "Library crate that hosts the tanren-cli runtime — argument pars
 [lints]
 workspace = true
 
+[features]
+default = []
+test-hooks = []
+
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }

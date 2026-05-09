@@ -6,6 +6,8 @@ use std::str::FromStr;
 
 pub mod catalog;
 pub mod cli;
+#[cfg(feature = "test-hooks")]
+pub mod contract;
 pub mod error;
 pub mod manifest;
 mod path_guard;
