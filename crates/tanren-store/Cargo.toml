@@ -20,6 +20,7 @@ default = []
 test-hooks = []
 
 [dependencies]
+argon2 = { workspace = true }
 async-trait = { workspace = true }
 chacha20poly1305 = { workspace = true }
 chrono = { workspace = true }
@@ -29,7 +30,6 @@ sea-orm-migration = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sha2 = { workspace = true }
 tanren-configuration-secrets = { path = "../tanren-configuration-secrets" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }

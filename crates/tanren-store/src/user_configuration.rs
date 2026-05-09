@@ -1,5 +1,6 @@
 //! User-tier configuration and credential persistence adapter.
 
+use argon2::{Algorithm, Argon2, Params, Version};
 use async_trait::async_trait;
 use chacha20poly1305::{
     ChaCha20Poly1305, KeyInit, Nonce,
@@ -11,7 +12,6 @@ use sea_orm::{
     TransactionTrait,
 };
 use secrecy::{ExposeSecret, SecretString};
-use sha2::{Digest, Sha256};
 use tanren_configuration_secrets::{
     ConfigurationValidationFailure, OwnerScope, UserCredentialStatus, UserCredentialWrite,
     UserSettingKey, UserSettingValue, validate_user_setting,
@@ -28,9 +28,17 @@ use crate::{
 };
 
 const CIPHER_SCHEME_V1: &str = "chacha20poly1305-v1";
+const KDF_VERSION_V1: i16 = 1;
+const KDF_SALT_LEN_BYTES: usize = 16;
+const CREDENTIAL_KEY_LEN_BYTES: usize = 32;
+const ARGON2_MEMORY_COST_KIB: u32 = 19_456;
+const ARGON2_TIME_COST: u32 = 2;
+const ARGON2_PARALLELISM: u32 = 1;
 const CREDENTIAL_SEAL_PASSPHRASE_ENV: &str = "TANREN_CREDENTIAL_SEAL_PASSPHRASE";
 
 struct SealedValue {
+    kdf_version: i16,
+    kdf_salt: [u8; KDF_SALT_LEN_BYTES],
     nonce: [u8; 12],
     ciphertext: Vec<u8>,
 }
@@ -146,6 +154,8 @@ impl UserConfigurationStore for Store {
             item_id: Set(item_id),
             account_id: Set(account_id.as_uuid()),
             cipher_scheme: Set(CIPHER_SCHEME_V1.to_owned()),
+            kdf_version: Set(sealed.kdf_version),
+            kdf_salt: Set(sealed.kdf_salt.to_vec()),
             nonce: Set(sealed.nonce.to_vec()),
             ciphertext: Set(sealed.ciphertext),
             created_at: Set(now),
@@ -200,6 +210,8 @@ impl UserConfigurationStore for Store {
         {
             let mut active_value = existing_value.into_active_model();
             active_value.cipher_scheme = Set(CIPHER_SCHEME_V1.to_owned());
+            active_value.kdf_version = Set(sealed.kdf_version);
+            active_value.kdf_salt = Set(sealed.kdf_salt.to_vec());
             active_value.nonce = Set(sealed.nonce.to_vec());
             active_value.ciphertext = Set(sealed.ciphertext);
             active_value.updated_at = Set(now);
@@ -210,6 +222,8 @@ impl UserConfigurationStore for Store {
                 item_id: Set(parsed_id),
                 account_id: Set(account_id.as_uuid()),
                 cipher_scheme: Set(CIPHER_SCHEME_V1.to_owned()),
+                kdf_version: Set(sealed.kdf_version),
+                kdf_salt: Set(sealed.kdf_salt.to_vec()),
                 nonce: Set(sealed.nonce.to_vec()),
                 ciphertext: Set(sealed.ciphertext),
                 created_at: Set(now),
@@ -274,36 +288,100 @@ fn seal_user_value(
     item_id: Uuid,
     value: &SecretString,
 ) -> Result<SealedValue, StoreError> {
-    let passphrase = std::env::var(CREDENTIAL_SEAL_PASSPHRASE_ENV).map_err(|_| {
-        StoreError::CredentialEncryption {
-            detail: format!(
-                "missing `{CREDENTIAL_SEAL_PASSPHRASE_ENV}` environment variable for at-rest encryption"
-            ),
-        }
-    })?;
+    CredentialValueEncryptor::from_env()?.seal(account_id, item_id, value)
+}
 
-    let mut hasher = Sha256::new();
-    hasher.update(passphrase.as_bytes());
-    hasher.update(account_id.as_uuid().as_bytes());
-    hasher.update(item_id.as_bytes());
-    let digest = hasher.finalize();
-    let cipher = ChaCha20Poly1305::new_from_slice(digest.as_slice()).map_err(|_| {
-        StoreError::CredentialEncryption {
-            detail: "invalid derived cipher key".to_owned(),
-        }
-    })?;
+struct CredentialValueEncryptor {
+    passphrase: SecretString,
+}
 
-    let nonce = rand::random::<[u8; 12]>();
-    let account_uuid = account_id.as_uuid();
-    let payload = Payload {
-        msg: value.expose_secret().as_bytes(),
-        aad: account_uuid.as_bytes(),
-    };
-    let ciphertext = cipher
-        .encrypt(Nonce::from_slice(&nonce), payload)
-        .map_err(|_| StoreError::CredentialEncryption {
-            detail: "aead encryption failed".to_owned(),
+impl CredentialValueEncryptor {
+    fn from_env() -> Result<Self, StoreError> {
+        let passphrase = std::env::var(CREDENTIAL_SEAL_PASSPHRASE_ENV).map_err(|_| {
+            StoreError::CredentialEncryption {
+                detail: format!(
+                    "missing `{CREDENTIAL_SEAL_PASSPHRASE_ENV}` environment variable for at-rest encryption"
+                ),
+            }
         })?;
+        Ok(Self {
+            passphrase: SecretString::new(passphrase.into_boxed_str()),
+        })
+    }
 
-    Ok(SealedValue { nonce, ciphertext })
+    fn seal(
+        &self,
+        account_id: AccountId,
+        item_id: Uuid,
+        value: &SecretString,
+    ) -> Result<SealedValue, StoreError> {
+        let kdf_salt = rand::random::<[u8; KDF_SALT_LEN_BYTES]>();
+        let cipher = self.cipher(account_id, item_id, &kdf_salt)?;
+        let nonce = rand::random::<[u8; 12]>();
+        let account_uuid = account_id.as_uuid();
+        let payload = Payload {
+            msg: value.expose_secret().as_bytes(),
+            aad: account_uuid.as_bytes(),
+        };
+        let ciphertext = cipher
+            .encrypt(Nonce::from_slice(&nonce), payload)
+            .map_err(|_| StoreError::CredentialEncryption {
+                detail: "aead encryption failed".to_owned(),
+            })?;
+
+        Ok(SealedValue {
+            kdf_version: KDF_VERSION_V1,
+            kdf_salt,
+            nonce,
+            ciphertext,
+        })
+    }
+
+    fn cipher(
+        &self,
+        account_id: AccountId,
+        item_id: Uuid,
+        kdf_salt: &[u8; KDF_SALT_LEN_BYTES],
+    ) -> Result<ChaCha20Poly1305, StoreError> {
+        let key_material = self.derive_key_material(account_id, item_id, kdf_salt)?;
+        ChaCha20Poly1305::new_from_slice(&key_material).map_err(|_| {
+            StoreError::CredentialEncryption {
+                detail: "invalid derived cipher key".to_owned(),
+            }
+        })
+    }
+
+    fn derive_key_material(
+        &self,
+        account_id: AccountId,
+        item_id: Uuid,
+        kdf_salt: &[u8; KDF_SALT_LEN_BYTES],
+    ) -> Result<[u8; CREDENTIAL_KEY_LEN_BYTES], StoreError> {
+        let params = Params::new(
+            ARGON2_MEMORY_COST_KIB,
+            ARGON2_TIME_COST,
+            ARGON2_PARALLELISM,
+            Some(CREDENTIAL_KEY_LEN_BYTES),
+        )
+        .map_err(|err| StoreError::CredentialEncryption {
+            detail: format!("invalid argon2 parameters: {err}"),
+        })?;
+        let argon2 = Argon2::new(Algorithm::Argon2id, Version::V0x13, params);
+        let mut output = [0_u8; CREDENTIAL_KEY_LEN_BYTES];
+        let mut salt = [0_u8; KDF_SALT_LEN_BYTES + 16 + 16];
+        salt[..KDF_SALT_LEN_BYTES].copy_from_slice(kdf_salt);
+        salt[KDF_SALT_LEN_BYTES..KDF_SALT_LEN_BYTES + 16]
+            .copy_from_slice(account_id.as_uuid().as_bytes());
+        salt[KDF_SALT_LEN_BYTES + 16..].copy_from_slice(item_id.as_bytes());
+        argon2
+            .hash_password_into(
+                self.passphrase.expose_secret().as_bytes(),
+                &salt,
+                &mut output,
+            )
+            .map_err(|err| StoreError::CredentialEncryption {
+                detail: format!("argon2 key derivation failed: {err}"),
+            })?;
+        Ok(output)
+    }
 }

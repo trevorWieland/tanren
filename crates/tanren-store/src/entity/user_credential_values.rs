@@ -10,6 +10,8 @@ pub struct Model {
     pub item_id: Uuid,
     pub account_id: Uuid,
     pub cipher_scheme: String,
+    pub kdf_version: i16,
+    pub kdf_salt: Vec<u8>,
     pub nonce: Vec<u8>,
     pub ciphertext: Vec<u8>,
     pub created_at: DateTimeUtc,

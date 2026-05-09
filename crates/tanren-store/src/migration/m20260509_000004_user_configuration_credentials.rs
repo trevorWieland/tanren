@@ -187,6 +187,16 @@ impl Migration {
                             .not_null(),
                     )
                     .col(
+                        ColumnDef::new(UserCredentialValues::KdfVersion)
+                            .small_integer()
+                            .not_null(),
+                    )
+                    .col(
+                        ColumnDef::new(UserCredentialValues::KdfSalt)
+                            .binary()
+                            .not_null(),
+                    )
+                    .col(
                         ColumnDef::new(UserCredentialValues::Nonce)
                             .binary()
                             .not_null(),
@@ -330,6 +340,8 @@ enum UserCredentialValues {
     ItemId,
     AccountId,
     CipherScheme,
+    KdfVersion,
+    KdfSalt,
     Nonce,
     Ciphertext,
     CreatedAt,
