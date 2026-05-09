@@ -14,15 +14,23 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use tanren_app_services::project::{
+    ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
+    ListVisibleProjectsQuery,
+};
 use tanren_app_services::{Handlers, Store};
+use tanren_provider_integrations::AllowAllSourceControlProvider;
 use tokio::runtime::Runtime;
 
+use crate::FormState;
 use crate::draw;
+use crate::input::{Effect, FormAction, FormKind, handle_form_key, handle_menu_key};
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_outcome, active_project_outcome, connect_repository_outcome,
+    create_project_outcome, list_projects_outcome, parse_accept_invitation, parse_active_project,
+    parse_connect_repository, parse_create_project, parse_list_projects, parse_sign_in,
+    parse_sign_up, render_error, sign_in_outcome, sign_up_outcome,
 };
-use crate::{FormState, MenuChoice};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -32,6 +40,10 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    ConnectRepository(FormState),
+    CreateProject(FormState),
+    ListProjects(FormState),
+    ActiveProject(FormState),
     Outcome(OutcomeView),
 }
 
@@ -45,6 +57,7 @@ pub(crate) struct OutcomeView {
 pub(crate) struct App {
     runtime: Runtime,
     handlers: Handlers,
+    source_control: AllowAllSourceControlProvider,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
     screen: Screen,
@@ -69,6 +82,7 @@ impl App {
         Ok(Self {
             runtime,
             handlers: Handlers::new(),
+            source_control: AllowAllSourceControlProvider,
             store,
             store_error,
             screen: Screen::Menu { selected: 0 },
@@ -134,6 +148,22 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::ConnectRepository(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ConnectRepository),
+                None => Effect::None,
+            },
+            Screen::CreateProject(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CreateProject),
+                None => Effect::None,
+            },
+            Screen::ListProjects(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ListProjects),
+                None => Effect::None,
+            },
+            Screen::ActiveProject(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ActiveProject),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -169,100 +199,174 @@ impl App {
             }
             return;
         };
-        let handlers = &self.handlers;
         match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
+            FormKind::SignUp => self.submit_sign_up(store.as_ref()),
+            FormKind::SignIn => self.submit_sign_in(store.as_ref()),
+            FormKind::AcceptInvitation => self.submit_accept_invitation(store.as_ref()),
+            FormKind::ConnectRepository => self.submit_connect_repository(store.as_ref()),
+            FormKind::CreateProject => self.submit_create_project(store.as_ref()),
+            FormKind::ListProjects => self.submit_list_projects(store.as_ref()),
+            FormKind::ActiveProject => self.submit_active_project(store.as_ref()),
+        }
+    }
+
+    fn submit_sign_up(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::SignUp) {
+            (Screen::SignUp(state), _) => match parse_sign_up(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::SignUp, message),
+            },
+            _ => return,
+        };
+        match self.runtime.block_on(self.handlers.sign_up(store, request)) {
+            Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::SignUp, render_error(reason)),
+        }
+    }
+
+    fn submit_sign_in(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::SignIn) {
+            (Screen::SignIn(state), _) => match parse_sign_in(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::SignIn, message),
+            },
+            _ => return,
+        };
+        match self.runtime.block_on(self.handlers.sign_in(store, request)) {
+            Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::SignIn, render_error(reason)),
+        }
+    }
+
+    fn submit_accept_invitation(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::AcceptInvitation) {
+            (Screen::AcceptInvitation(state), _) => match parse_accept_invitation(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::AcceptInvitation, message),
+            },
+            _ => return,
+        };
+        match self
+            .runtime
+            .block_on(self.handlers.accept_invitation(store, request))
+        {
+            Ok(response) => self.screen = Screen::Outcome(accept_invitation_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::AcceptInvitation, render_error(reason)),
+        }
+    }
+
+    fn submit_connect_repository(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::ConnectRepository) {
+            (Screen::ConnectRepository(state), _) => match parse_connect_repository(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::ConnectRepository, message),
+            },
+            _ => return,
+        };
+        let actor_account_id = request.owning_account_id;
+        match self
+            .runtime
+            .block_on(self.handlers.connect_project_repository(
+                store,
+                &self.source_control,
+                ConnectExistingRepositoryCommand {
+                    actor_account_id,
+                    request,
+                },
+            )) {
+            Ok(response) => self.screen = Screen::Outcome(connect_repository_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::ConnectRepository, render_error(reason)),
+        }
+    }
+
+    fn submit_create_project(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::CreateProject) {
+            (Screen::CreateProject(state), _) => match parse_create_project(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::CreateProject, message),
+            },
+            _ => return,
+        };
+        let actor_account_id = request.owning_account_id;
+        match self.runtime.block_on(self.handlers.create_project(
+            store,
+            &self.source_control,
+            CreateNewProjectCommand {
+                actor_account_id,
+                request,
+            },
+        )) {
+            Ok(response) => self.screen = Screen::Outcome(create_project_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::CreateProject, render_error(reason)),
+        }
+    }
+
+    fn submit_list_projects(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::ListProjects) {
+            (Screen::ListProjects(state), _) => match parse_list_projects(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::ListProjects, message),
+            },
+            _ => return,
+        };
+        let actor_account_id = request.owning_account_id;
+        match self.runtime.block_on(self.handlers.list_visible_projects(
+            store,
+            ListVisibleProjectsQuery {
+                actor_account_id,
+                request,
+            },
+        )) {
+            Ok(response) => self.screen = Screen::Outcome(list_projects_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::ListProjects, render_error(reason)),
+        }
+    }
+
+    fn submit_active_project(&mut self, store: &Store) {
+        let request = match (&self.screen, FormKind::ActiveProject) {
+            (Screen::ActiveProject(state), _) => match parse_active_project(state) {
+                Ok(req) => req,
+                Err(message) => return self.set_form_error(FormKind::ActiveProject, message),
+            },
+            _ => return,
+        };
+        let actor_account_id = request.owning_account_id;
+        match self.runtime.block_on(self.handlers.active_project(
+            store,
+            ActiveProjectQuery {
+                actor_account_id,
+                request,
+            },
+        )) {
+            Ok(response) => self.screen = Screen::Outcome(active_project_outcome(&response)),
+            Err(reason) => self.set_form_error(FormKind::ActiveProject, render_error(reason)),
+        }
+    }
+
+    fn set_form_error(&mut self, kind: FormKind, message: String) {
+        match (&mut self.screen, kind) {
+            (Screen::SignUp(state), FormKind::SignUp)
+            | (Screen::SignIn(state), FormKind::SignIn)
+            | (Screen::AcceptInvitation(state), FormKind::AcceptInvitation)
+            | (Screen::ConnectRepository(state), FormKind::ConnectRepository)
+            | (Screen::CreateProject(state), FormKind::CreateProject)
+            | (Screen::ListProjects(state), FormKind::ListProjects)
+            | (Screen::ActiveProject(state), FormKind::ActiveProject) => {
+                state.error = Some(message);
             }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
+            _ => {}
         }
     }
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::ConnectRepository(s)
+            | Screen::CreateProject(s)
+            | Screen::ListProjects(s)
+            | Screen::ActiveProject(s) => Some(s),
             _ => None,
         }
     }
@@ -276,81 +380,20 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::ConnectRepository(state) => {
+                draw::draw_form(frame, area, "Connect repository", state);
+            }
+            Screen::CreateProject(state) => {
+                draw::draw_form(frame, area, "Create project", state);
+            }
+            Screen::ListProjects(state) => {
+                draw::draw_form(frame, area, "List projects", state);
+            }
+            Screen::ActiveProject(state) => {
+                draw::draw_form(frame, area, "Active project", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
-    }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FormKind {
-    SignUp,
-    SignIn,
-    AcceptInvitation,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FormAction {
-    Submit,
-    Cancel,
-}
-
-#[derive(Debug)]
-enum Effect {
-    None,
-    Exit,
-    ReplaceScreen(Screen),
-    Form(FormAction, FormKind),
-}
-
-fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
-    match key.code {
-        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
-        KeyCode::Up => {
-            if *selected == 0 {
-                *selected = MenuChoice::ALL.len() - 1;
-            } else {
-                *selected -= 1;
-            }
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            *selected = (*selected + 1) % MenuChoice::ALL.len();
-        }
-        KeyCode::Enter => {
-            let choice = MenuChoice::ALL[*selected];
-            *next = Some(match choice {
-                MenuChoice::SignUp => Screen::SignUp(FormState::new(sign_up_fields())),
-                MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
-                MenuChoice::AcceptInvitation => {
-                    Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
-                }
-            });
-        }
-        _ => {}
-    }
-    false
-}
-
-fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
-    match key.code {
-        KeyCode::Esc => Some(FormAction::Cancel),
-        KeyCode::Enter => Some(FormAction::Submit),
-        KeyCode::Tab | KeyCode::Down => {
-            state.cycle_focus(true);
-            None
-        }
-        KeyCode::BackTab | KeyCode::Up => {
-            state.cycle_focus(false);
-            None
-        }
-        KeyCode::Backspace => {
-            state.pop_char();
-            None
-        }
-        KeyCode::Char(c) => {
-            state.push_char(c);
-            None
-        }
-        _ => None,
     }
 }
 

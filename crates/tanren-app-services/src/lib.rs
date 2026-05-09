@@ -12,9 +12,10 @@ pub mod project;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
-    ConnectProjectRepositoryResponse, ContractVersion, CreateProjectResponse, ProjectFailureReason,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ActiveProjectView,
+    ConnectProjectRepositoryResponse, ContractVersion, CreateProjectResponse,
+    ProjectCollectionView, ProjectFailureReason, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 use tanren_provider_integrations::SourceControlProvider;
@@ -240,6 +241,40 @@ impl Handlers {
         P: SourceControlProvider + ?Sized,
     {
         project::create_new_project(store, provider, &self.clock, command).await
+    }
+
+    /// List projects visible to an account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] when actor scope checks fail, and
+    /// [`AppServiceError::Store`] for unexpected store failures.
+    pub async fn list_visible_projects<S>(
+        &self,
+        store: &S,
+        query: project::ListVisibleProjectsQuery,
+    ) -> Result<ProjectCollectionView, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::list_visible_projects(store, query).await
+    }
+
+    /// Read active-project metadata for an account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Project`] when actor scope checks fail, and
+    /// [`AppServiceError::Store`] for unexpected store failures.
+    pub async fn active_project<S>(
+        &self,
+        store: &S,
+        query: project::ActiveProjectQuery,
+    ) -> Result<ActiveProjectView, AppServiceError>
+    where
+        S: ProjectStore + ?Sized,
+    {
+        project::active_project(store, query).await
     }
 }
 

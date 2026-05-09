@@ -4172,6 +4172,7 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tanren-store",
  "tokio",
  "tower-http",
@@ -4248,7 +4249,9 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4338,6 +4341,7 @@ dependencies = [
  "serde_json",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-provider-integrations",
  "tokio",
  "tokio-util",
  "tower",
@@ -4487,7 +4491,9 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

@@ -100,6 +100,53 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
     ) -> Result<RepositoryRef, SourceControlError>;
 }
 
+/// Deterministic default provider used by first-party interfaces until
+/// concrete provider integrations land.
+#[derive(Debug, Clone, Default)]
+pub struct AllowAllSourceControlProvider;
+
+#[async_trait::async_trait]
+impl SourceControlProvider for AllowAllSourceControlProvider {
+    async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
+        Ok(())
+    }
+
+    async fn ensure_host_reachable(&self, host: &str) -> Result<(), SourceControlError> {
+        if host.trim().is_empty() {
+            return Err(SourceControlError::HostUnreachable);
+        }
+        Ok(())
+    }
+
+    async fn can_access_repository(
+        &self,
+        _actor_account_id: AccountId,
+        _repository: &RepositoryRef,
+    ) -> Result<bool, SourceControlError> {
+        Ok(true)
+    }
+
+    async fn can_create_repository_at_host(
+        &self,
+        _actor_account_id: AccountId,
+        host: &str,
+    ) -> Result<bool, SourceControlError> {
+        Ok(!host.trim().is_empty())
+    }
+
+    async fn create_repository(
+        &self,
+        _actor_account_id: AccountId,
+        host: &str,
+        repository: &RepositoryRef,
+    ) -> Result<RepositoryRef, SourceControlError> {
+        if host.trim().is_empty() {
+            return Err(SourceControlError::HostUnreachable);
+        }
+        Ok(repository.clone())
+    }
+}
+
 /// Configuration for deterministic fixture SCM behavior.
 #[cfg(any(test, feature = "test-hooks"))]
 #[derive(Debug, Clone)]

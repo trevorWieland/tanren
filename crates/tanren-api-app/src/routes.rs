@@ -12,8 +12,15 @@ use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
+use tanren_app_services::project::{
+    ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
+    ListVisibleProjectsQuery,
+};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SessionEnvelope,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -23,7 +30,9 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    AccountFailureBody, ProjectFailureBody, ValidatedJson, map_app_error, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -98,6 +107,10 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        connect_project_repository_route,
+        create_project_route,
+        list_visible_projects_route,
+        active_project_route,
     ),
     components(schemas(
         HealthResponse,
@@ -108,11 +121,21 @@ pub struct AcceptInvitationBody {
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
         AccountFailureBody,
+        ProjectFailureBody,
+        ConnectProjectRepositoryRequest,
+        ConnectProjectRepositoryResponse,
+        CreateProjectRequest,
+        CreateProjectResponse,
+        ListVisibleProjectsRequest,
+        ProjectCollectionView,
+        ActiveProjectRequest,
+        ActiveProjectView,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "projects", description = "Project setup and project visibility flow."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -283,6 +306,142 @@ pub(crate) async fn accept_invitation_route(
     }
 }
 
+/// Connect an existing repository as a project.
+#[utoipa::path(
+    post,
+    path = "/projects/connect-repository",
+    request_body = ConnectProjectRepositoryRequest,
+    responses(
+        (status = 201, body = ConnectProjectRepositoryResponse, description = "Repository connected as project"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+        (status = 403, body = ProjectFailureBody, description = "no_access"),
+        (status = 409, body = ProjectFailureBody, description = "duplicate_repository"),
+        (status = 502, body = ProjectFailureBody, description = "provider_failure"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn connect_project_repository_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<ConnectProjectRepositoryRequest>,
+) -> Response {
+    let actor_account_id = request.owning_account_id;
+    match state
+        .handlers
+        .connect_project_repository(
+            state.store.as_ref(),
+            state.source_control.as_ref(),
+            ConnectExistingRepositoryCommand {
+                actor_account_id,
+                request,
+            },
+        )
+        .await
+    {
+        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Create a new project and repository at a designated host.
+#[utoipa::path(
+    post,
+    path = "/projects/create",
+    request_body = CreateProjectRequest,
+    responses(
+        (status = 201, body = CreateProjectResponse, description = "Project and repository created"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
+        (status = 403, body = ProjectFailureBody, description = "no_access"),
+        (status = 409, body = ProjectFailureBody, description = "duplicate_repository"),
+        (status = 502, body = ProjectFailureBody, description = "provider_failure"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn create_project_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<CreateProjectRequest>,
+) -> Response {
+    let actor_account_id = request.owning_account_id;
+    match state
+        .handlers
+        .create_project(
+            state.store.as_ref(),
+            state.source_control.as_ref(),
+            CreateNewProjectCommand {
+                actor_account_id,
+                request,
+            },
+        )
+        .await
+    {
+        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// List projects visible to an account.
+#[utoipa::path(
+    post,
+    path = "/projects/list",
+    request_body = ListVisibleProjectsRequest,
+    responses(
+        (status = 200, body = ProjectCollectionView, description = "Project list"),
+        (status = 403, body = ProjectFailureBody, description = "no_access"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn list_visible_projects_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<ListVisibleProjectsRequest>,
+) -> Response {
+    let actor_account_id = request.owning_account_id;
+    match state
+        .handlers
+        .list_visible_projects(
+            state.store.as_ref(),
+            ListVisibleProjectsQuery {
+                actor_account_id,
+                request,
+            },
+        )
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Return active-project metadata for an account.
+#[utoipa::path(
+    post,
+    path = "/projects/active",
+    request_body = ActiveProjectRequest,
+    responses(
+        (status = 200, body = ActiveProjectView, description = "Active-project metadata"),
+        (status = 403, body = ProjectFailureBody, description = "no_access"),
+    ),
+    tag = "projects",
+)]
+pub(crate) async fn active_project_route(
+    State(state): State<AppState>,
+    ValidatedJson(request): ValidatedJson<ActiveProjectRequest>,
+) -> Response {
+    let actor_account_id = request.owning_account_id;
+    match state
+        .handlers
+        .active_project(
+            state.store.as_ref(),
+            ActiveProjectQuery {
+                actor_account_id,
+                request,
+            },
+        )
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Revoke (sign out) the current session. Clears the cookie via
 /// `Session::flush` and returns 204.
 #[utoipa::path(
@@ -320,5 +479,9 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(connect_project_repository_route))
+        .routes(routes!(create_project_route))
+        .routes(routes!(list_visible_projects_route))
+        .routes(routes!(active_project_route))
         .with_state(state)
 }

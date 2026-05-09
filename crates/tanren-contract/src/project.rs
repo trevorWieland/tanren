@@ -34,6 +34,8 @@ pub struct CreateProjectRequest {
     pub owning_account_id: AccountId,
     /// Canonical repository identity (`owner/name`) to create.
     pub repository: RepositoryRef,
+    /// Designated host where the repository should be created.
+    pub designated_host: String,
     /// Whether the newly created project should be active immediately.
     pub select_as_active: bool,
 }
@@ -52,6 +54,29 @@ pub struct ProjectCollectionView {
     pub owning_account_id: AccountId,
     /// Projects currently visible under the account.
     pub projects: Vec<ProjectView>,
+}
+
+/// Query request for listing projects visible to an account.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListVisibleProjectsRequest {
+    /// Account whose visible projects should be listed.
+    pub owning_account_id: AccountId,
+}
+
+/// Query request for reading active-project metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ActiveProjectRequest {
+    /// Account whose active-project metadata should be returned.
+    pub owning_account_id: AccountId,
+}
+
+/// Active-project projection for an account.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ActiveProjectView {
+    /// Account that owns this active-project view.
+    pub owning_account_id: AccountId,
+    /// Active project, if one is currently selected.
+    pub active_project: Option<ProjectView>,
 }
 
 /// External-facing project projection.

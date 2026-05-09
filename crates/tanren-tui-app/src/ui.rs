@@ -5,10 +5,13 @@
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
     SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Email, InvitationToken, ValidationError};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, RepositoryRef, ValidationError};
+use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -72,6 +75,67 @@ pub(crate) fn accept_invitation_fields() -> Vec<FormField> {
     ]
 }
 
+pub(crate) fn connect_repository_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Owning account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Repository (owner/name)",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Select as active (true/false)",
+            secret: false,
+            value: "true".to_owned(),
+        },
+    ]
+}
+
+pub(crate) fn create_project_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Owning account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Repository (owner/name)",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Designated host",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Select as active (true/false)",
+            secret: false,
+            value: "true".to_owned(),
+        },
+    ]
+}
+
+pub(crate) fn list_projects_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Owning account id",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+pub(crate) fn active_project_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Owning account id",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
 pub(crate) fn sign_up_outcome(response: &SignUpResponse) -> OutcomeView {
     OutcomeView {
         title: "Account created",
@@ -100,6 +164,87 @@ pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> 
             format!("joined org: {}", response.joined_org),
             format!("session token: {}", response.session.token.expose_secret()),
         ],
+    }
+}
+
+pub(crate) fn connect_repository_outcome(
+    response: &ConnectProjectRepositoryResponse,
+) -> OutcomeView {
+    let project = &response.project;
+    OutcomeView {
+        title: "Repository connected",
+        lines: vec![
+            format!("project_id: {}", project.id),
+            format!("repository: {}", project.repository.repository),
+            format!("active: {}", project.selection.is_active),
+            format!(
+                "counts: specs={} milestones={} initiatives={}",
+                project.counts.specs, project.counts.milestones, project.counts.initiatives
+            ),
+        ],
+    }
+}
+
+pub(crate) fn create_project_outcome(response: &CreateProjectResponse) -> OutcomeView {
+    let project = &response.project;
+    OutcomeView {
+        title: "Project created",
+        lines: vec![
+            format!("project_id: {}", project.id),
+            format!("repository: {}", project.repository.repository),
+            format!("active: {}", project.selection.is_active),
+            format!(
+                "counts: specs={} milestones={} initiatives={}",
+                project.counts.specs, project.counts.milestones, project.counts.initiatives
+            ),
+        ],
+    }
+}
+
+pub(crate) fn list_projects_outcome(response: &ProjectCollectionView) -> OutcomeView {
+    let mut lines = vec![format!(
+        "owning_account_id: {} (projects={})",
+        response.owning_account_id,
+        response.projects.len()
+    )];
+    if response.projects.is_empty() {
+        lines.push("projects: none".to_owned());
+    } else {
+        for project in &response.projects {
+            lines.push(format!(
+                "{} repo={} active={} specs={} milestones={} initiatives={}",
+                project.id,
+                project.repository.repository,
+                project.selection.is_active,
+                project.counts.specs,
+                project.counts.milestones,
+                project.counts.initiatives
+            ));
+        }
+    }
+    OutcomeView {
+        title: "Visible projects",
+        lines,
+    }
+}
+
+pub(crate) fn active_project_outcome(response: &ActiveProjectView) -> OutcomeView {
+    let mut lines = vec![format!("owning_account_id: {}", response.owning_account_id)];
+    match response.active_project.as_ref() {
+        Some(project) => {
+            lines.push(format!("project_id: {}", project.id));
+            lines.push(format!("repository: {}", project.repository.repository));
+            lines.push(format!("active: {}", project.selection.is_active));
+            lines.push(format!(
+                "counts: specs={} milestones={} initiatives={}",
+                project.counts.specs, project.counts.milestones, project.counts.initiatives
+            ));
+        }
+        None => lines.push("active_project: none".to_owned()),
+    }
+    OutcomeView {
+        title: "Active project",
+        lines,
     }
 }
 
@@ -156,4 +301,57 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+pub(crate) fn parse_connect_repository(
+    state: &FormState,
+) -> Result<ConnectProjectRepositoryRequest, String> {
+    let owning_account_id = parse_account_id(state.value(0))?;
+    let repository = RepositoryRef::parse(state.value(1)).map_err(|e| validation_message(&e))?;
+    let select_as_active = parse_select_as_active(state.value(2))?;
+    Ok(ConnectProjectRepositoryRequest {
+        owning_account_id,
+        repository,
+        select_as_active,
+    })
+}
+
+pub(crate) fn parse_create_project(state: &FormState) -> Result<CreateProjectRequest, String> {
+    let owning_account_id = parse_account_id(state.value(0))?;
+    let repository = RepositoryRef::parse(state.value(1)).map_err(|e| validation_message(&e))?;
+    let designated_host = state.value(2).trim().to_owned();
+    if designated_host.is_empty() {
+        return Err("validation_failed: designated host must not be empty".to_owned());
+    }
+    let select_as_active = parse_select_as_active(state.value(3))?;
+    Ok(CreateProjectRequest {
+        owning_account_id,
+        repository,
+        designated_host,
+        select_as_active,
+    })
+}
+
+pub(crate) fn parse_list_projects(state: &FormState) -> Result<ListVisibleProjectsRequest, String> {
+    let owning_account_id = parse_account_id(state.value(0))?;
+    Ok(ListVisibleProjectsRequest { owning_account_id })
+}
+
+pub(crate) fn parse_active_project(
+    state: &FormState,
+) -> Result<tanren_contract::ActiveProjectRequest, String> {
+    let owning_account_id = parse_account_id(state.value(0))?;
+    Ok(tanren_contract::ActiveProjectRequest { owning_account_id })
+}
+
+fn parse_account_id(raw: &str) -> Result<AccountId, String> {
+    let parsed = Uuid::parse_str(raw.trim())
+        .map_err(|err| format!("validation_failed: invalid account id: {err}"))?;
+    Ok(AccountId::new(parsed))
+}
+
+fn parse_select_as_active(raw: &str) -> Result<bool, String> {
+    raw.trim()
+        .parse::<bool>()
+        .map_err(|_| "validation_failed: select_as_active must be true or false".to_owned())
 }

@@ -25,6 +25,9 @@ use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
+mod project;
+use project::{ProjectAction, dispatch_project};
+
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
@@ -63,6 +66,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Project setup and visibility flow.
+    Project {
+        #[command(subcommand)]
+        action: ProjectAction,
     },
 }
 
@@ -122,6 +130,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Project { action }) => dispatch_project(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

@@ -13,8 +13,9 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use project::{
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
+    ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
+    ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
     ProjectRepositoryView, ProjectSelectionView, ProjectView,
 };
 

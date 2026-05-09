@@ -5,9 +5,10 @@
 //! - create a new repository at a designated host, then register it as a project.
 
 use tanren_contract::{
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ProjectCountsView, ProjectFailureReason, ProjectRepositoryView,
-    ProjectSelectionView, ProjectView,
+    ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
+    ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
+    ProjectRepositoryView, ProjectSelectionView, ProjectView,
 };
 use tanren_identity_policy::{AccountId, ProjectId, RepositoryRef};
 use tanren_provider_integrations::{SourceControlError, SourceControlProvider};
@@ -33,8 +34,24 @@ pub struct CreateNewProjectCommand {
     pub actor_account_id: AccountId,
     /// Command payload.
     pub request: CreateProjectRequest,
-    /// Designated host where the repository should be created.
-    pub designated_host: String,
+}
+
+/// Query envelope for listing visible projects.
+#[derive(Debug, Clone)]
+pub struct ListVisibleProjectsQuery {
+    /// Authenticated actor issuing the query.
+    pub actor_account_id: AccountId,
+    /// Query payload.
+    pub request: ListVisibleProjectsRequest,
+}
+
+/// Query envelope for reading active-project metadata.
+#[derive(Debug, Clone)]
+pub struct ActiveProjectQuery {
+    /// Authenticated actor issuing the query.
+    pub actor_account_id: AccountId,
+    /// Query payload.
+    pub request: ActiveProjectRequest,
 }
 
 pub(crate) async fn connect_existing_repository<S, P>(
@@ -90,7 +107,7 @@ where
     S: ProjectStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    let designated_host = command.designated_host.trim();
+    let designated_host = command.request.designated_host.trim();
     if designated_host.is_empty() {
         return Err(AppServiceError::Project(
             ProjectFailureReason::ValidationFailed,
@@ -141,6 +158,55 @@ where
 
     Ok(CreateProjectResponse {
         project: project_view(&setup),
+    })
+}
+
+pub(crate) async fn list_visible_projects<S>(
+    store: &S,
+    query: ListVisibleProjectsQuery,
+) -> Result<ProjectCollectionView, AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+{
+    validate_actor_scope(
+        store,
+        query.actor_account_id,
+        query.request.owning_account_id,
+    )
+    .await?;
+    let setups = store
+        .list_projects_for_account(query.request.owning_account_id)
+        .await?;
+    let projects = setups.iter().map(project_view).collect();
+    Ok(ProjectCollectionView {
+        owning_account_id: query.request.owning_account_id,
+        projects,
+    })
+}
+
+pub(crate) async fn active_project<S>(
+    store: &S,
+    query: ActiveProjectQuery,
+) -> Result<ActiveProjectView, AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+{
+    validate_actor_scope(
+        store,
+        query.actor_account_id,
+        query.request.owning_account_id,
+    )
+    .await?;
+    let setups = store
+        .list_projects_for_account(query.request.owning_account_id)
+        .await?;
+    let active_project = setups
+        .iter()
+        .find(|setup| setup.is_active)
+        .map(project_view);
+    Ok(ActiveProjectView {
+        owning_account_id: query.request.owning_account_id,
+        active_project,
     })
 }
 

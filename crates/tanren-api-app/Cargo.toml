@@ -32,6 +32,7 @@ sqlx = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
+tanren-provider-integrations = { path = "../tanren-provider-integrations" }
 tanren-store = { path = "../tanren-store" }
 uuid = { workspace = true }
 tokio = { workspace = true }
