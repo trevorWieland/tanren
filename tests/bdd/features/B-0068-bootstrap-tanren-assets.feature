@@ -67,29 +67,31 @@ Feature: Bootstrap Tanren assets into an existing repository
       And the install stderr contains "repository path '.codex/skills/"
 
     @falsification @cli
-    Scenario: Reject install apply when symlink is swapped in after planning before generated writes
+    Scenario: Reject install when generated command destination is a file symlink
       Given a clean repository fixture
-      And an install plan is prepared with profile "rust-cargo" and integrations "codex"
-      And the prepared install plan includes generated writes under ".codex/skills/"
-      And repository path ".codex/skills" is replaced with a symlink to fixture path "external-codex-skills"
-      When the prepared install plan is applied
-      Then prepared install plan apply fails with unsafe repository path starting with ".codex/skills/"
-      And prepared install plan apply failure message contains "symbolic link"
+      And repository file "outside-command.md" contains "external command file"
+      And repository path ".codex/skills/plan-product.md" is replaced with a file symlink to fixture path "outside-command.md"
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And the install stderr contains "repository path '.codex/skills/plan-product.md'"
+      And repository file "outside-command.md" contains "external command file"
 
     @falsification @cli
-    Scenario: Reject reinstall apply when stale generated removal path is swapped to a symlink after planning
+    Scenario: Reject reinstall when stale generated removal target is a file symlink
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
       Then the install command succeeds
       Given repository file ".codex/skills/retired-command.md" contains "stale generated command from old manifest"
       And previous install manifest tracks stale generated file ".codex/skills/retired-command.md"
-      And an install plan is prepared with profile "rust-cargo" and integrations "codex"
-      And the prepared install plan includes stale removal path ".codex/skills/retired-command.md"
       And repository file "outside-remove-target.md" contains "external"
+      And repository file "outside-remove-target.md" baseline is recorded
       And repository path ".codex/skills/retired-command.md" is replaced with a file symlink to fixture path "outside-remove-target.md"
-      When the prepared install plan is applied
-      Then prepared install plan apply fails with unsafe repository path ".codex/skills/retired-command.md"
-      And prepared install plan apply failure message contains "symbolic link"
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And the install stderr contains "repository path '.codex/skills/retired-command.md'"
+      And repository file "outside-remove-target.md" preserves its baseline content
 
     @falsification @cli
     Scenario: Reinstall does not overwrite user-edited standards content

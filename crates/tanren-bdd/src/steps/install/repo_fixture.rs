@@ -5,11 +5,6 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use tanren_cli_app::install::{
-    InstallProfile, parse_integration_selection, plan::build_install_plan,
-    writer::apply_install_plan,
-};
-
 use super::context::InstallContext;
 use super::manifest_helpers;
 use super::manifest_helpers::RepositoryRelativePath;
@@ -130,94 +125,6 @@ impl InstallContext {
         target_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         self.replace_fixture_path_with_symlink(link_path, target_path, SymlinkKind::File)
-    }
-
-    pub(crate) fn prepare_install_plan(
-        &mut self,
-        profile: &str,
-        integrations: Option<&str>,
-    ) -> InstallStepResult<()> {
-        let profile: InstallProfile =
-            profile
-                .parse()
-                .map_err(|source| InstallStepError::InstallPlanOperation {
-                    action: "parse install profile for plan",
-                    source,
-                })?;
-        let integrations = parse_integration_selection(integrations).map_err(|source| {
-            InstallStepError::InstallPlanOperation {
-                action: "parse integration selection for plan",
-                source,
-            }
-        })?;
-        let plan = build_install_plan(&self.repository_root, profile, &integrations).map_err(
-            |source| InstallStepError::InstallPlanOperation {
-                action: "build install plan",
-                source,
-            },
-        )?;
-        self.pending_plan = Some(plan);
-        self.last_plan_apply_error = None;
-        Ok(())
-    }
-
-    pub(crate) fn assert_planned_writes_include_path_prefix(
-        &self,
-        expected_prefix: &str,
-    ) -> InstallStepResult<()> {
-        let plan = self
-            .pending_plan
-            .as_ref()
-            .ok_or(InstallStepError::MissingPreparedInstallPlan)?;
-        if plan
-            .writes()
-            .iter()
-            .any(|write| write.path().as_str().starts_with(expected_prefix))
-        {
-            return Ok(());
-        }
-        Err(InstallStepError::PlannedPathPrefixMissing {
-            expected_prefix: expected_prefix.to_owned(),
-            action: "planned writes",
-        })
-    }
-
-    pub(crate) fn assert_planned_removals_include_path(
-        &self,
-        expected: &str,
-    ) -> InstallStepResult<()> {
-        let plan = self
-            .pending_plan
-            .as_ref()
-            .ok_or(InstallStepError::MissingPreparedInstallPlan)?;
-        if plan
-            .removals()
-            .iter()
-            .any(|removal| removal.path().as_str() == expected)
-        {
-            return Ok(());
-        }
-        Err(InstallStepError::PlannedPathMissing {
-            expected: expected.to_owned(),
-            action: "planned removals",
-        })
-    }
-
-    pub(crate) fn apply_prepared_install_plan_expect_failure(&mut self) -> InstallStepResult<()> {
-        let plan = self
-            .pending_plan
-            .as_ref()
-            .ok_or(InstallStepError::MissingPreparedInstallPlan)?;
-        match apply_install_plan(plan) {
-            Ok(_) => {
-                self.last_plan_apply_error = None;
-                Err(InstallStepError::PreparedPlanApplyUnexpectedSuccess)
-            }
-            Err(err) => {
-                self.last_plan_apply_error = Some(err);
-                Ok(())
-            }
-        }
     }
 
     fn replace_fixture_path_with_symlink(

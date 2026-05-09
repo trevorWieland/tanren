@@ -92,38 +92,6 @@ fn given_repository_path_replaced_with_file_symlink(
     ctx.replace_fixture_path_with_file_symlink(&link_path, &target_path)
 }
 
-#[given(expr = "an install plan is prepared with profile {string} and integrations {string}")]
-fn given_install_plan_prepared_with_profile_and_integrations(
-    world: &mut TanrenWorld,
-    profile: String,
-    integrations: String,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    let profile = profile.into_boxed_str();
-    let integrations = integrations.into_boxed_str();
-    ctx.prepare_install_plan(profile.as_ref(), Some(integrations.as_ref()))
-}
-
-#[given(expr = "the prepared install plan includes generated writes under {string}")]
-fn given_prepared_install_plan_includes_generated_writes_under(
-    world: &mut TanrenWorld,
-    prefix: String,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    let prefix = prefix.into_boxed_str();
-    ctx.assert_planned_writes_include_path_prefix(prefix.as_ref())
-}
-
-#[given(expr = "the prepared install plan includes stale removal path {string}")]
-fn given_prepared_install_plan_includes_stale_removal_path(
-    world: &mut TanrenWorld,
-    path: String,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    let path = path.into_boxed_str();
-    ctx.assert_planned_removals_include_path(path.as_ref())
-}
-
 #[when(expr = "tanren-cli install runs with profile {string}")]
 async fn when_install_runs_with_profile(
     world: &mut TanrenWorld,
@@ -141,12 +109,6 @@ async fn when_install_runs_with_profile_and_integrations(
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.run_install(&profile, Some(integrations.as_str())).await
-}
-
-#[when(expr = "the prepared install plan is applied")]
-fn when_prepared_install_plan_is_applied(world: &mut TanrenWorld) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.apply_prepared_install_plan_expect_failure()
 }
 
 #[then(expr = "the install command succeeds")]
@@ -241,36 +203,4 @@ fn then_stale_generated_file_removed(
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_file_absent(&RepositoryRelativePath::parse(path)?)
-}
-
-#[then(expr = "prepared install plan apply fails with unsafe repository path {string}")]
-fn then_prepared_install_plan_apply_fails_with_unsafe_repository_path(
-    world: &mut TanrenWorld,
-    path: String,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    let path = path.into_boxed_str();
-    ctx.assert_prepared_plan_error_path_exact(path.as_ref())
-}
-
-#[then(
-    expr = "prepared install plan apply fails with unsafe repository path starting with {string}"
-)]
-fn then_prepared_install_plan_apply_fails_with_unsafe_repository_path_prefix(
-    world: &mut TanrenWorld,
-    path_prefix: String,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    let path_prefix = path_prefix.into_boxed_str();
-    ctx.assert_prepared_plan_error_path_prefix(path_prefix.as_ref())
-}
-
-#[then(expr = "prepared install plan apply failure message contains {string}")]
-fn then_prepared_install_plan_apply_failure_message_contains(
-    world: &mut TanrenWorld,
-    expected: String,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    let expected = expected.into_boxed_str();
-    ctx.assert_prepared_plan_error_message_contains(expected.as_ref())
 }

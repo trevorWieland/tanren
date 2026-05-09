@@ -4270,7 +4270,6 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2 0.11.0",
- "tanren-cli-app",
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-testkit",

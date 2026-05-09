@@ -1472,6 +1472,7 @@
       "expected_evidence": [
         {
           "kind": "bdd",
+          "id": "B-0068-bdd-positive-falsification",
           "behavior_id": "B-0068",
           "interfaces": [
             "cli"
@@ -1480,6 +1481,7 @@
             "positive",
             "falsification"
           ],
+          "witness_command": "just tests",
           "description": "Positive: in a fresh repo, run install with a chosen profile; verify methodology assets, agent-integration assets, and standards files appear. Positive: re-running install replaces generated files, removes stale generated files, preserves user-edited standards, and restores missing standards. Falsification: invalid bootstrap input fails before any file is written. Falsification: re-running install does not modify user-edited standards content."
         },
         {
