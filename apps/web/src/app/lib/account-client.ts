@@ -28,7 +28,6 @@ const WINDOW_ID_HEADER = "x-tanren-window-id";
 const WINDOW_ID_STORAGE_KEY = "tanren.window_id";
 const WINDOW_ID_FAILURE_SUMMARY =
   "Unable to initialize browser window context.";
-type WindowContextId = Brand<string, "WindowContextId">;
 
 export interface SignUpInput {
   email: string;
@@ -49,6 +48,7 @@ export interface AcceptInvitationInput {
 }
 
 export type { AccountFailureCode, AccountView, SignedInAccountView };
+export type WindowContextId = Brand<string, "WindowContextId">;
 
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
@@ -90,7 +90,7 @@ export type AccountRequestFailureCode =
   | "internal_error";
 
 export interface AccountFailure {
-  code: AccountRequestFailureCode | string;
+  code: AccountRequestFailureCode;
   summary: string;
 }
 
@@ -138,6 +138,16 @@ const FailureBodySchema = v.object({
   summary: v.optional(v.string()),
 });
 
+const STABLE_FAILURE_CODES = [
+  "duplicate_identifier",
+  "invalid_credential",
+  "validation_failed",
+  "invitation_not_found",
+  "invitation_expired",
+  "invitation_already_consumed",
+  "target_account_not_signed_in",
+] as const satisfies readonly AccountFailureCode[];
+
 type JsonDecoder<T> = (payload: unknown) => T | null;
 
 function decodeWithSchema<
@@ -150,12 +160,22 @@ function decodeWithSchema<
   return parsed.output;
 }
 
-function decodeWindowContextId(payload: unknown): WindowContextId | null {
+export function parseWindowContextId(payload: unknown): WindowContextId | null {
   return decodeWithSchema(WindowContextIdSchema, payload);
 }
 
 function decodeFailureBody(payload: unknown): FailureBody | null {
   return decodeWithSchema(FailureBodySchema, payload);
+}
+
+function parseStableFailureCode(payload: unknown): AccountFailureCode | null {
+  if (typeof payload !== "string") {
+    return null;
+  }
+  if ((STABLE_FAILURE_CODES as readonly string[]).includes(payload)) {
+    return payload as AccountFailureCode;
+  }
+  return null;
 }
 
 function decodeSignUpResult(payload: unknown): SignUpResult | null {
@@ -293,8 +313,7 @@ async function requestJson<T>(
     } catch {
       parsed = null;
     }
-    const code =
-      typeof parsed?.code === "string" ? parsed.code : "internal_error";
+    const code = parseStableFailureCode(parsed?.code) ?? "internal_error";
     const summary =
       typeof parsed?.summary === "string"
         ? parsed.summary
@@ -413,7 +432,7 @@ function getWindowId(): WindowContextId | null {
   try {
     const existingRaw = window.sessionStorage.getItem(WINDOW_ID_STORAGE_KEY);
     if (existingRaw !== null) {
-      const existing = decodeWindowContextId(existingRaw);
+      const existing = parseWindowContextId(existingRaw);
       if (existing !== null) {
         return existing;
       }
@@ -423,7 +442,7 @@ function getWindowId(): WindowContextId | null {
     if (typeof globalThis.crypto?.randomUUID !== "function") {
       return null;
     }
-    const created = decodeWindowContextId(globalThis.crypto.randomUUID());
+    const created = parseWindowContextId(globalThis.crypto.randomUUID());
     if (created === null) {
       return null;
     }

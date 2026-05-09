@@ -28,6 +28,45 @@
 
 import { createBdd, test as base } from "playwright-bdd";
 
+type WindowContextId = string & { readonly __brand: "WindowContextId" };
+type InvalidWindowContextId = string & {
+  readonly __brand: "InvalidWindowContextId";
+};
+type WindowContextHeaderValue = WindowContextId | InvalidWindowContextId;
+
+const UUID_REGEX =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function parseWindowContextId(value: unknown): WindowContextId | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (!UUID_REGEX.test(trimmed)) {
+    return null;
+  }
+  return trimmed as WindowContextId;
+}
+
+function parseInvalidWindowContextId(
+  value: unknown,
+): InvalidWindowContextId | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  const trimmed = value.trim();
+  if (trimmed === "" || UUID_REGEX.test(trimmed)) {
+    return null;
+  }
+  return trimmed as InvalidWindowContextId;
+}
+
+function parseWindowContextHeaderValue(
+  value: unknown,
+): WindowContextHeaderValue | null {
+  return parseWindowContextId(value) ?? parseInvalidWindowContextId(value);
+}
+
 interface ActorState {
   email?: string;
   password?: string;
@@ -52,7 +91,10 @@ interface WebWorld {
 // actor-state map through every step without leaning on a global.
 export const test = base.extend<{ world: WebWorld }>({
   world: async ({}, use) => {
-    await use({ actors: new Map(), windowAccounts: new Map() });
+    await use({
+      actors: new Map(),
+      windowAccounts: new Map(),
+    });
   },
 });
 
@@ -493,7 +535,15 @@ When(
     if (!targetId) {
       throw new Error(`actor ${name} has no ${which} account id recorded`);
     }
-    const result = await switchActiveAccountViaFetch(page, windowId, targetId);
+    const windowContextId = parseWindowContextHeaderValue(windowId);
+    if (windowContextId === null) {
+      throw new Error(`invalid window context header value '${windowId}'`);
+    }
+    const result = await switchActiveAccountViaFetch(
+      page,
+      windowContextId,
+      targetId,
+    );
     if (result.ok) {
       a.lastFailureCode = undefined;
       world.windowAccounts.set(windowId, result.accounts);
@@ -769,23 +819,15 @@ async function signUpViaApi(
   body: { email: string; password: string; display_name: string },
 ): Promise<{ account: { id: string } }> {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const windowId = await ensureWindowContextId(page);
   const result = await page.evaluate(
-    async ({ apiUrl, body }) => {
-      const existingWindowId =
-        window.sessionStorage.getItem("tanren.window_id");
-      const resolvedWindowId =
-        typeof existingWindowId === "string" && existingWindowId.trim() !== ""
-          ? existingWindowId
-          : (globalThis.crypto?.randomUUID?.() ?? "");
-      if (resolvedWindowId.trim() === "") {
-        return "window_context_unavailable";
-      }
-      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
+    async ({ apiUrl, body, windowId }) => {
+      window.sessionStorage.setItem("tanren.window_id", windowId);
       const response = await fetch(`${apiUrl}/accounts`, {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          "x-tanren-window-id": resolvedWindowId,
+          "x-tanren-window-id": windowId,
         },
         credentials: "include",
         body: JSON.stringify(body),
@@ -799,7 +841,7 @@ async function signUpViaApi(
       }
       return (await response.json()) as { account: { id: string } };
     },
-    { apiUrl, body },
+    { apiUrl, body, windowId },
   );
   if (typeof result === "string") {
     throw new Error(`sign-up setup failed: ${result}`);
@@ -813,25 +855,17 @@ async function acceptInvitationViaApi(
   body: { email: string; password: string; display_name: string },
 ): Promise<{ account: { id: string } }> {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const windowId = await ensureWindowContextId(page);
   const result = await page.evaluate(
-    async ({ apiUrl, token, body }) => {
-      const existingWindowId =
-        window.sessionStorage.getItem("tanren.window_id");
-      const resolvedWindowId =
-        typeof existingWindowId === "string" && existingWindowId.trim() !== ""
-          ? existingWindowId
-          : (globalThis.crypto?.randomUUID?.() ?? "");
-      if (resolvedWindowId.trim() === "") {
-        return "window_context_unavailable";
-      }
-      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
+    async ({ apiUrl, token, body, windowId }) => {
+      window.sessionStorage.setItem("tanren.window_id", windowId);
       const response = await fetch(
         `${apiUrl}/invitations/${encodeURIComponent(token)}/accept`,
         {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-tanren-window-id": resolvedWindowId,
+            "x-tanren-window-id": windowId,
           },
           credentials: "include",
           body: JSON.stringify(body),
@@ -846,7 +880,7 @@ async function acceptInvitationViaApi(
       }
       return (await response.json()) as { account: { id: string } };
     },
-    { apiUrl, token, body },
+    { apiUrl, token, body, windowId },
   );
   if (typeof result === "string") {
     throw new Error(`accept-invitation setup failed: ${result}`);
@@ -869,17 +903,9 @@ async function switchUnsignedAccountViaFetch(
 ): Promise<string> {
   const uuid = "00000000-0000-4000-8000-000000000099";
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const windowId = await ensureWindowContextId(page);
   return page.evaluate(
-    async ({ target, apiUrl }) => {
-      const existingWindowId =
-        window.sessionStorage.getItem("tanren.window_id");
-      const windowId =
-        typeof existingWindowId === "string" && existingWindowId.trim() !== ""
-          ? existingWindowId
-          : (globalThis.crypto?.randomUUID?.() ?? "");
-      if (windowId.trim() === "") {
-        return "window_context_unavailable";
-      }
+    async ({ target, apiUrl, windowId }) => {
       window.sessionStorage.setItem("tanren.window_id", windowId);
       const headers: Record<string, string> = {
         "content-type": "application/json",
@@ -906,13 +932,13 @@ async function switchUnsignedAccountViaFetch(
       }
       return "unknown";
     },
-    { target: uuid, apiUrl },
+    { target: uuid, apiUrl, windowId },
   );
 }
 
 async function switchActiveAccountViaFetch(
   page: import("@playwright/test").Page,
-  windowId: string,
+  windowId: WindowContextHeaderValue,
   targetAccountId: string,
 ): Promise<
   { ok: true; accounts: ActiveAccountListing } | { ok: false; failure: string }
@@ -920,22 +946,10 @@ async function switchActiveAccountViaFetch(
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   const result = await page.evaluate(
     async ({ apiUrl, windowId, targetAccountId }) => {
-      const existingWindowId =
-        window.sessionStorage.getItem("tanren.window_id");
-      const resolvedWindowId =
-        windowId.trim() !== ""
-          ? windowId
-          : typeof existingWindowId === "string" &&
-              existingWindowId.trim() !== ""
-            ? existingWindowId
-            : (globalThis.crypto?.randomUUID?.() ?? "");
-      if (resolvedWindowId.trim() === "") {
-        return { ok: false as const, failure: "window_context_unavailable" };
-      }
-      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
+      window.sessionStorage.setItem("tanren.window_id", windowId);
       const headers: Record<string, string> = {
         "content-type": "application/json",
-        "x-tanren-window-id": resolvedWindowId,
+        "x-tanren-window-id": windowId,
       };
       const response = await fetch(`${apiUrl}/accounts/active/switch`, {
         method: "POST",
@@ -965,27 +979,15 @@ async function switchActiveAccountViaFetch(
 
 async function listActiveAccountsViaFetch(
   page: import("@playwright/test").Page,
-  windowIdOverride?: string,
+  windowIdOverride?: WindowContextId,
 ): Promise<ActiveAccountListing> {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const windowId = await ensureWindowContextId(page, windowIdOverride);
   return page.evaluate(
-    async ({ apiUrl, windowIdOverride }) => {
-      const providedWindowId =
-        typeof windowIdOverride === "string"
-          ? windowIdOverride
-          : window.sessionStorage.getItem("tanren.window_id");
-      const resolvedWindowId =
-        typeof providedWindowId === "string" && providedWindowId.trim() !== ""
-          ? providedWindowId
-          : (globalThis.crypto?.randomUUID?.() ?? "");
-      if (resolvedWindowId.trim() === "") {
-        throw new Error(
-          "list active accounts failed: window_context_unavailable",
-        );
-      }
-      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
+    async ({ apiUrl, windowId }) => {
+      window.sessionStorage.setItem("tanren.window_id", windowId);
       const headers: Record<string, string> = {
-        "x-tanren-window-id": resolvedWindowId,
+        "x-tanren-window-id": windowId,
       };
       const response = await fetch(`${apiUrl}/accounts/active`, {
         method: "GET",
@@ -1000,7 +1002,7 @@ async function listActiveAccountsViaFetch(
       };
       return payload.accounts;
     },
-    { apiUrl, windowIdOverride },
+    { apiUrl, windowId },
   );
 }
 
@@ -1010,15 +1012,45 @@ async function listWindowAccounts(
   windowId: string,
   refresh: boolean,
 ): Promise<ActiveAccountListing> {
+  const windowContextId = parseWindowContextId(windowId);
+  if (windowContextId === null) {
+    throw new Error(`expected UUID window id, got '${windowId}'`);
+  }
   if (!refresh) {
     const cached = world.windowAccounts.get(windowId);
     if (cached) {
       return cached;
     }
   }
-  const listing = await listActiveAccountsViaFetch(page, windowId);
+  const listing = await listActiveAccountsViaFetch(page, windowContextId);
   world.windowAccounts.set(windowId, listing);
   return listing;
+}
+
+async function ensureWindowContextId(
+  page: import("@playwright/test").Page,
+  preferredWindowId?: WindowContextId,
+): Promise<WindowContextId> {
+  const resolved = await page.evaluate((preferred) => {
+    const existingWindowId = window.sessionStorage.getItem("tanren.window_id");
+    const candidate =
+      typeof preferred === "string" && preferred.trim() !== ""
+        ? preferred
+        : typeof existingWindowId === "string" && existingWindowId.trim() !== ""
+          ? existingWindowId
+          : (globalThis.crypto?.randomUUID?.() ?? "");
+    if (candidate.trim() === "") {
+      return null;
+    }
+    window.sessionStorage.setItem("tanren.window_id", candidate);
+    return candidate;
+  }, preferredWindowId ?? null);
+
+  const parsed = parseWindowContextId(resolved);
+  if (parsed === null) {
+    throw new Error("window_context_unavailable");
+  }
+  return parsed;
 }
 
 function uniqueSuffix(): string {

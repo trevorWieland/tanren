@@ -1,6 +1,13 @@
 "use client";
 
-import { useEffect, useId, useMemo, useState, useTransition } from "react";
+import {
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import type { ChangeEvent, ReactNode } from "react";
 
 import {
@@ -9,8 +16,12 @@ import {
   listActiveAccounts,
   parseAccountId,
   switchActiveAccount,
+  type ListActiveAccountsResult,
   type SignedInAccountView,
+  type SwitchActiveAccountInput,
+  type SwitchActiveAccountResult,
 } from "@/app/lib/account-client";
+import type { AccountId } from "@/app/lib/generated/account-contract";
 import * as m from "@/i18n/paraglide/messages";
 
 const inputClass =
@@ -19,7 +30,17 @@ const inputClass =
 const buttonClass =
   "rounded-md border border-[--color-border] bg-[--color-accent] px-4 py-2 text-base font-medium text-[--color-accent-fg] transition-colors hover:bg-[--color-accent-hover] disabled:opacity-60";
 
-export function AccountSwitcher(): ReactNode {
+export interface AccountSwitcherProps {
+  listAccounts?: () => Promise<ListActiveAccountsResult>;
+  switchAccount?: (
+    input: SwitchActiveAccountInput,
+  ) => Promise<SwitchActiveAccountResult>;
+}
+
+export function AccountSwitcher({
+  listAccounts = listActiveAccounts,
+  switchAccount = switchActiveAccount,
+}: AccountSwitcherProps = {}): ReactNode {
   const baseId = useId();
   const selectId = `${baseId}-select`;
   const errorId = `${baseId}-error`;
@@ -27,7 +48,7 @@ export function AccountSwitcher(): ReactNode {
   const [accounts, setAccounts] = useState<SignedInAccountView[]>([]);
   const [loading, setLoading] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
-  const [pending, startTransition] = useTransition();
+  const isMountedRef = useRef(true);
 
   const activeAccountId = useMemo(
     () => accounts.find((entry) => entry.is_active)?.account.id ?? "",
@@ -35,33 +56,45 @@ export function AccountSwitcher(): ReactNode {
   );
 
   useEffect(() => {
-    let cancelled = false;
-    setLoading(true);
-    listActiveAccounts()
-      .then((result) => {
-        if (!cancelled) {
-          setAccounts(result.accounts);
-          setErrorMessage(null);
-        }
-      })
-      .catch((cause: unknown) => {
-        if (!cancelled) {
-          if (cause instanceof AccountRequestError) {
-            setErrorMessage(describeFailure(cause.failure));
-          } else {
-            setErrorMessage(m.failure_fallback());
-          }
-        }
-      })
-      .finally(() => {
-        if (!cancelled) {
-          setLoading(false);
-        }
-      });
     return () => {
-      cancelled = true;
+      isMountedRef.current = false;
     };
   }, []);
+
+  const refreshAccounts = useCallback(
+    async (targetAccountId?: AccountId): Promise<void> => {
+      setLoading(true);
+      setErrorMessage(null);
+      try {
+        const result =
+          targetAccountId === undefined
+            ? await listAccounts()
+            : await switchAccount({ target_account_id: targetAccountId });
+        if (!isMountedRef.current) {
+          return;
+        }
+        setAccounts(result.accounts);
+      } catch (cause: unknown) {
+        if (!isMountedRef.current) {
+          return;
+        }
+        if (cause instanceof AccountRequestError) {
+          setErrorMessage(describeFailure(cause.failure));
+        } else {
+          setErrorMessage(m.failure_fallback());
+        }
+      } finally {
+        if (isMountedRef.current) {
+          setLoading(false);
+        }
+      }
+    },
+    [listAccounts, switchAccount],
+  );
+
+  useEffect(() => {
+    void refreshAccounts();
+  }, [refreshAccounts]);
 
   function onSwitch(event: ChangeEvent<HTMLSelectElement>): void {
     const targetAccountId = parseAccountId(event.target.value);
@@ -73,21 +106,7 @@ export function AccountSwitcher(): ReactNode {
       return;
     }
 
-    setErrorMessage(null);
-    startTransition(async () => {
-      try {
-        const response = await switchActiveAccount({
-          target_account_id: targetAccountId,
-        });
-        setAccounts(response.accounts);
-      } catch (cause: unknown) {
-        if (cause instanceof AccountRequestError) {
-          setErrorMessage(describeFailure(cause.failure));
-        } else {
-          setErrorMessage(m.failure_fallback());
-        }
-      }
-    });
+    void refreshAccounts(targetAccountId);
   }
 
   const hasAccounts = accounts.length > 0;
@@ -111,7 +130,7 @@ export function AccountSwitcher(): ReactNode {
             id={selectId}
             value={activeAccountId}
             onChange={onSwitch}
-            disabled={loading || pending || !hasAccounts}
+            disabled={loading || !hasAccounts}
             aria-describedby={errorMessage !== null ? errorId : undefined}
             className={inputClass}
           >
@@ -128,29 +147,12 @@ export function AccountSwitcher(): ReactNode {
         <button
           type="button"
           className={buttonClass}
-          disabled={loading || pending}
+          disabled={loading}
           onClick={() => {
-            setLoading(true);
-            listActiveAccounts()
-              .then((result) => {
-                setAccounts(result.accounts);
-                setErrorMessage(null);
-              })
-              .catch((cause: unknown) => {
-                if (cause instanceof AccountRequestError) {
-                  setErrorMessage(describeFailure(cause.failure));
-                } else {
-                  setErrorMessage(m.failure_fallback());
-                }
-              })
-              .finally(() => {
-                setLoading(false);
-              });
+            void refreshAccounts();
           }}
         >
-          {loading || pending
-            ? m.accountSwitcher_loading()
-            : m.accountSwitcher_refresh()}
+          {loading ? m.accountSwitcher_loading() : m.accountSwitcher_refresh()}
         </button>
       </div>
       {errorMessage !== null ? (

@@ -1,10 +1,67 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { expect, userEvent, waitFor, within } from "storybook/test";
 
+import {
+  AccountRequestError,
+  parseAccountId,
+  type SignedInAccountView,
+} from "@/app/lib/account-client";
+import type { AccountId } from "@/app/lib/generated/account-contract";
+
 import { AccountSwitcher } from "./AccountSwitcher";
 
 const activeId = "00000000-0000-7000-8000-000000000010";
 const secondId = "00000000-0000-7000-8000-000000000011";
+
+function requireAccountId(value: string): AccountId {
+  const parsed = parseAccountId(value);
+  if (parsed === null) {
+    throw new Error(`invalid story account id: ${value}`);
+  }
+  return parsed;
+}
+
+function makeAccounts(active: "first" | "second"): SignedInAccountView[] {
+  const firstAccountId = requireAccountId(activeId);
+  const secondAccountId = requireAccountId(secondId);
+  return [
+    {
+      is_active: active === "first",
+      account: {
+        id: firstAccountId,
+        display_name: "Alice",
+        org: null,
+      },
+    },
+    {
+      is_active: active === "second",
+      account: {
+        id: secondAccountId,
+        display_name: "Alice Work",
+        org: null,
+      },
+    },
+  ];
+}
+
+const defaultListAccounts = async () => ({
+  accounts: makeAccounts("first"),
+});
+
+const defaultSwitchAccount = async ({
+  target_account_id,
+}: {
+  target_account_id: AccountId;
+}) => ({
+  active_account_id:
+    target_account_id === requireAccountId(secondId)
+      ? requireAccountId(secondId)
+      : requireAccountId(activeId),
+  accounts:
+    target_account_id === requireAccountId(secondId)
+      ? makeAccounts("second")
+      : makeAccounts("first"),
+});
 
 const meta = {
   title: "Account/AccountSwitcher",
@@ -20,183 +77,78 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
+  args: {
+    listAccounts: defaultListAccounts,
+    switchAccount: defaultSwitchAccount,
+  },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const original = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = String(input);
-      const method = init?.method ?? "GET";
-      if (url.endsWith("/accounts/active") && method === "GET") {
-        return new Response(
-          JSON.stringify({
-            accounts: [
-              {
-                is_active: true,
-                account: {
-                  id: activeId,
-                  identifier: "alice@example.com",
-                  display_name: "Alice",
-                  org: null,
-                },
-              },
-              {
-                is_active: false,
-                account: {
-                  id: secondId,
-                  identifier: "alice@work.example",
-                  display_name: "Alice Work",
-                  org: "00000000-0000-7000-8000-000000000020",
-                },
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (url.endsWith("/accounts/active/switch") && method === "POST") {
-        return new Response(
-          JSON.stringify({
-            active_account_id: secondId,
-            accounts: [
-              {
-                is_active: false,
-                account: {
-                  id: activeId,
-                  identifier: "alice@example.com",
-                  display_name: "Alice",
-                  org: null,
-                },
-              },
-              {
-                is_active: true,
-                account: {
-                  id: secondId,
-                  identifier: "alice@work.example",
-                  display_name: "Alice Work",
-                  org: "00000000-0000-7000-8000-000000000020",
-                },
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(null, { status: 404 });
-    }) as typeof fetch;
+    const select = (await c.findByRole("combobox")) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(select.value).toBe(activeId);
+    });
+    await expect(select).toBeVisible();
 
-    try {
-      const refreshButton = await c.findByRole("button");
-      await userEvent.click(refreshButton);
-      const select = await c.findByRole("combobox");
-      await waitFor(() => {
-        expect((select as HTMLSelectElement).value).toBe(activeId);
-      });
-      await expect(select).toBeVisible();
-      await userEvent.selectOptions(select, secondId);
-      await waitFor(() => {
-        expect((select as HTMLSelectElement).value).toBe(secondId);
-      });
-    } finally {
-      globalThis.fetch = original;
-    }
+    await userEvent.selectOptions(select, secondId);
+    await waitFor(() => {
+      expect(select.value).toBe(secondId);
+    });
+
+    await userEvent.click(c.getByRole("button", { name: /refresh/i }));
+    await waitFor(() => {
+      expect(select.value).toBe(activeId);
+    });
   },
 };
 
 export const RejectUnsignedAccount: Story = {
+  args: {
+    listAccounts: defaultListAccounts,
+    switchAccount: async () => {
+      throw new AccountRequestError({
+        code: "target_account_not_signed_in",
+        summary: "The requested target account is not currently signed in.",
+      });
+    },
+  },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const original = globalThis.fetch;
-    globalThis.fetch = (async (input, init) => {
-      const url = String(input);
-      const method = init?.method ?? "GET";
-      if (url.endsWith("/accounts/active") && method === "GET") {
-        return new Response(
-          JSON.stringify({
-            accounts: [
-              {
-                is_active: true,
-                account: {
-                  id: activeId,
-                  identifier: "alice@example.com",
-                  display_name: "Alice",
-                  org: null,
-                },
-              },
-              {
-                is_active: false,
-                account: {
-                  id: secondId,
-                  identifier: "alice@work.example",
-                  display_name: "Alice Work",
-                  org: "00000000-0000-7000-8000-000000000020",
-                },
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (url.endsWith("/accounts/active/switch") && method === "POST") {
-        return new Response(
-          JSON.stringify({
-            code: "target_account_not_signed_in",
-            summary: "The requested target account is not currently signed in.",
-          }),
-          { status: 403, headers: { "content-type": "application/json" } },
-        );
-      }
-      return new Response(null, { status: 404 });
-    }) as typeof fetch;
+    const select = (await c.findByRole("combobox")) as HTMLSelectElement;
+    await waitFor(() => {
+      expect(select.value).toBe(activeId);
+    });
 
-    try {
-      const refreshButton = await c.findByRole("button");
-      await userEvent.click(refreshButton);
-      const select = (await c.findByRole("combobox")) as HTMLSelectElement;
-      await waitFor(() => {
-        expect(select.value).toBe(activeId);
-      });
-      await userEvent.selectOptions(select, secondId);
-      const alert = await c.findByRole("alert");
-      await expect(alert).toBeVisible();
-      await waitFor(() => {
-        expect(select.value).toBe(activeId);
-      });
-    } finally {
-      globalThis.fetch = original;
-    }
+    await userEvent.selectOptions(select, secondId);
+    const alert = await c.findByRole("alert");
+    await expect(alert).toBeVisible();
+    await waitFor(() => {
+      expect(select.value).toBe(activeId);
+    });
   },
 };
 
 export const PhoneWidth: Story = {
+  args: {
+    listAccounts: async () => ({
+      accounts: [
+        {
+          is_active: true,
+          account: {
+            id: requireAccountId(activeId),
+            display_name: "Alice",
+            org: null,
+          },
+        },
+      ],
+    }),
+    switchAccount: defaultSwitchAccount,
+  },
   parameters: {
     viewport: { defaultViewport: "mobile1" },
   },
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    const original = globalThis.fetch;
-    globalThis.fetch = (async () =>
-      new Response(
-        JSON.stringify({
-          accounts: [
-            {
-              is_active: true,
-              account: {
-                id: activeId,
-                identifier: "alice@example.com",
-                display_name: "Alice",
-                org: null,
-              },
-            },
-          ],
-        }),
-        { status: 200, headers: { "content-type": "application/json" } },
-      )) as typeof fetch;
-
-    try {
-      await expect(await c.findByRole("combobox")).toBeVisible();
-      await expect(c.getByRole("button")).toBeVisible();
-    } finally {
-      globalThis.fetch = original;
-    }
+    await expect(await c.findByRole("combobox")).toBeVisible();
+    await expect(c.getByRole("button")).toBeVisible();
   },
 };
