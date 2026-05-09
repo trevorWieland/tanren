@@ -8,6 +8,7 @@
 //! across the dependency boundary.
 
 mod accept_invitation;
+mod account_queries;
 mod create_organization;
 mod entity;
 mod migration;
@@ -302,6 +303,20 @@ impl AccountStore for Store {
             created_at: now,
             expires_at,
         })
+    }
+
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        account_queries::find_session_by_token(&self.conn, token).await
+    }
+
+    async fn list_organizations_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError> {
+        account_queries::list_organizations_for_account(&self.conn, account_id).await
     }
 
     async fn append_event(

@@ -197,6 +197,10 @@ impl SessionEnvelope {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum AccountFailureReason {
+    /// The request requires authentication and no valid session was supplied.
+    AuthRequired,
+    /// The actor is authenticated but cannot perform the requested action.
+    PermissionDenied,
     /// The submitted identifier is already in use by another account.
     DuplicateIdentifier,
     /// The submitted credentials did not match a stored credential.
@@ -219,6 +223,8 @@ impl AccountFailureReason {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
+            Self::AuthRequired => "auth_required",
+            Self::PermissionDenied => "permission_denied",
             Self::DuplicateIdentifier => "duplicate_identifier",
             Self::InvalidCredential => "invalid_credential",
             Self::ValidationFailed => "validation_failed",
@@ -232,6 +238,12 @@ impl AccountFailureReason {
     #[must_use]
     pub const fn summary(self) -> &'static str {
         match self {
+            Self::AuthRequired => {
+                "The request requires authentication and the supplied session is missing or expired."
+            }
+            Self::PermissionDenied => {
+                "The authenticated actor lacks permission to perform this action."
+            }
             Self::DuplicateIdentifier => "An account already exists for the supplied identifier.",
             Self::InvalidCredential => {
                 "The supplied credentials are invalid or did not match an account."
@@ -253,8 +265,9 @@ impl AccountFailureReason {
     #[must_use]
     pub const fn http_status(self) -> u16 {
         match self {
+            Self::PermissionDenied => 403,
             Self::DuplicateIdentifier => 409,
-            Self::InvalidCredential => 401,
+            Self::AuthRequired | Self::InvalidCredential => 401,
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,

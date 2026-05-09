@@ -7,12 +7,15 @@
 
 pub mod account;
 pub mod events;
+pub mod organization;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse, ContractVersion,
+    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsRequest,
+    ListOrganizationsResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
@@ -198,6 +201,183 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Create an organization for a currently authenticated account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired. Returns [`AppServiceError::InvalidInput`] when
+    /// the organization name is invalid or duplicates an existing
+    /// name. Returns [`AppServiceError::Store`] for unexpected store
+    /// failures.
+    pub async fn create_organization<S>(
+        &self,
+        store: &S,
+        request: CreateOrganizationRequest,
+    ) -> Result<CreateOrganizationResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::create_organization(store, &self.clock, request).await
+    }
+
+    /// List organizations currently available to the authenticated
+    /// account.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired. Returns [`AppServiceError::Store`] for
+    /// unexpected store failures.
+    pub async fn list_organizations<S>(
+        &self,
+        store: &S,
+        request: ListOrganizationsRequest,
+    ) -> Result<ListOrganizationsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::list_organizations(store, &self.clock, request).await
+    }
+
+    /// Check whether an authenticated account currently holds a given
+    /// organization permission.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired. Returns [`AppServiceError::Store`] for
+    /// unexpected store failures.
+    pub async fn check_organization_permission<S>(
+        &self,
+        store: &S,
+        request: CheckOrganizationPermissionRequest,
+    ) -> Result<CheckOrganizationPermissionResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::check_organization_permission(store, &self.clock, request).await
+    }
+
+    /// Permission guard for invitation issuance flows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller lacks invite rights.
+    pub async fn ensure_can_invite_to_organization<S>(
+        &self,
+        store: &S,
+        session_token: &tanren_identity_policy::SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> Result<(), AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::require_organization_permission(
+            store,
+            &self.clock,
+            session_token,
+            account_id,
+            org_id,
+            tanren_identity_policy::OrganizationPermission::Invite,
+        )
+        .await
+    }
+
+    /// Permission guard for member-removal and access-management flows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller lacks access-management rights.
+    pub async fn ensure_can_manage_organization_access<S>(
+        &self,
+        store: &S,
+        session_token: &tanren_identity_policy::SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> Result<(), AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::require_organization_permission(
+            store,
+            &self.clock,
+            session_token,
+            account_id,
+            org_id,
+            tanren_identity_policy::OrganizationPermission::ManageAccess,
+        )
+        .await
+    }
+
+    /// Permission guard for organization-policy editing flows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller lacks policy-management rights.
+    pub async fn ensure_can_set_organization_policy<S>(
+        &self,
+        store: &S,
+        session_token: &tanren_identity_policy::SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> Result<(), AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::require_organization_permission(
+            store,
+            &self.clock,
+            session_token,
+            account_id,
+            org_id,
+            tanren_identity_policy::OrganizationPermission::SetPolicy,
+        )
+        .await
+    }
+
+    /// Permission guard for organization deletion flows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller lacks delete rights.
+    pub async fn ensure_can_delete_organization<S>(
+        &self,
+        store: &S,
+        session_token: &tanren_identity_policy::SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> Result<(), AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::require_organization_permission(
+            store,
+            &self.clock,
+            session_token,
+            account_id,
+            org_id,
+            tanren_identity_policy::OrganizationPermission::Delete,
+        )
+        .await
     }
 }
 

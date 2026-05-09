@@ -356,6 +356,19 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
 
+    /// Look up a session by opaque token.
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
+    /// List organizations currently visible to an account through
+    /// membership rows.
+    async fn list_organizations_for_account(
+        &self,
+        account_id: AccountId,
+    ) -> Result<Vec<OrganizationRecord>, StoreError>;
+
     /// Append a payload to the canonical event log at the supplied
     /// instant.
     async fn append_event(
