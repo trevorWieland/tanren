@@ -38,7 +38,15 @@ type SharedListUserSettingsResult = OperationJsonResponse<
   "list_user_settings_route",
   200
 >;
-export type ListUserSettingsResult = SharedListUserSettingsResult;
+interface ListMetadata {
+  next_cursor?: string | null;
+  freshness?: string | null;
+  as_of?: string | null;
+  generated_at?: string | null;
+}
+
+export type ListUserSettingsResult = SharedListUserSettingsResult &
+  ListMetadata;
 
 type SharedRemoveUserSettingResult = OperationJsonResponse<
   "remove_user_setting_route",
@@ -68,7 +76,8 @@ type SharedListUserCredentialsResult = OperationJsonResponse<
   "list_user_credentials_route",
   200
 >;
-export type ListUserCredentialsResult = SharedListUserCredentialsResult;
+export type ListUserCredentialsResult = SharedListUserCredentialsResult &
+  ListMetadata;
 
 type SharedRemoveUserCredentialResult = OperationJsonResponse<
   "remove_user_credential_route",
@@ -88,8 +97,8 @@ export type ConfigurationCapabilities =
 
 export interface ConfigurationDiscoveryResult {
   capabilities: ConfigurationCapabilities;
-  settings: UserSettingView[];
-  credentials: UserCredentialView[];
+  settings_read_model: ListUserSettingsResult | null;
+  credentials_read_model: ListUserCredentialsResult | null;
   capabilities_failure: AccountFailure | null;
   settings_failure: AccountFailure | null;
   credentials_failure: AccountFailure | null;

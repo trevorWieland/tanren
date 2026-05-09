@@ -15,9 +15,7 @@ import type {
   UpdateUserCredentialResult,
   UpsertUserSettingInput,
   UpsertUserSettingResult,
-  UserCredentialView,
   UserSettingKey,
-  UserSettingView,
 } from "@/app/lib/api-contracts";
 
 export type {
@@ -364,12 +362,10 @@ export async function discoverConfigurationAccess(): Promise<ConfigurationDiscov
       listUserCredentials(),
     ]);
 
-  const settings: UserSettingView[] =
-    settingsResult.status === "fulfilled" ? settingsResult.value.items : [];
-  const credentials: UserCredentialView[] =
-    credentialsResult.status === "fulfilled"
-      ? credentialsResult.value.items
-      : [];
+  const settingsReadModel =
+    settingsResult.status === "fulfilled" ? settingsResult.value : null;
+  const credentialsReadModel =
+    credentialsResult.status === "fulfilled" ? credentialsResult.value : null;
 
   const settingsFailure =
     settingsResult.status === "rejected"
@@ -391,8 +387,8 @@ export async function discoverConfigurationAccess(): Promise<ConfigurationDiscov
 
   return {
     capabilities,
-    settings,
-    credentials,
+    settings_read_model: settingsReadModel,
+    credentials_read_model: credentialsReadModel,
     capabilities_failure: capabilitiesFailure,
     settings_failure: settingsFailure,
     credentials_failure: credentialsFailure,
