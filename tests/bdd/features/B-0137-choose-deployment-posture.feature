@@ -36,6 +36,13 @@ Feature: Choose a deployment posture
       Then the request fails with code "unsupported_posture"
       And the error summary is readable
 
+    @falsification @api
+    Scenario: API rejects a missing account scope
+      Given an API account actor with posture permission
+      When the actor sets deployment posture "hosted" for a missing account scope over API
+      Then the request fails with code "scope_not_found"
+      And the error summary is readable
+
   Rule: Web surface
 
     @positive @web
@@ -66,6 +73,13 @@ Feature: Choose a deployment posture
       Then the request fails with code "unsupported_posture"
       And the error summary is readable
 
+    @falsification @web
+    Scenario: Web rejects a missing account scope
+      Given a web account actor with posture permission
+      When the actor sets deployment posture "hosted" for a missing account scope over web
+      Then the request fails with code "scope_not_found"
+      And the error summary is readable
+
   Rule: MCP surface
 
     @positive @mcp
@@ -83,10 +97,10 @@ Feature: Choose a deployment posture
       And the MCP response reflects inherited runtime and credential capability availability for posture "hosted"
 
     @falsification @mcp
-    Scenario: MCP denies changing another account's posture
+    Scenario: MCP rejects changing posture for an unresolved non-account scope
       Given an MCP account actor without posture permission
       When the actor sets deployment posture "hosted" for another account scope over MCP
-      Then the request fails with code "permission_denied"
+      Then the request fails with code "scope_not_found"
       And the error summary is readable
 
     @falsification @mcp
@@ -94,6 +108,13 @@ Feature: Choose a deployment posture
       Given an MCP account actor with posture permission
       When the actor sets deployment posture "unsupported-value" for their account scope over MCP
       Then the request fails with code "unsupported_posture"
+      And the error summary is readable
+
+    @falsification @mcp
+    Scenario: MCP rejects a missing account scope
+      Given an MCP account actor with posture permission
+      When the actor sets deployment posture "hosted" for a missing account scope over MCP
+      Then the request fails with code "scope_not_found"
       And the error summary is readable
 
   Rule: CLI surface
@@ -126,6 +147,13 @@ Feature: Choose a deployment posture
       Then the request fails with code "unsupported_posture"
       And the error summary is readable
 
+    @falsification @cli
+    Scenario: CLI rejects a missing account scope
+      Given a CLI account actor with posture permission
+      When the actor sets deployment posture "hosted" for a missing account scope over CLI
+      Then the request fails with code "scope_not_found"
+      And the error summary is readable
+
   Rule: TUI surface
 
     @positive @tui
@@ -154,4 +182,11 @@ Feature: Choose a deployment posture
       Given a TUI account actor with posture permission
       When the actor sets deployment posture "unsupported-value" for their account scope over TUI
       Then the request fails with code "unsupported_posture"
+      And the error summary is readable
+
+    @falsification @tui
+    Scenario: TUI rejects a missing account scope
+      Given a TUI account actor with posture permission
+      When the actor sets deployment posture "hosted" for a missing account scope over TUI
+      Then the request fails with code "scope_not_found"
       And the error summary is readable

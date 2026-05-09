@@ -172,6 +172,11 @@ Synchronous writes are allowed only where correctness requires them, including:
 
 Every synchronous exception should be explicit in the owning subsystem record.
 
+Deployment-posture mutations are one such synchronous path: the
+`deployment_postures` current-state upsert and the
+`deployment_posture.changed` event append execute in one database transaction so
+partial writes cannot survive failures.
+
 ## Idempotency
 
 Mutation commands that can be retried by clients, workers, providers, or

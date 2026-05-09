@@ -143,6 +143,10 @@ The bundle includes:
 - comments explaining which values are installation-local;
 - optional templates for reverse proxy and TLS integration.
 
+Migration entrypoints are part of the delivery contract because policy and
+state invariants (including scope-aware posture mutation writes) depend on
+running the canonical schema before interfaces accept mutations.
+
 The bundle is inspectable and operable without a hidden CLI runtime. A CLI may
 generate, copy, validate, or manage the bundle, but the bundle itself remains
 plain deployment material.

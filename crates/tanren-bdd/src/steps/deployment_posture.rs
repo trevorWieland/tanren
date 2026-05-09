@@ -9,7 +9,7 @@ use tanren_contract::{
     DeploymentPosture, DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
     DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, ProjectId};
+use tanren_identity_policy::{AccountId, Email, ProjectId};
 use tanren_testkit::{HarnessError, HarnessKind, HarnessOutcome, record_failure};
 
 use super::{poll_until, retry_on_transport};
@@ -74,8 +74,8 @@ async fn when_set_for_another_scope(world: &mut TanrenWorld, posture: String, in
         match ctx.harness.kind() {
             // MCP's posture.set tool derives actor from scope internally, so
             // account-scope mismatch isn't representable over wire today.
-            // Use a project scope (still unauthorized) to prove the shared
-            // permission_denied taxonomy over the real MCP transport.
+            // Use a project scope to prove falsification behavior through the
+            // real MCP transport.
             HarnessKind::Mcp => DeploymentPostureScope::Project {
                 project_id: ProjectId::from(other_id.as_uuid()),
             },
@@ -89,6 +89,21 @@ async fn when_set_for_another_scope(world: &mut TanrenWorld, posture: String, in
         }
     };
     let request = SetDeploymentPostureRequest { scope, posture };
+    execute_set(world, &interface, "actor", actor_id, request).await;
+}
+
+#[when(expr = "the actor sets deployment posture {string} for a missing account scope over {word}")]
+async fn when_set_for_missing_scope(world: &mut TanrenWorld, posture: String, interface: String) {
+    let actor_id = ensure_signed_in_actor(world, "actor").await;
+    let Some(posture) = parse_requested_posture(world, "actor", &posture).await else {
+        return;
+    };
+    let request = SetDeploymentPostureRequest {
+        scope: DeploymentPostureScope::Account {
+            account_id: AccountId::fresh(),
+        },
+        posture,
+    };
     execute_set(world, &interface, "actor", actor_id, request).await;
 }
 
@@ -342,6 +357,24 @@ async fn sign_up_actor(
             entry.sign_up = Some(session.clone());
             HarnessOutcome::SignedUp(session)
         }
+        Err(err) if err.code() == "duplicate_identifier" => {
+            let parsed_email = Email::parse(email).expect("scenario email must parse");
+            let sign_in = ctx
+                .harness
+                .sign_in(SignInRequest {
+                    email: parsed_email,
+                    password: SecretString::from(password.to_owned()),
+                })
+                .await;
+            match sign_in {
+                Ok(session) => {
+                    entry.sign_up = Some(session.clone());
+                    entry.sign_in = Some(session.clone());
+                    HarnessOutcome::SignedUp(session)
+                }
+                Err(sign_in_err) => record_failure(sign_in_err, entry),
+            }
+        }
         Err(err) => record_failure(err, entry),
     };
     ctx.last_outcome = Some(outcome);
@@ -350,12 +383,11 @@ async fn sign_up_actor(
         "{actor_label} sign-up must succeed for posture scenarios"
     );
 }
-
 async fn execute_set(
     world: &mut TanrenWorld,
     interface: &str,
     actor_label: &str,
-    actor_id: tanren_identity_policy::AccountId,
+    actor_id: AccountId,
     request: SetDeploymentPostureRequest,
 ) {
     let ctx = world.ensure_account_ctx().await;
@@ -375,10 +407,7 @@ async fn execute_set(
     }
 }
 
-async fn ensure_signed_in_actor(
-    world: &mut TanrenWorld,
-    actor_label: &str,
-) -> tanren_identity_policy::AccountId {
+async fn ensure_signed_in_actor(world: &mut TanrenWorld, actor_label: &str) -> AccountId {
     let (email, password, account_id) = {
         let ctx = world.ensure_account_ctx().await;
         let entry = ctx.actors.get(actor_label).expect("missing actor state");
@@ -419,10 +448,7 @@ async fn ensure_signed_in_actor(
     account_id
 }
 
-async fn account_id_for(
-    world: &mut TanrenWorld,
-    actor_label: &str,
-) -> tanren_identity_policy::AccountId {
+async fn account_id_for(world: &mut TanrenWorld, actor_label: &str) -> AccountId {
     let ctx = world.ensure_account_ctx().await;
     ctx.actors
         .get(actor_label)

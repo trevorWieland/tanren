@@ -225,7 +225,7 @@ impl TryFrom<entity::deployment_postures::Model> for DeploymentPostureRecord {
 }
 
 /// Input shape for
-/// [`crate::DeploymentPostureStore::upsert_deployment_posture`].
+/// [`crate::DeploymentPostureStore::upsert_deployment_posture_with_event`].
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewDeploymentPosture {
     /// Scope where the posture applies.

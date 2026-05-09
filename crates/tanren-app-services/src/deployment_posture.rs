@@ -4,7 +4,6 @@
 //! transport parsing out of scope and returns typed contract failures for
 //! policy/validation rejects.
 
-use chrono::{DateTime, Utc};
 use tanren_contract::{
     CurrentDeploymentPostureResponse, DeploymentPosture, DeploymentPostureCapabilitySummary,
     DeploymentPostureContractFailure, DeploymentPostureFailureReason, DeploymentPostureReadModel,
@@ -12,8 +11,13 @@ use tanren_contract::{
     SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::AccountId;
-use tanren_policy::{Decision, evaluate_account_scope_posture_management};
-use tanren_store::{AccountStore, DeploymentPostureStore, NewDeploymentPosture, StoreError};
+use tanren_policy::{
+    Decision, DeploymentPosturePolicyInput, DeploymentPosturePolicyScope,
+    evaluate_deployment_posture_management,
+};
+use tanren_store::{
+    DeploymentPostureStore, NewDeploymentPosture, ResolvedDeploymentPostureScope, StoreError,
+};
 use thiserror::Error;
 
 use crate::Clock;
@@ -79,35 +83,52 @@ pub async fn set_deployment_posture<S>(
     request: SetDeploymentPostureRequest,
 ) -> Result<SetDeploymentPostureResponse, SetDeploymentPostureError>
 where
-    S: DeploymentPostureStore + AccountStore + ?Sized,
+    S: DeploymentPostureStore + ?Sized,
 {
     let posture = request.posture;
     let scope = request.scope;
 
-    if let Decision::Deny(_) = evaluate_account_scope_posture_management(actor, scope) {
+    let resolved_scope = store
+        .resolve_deployment_posture_scope(scope_to_store(scope))
+        .await?
+        .ok_or_else(|| SetDeploymentPostureError::Contract {
+            failure: scope_not_found(scope),
+        })?;
+
+    if let Decision::Deny(_) =
+        evaluate_deployment_posture_management(DeploymentPosturePolicyInput {
+            actor,
+            scope: policy_scope_from_resolved(resolved_scope),
+        })
+    {
         return Err(SetDeploymentPostureError::Contract {
-            failure: permission_denied(actor, scope),
+            failure: permission_denied(actor, scope_from_store(resolved_scope.as_scope())),
         });
     }
 
     let now = clock.now();
-    let stored = store
-        .upsert_deployment_posture(NewDeploymentPosture {
-            scope: scope_to_store(scope),
-            posture: posture_to_store(posture),
+    let store_scope = resolved_scope.as_scope();
+    let scope = scope_from_store(store_scope);
+    let changed_event = deployment_posture_envelope(
+        DEPLOYMENT_POSTURE_CHANGED_KIND,
+        &DeploymentPostureChanged {
+            scope,
+            posture,
             changed_by: actor,
             changed_at: now,
-        })
+        },
+    );
+    let stored = store
+        .upsert_deployment_posture_with_event(
+            NewDeploymentPosture {
+                scope: store_scope,
+                posture: posture_to_store(posture),
+                changed_by: actor,
+                changed_at: now,
+            },
+            changed_event,
+        )
         .await?;
-
-    emit_posture_changed_event(
-        store,
-        scope_from_store(stored.scope),
-        posture_from_store(stored.posture),
-        stored.changed_by,
-        stored.changed_at,
-    )
-    .await?;
 
     Ok(to_response(
         scope_from_store(stored.scope),
@@ -134,33 +155,6 @@ where
     })
 }
 
-async fn emit_posture_changed_event<S>(
-    store: &S,
-    scope: DeploymentPostureScope,
-    posture: DeploymentPosture,
-    changed_by: AccountId,
-    changed_at: DateTime<Utc>,
-) -> Result<(), StoreError>
-where
-    S: AccountStore + ?Sized,
-{
-    store
-        .append_event(
-            deployment_posture_envelope(
-                DEPLOYMENT_POSTURE_CHANGED_KIND,
-                &DeploymentPostureChanged {
-                    scope,
-                    posture,
-                    changed_by,
-                    changed_at,
-                },
-            ),
-            changed_at,
-        )
-        .await?;
-    Ok(())
-}
-
 fn permission_denied(
     actor: AccountId,
     scope: DeploymentPostureScope,
@@ -170,6 +164,13 @@ fn permission_denied(
         detail: format!(
             "Actor {actor} may only change their own account-scope deployment posture; requested scope was {scope:?}."
         ),
+    }
+}
+
+fn scope_not_found(scope: DeploymentPostureScope) -> DeploymentPostureContractFailure {
+    DeploymentPostureContractFailure {
+        reason: DeploymentPostureFailureReason::ScopeNotFound,
+        detail: format!("Deployment posture scope {scope:?} does not exist."),
     }
 }
 
@@ -236,5 +237,21 @@ const fn posture_from_store(posture: tanren_store::DeploymentPosture) -> Deploym
         tanren_store::DeploymentPosture::Hosted => DeploymentPosture::Hosted,
         tanren_store::DeploymentPosture::SelfHosted => DeploymentPosture::SelfHosted,
         tanren_store::DeploymentPosture::LocalOnly => DeploymentPosture::LocalOnly,
+    }
+}
+
+const fn policy_scope_from_resolved(
+    scope: ResolvedDeploymentPostureScope,
+) -> DeploymentPosturePolicyScope {
+    match scope {
+        ResolvedDeploymentPostureScope::Account { account_id } => {
+            DeploymentPosturePolicyScope::Account { account_id }
+        }
+        ResolvedDeploymentPostureScope::Project { project_id } => {
+            DeploymentPosturePolicyScope::Project { project_id }
+        }
+        ResolvedDeploymentPostureScope::Installation { installation_id } => {
+            DeploymentPosturePolicyScope::Installation { installation_id }
+        }
     }
 }

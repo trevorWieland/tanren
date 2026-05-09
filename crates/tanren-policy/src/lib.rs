@@ -5,8 +5,8 @@
 //! [`Decision`] enum below.
 
 use serde::{Deserialize, Serialize};
-use tanren_contract::{DeploymentPosture, DeploymentPostureCapability, DeploymentPostureScope};
-use tanren_identity_policy::AccountId;
+use tanren_contract::{DeploymentPosture, DeploymentPostureCapability};
+use tanren_identity_policy::{AccountId, InstallationId, ProjectId};
 use thiserror::Error;
 
 /// The outcome of evaluating a policy against an actor and a resource.
@@ -67,20 +67,40 @@ pub enum CapabilityAvailability {
     },
 }
 
-/// Evaluate whether an actor may manage deployment posture for the given scope.
+/// Scope context used by posture-management policy evaluation.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "scope", rename_all = "snake_case")]
+pub enum DeploymentPosturePolicyScope {
+    /// Account scope.
+    Account { account_id: AccountId },
+    /// Project scope.
+    Project { project_id: ProjectId },
+    /// Installation scope.
+    Installation { installation_id: InstallationId },
+}
+
+/// Scope-aware input for deployment-posture management policy checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeploymentPosturePolicyInput {
+    /// Account attempting to change posture.
+    pub actor: AccountId,
+    /// Scope targeted by the request.
+    pub scope: DeploymentPosturePolicyScope,
+}
+
+/// Evaluate whether an actor may manage deployment posture for a resolved scope.
 ///
 /// Initial model: account owner only. The actor may change posture for their
 /// own account scope and is denied for all other scopes until grant models land.
 #[must_use]
-pub fn evaluate_account_scope_posture_management(
-    actor: AccountId,
-    scope: DeploymentPostureScope,
-) -> Decision {
-    match scope {
-        DeploymentPostureScope::Account { account_id } if account_id == actor => Decision::Allow,
-        DeploymentPostureScope::Account { .. }
-        | DeploymentPostureScope::Project { .. }
-        | DeploymentPostureScope::Installation { .. } => {
+pub fn evaluate_deployment_posture_management(input: DeploymentPosturePolicyInput) -> Decision {
+    match input.scope {
+        DeploymentPosturePolicyScope::Account { account_id } if account_id == input.actor => {
+            Decision::Allow
+        }
+        DeploymentPosturePolicyScope::Account { .. }
+        | DeploymentPosturePolicyScope::Project { .. }
+        | DeploymentPosturePolicyScope::Installation { .. } => {
             Decision::Deny(DenialReason::MissingPermission)
         }
     }

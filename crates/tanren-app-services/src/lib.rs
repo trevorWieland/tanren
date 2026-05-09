@@ -225,7 +225,7 @@ impl Handlers {
         request: SetDeploymentPostureRequest,
     ) -> Result<SetDeploymentPostureResponse, deployment_posture::SetDeploymentPostureError>
     where
-        S: DeploymentPostureStore + AccountStore + ?Sized,
+        S: DeploymentPostureStore + ?Sized,
     {
         deployment_posture::set_deployment_posture(store, &self.clock, actor, request).await
     }

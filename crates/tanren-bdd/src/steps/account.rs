@@ -89,7 +89,7 @@ async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, pas
         ctx.harness.sign_in(request)
     });
     let entry = ctx.actors.entry(actor.clone()).or_default();
-    entry.identifier = Some(email);
+    entry.identifier = Some(email.clone());
     entry.password = Some(SecretString::from(password));
     let outcome = match result {
         Ok(session) => {
@@ -374,12 +374,40 @@ async fn do_sign_up(
         ctx.harness.sign_up(request)
     });
     let entry = ctx.actors.entry(actor.clone()).or_default();
-    entry.identifier = Some(email);
+    entry.identifier = Some(email.clone());
     entry.password = Some(SecretString::from(password));
     let outcome = match result {
         Ok(session) => {
             entry.sign_up = Some(session.clone());
             HarnessOutcome::SignedUp(session)
+        }
+        Err(err) if err.code() == "duplicate_identifier" => {
+            let duplicate_err = err;
+            let parsed_email = Email::parse(&email).expect("scenario emails must parse");
+            let sign_in = ctx
+                .harness
+                .sign_in(SignInRequest {
+                    email: parsed_email,
+                    password: SecretString::from(
+                        entry
+                            .password
+                            .as_ref()
+                            .map_or("", secrecy::ExposeSecret::expose_secret)
+                            .to_owned(),
+                    ),
+                })
+                .await;
+            match sign_in {
+                Ok(session) => {
+                    entry.sign_up = Some(session.clone());
+                    entry.sign_in = Some(session.clone());
+                    HarnessOutcome::SignedUp(session)
+                }
+                Err(sign_in_err) if sign_in_err.code() == "invalid_credential" => {
+                    record_failure(duplicate_err, entry)
+                }
+                Err(sign_in_err) => record_failure(sign_in_err, entry),
+            }
         }
         Err(err) => record_failure(err, entry),
     };

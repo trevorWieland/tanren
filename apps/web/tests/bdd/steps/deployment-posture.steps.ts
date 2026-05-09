@@ -33,9 +33,18 @@ interface Scope {
   account_id: string;
 }
 
+interface UnavailableCapability {
+  capability: Capability;
+  reason:
+    | "requires_managed_control_plane"
+    | "requires_provider_integrations"
+    | "requires_remote_runtime_dispatch"
+    | "requires_local_runtime_dispatch";
+}
+
 interface CapabilitySummary {
   available: Capability[];
-  unavailable: Capability[];
+  unavailable: UnavailableCapability[];
 }
 
 interface SupportedPosture {
@@ -98,7 +107,12 @@ function expectedSummary(posture: DeploymentPosture): CapabilitySummary {
           "provider_integrations",
           "remote_runtime_dispatch",
         ],
-        unavailable: ["local_runtime_dispatch"],
+        unavailable: [
+          {
+            capability: "local_runtime_dispatch",
+            reason: "requires_local_runtime_dispatch",
+          },
+        ],
       };
     case "self_hosted":
       return {
@@ -107,18 +121,36 @@ function expectedSummary(posture: DeploymentPosture): CapabilitySummary {
           "remote_runtime_dispatch",
           "local_runtime_dispatch",
         ],
-        unavailable: ["managed_control_plane"],
+        unavailable: [
+          {
+            capability: "managed_control_plane",
+            reason: "requires_managed_control_plane",
+          },
+        ],
       };
     case "local_only":
       return {
         available: ["local_runtime_dispatch"],
         unavailable: [
-          "managed_control_plane",
-          "provider_integrations",
-          "remote_runtime_dispatch",
+          {
+            capability: "managed_control_plane",
+            reason: "requires_managed_control_plane",
+          },
+          {
+            capability: "provider_integrations",
+            reason: "requires_provider_integrations",
+          },
+          {
+            capability: "remote_runtime_dispatch",
+            reason: "requires_remote_runtime_dispatch",
+          },
         ],
       };
   }
+}
+
+function isDeploymentPosture(raw: string): raw is DeploymentPosture {
+  return raw === "hosted" || raw === "self_hosted" || raw === "local_only";
 }
 
 function asFailureBody(raw: unknown, fallbackStatus: number): FailureBody {
@@ -242,6 +274,15 @@ async function setPosture(
   posture: string,
   accountId: string,
 ): Promise<void> {
+  const postureActor = actor(world, "actor");
+  const state = stateFor(world);
+  if (!isDeploymentPosture(posture)) {
+    state.lastFailureSummary = `Unsupported deployment posture \`${posture}\`. Supported values: hosted, self_hosted, local_only.`;
+    postureActor.hasSession = false;
+    postureActor.lastFailureCode = "unsupported_posture";
+    return;
+  }
+
   const response = await browserJsonRequest(
     page,
     "POST",
@@ -251,8 +292,6 @@ async function setPosture(
       posture,
     },
   );
-  const postureActor = actor(world, "actor");
-  const state = stateFor(world);
   if (response.ok) {
     state.lastSet = response.json as SetPostureResponse;
     delete state.lastFailureSummary;
@@ -402,6 +441,13 @@ When(
       );
     }
     await setPosture(page, world, posture, state.otherAccountId);
+  },
+);
+
+When(
+  "the actor sets deployment posture {string} for a missing account scope over web",
+  async ({ page, world }, posture: string) => {
+    await setPosture(page, world, posture, crypto.randomUUID());
   },
 );
 

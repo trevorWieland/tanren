@@ -23,6 +23,7 @@ pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
     ConsumeInvitationError, ConsumedInvitation, DeploymentPostureStore,
+    ResolvedDeploymentPostureScope,
 };
 
 use async_trait::async_trait;
@@ -30,7 +31,7 @@ use chrono::{DateTime, Utc};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set,
+    QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
@@ -315,6 +316,29 @@ impl AccountStore for Store {
 
 #[async_trait]
 impl DeploymentPostureStore for Store {
+    async fn resolve_deployment_posture_scope(
+        &self,
+        scope: DeploymentPostureScope,
+    ) -> Result<Option<ResolvedDeploymentPostureScope>, StoreError> {
+        match scope {
+            DeploymentPostureScope::Account { account_id } => {
+                let account_exists = entity::accounts::Entity::find_by_id(account_id.as_uuid())
+                    .one(&self.conn)
+                    .await?
+                    .is_some();
+                if account_exists {
+                    Ok(Some(ResolvedDeploymentPostureScope::Account { account_id }))
+                } else {
+                    Ok(None)
+                }
+            }
+            // Project and installation scope resolvers are intentionally
+            // typed but unresolved until their owning read models land.
+            DeploymentPostureScope::Project { .. }
+            | DeploymentPostureScope::Installation { .. } => Ok(None),
+        }
+    }
+
     async fn get_deployment_posture(
         &self,
         scope: DeploymentPostureScope,
@@ -329,11 +353,14 @@ impl DeploymentPostureStore for Store {
         row.map(DeploymentPostureRecord::try_from).transpose()
     }
 
-    async fn upsert_deployment_posture(
+    async fn upsert_deployment_posture_with_event(
         &self,
         new: NewDeploymentPosture,
+        event_payload: serde_json::Value,
     ) -> Result<DeploymentPostureRecord, StoreError> {
         let (scope_kind, scope_id) = records::DeploymentPostureScopeKind::from_scope(new.scope);
+        let tx = self.conn.begin().await?;
+
         entity::deployment_postures::Entity::insert(entity::deployment_postures::ActiveModel {
             scope_kind: Set(scope_kind.as_stored_value().to_owned()),
             scope_id: Set(scope_id),
@@ -353,20 +380,25 @@ impl DeploymentPostureStore for Store {
             ])
             .to_owned(),
         )
-        .exec(&self.conn)
+        .exec(&tx)
         .await?;
 
-        let stored = entity::deployment_postures::Entity::find_by_id((
-            scope_kind.as_stored_value().to_owned(),
-            scope_id,
-        ))
-        .one(&self.conn)
-        .await?
-        .ok_or_else(|| StoreError::DataInvariantDetail {
-            column: "deployment_postures",
-            detail: "upsert succeeded but the row is missing".to_owned(),
-        })?;
-        DeploymentPostureRecord::try_from(stored)
+        entity::events::ActiveModel {
+            id: Set(Uuid::now_v7()),
+            occurred_at: Set(new.changed_at),
+            payload: Set(event_payload),
+        }
+        .insert(&tx)
+        .await?;
+
+        tx.commit().await?;
+
+        Ok(DeploymentPostureRecord {
+            scope: new.scope,
+            posture: new.posture,
+            changed_by: new.changed_by,
+            changed_at: new.changed_at,
+        })
     }
 }
 
