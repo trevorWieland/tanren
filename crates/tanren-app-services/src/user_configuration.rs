@@ -17,18 +17,15 @@ use tanren_contract::{
     UserConfigurationFailureReason, UserSettingView,
 };
 use tanren_identity_policy::AccountId;
-use tanren_store::{
-    AccountStore, StoreError, UserConfigurationListPageRequest, UserConfigurationStore,
-    UserCredentialListCursor, UserOwnedItemRecord,
-};
+use tanren_store::{AccountStore, StoreError, UserConfigurationStore, UserOwnedItemRecord};
 
 use crate::events::{
     ConfigurationEventType, UserCredentialChanged, UserCredentialRemoved, UserSettingChanged,
     UserSettingRemoved, configuration_envelope,
 };
 use crate::user_configuration_pagination::{
-    DEFAULT_LIST_LIMIT, encode_credentials_cursor, encode_settings_cursor,
-    parse_credentials_page_request, parse_settings_page_request,
+    encode_credentials_cursor, encode_settings_cursor, parse_credentials_page_request,
+    parse_settings_page_request,
 };
 use crate::{AppServiceError, Clock};
 
@@ -334,8 +331,10 @@ where
 {
     ensure_owner_scope(context)?;
 
-    let item = find_user_credential_by_id(store, context.requested_owner_scope(), item_id)
-        .await?
+    let item = store
+        .get_user_credential(item_id, context.requested_owner_scope())
+        .await
+        .map_err(map_store_error)?
         .ok_or_else(item_not_found)?;
 
     let removed = store
@@ -418,36 +417,6 @@ fn map_store_error(err: StoreError) -> AppServiceError {
     match err {
         StoreError::InvalidConfiguration(detail) => validation_error(detail),
         other => AppServiceError::Store(other),
-    }
-}
-
-async fn find_user_credential_by_id<S>(
-    store: &S,
-    owner_scope: OwnerScope,
-    item_id: &str,
-) -> Result<Option<UserOwnedItemRecord>, AppServiceError>
-where
-    S: UserConfigurationStore + ?Sized,
-{
-    let mut after: Option<UserCredentialListCursor> = None;
-    loop {
-        let page = store
-            .list_user_credentials(
-                owner_scope,
-                UserConfigurationListPageRequest {
-                    limit: DEFAULT_LIST_LIMIT,
-                    after,
-                },
-            )
-            .await
-            .map_err(map_store_error)?;
-        if let Some(found) = page.items.into_iter().find(|record| record.id == item_id) {
-            return Ok(Some(found));
-        }
-        let Some(next_cursor) = page.next_cursor else {
-            return Ok(None);
-        };
-        after = Some(next_cursor);
     }
 }
 

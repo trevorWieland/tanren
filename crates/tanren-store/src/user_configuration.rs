@@ -17,7 +17,7 @@ use chacha20poly1305::{
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder, QuerySelect, QueryTrait, Set, TransactionTrait,
+    QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use secrecy::{ExposeSecret, SecretString};
 use tanren_configuration_secrets::{
@@ -325,6 +325,21 @@ impl UserConfigurationStore for Store {
         };
         Ok(UserConfigurationListPage { items, next_cursor })
     }
+    async fn get_user_credential(
+        &self,
+        id: &str,
+        owner_scope: OwnerScope,
+    ) -> Result<Option<UserOwnedItemRecord>, StoreError> {
+        let parsed_id = parse_item_id(id)?;
+        let (scope, account_id) = owner_scope_to_db(owner_scope);
+        let row = entity::user_credentials::Entity::find()
+            .filter(entity::user_credentials::Column::Id.eq(parsed_id))
+            .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
+            .one(&self.conn)
+            .await?;
+        row.map(UserOwnedItemRecord::try_from).transpose()
+    }
     async fn remove_user_credential(
         &self,
         id: &str,
@@ -332,30 +347,24 @@ impl UserConfigurationStore for Store {
     ) -> Result<bool, StoreError> {
         let parsed_id = parse_item_id(id)?;
         let (scope, account_id) = owner_scope_to_db(owner_scope);
-        let scoped_credential_ids = entity::user_credentials::Entity::find()
-            .select_only()
-            .column(entity::user_credentials::Column::Id)
-            .filter(entity::user_credentials::Column::Id.eq(parsed_id))
-            .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
-            .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
-            .into_query();
         let txn = self.conn.begin().await?;
-        entity::user_credential_values::Entity::delete_many()
-            .filter(entity::user_credential_values::Column::ItemId.eq(parsed_id))
-            .filter(entity::user_credential_values::Column::AccountId.eq(account_id.as_uuid()))
-            .filter(
-                entity::user_credential_values::Column::ItemId.in_subquery(scoped_credential_ids),
-            )
-            .exec(&txn)
-            .await?;
         let result = entity::user_credentials::Entity::delete_many()
             .filter(entity::user_credentials::Column::Id.eq(parsed_id))
             .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
             .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
             .exec(&txn)
             .await?;
+        if result.rows_affected == 0 {
+            txn.commit().await?;
+            return Ok(false);
+        }
+        entity::user_credential_values::Entity::delete_many()
+            .filter(entity::user_credential_values::Column::ItemId.eq(parsed_id))
+            .filter(entity::user_credential_values::Column::AccountId.eq(account_id.as_uuid()))
+            .exec(&txn)
+            .await?;
         txn.commit().await?;
-        Ok(result.rows_affected > 0)
+        Ok(true)
     }
 }
 fn parse_item_id(value: &str) -> Result<Uuid, StoreError> {
@@ -369,18 +378,11 @@ async fn seal_user_value(
     item_id: Uuid,
     value: SecretString,
 ) -> Result<SealedValue, StoreError> {
-    task::spawn_blocking(move || seal_user_value_blocking(account_id, item_id, &value))
+    task::spawn_blocking(move || credential_value_encryptor()?.seal(account_id, item_id, &value))
         .await
         .map_err(|_| StoreError::CredentialEncryption {
             detail: "credential seal task failed".to_owned(),
         })?
-}
-fn seal_user_value_blocking(
-    account_id: AccountId,
-    item_id: Uuid,
-    value: &SecretString,
-) -> Result<SealedValue, StoreError> {
-    credential_value_encryptor()?.seal(account_id, item_id, value)
 }
 fn credential_value_encryptor() -> Result<&'static CredentialValueEncryptor, StoreError> {
     if let Some(encryptor) = CREDENTIAL_VALUE_ENCRYPTOR.get() {

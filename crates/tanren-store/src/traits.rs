@@ -348,6 +348,13 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
         page: UserConfigurationListPageRequest<UserCredentialListCursor>,
     ) -> Result<UserConfigurationListPage<UserOwnedItemRecord, UserCredentialListCursor>, StoreError>;
 
+    /// Read one user-owned credential metadata row for a scope.
+    async fn get_user_credential(
+        &self,
+        id: &str,
+        owner_scope: OwnerScope,
+    ) -> Result<Option<UserOwnedItemRecord>, StoreError>;
+
     /// Remove one user-owned credential metadata row and encrypted value row.
     async fn remove_user_credential(
         &self,
