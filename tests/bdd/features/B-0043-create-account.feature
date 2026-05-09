@@ -92,7 +92,7 @@ Feature: Create an account
       Then alice receives a session token
 
     @positive @web
-    Scenario: Invitation acceptance over the web joins the inviting org
+    Scenario: Invitation acceptance over the web lands on account home and joins the inviting org
       Given a pending invitation token "web-token-1-padpad"
       When bob accepts invitation "web-token-1-padpad" with password "team-pw"
       Then bob receives a session token

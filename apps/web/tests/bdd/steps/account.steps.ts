@@ -310,7 +310,7 @@ When(
     await page.getByLabel(/display name/i).fill(displayName);
     await page.getByRole("button", { name: /accept and join/i }).click();
     const result = await Promise.race([
-      page.waitForURL("/configuration/account").then(() => "ok" as const),
+      page.waitForURL(/\/account(?:\?.*)?$/).then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()

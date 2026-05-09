@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { buildAccountHomeRoute } from "@/app/lib/navigation";
 import { AcceptInvitationForm } from "@/components/account/AcceptInvitationForm";
 
 export interface AcceptInvitationFormShellProps {
@@ -11,8 +12,9 @@ export interface AcceptInvitationFormShellProps {
 
 /**
  * Client wrapper around `AcceptInvitationForm` that redirects to
- * `/configuration/account`
- * after a successful acceptance, mirroring the sign-up / sign-in pages.
+ * the web-owned account home surface after a successful acceptance.
+ * The account home can hand off to configuration, but configuration is
+ * not the default identity flow destination.
  * Lives next to the server-rendered `page.tsx` so the page itself can
  * stay a server component (preserving the same-origin POST property
  * documented there).
@@ -24,8 +26,16 @@ export function AcceptInvitationFormShell({
   return (
     <AcceptInvitationForm
       token={token}
-      onSuccess={() => {
-        router.push("/configuration/account");
+      onSuccess={(result) => {
+        router.push(
+          buildAccountHomeRoute({
+            accountId: result.account.id,
+            accountIdentifier: result.account.identifier,
+            displayName: result.account.display_name,
+            joinedOrganization: result.joined_org,
+            source: "invitation",
+          }),
+        );
       }}
     />
   );
