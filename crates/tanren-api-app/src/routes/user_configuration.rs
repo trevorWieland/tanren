@@ -22,9 +22,15 @@ use tanren_identity_policy::AccountId;
 use tower_sessions::Session;
 use uuid::Uuid;
 
+use super::user_configuration_helpers::{
+    add_user_credential_operation, list_user_credentials_operation, list_user_settings_operation,
+    remove_user_credential_operation, remove_user_setting_operation,
+    update_user_credential_operation, upsert_user_setting_operation,
+};
 use crate::AppState;
 use crate::cookies::SESSION_KEY_ACCOUNT;
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error};
+use crate::errors::AccountFailureBody;
+use crate::errors::ValidatedJson;
 
 #[utoipa::path(
     get,
@@ -47,21 +53,10 @@ pub(crate) async fn list_user_settings_route(
     SettingAccountScope(scope): SettingAccountScope,
     query: Result<Query<ConfigurationListQuery>, QueryRejection>,
 ) -> Response {
-    let request = match query {
-        Ok(Query(value)) => ListUserSettingsRequest {
-            limit: value.limit,
-            after: value.after,
-        },
-        Err(_) => return validation_failed("query parameters are invalid"),
+    let Ok(request) = list_settings_request_from_query(query) else {
+        return validation_failed("query parameters are invalid");
     };
-    match state
-        .handlers
-        .list_user_settings_with_context(state.store.as_ref(), scope.context(), request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    list_user_settings_operation(&state, scope.context(), request).await
 }
 
 #[utoipa::path(
@@ -86,14 +81,7 @@ pub(crate) async fn upsert_user_setting_route(
     SettingAccountScope(scope): SettingAccountScope,
     ValidatedJson(request): ValidatedJson<UpsertUserSettingRequest>,
 ) -> Response {
-    match state
-        .handlers
-        .upsert_user_setting_with_context(state.store.as_ref(), scope.context(), request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    upsert_user_setting_operation(&state, scope.context(), request).await
 }
 
 #[utoipa::path(
@@ -121,14 +109,7 @@ pub(crate) async fn remove_user_setting_route(
         Ok(value) => value,
         Err(message) => return validation_failed(message),
     };
-    match state
-        .handlers
-        .remove_user_setting_with_context(state.store.as_ref(), scope.context(), key)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    remove_user_setting_operation(&state, scope.context(), key).await
 }
 
 #[utoipa::path(
@@ -157,14 +138,7 @@ pub(crate) async fn add_user_credential_route(
     if request.owner_scope != expected_scope {
         return validation_failed("owner_scope must match path account_id");
     }
-    match state
-        .handlers
-        .add_user_credential_with_context(state.store.as_ref(), scope.context(), request)
-        .await
-    {
-        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    add_user_credential_operation(&state, scope.context(), request).await
 }
 
 #[utoipa::path(
@@ -194,19 +168,7 @@ pub(crate) async fn update_user_credential_route(
         Ok(value) => value,
         Err(message) => return validation_failed(message),
     };
-    match state
-        .handlers
-        .update_user_credential_with_context(
-            state.store.as_ref(),
-            scope.context(),
-            item_id,
-            request,
-        )
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    update_user_credential_operation(&state, scope.context(), item_id, request).await
 }
 
 #[utoipa::path(
@@ -228,21 +190,10 @@ pub(crate) async fn list_user_credentials_route(
     CredentialAccountScope(scope): CredentialAccountScope,
     query: Result<Query<ConfigurationListQuery>, QueryRejection>,
 ) -> Response {
-    let request = match query {
-        Ok(Query(value)) => ListUserCredentialsRequest {
-            limit: value.limit,
-            after: value.after,
-        },
-        Err(_) => return validation_failed("query parameters are invalid"),
+    let Ok(request) = list_credentials_request_from_query(query) else {
+        return validation_failed("query parameters are invalid");
     };
-    match state
-        .handlers
-        .list_user_credentials_with_context(state.store.as_ref(), scope.context(), request)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    list_user_credentials_operation(&state, scope.context(), request).await
 }
 
 #[utoipa::path(
@@ -270,14 +221,7 @@ pub(crate) async fn remove_user_credential_route(
         Ok(value) => value,
         Err(message) => return validation_failed(message),
     };
-    match state
-        .handlers
-        .remove_user_credential_with_context(state.store.as_ref(), scope.context(), item_id)
-        .await
-    {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
-    }
+    remove_user_credential_operation(&state, scope.context(), item_id).await
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -294,7 +238,7 @@ pub(crate) struct ConfigurationListQuery {
 }
 
 impl AuthorizedAccount {
-    const fn context(self) -> AuthenticatedConfigurationContext {
+    pub(super) const fn context(self) -> AuthenticatedConfigurationContext {
         AuthenticatedConfigurationContext::for_requested_account(self.authenticated, self.requested)
     }
 }
@@ -369,7 +313,31 @@ where
     })
 }
 
-async fn authenticated_account_id(session: &Session) -> Result<AccountId, Response> {
+pub(super) fn list_settings_request_from_query(
+    query: Result<Query<ConfigurationListQuery>, QueryRejection>,
+) -> Result<ListUserSettingsRequest, ()> {
+    let Ok(Query(value)) = query else {
+        return Err(());
+    };
+    Ok(ListUserSettingsRequest {
+        limit: value.limit,
+        after: value.after,
+    })
+}
+
+pub(super) fn list_credentials_request_from_query(
+    query: Result<Query<ConfigurationListQuery>, QueryRejection>,
+) -> Result<ListUserCredentialsRequest, ()> {
+    let Ok(Query(value)) = query else {
+        return Err(());
+    };
+    Ok(ListUserCredentialsRequest {
+        limit: value.limit,
+        after: value.after,
+    })
+}
+
+pub(super) async fn authenticated_account_id(session: &Session) -> Result<AccountId, Response> {
     match session.get::<AccountId>(SESSION_KEY_ACCOUNT).await {
         Ok(Some(account_id)) => Ok(account_id),
         Ok(None) => Err(auth_required()),
@@ -380,7 +348,7 @@ async fn authenticated_account_id(session: &Session) -> Result<AccountId, Respon
     }
 }
 
-fn auth_required() -> Response {
+pub(super) fn auth_required() -> Response {
     (
         StatusCode::UNAUTHORIZED,
         Json(AccountFailureBody {
@@ -391,7 +359,7 @@ fn auth_required() -> Response {
         .into_response()
 }
 
-fn internal_error() -> Response {
+pub(super) fn internal_error() -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(AccountFailureBody {
@@ -402,7 +370,7 @@ fn internal_error() -> Response {
         .into_response()
 }
 
-fn validation_failed(summary: &str) -> Response {
+pub(super) fn validation_failed(summary: &str) -> Response {
     (
         StatusCode::BAD_REQUEST,
         Json(AccountFailureBody {
@@ -419,12 +387,16 @@ fn parse_account_id(raw: &str) -> Result<AccountId, &'static str> {
         .map_err(|_| "account_id must be a valid uuid")
 }
 
-fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, &'static str> {
+pub(super) fn parse_user_setting_key(raw: &str) -> Result<UserSettingKey, &'static str> {
     parse_user_setting_key_registry(raw).map_err(|_| "key must be one of: theme, editor")
 }
 
-fn parse_user_credential_id(raw: &str) -> Result<UserCredentialId, &'static str> {
+pub(super) fn parse_user_credential_id(raw: &str) -> Result<UserCredentialId, &'static str> {
     UserCredentialId::parse(raw).map_err(|_| "item_id must be a valid uuid")
+}
+
+pub(super) const fn owner_scope_for(account_id: AccountId) -> OwnerScope {
+    OwnerScope::User { account_id }
 }
 
 fn is_same_account(requested_account_id: AccountId, authenticated_account_id: AccountId) -> bool {

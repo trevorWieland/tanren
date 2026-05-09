@@ -28,6 +28,7 @@ use utoipa_axum::routes;
 
 mod user_configuration;
 mod user_configuration_authenticated;
+mod user_configuration_helpers;
 
 use self::user_configuration::{
     __path_add_user_credential_route, __path_list_user_credentials_route,

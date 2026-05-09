@@ -25,46 +25,56 @@ export type UserSettingValue = components["schemas"]["UserSettingValue"];
 export type UserSettingView = components["schemas"]["UserSettingView"];
 export type UserCredentialView = components["schemas"]["UserCredentialView"];
 
-export type UpsertUserSettingInput =
-  OperationJsonRequest<"upsert_authenticated_user_setting_route">;
-export type UpsertUserSettingResult = OperationJsonResponse<
-  "upsert_authenticated_user_setting_route",
+type SharedUpsertUserSettingInput =
+  OperationJsonRequest<"upsert_user_setting_route">;
+type SharedUpsertUserSettingResult = OperationJsonResponse<
+  "upsert_user_setting_route",
   200
 >;
+export type UpsertUserSettingInput = SharedUpsertUserSettingInput;
+export type UpsertUserSettingResult = SharedUpsertUserSettingResult;
 
-export type ListUserSettingsResult = OperationJsonResponse<
-  "list_authenticated_user_settings_route",
+type SharedListUserSettingsResult = OperationJsonResponse<
+  "list_user_settings_route",
   200
 >;
+export type ListUserSettingsResult = SharedListUserSettingsResult;
 
-export type RemoveUserSettingResult = OperationJsonResponse<
-  "remove_authenticated_user_setting_route",
+type SharedRemoveUserSettingResult = OperationJsonResponse<
+  "remove_user_setting_route",
   200
 >;
+export type RemoveUserSettingResult = SharedRemoveUserSettingResult;
 
-export type CreateUserCredentialInput =
-  OperationJsonRequest<"add_authenticated_user_credential_route">;
-export type CreateUserCredentialResult = OperationJsonResponse<
-  "add_authenticated_user_credential_route",
+type SharedCreateUserCredentialResult = OperationJsonResponse<
+  "add_user_credential_route",
   201
 >;
+type AuthenticatedCreateUserCredentialInput =
+  OperationJsonRequest<"add_authenticated_user_credential_route">;
+export type CreateUserCredentialInput = AuthenticatedCreateUserCredentialInput;
+export type CreateUserCredentialResult = SharedCreateUserCredentialResult;
 
-export type UpdateUserCredentialInput =
-  OperationJsonRequest<"update_authenticated_user_credential_route">;
-export type UpdateUserCredentialResult = OperationJsonResponse<
-  "update_authenticated_user_credential_route",
+type SharedUpdateUserCredentialInput =
+  OperationJsonRequest<"update_user_credential_route">;
+type SharedUpdateUserCredentialResult = OperationJsonResponse<
+  "update_user_credential_route",
   200
 >;
+export type UpdateUserCredentialInput = SharedUpdateUserCredentialInput;
+export type UpdateUserCredentialResult = SharedUpdateUserCredentialResult;
 
-export type ListUserCredentialsResult = OperationJsonResponse<
-  "list_authenticated_user_credentials_route",
+type SharedListUserCredentialsResult = OperationJsonResponse<
+  "list_user_credentials_route",
   200
 >;
+export type ListUserCredentialsResult = SharedListUserCredentialsResult;
 
-export type RemoveUserCredentialResult = OperationJsonResponse<
-  "remove_authenticated_user_credential_route",
+type SharedRemoveUserCredentialResult = OperationJsonResponse<
+  "remove_user_credential_route",
   200
 >;
+export type RemoveUserCredentialResult = SharedRemoveUserCredentialResult;
 
 export type AccountFailure = components["schemas"]["AccountFailureBody"];
 
