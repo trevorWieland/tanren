@@ -26,10 +26,14 @@ impl MigrationTrait for Migration {
         create_role_permissions_role_id_index(manager).await?;
         create_permission_grants_dedup_index(manager).await?;
         create_permission_grants_lookup_index(manager).await?;
+        create_permission_grants_grantee_permission_index(manager).await?;
+        create_permission_grants_grantee_page_index(manager).await?;
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        drop_permission_grants_grantee_page_index(manager).await?;
+        drop_permission_grants_grantee_permission_index(manager).await?;
         drop_permission_grants_lookup_index(manager).await?;
         drop_permission_grants_dedup_index(manager).await?;
         drop_permission_grants_table(manager).await?;
@@ -231,11 +235,72 @@ async fn create_permission_grants_lookup_index(manager: &SchemaManager<'_>) -> R
         .await
 }
 
+async fn create_permission_grants_grantee_permission_index(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_permission_grants_grantee_permission")
+                .table(PermissionGrants::Table)
+                .col(PermissionGrants::GranteeKind)
+                .col(PermissionGrants::GranteeRef)
+                .col(PermissionGrants::PermissionName)
+                .col(PermissionGrants::RevokedAt)
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_permission_grants_grantee_page_index(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_permission_grants_grantee_page")
+                .table(PermissionGrants::Table)
+                .col(PermissionGrants::GranteeKind)
+                .col(PermissionGrants::GranteeRef)
+                .col(PermissionGrants::RevokedAt)
+                .col(PermissionGrants::GrantedAt)
+                .col(PermissionGrants::Id)
+                .to_owned(),
+        )
+        .await
+}
+
 async fn drop_permission_grants_lookup_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     manager
         .drop_index(
             Index::drop()
                 .name("idx_permission_grants_grantee_scope_permission")
+                .table(PermissionGrants::Table)
+                .to_owned(),
+        )
+        .await
+}
+
+async fn drop_permission_grants_grantee_permission_index(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    manager
+        .drop_index(
+            Index::drop()
+                .name("idx_permission_grants_grantee_permission")
+                .table(PermissionGrants::Table)
+                .to_owned(),
+        )
+        .await
+}
+
+async fn drop_permission_grants_grantee_page_index(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    manager
+        .drop_index(
+            Index::drop()
+                .name("idx_permission_grants_grantee_page")
                 .table(PermissionGrants::Table)
                 .to_owned(),
         )

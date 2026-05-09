@@ -28,13 +28,14 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, PermissionName,
-    PermissionScope, PrincipalRef, RoleId, RoleScope, ScopedRole, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, PermissionGrantId,
+    PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope, ScopedRole, SessionToken,
 };
 
 use crate::{
-    AccountRecord, ApplyRole, EditRole, EventEnvelope, InvitationRecord, NewAccount, NewRole,
-    PermissionGrantRecord, RoleRecord, SessionRecord, StoreError,
+    AccountRecord, ApplyRole, CursorPage, EditRole, EventEnvelope, InvitationRecord, NewAccount,
+    NewRole, PermissionGrantListCursor, PermissionGrantRecord, RoleListCursor, RoleRecord,
+    SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -347,8 +348,13 @@ pub trait RoleStore: Send + Sync + std::fmt::Debug {
     /// role exists.
     async fn delete_role(&self, role: ScopedRole) -> Result<bool, StoreError>;
 
-    /// List all role templates in one scope.
-    async fn list_roles(&self, scope: RoleScope) -> Result<Vec<RoleRecord>, StoreError>;
+    /// List role templates in one scope with cursor pagination.
+    async fn list_roles_page(
+        &self,
+        scope: RoleScope,
+        cursor: Option<RoleListCursor>,
+        limit: u64,
+    ) -> Result<CursorPage<RoleRecord, RoleListCursor>, StoreError>;
 
     /// Resolve one role template by id + scope.
     async fn find_role(&self, role: ScopedRole) -> Result<Option<RoleRecord>, StoreError>;
@@ -378,26 +384,31 @@ pub trait RoleStore: Send + Sync + std::fmt::Debug {
         permission: &PermissionName,
     ) -> Result<bool, StoreError>;
 
-    /// List direct grants for one principal and scope.
-    async fn list_direct_grants(
+    /// Check whether one direct grant exists for the principal and permission
+    /// across any scope.
+    async fn has_any_direct_grant(
         &self,
         principal: PrincipalRef,
-        scope: PermissionScope,
-    ) -> Result<Vec<PermissionGrantRecord>, StoreError>;
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError>;
 
-    /// List all direct grants for one principal.
-    async fn list_all_direct_grants(
+    /// List direct grants for one principal, optionally filtered by scope,
+    /// with cursor pagination.
+    async fn list_direct_grants_page(
         &self,
         principal: PrincipalRef,
-    ) -> Result<Vec<PermissionGrantRecord>, StoreError>;
+        scope: Option<PermissionScope>,
+        cursor: Option<PermissionGrantListCursor>,
+        limit: u64,
+    ) -> Result<CursorPage<PermissionGrantRecord, PermissionGrantListCursor>, StoreError>;
 
-    /// Read direct grants for principal + scope + permission.
-    async fn find_direct_grants(
+    /// Read matching direct-grant ids for principal + scope + permission.
+    async fn find_direct_grant_ids(
         &self,
         principal: PrincipalRef,
         scope: PermissionScope,
         permission: &PermissionName,
-    ) -> Result<Vec<PermissionGrantRecord>, StoreError>;
+    ) -> Result<Vec<PermissionGrantId>, StoreError>;
 
     /// List the role template's current permission names.
     async fn list_role_permissions(

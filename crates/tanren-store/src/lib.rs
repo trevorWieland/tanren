@@ -1,5 +1,4 @@
-//! Database access layer for Tanren.
-//! Owns SQL + row shapes while exposing typed store ports to other crates.
+//! Database access layer for Tanren: owns SQL + row shapes while exposing typed store ports.
 
 mod accept_invitation;
 mod entity;
@@ -8,6 +7,7 @@ mod migration;
 mod records;
 mod role_scope_lookup;
 mod role_store;
+mod role_store_ops;
 mod role_store_util;
 mod traits;
 
@@ -17,8 +17,9 @@ pub(crate) use grant_model::{
 };
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, ApplyRole, EditRole, InvitationRecord, MembershipRecord, NewAccount,
-    NewInvitation, NewRole, PermissionGrantRecord, RolePermissionRecord, RoleRecord, SessionRecord,
+    AccountRecord, ApplyRole, CursorPage, EditRole, InvitationRecord, MembershipRecord, NewAccount,
+    NewInvitation, NewRole, PermissionGrantListCursor, PermissionGrantRecord,
+    ROLE_GRANT_LIST_PAGE_MAX, RoleListCursor, RolePermissionRecord, RoleRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,

@@ -20,6 +20,7 @@ mod api;
 mod cli;
 mod in_process;
 mod mcp;
+mod role_utils;
 mod tui;
 mod web;
 
@@ -47,6 +48,7 @@ pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
+pub(crate) use role_utils::read_all_direct_grants;
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 

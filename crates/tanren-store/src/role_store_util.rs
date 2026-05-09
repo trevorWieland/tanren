@@ -5,7 +5,10 @@ use std::collections::BTreeSet;
 use sea_orm::DbErr;
 use tanren_identity_policy::PermissionName;
 
-use crate::StoreError;
+use crate::{ROLE_GRANT_LIST_PAGE_MAX, StoreError};
+
+/// Chunk size for large role-permission and apply-role insert batches.
+pub(crate) const ROLE_GRANT_INSERT_BATCH_SIZE: usize = 200;
 
 pub(crate) fn dedup_permission_names(permissions: &[PermissionName]) -> Vec<String> {
     permissions
@@ -36,4 +39,8 @@ where
         sea_orm::TransactionError::Connection(db_err) => StoreError::from(db_err).into(),
         sea_orm::TransactionError::Transaction(inner) => inner,
     }
+}
+
+pub(crate) fn clamp_page_limit(limit: u64) -> u64 {
+    limit.clamp(1, ROLE_GRANT_LIST_PAGE_MAX)
 }

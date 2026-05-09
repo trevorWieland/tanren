@@ -269,6 +269,36 @@ impl TryFrom<entity::permission_grants::Model> for PermissionGrantRecord {
     }
 }
 
+/// Maximum page size for role-template and direct-grant listing ports.
+pub const ROLE_GRANT_LIST_PAGE_MAX: u64 = 200;
+
+/// Cursor for role-template listing (`name`, then `id`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleListCursor {
+    /// Last-seen role name.
+    pub name: RoleName,
+    /// Last-seen role id (tie-breaker for duplicate names).
+    pub id: RoleId,
+}
+
+/// Cursor for direct-grant listing (`granted_at`, then `id`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionGrantListCursor {
+    /// Last-seen grant timestamp.
+    pub granted_at: DateTime<Utc>,
+    /// Last-seen grant id (tie-breaker for equal timestamps).
+    pub id: PermissionGrantId,
+}
+
+/// Generic cursor page envelope for store listing ports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorPage<T, C> {
+    /// Items for this page.
+    pub items: Vec<T>,
+    /// Cursor for the next page; `None` means end of list.
+    pub next_cursor: Option<C>,
+}
+
 /// Input shape for [`crate::AccountStore::insert_account`].
 #[derive(Debug, Clone)]
 pub struct NewAccount {

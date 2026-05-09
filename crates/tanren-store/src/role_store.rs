@@ -1,28 +1,33 @@
 //! `SeaORM`-backed role-template + direct-grant persistence adapter.
 
-use std::collections::HashMap;
+use std::collections::HashSet;
 
 use async_trait::async_trait;
-use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
-    EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryFilter,
+    QueryOrder, QuerySelect, Set, TransactionTrait,
 };
 use tanren_identity_policy::{
-    PermissionGrantSource, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope,
+    PermissionGrantId, PermissionGrantSource, PermissionName, PermissionScope, PrincipalRef,
+    RoleId, RoleScope,
 };
 use uuid::Uuid;
 
 use crate::entity;
 use crate::role_scope_lookup::{permission_scope_exists, principal_exists, role_scope_exists};
+use crate::role_store_ops::{
+    insert_permission_grants_chunked, insert_role_permissions_in_txn, list_direct_grants_page,
+    list_role_permission_names, list_roles_in_scope_page, role_exists_in_scope,
+    sync_role_permissions_in_txn,
+};
 use crate::role_store_util::{
     dedup_permission_names, is_unique_violation, map_store_txn_error, map_wrapped_txn_error,
 };
 use crate::{
-    ApplyRole, ApplyRoleError, CreateRoleError, EditRole, EditRoleError, NewRole,
-    PermissionGrantRecord, RoleRecord, RoleStore, Store, StoreError, parse_db_permission_name,
-    permission_grant_source_to_parts, permission_scope_to_parts, principal_ref_to_parts,
-    role_scope_to_parts,
+    ApplyRole, ApplyRoleError, CreateRoleError, CursorPage, EditRole, EditRoleError, NewRole,
+    PermissionGrantListCursor, PermissionGrantRecord, RoleListCursor, RoleRecord, RoleStore, Store,
+    StoreError, permission_grant_source_to_parts, permission_scope_to_parts,
+    principal_ref_to_parts, role_scope_to_parts,
 };
 
 #[async_trait]
@@ -57,8 +62,13 @@ impl RoleStore for Store {
             .map_err(map_store_txn_error)
     }
 
-    async fn list_roles(&self, scope: RoleScope) -> Result<Vec<RoleRecord>, StoreError> {
-        list_roles_in_scope(&self.conn, scope).await
+    async fn list_roles_page(
+        &self,
+        scope: RoleScope,
+        cursor: Option<RoleListCursor>,
+        limit: u64,
+    ) -> Result<CursorPage<RoleRecord, RoleListCursor>, StoreError> {
+        list_roles_in_scope_page(&self.conn, scope, cursor, limit).await
     }
 
     async fn find_role(
@@ -101,68 +111,62 @@ impl RoleStore for Store {
         let (grantee_kind, grantee_ref) = principal_ref_to_parts(principal);
         let (scope_kind, scope_ref) = permission_scope_to_parts(scope);
         let row = entity::permission_grants::Entity::find()
+            .select_only()
+            .column(entity::permission_grants::Column::Id)
             .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
             .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
             .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
             .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
             .filter(entity::permission_grants::Column::PermissionName.eq(permission.as_str()))
             .filter(entity::permission_grants::Column::RevokedAt.is_null())
+            .limit(1)
+            .into_tuple::<Uuid>()
             .one(&self.conn)
             .await?;
         Ok(row.is_some())
     }
 
-    async fn list_direct_grants(
+    async fn has_any_direct_grant(
         &self,
         principal: PrincipalRef,
-        scope: PermissionScope,
-    ) -> Result<Vec<PermissionGrantRecord>, StoreError> {
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError> {
         let (grantee_kind, grantee_ref) = principal_ref_to_parts(principal);
-        let (scope_kind, scope_ref) = permission_scope_to_parts(scope);
-        let rows = entity::permission_grants::Entity::find()
+        let row = entity::permission_grants::Entity::find()
+            .select_only()
+            .column(entity::permission_grants::Column::Id)
             .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
             .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
-            .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
-            .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
+            .filter(entity::permission_grants::Column::PermissionName.eq(permission.as_str()))
             .filter(entity::permission_grants::Column::RevokedAt.is_null())
-            .order_by_asc(entity::permission_grants::Column::PermissionName)
-            .order_by_asc(entity::permission_grants::Column::GrantedAt)
-            .all(&self.conn)
+            .limit(1)
+            .into_tuple::<Uuid>()
+            .one(&self.conn)
             .await?;
-        rows.into_iter()
-            .map(PermissionGrantRecord::try_from)
-            .collect::<Result<Vec<_>, _>>()
+        Ok(row.is_some())
     }
 
-    async fn list_all_direct_grants(
+    async fn list_direct_grants_page(
         &self,
         principal: PrincipalRef,
-    ) -> Result<Vec<PermissionGrantRecord>, StoreError> {
-        let (grantee_kind, grantee_ref) = principal_ref_to_parts(principal);
-        let rows = entity::permission_grants::Entity::find()
-            .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
-            .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
-            .filter(entity::permission_grants::Column::RevokedAt.is_null())
-            .order_by_asc(entity::permission_grants::Column::ScopeKind)
-            .order_by_asc(entity::permission_grants::Column::ScopeRef)
-            .order_by_asc(entity::permission_grants::Column::PermissionName)
-            .order_by_asc(entity::permission_grants::Column::GrantedAt)
-            .all(&self.conn)
-            .await?;
-        rows.into_iter()
-            .map(PermissionGrantRecord::try_from)
-            .collect::<Result<Vec<_>, _>>()
+        scope: Option<PermissionScope>,
+        cursor: Option<PermissionGrantListCursor>,
+        limit: u64,
+    ) -> Result<CursorPage<PermissionGrantRecord, PermissionGrantListCursor>, StoreError> {
+        list_direct_grants_page(&self.conn, principal, scope, cursor, limit).await
     }
 
-    async fn find_direct_grants(
+    async fn find_direct_grant_ids(
         &self,
         principal: PrincipalRef,
         scope: PermissionScope,
         permission: &PermissionName,
-    ) -> Result<Vec<PermissionGrantRecord>, StoreError> {
+    ) -> Result<Vec<PermissionGrantId>, StoreError> {
         let (grantee_kind, grantee_ref) = principal_ref_to_parts(principal);
         let (scope_kind, scope_ref) = permission_scope_to_parts(scope);
         let rows = entity::permission_grants::Entity::find()
+            .select_only()
+            .column(entity::permission_grants::Column::Id)
             .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
             .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
             .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
@@ -170,11 +174,14 @@ impl RoleStore for Store {
             .filter(entity::permission_grants::Column::PermissionName.eq(permission.as_str()))
             .filter(entity::permission_grants::Column::RevokedAt.is_null())
             .order_by_asc(entity::permission_grants::Column::GrantedAt)
+            .order_by_asc(entity::permission_grants::Column::Id)
+            .into_tuple::<Uuid>()
             .all(&self.conn)
             .await?;
-        rows.into_iter()
-            .map(PermissionGrantRecord::try_from)
-            .collect::<Result<Vec<_>, _>>()
+        Ok(rows
+            .into_iter()
+            .map(PermissionGrantId::new)
+            .collect::<Vec<_>>())
     }
 
     async fn list_role_permissions(
@@ -261,12 +268,7 @@ async fn edit_role_in_txn(
         return Err(EditRoleError::RoleNotFound);
     }
 
-    entity::role_permissions::Entity::delete_many()
-        .filter(entity::role_permissions::Column::RoleId.eq(role.role_id.as_uuid()))
-        .exec(txn)
-        .await
-        .map_err(StoreError::from)?;
-    insert_role_permissions_in_txn(txn, role.role_id, &permissions, updated_at).await?;
+    sync_role_permissions_in_txn(txn, role.role_id, &permissions, updated_at).await?;
 
     let row = load_role_record(txn, role.role_id, role.scope)
         .await?
@@ -304,8 +306,7 @@ async fn apply_role_in_txn(
         granted_by,
         granted_at,
     } = request;
-    let role_row = load_role_record(txn, role.role_id, role.scope).await?;
-    if role_row.is_none() {
+    if !role_exists_in_scope(txn, role.role_id, role.scope).await? {
         return Err(ApplyRoleError::RoleNotFound);
     }
     if !principal_exists(txn, principal).await? {
@@ -330,97 +331,92 @@ async fn apply_role_in_txn(
         role_id: role.role_id,
     };
     let (source_kind, source_ref) = permission_grant_source_to_parts(source);
-    let inserts = dedup_permission_strings
-        .iter()
-        .map(|permission| entity::permission_grants::ActiveModel {
-            id: Set(Uuid::now_v7()),
-            grantee_kind: Set(grantee_kind.to_owned()),
-            grantee_ref: Set(grantee_ref),
-            scope_kind: Set(scope_kind.to_owned()),
-            scope_ref: Set(scope_ref),
-            permission_name: Set(permission.clone()),
-            source_kind: Set(source_kind.to_owned()),
-            source_ref: Set(source_ref),
-            granted_by_kind: Set(granted_by_kind.to_owned()),
-            granted_by_ref: Set(granted_by_ref),
-            granted_at: Set(granted_at),
-            revoked_by_kind: Set(None),
-            revoked_by_ref: Set(None),
-            revoked_at: Set(None),
-        })
-        .collect::<Vec<_>>();
-
-    entity::permission_grants::Entity::insert_many(inserts)
-        .on_conflict(
-            OnConflict::columns([
-                entity::permission_grants::Column::GranteeKind,
-                entity::permission_grants::Column::GranteeRef,
-                entity::permission_grants::Column::ScopeKind,
-                entity::permission_grants::Column::ScopeRef,
-                entity::permission_grants::Column::PermissionName,
-            ])
-            .do_nothing()
-            .to_owned(),
-        )
-        .exec(txn)
-        .await
-        .map_err(StoreError::from)?;
-
-    let rows = entity::permission_grants::Entity::find()
+    let existing_rows = entity::permission_grants::Entity::find()
         .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
         .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
         .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
         .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
-        .filter(entity::permission_grants::Column::PermissionName.is_in(dedup_permission_strings))
+        .filter(
+            entity::permission_grants::Column::PermissionName
+                .is_in(dedup_permission_strings.clone()),
+        )
         .filter(entity::permission_grants::Column::RevokedAt.is_null())
         .order_by_asc(entity::permission_grants::Column::PermissionName)
         .order_by_asc(entity::permission_grants::Column::GrantedAt)
+        .order_by_asc(entity::permission_grants::Column::Id)
         .all(txn)
         .await
         .map_err(StoreError::from)?;
+
+    let missing_permissions =
+        missing_permissions_for_snapshot(&dedup_permission_strings, &existing_rows);
+
+    if !missing_permissions.is_empty() {
+        let inserts = missing_permissions
+            .iter()
+            .map(|permission| entity::permission_grants::ActiveModel {
+                id: Set(Uuid::now_v7()),
+                grantee_kind: Set(grantee_kind.to_owned()),
+                grantee_ref: Set(grantee_ref),
+                scope_kind: Set(scope_kind.to_owned()),
+                scope_ref: Set(scope_ref),
+                permission_name: Set(permission.clone()),
+                source_kind: Set(source_kind.to_owned()),
+                source_ref: Set(source_ref),
+                granted_by_kind: Set(granted_by_kind.to_owned()),
+                granted_by_ref: Set(granted_by_ref),
+                granted_at: Set(granted_at),
+                revoked_by_kind: Set(None),
+                revoked_by_ref: Set(None),
+                revoked_at: Set(None),
+            })
+            .collect::<Vec<_>>();
+        insert_permission_grants_chunked(txn, inserts).await?;
+    }
+
+    let mut rows = existing_rows;
+    if !missing_permissions.is_empty() {
+        let inserted_or_raced_rows = entity::permission_grants::Entity::find()
+            .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
+            .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
+            .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
+            .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
+            .filter(entity::permission_grants::Column::PermissionName.is_in(missing_permissions))
+            .filter(entity::permission_grants::Column::RevokedAt.is_null())
+            .order_by_asc(entity::permission_grants::Column::PermissionName)
+            .order_by_asc(entity::permission_grants::Column::GrantedAt)
+            .order_by_asc(entity::permission_grants::Column::Id)
+            .all(txn)
+            .await
+            .map_err(StoreError::from)?;
+        rows.extend(inserted_or_raced_rows);
+    }
+    rows.sort_by(|left, right| {
+        left.permission_name
+            .cmp(&right.permission_name)
+            .then(left.granted_at.cmp(&right.granted_at))
+            .then(left.id.cmp(&right.id))
+    });
+
     rows.into_iter()
         .map(PermissionGrantRecord::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(ApplyRoleError::from)
 }
 
-async fn list_roles_in_scope(
-    conn: &DatabaseConnection,
-    scope: RoleScope,
-) -> Result<Vec<RoleRecord>, StoreError> {
-    let (scope_kind, scope_ref) = role_scope_to_parts(scope);
-    let rows = entity::roles::Entity::find()
-        .filter(entity::roles::Column::ScopeKind.eq(scope_kind))
-        .filter(entity::roles::Column::ScopeRef.eq(scope_ref))
-        .order_by_asc(entity::roles::Column::Name)
-        .order_by_asc(entity::roles::Column::Id)
-        .all(conn)
-        .await?;
-    if rows.is_empty() {
-        return Ok(Vec::new());
-    }
-
-    let role_ids = rows.iter().map(|row| row.id).collect::<Vec<_>>();
-    let permission_rows = entity::role_permissions::Entity::find()
-        .filter(entity::role_permissions::Column::RoleId.is_in(role_ids))
-        .order_by_asc(entity::role_permissions::Column::RoleId)
-        .order_by_asc(entity::role_permissions::Column::PermissionName)
-        .all(conn)
-        .await?;
-    let mut by_role: HashMap<Uuid, Vec<PermissionName>> = HashMap::new();
-    for row in permission_rows {
-        by_role
-            .entry(row.role_id)
-            .or_default()
-            .push(parse_db_permission_name(&row.permission_name)?);
-    }
-
-    rows.into_iter()
-        .map(|row| {
-            let permissions = by_role.remove(&row.id).unwrap_or_default();
-            RoleRecord::from_parts(row, permissions)
-        })
-        .collect::<Result<Vec<_>, _>>()
+fn missing_permissions_for_snapshot(
+    snapshot_permissions: &[String],
+    existing_rows: &[entity::permission_grants::Model],
+) -> Vec<String> {
+    let existing_permissions = existing_rows
+        .iter()
+        .map(|row| row.permission_name.clone())
+        .collect::<HashSet<_>>();
+    snapshot_permissions
+        .iter()
+        .filter(|permission| !existing_permissions.contains(*permission))
+        .cloned()
+        .collect::<Vec<_>>()
 }
 
 async fn load_role_record<C: ConnectionTrait>(
@@ -441,50 +437,4 @@ async fn load_role_record<C: ConnectionTrait>(
 
     let permissions = list_role_permission_names(conn, role_id).await?;
     RoleRecord::from_parts(role_row, permissions).map(Some)
-}
-
-async fn list_role_permission_names<C: ConnectionTrait>(
-    conn: &C,
-    role_id: RoleId,
-) -> Result<Vec<PermissionName>, StoreError> {
-    let rows = entity::role_permissions::Entity::find()
-        .filter(entity::role_permissions::Column::RoleId.eq(role_id.as_uuid()))
-        .order_by_asc(entity::role_permissions::Column::PermissionName)
-        .all(conn)
-        .await?;
-    rows.into_iter()
-        .map(|row| parse_db_permission_name(&row.permission_name))
-        .collect::<Result<Vec<_>, _>>()
-}
-
-async fn insert_role_permissions_in_txn(
-    txn: &DatabaseTransaction,
-    role_id: RoleId,
-    permissions: &[PermissionName],
-    created_at: chrono::DateTime<chrono::Utc>,
-) -> Result<(), StoreError> {
-    let dedup_permissions = dedup_permission_names(permissions);
-    if dedup_permissions.is_empty() {
-        return Ok(());
-    }
-    let inserts = dedup_permissions
-        .into_iter()
-        .map(|permission_name| entity::role_permissions::ActiveModel {
-            role_id: Set(role_id.as_uuid()),
-            permission_name: Set(permission_name),
-            created_at: Set(created_at),
-        })
-        .collect::<Vec<_>>();
-    entity::role_permissions::Entity::insert_many(inserts)
-        .on_conflict(
-            OnConflict::columns([
-                entity::role_permissions::Column::RoleId,
-                entity::role_permissions::Column::PermissionName,
-            ])
-            .do_nothing()
-            .to_owned(),
-        )
-        .exec(txn)
-        .await?;
-    Ok(())
 }

@@ -63,10 +63,8 @@ where
         actor: AccountId,
         permission: &PermissionName,
     ) -> Result<bool, StoreError> {
-        let grants = self
-            .list_all_direct_grants(PrincipalRef::Account { account_id: actor })
-            .await?;
-        Ok(grants.iter().any(|grant| grant.permission == *permission))
+        self.has_any_direct_grant(PrincipalRef::Account { account_id: actor }, permission)
+            .await
     }
 }
 
@@ -277,10 +275,9 @@ where
     }
     ensure_principal_exists(store, request.principal).await?;
 
-    let grants = store
-        .find_direct_grants(request.principal, request.scope, &request.permission)
+    let matching_grant_ids = store
+        .find_direct_grant_ids(request.principal, request.scope, &request.permission)
         .await?;
-    let matching_grant_ids = grants.iter().map(|grant| grant.id).collect::<Vec<_>>();
     Ok(PermissionCheckResponse {
         principal: request.principal,
         permission: request.permission,

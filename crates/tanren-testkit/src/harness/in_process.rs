@@ -268,11 +268,7 @@ impl RoleHarness for InProcessHarness {
         &self,
         principal: tanren_identity_policy::PrincipalRef,
     ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
-        let grants = self
-            .store
-            .list_all_direct_grants(principal)
-            .await
-            .map_err(|e| RoleHarnessError::Transport(format!("read_direct_grants: {e}")))?;
+        let grants = super::read_all_direct_grants(&self.store, principal).await?;
         Ok(grants.into_iter().map(permission_grant_view).collect())
     }
 }
