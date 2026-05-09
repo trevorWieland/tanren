@@ -17,7 +17,7 @@ use tanren_contract::{
     SetDeploymentPostureResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
     SupportedDeploymentPosturesResponse,
 };
-use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier, SessionToken};
 pub use tanren_store::{AccountStore, DeploymentPostureStore, Store};
 
 use std::sync::Arc;
@@ -228,6 +228,27 @@ impl Handlers {
         S: DeploymentPostureStore + ?Sized,
     {
         deployment_posture::set_deployment_posture(store, &self.clock, actor, request).await
+    }
+
+    /// Resolve the account principal for a bearer session token.
+    ///
+    /// Missing or expired sessions map to the shared
+    /// `permission_denied` contract failure so interfaces expose a
+    /// stable auth/permission reject surface.
+    pub async fn resolve_active_session_account<S>(
+        &self,
+        store: &S,
+        token: &SessionToken,
+    ) -> Result<AccountId, deployment_posture::SetDeploymentPostureError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        let now = self.clock.now();
+        let session = store.find_active_session_by_token(token, now).await?;
+        session.map_or_else(
+            || Err(deployment_posture::missing_or_expired_session_failure()),
+            |row| Ok(row.account_id),
+        )
     }
 
     /// Read the currently recorded deployment posture for a scope.

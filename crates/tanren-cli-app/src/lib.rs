@@ -21,13 +21,17 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
 use secrecy::SecretString;
-use tanren_app_services::deployment_posture::SetDeploymentPostureError;
+use tanren_app_services::deployment_posture::{
+    SetDeploymentPostureError, missing_or_expired_session_failure,
+};
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, DeploymentPosture, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, DeploymentPosture, DeploymentPostureFailureReason,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, Email, InstallationId, InvitationToken, ProjectId};
+use tanren_identity_policy::{
+    AccountId, Email, InstallationId, InvitationToken, ProjectId, SessionToken,
+};
 use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
@@ -150,9 +154,6 @@ enum PostureAction {
         /// Database URL.
         #[arg(long, env = "DATABASE_URL")]
         database_url: String,
-        /// Authenticated actor account id UUID.
-        #[arg(long)]
-        actor_account_id: String,
         /// Scope kind.
         #[arg(long)]
         scope_kind: ScopeKindArg,
@@ -265,15 +266,9 @@ async fn run_account(action: AccountAction) -> Result<()> {
                         .await
                         .map_err(account_error)?;
                     persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
+                    let payload =
+                        serde_json::to_value(response).context("encode sign-up response")?;
+                    write_json_line(&payload)?;
                 }
                 Some(token) => {
                     let invitation_token = InvitationToken::parse(&token)
@@ -291,16 +286,9 @@ async fn run_account(action: AccountAction) -> Result<()> {
                         .await
                         .map_err(account_error)?;
                     persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
+                    let payload = serde_json::to_value(response)
+                        .context("encode invitation-acceptance response")?;
+                    write_json_line(&payload)?;
                 }
             }
         }
@@ -319,15 +307,8 @@ async fn run_account(action: AccountAction) -> Result<()> {
                 .await
                 .map_err(account_error)?;
             persist_session(response.session.token.expose_secret())?;
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
-            writeln!(
-                handle,
-                "account_id={id} session={token}",
-                id = response.account.id,
-                token = response.session.token.expose_secret(),
-            )
-            .context("write sign-in result")?;
+            let payload = serde_json::to_value(response).context("encode sign-in response")?;
+            write_json_line(&payload)?;
         }
     }
     Ok(())
@@ -360,7 +341,6 @@ async fn run_posture(action: PostureAction) -> Result<()> {
         }
         PostureAction::Set {
             database_url,
-            actor_account_id,
             scope_kind,
             scope_id,
             posture,
@@ -369,7 +349,7 @@ async fn run_posture(action: PostureAction) -> Result<()> {
                 .await
                 .context("connect to store")?;
             let scope = parse_scope(scope_kind, &scope_id)?;
-            let actor = parse_account_id(&actor_account_id)?;
+            let actor = resolve_actor_from_session(&handlers, &store).await?;
             let posture = parse_posture_value(&posture)?;
             let response = handlers
                 .set_deployment_posture(
@@ -384,6 +364,14 @@ async fn run_posture(action: PostureAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+async fn resolve_actor_from_session(handlers: &Handlers, store: &Store) -> Result<AccountId> {
+    let token = load_persisted_session_token()?;
+    handlers
+        .resolve_active_session_account(store, &token)
+        .await
+        .map_err(posture_error)
 }
 
 fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureScope> {
@@ -403,16 +391,11 @@ fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureSc
     Ok(scope)
 }
 
-fn parse_account_id(raw: &str) -> Result<AccountId> {
-    let parsed_uuid = Uuid::parse_str(raw)
-        .with_context(|| format!("parse --actor-account-id `{raw}` as UUID"))?;
-    Ok(AccountId::from(parsed_uuid))
-}
-
 fn parse_posture_value(raw: &str) -> Result<DeploymentPosture> {
     DeploymentPosture::from_wire_value(raw).ok_or_else(|| {
         anyhow::anyhow!(
-            "error: unsupported_posture — unsupported deployment posture `{raw}`; supported values: hosted, self_hosted, local_only"
+            "error: unsupported_posture — {}",
+            DeploymentPostureFailureReason::UnsupportedPosture.summary()
         )
     })
 }
@@ -442,6 +425,22 @@ fn posture_error(err: SetDeploymentPostureError) -> anyhow::Error {
         }
         _ => anyhow::anyhow!("error: internal_error — unknown posture failure"),
     }
+}
+
+fn load_persisted_session_token() -> Result<SessionToken> {
+    let path = session_path();
+    let raw = fs::read_to_string(&path).map_err(|_| {
+        let failure = missing_or_expired_session_failure();
+        posture_error(failure)
+    })?;
+    let token = raw.trim();
+    if token.is_empty() {
+        let failure = missing_or_expired_session_failure();
+        return Err(posture_error(failure));
+    }
+    Ok(SessionToken::from_secret(SecretString::from(
+        token.to_owned(),
+    )))
 }
 
 fn write_json_line(value: &serde_json::Value) -> Result<()> {

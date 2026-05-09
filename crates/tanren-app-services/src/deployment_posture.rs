@@ -44,6 +44,20 @@ pub enum SetDeploymentPostureError {
     },
 }
 
+/// Return the shared permission/auth failure used when an interface
+/// cannot resolve an authenticated actor from session context.
+#[must_use]
+pub fn missing_or_expired_session_failure() -> SetDeploymentPostureError {
+    SetDeploymentPostureError::Contract {
+        failure: DeploymentPostureContractFailure {
+            reason: DeploymentPostureFailureReason::PermissionDenied,
+            detail: DeploymentPostureFailureReason::PermissionDenied
+                .summary()
+                .to_owned(),
+        },
+    }
+}
+
 impl SetDeploymentPostureError {
     /// Access the contract failure payload for transport mapping.
     #[must_use]

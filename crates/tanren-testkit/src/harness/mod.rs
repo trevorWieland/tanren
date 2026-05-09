@@ -25,7 +25,8 @@
 //!   response body returned a bearer token.
 //! - `@cli` — full impl. Spawns the `tanren-cli` binary via
 //!   `tokio::process::Command` against a shared `SQLite` file. Parses
-//!   the `account_id=... session=...` stdout shape.
+//!   typed JSON payloads from stdout and persists a per-scenario session
+//!   file for posture commands.
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
@@ -269,9 +270,9 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     /// Set deployment posture for the supplied scope.
     ///
     /// `actor` is the caller account for transports that surface an
-    /// explicit actor id (for example CLI and in-process). Session-based
-    /// transports (for example API) ignore the parameter and use the
-    /// authenticated session context.
+    /// explicit actor id (for example in-process). Session-based
+    /// transports (for example API and CLI) ignore the parameter and use
+    /// the authenticated session context.
     async fn set_deployment_posture(
         &mut self,
         actor: AccountId,
