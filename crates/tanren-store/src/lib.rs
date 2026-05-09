@@ -33,6 +33,7 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -152,6 +153,34 @@ impl AccountStore for Store {
             .one(&self.conn)
             .await?;
         row.map(AccountRecord::try_from).transpose()
+    }
+
+    async fn find_accounts_by_ids(
+        &self,
+        account_ids: &[AccountId],
+    ) -> Result<Vec<Option<AccountRecord>>, StoreError> {
+        if account_ids.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let ids: Vec<Uuid> = account_ids
+            .iter()
+            .map(|account_id| account_id.as_uuid())
+            .collect();
+        let rows = entity::accounts::Entity::find()
+            .filter(entity::accounts::Column::Id.is_in(ids))
+            .all(&self.conn)
+            .await?;
+
+        let mut by_id = HashMap::with_capacity(rows.len());
+        for row in rows {
+            by_id.insert(row.id, AccountRecord::try_from(row)?);
+        }
+
+        Ok(account_ids
+            .iter()
+            .map(|account_id| by_id.remove(&account_id.as_uuid()))
+            .collect())
     }
 
     async fn validate_session_token(

@@ -191,6 +191,15 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         account_id: AccountId,
     ) -> Result<Option<AccountRecord>, StoreError>;
 
+    /// Batch look up accounts by stable account ids.
+    ///
+    /// The returned vector preserves caller order and uses `None` for
+    /// unknown ids.
+    async fn find_accounts_by_ids(
+        &self,
+        account_ids: &[AccountId],
+    ) -> Result<Vec<Option<AccountRecord>>, StoreError>;
+
     /// Validate that a session token exists and has not expired, then
     /// return the associated account.
     ///

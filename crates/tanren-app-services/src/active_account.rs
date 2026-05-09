@@ -201,18 +201,20 @@ async fn load_signed_in_accounts<S>(
 where
     S: AccountStore + ?Sized,
 {
-    let mut accounts = Vec::with_capacity(signed_in_ids.len());
-    for account_id in signed_in_ids {
-        if let Some(record) = store.find_account_by_id(*account_id).await? {
-            accounts.push(redact_for_active_account_switcher(&record));
-        }
-    }
-    if accounts.len() != signed_in_ids.len() {
-        return Err(AppServiceError::InvalidInput(
-            "signed-in set contains unknown account id".to_owned(),
-        ));
-    }
-    Ok(accounts)
+    store
+        .find_accounts_by_ids(signed_in_ids)
+        .await?
+        .into_iter()
+        .map(|record| {
+            record
+                .map(|row| redact_for_active_account_switcher(&row))
+                .ok_or_else(|| {
+                    AppServiceError::InvalidInput(
+                        "signed-in set contains unknown account id".to_owned(),
+                    )
+                })
+        })
+        .collect()
 }
 
 fn redact_for_active_account_switcher(record: &AccountRecord) -> ActiveAccountView {
