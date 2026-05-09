@@ -1,16 +1,22 @@
 //! Install profile/integration typing and catalog plumbing.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 use std::str::FromStr;
 
 pub mod catalog;
 pub mod error;
 pub mod manifest;
+pub mod plan;
+pub mod writer;
 
 pub use error::InstallError;
+pub use plan::InstallPlan;
+pub use writer::InstallReport;
 
 /// Supported Tanren standards profiles for local repository bootstrap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
 pub enum InstallProfile {
     /// Install the Rust + Cargo standards profile.
     RustCargo,
@@ -40,7 +46,10 @@ impl FromStr for InstallProfile {
 }
 
 /// Supported agent integration targets for generated command assets.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+)]
+#[serde(rename_all = "kebab-case")]
 pub enum InstallIntegration {
     Claude,
     Codex,
@@ -107,4 +116,25 @@ pub fn parse_integration_selection(
     }
 
     Ok(selected)
+}
+
+/// Build a validated install plan from raw install inputs.
+pub fn plan_install(
+    repository: &Path,
+    profile: &str,
+    integration_selection: Option<&str>,
+) -> Result<InstallPlan, InstallError> {
+    let profile = InstallProfile::from_str(profile)?;
+    let integrations = parse_integration_selection(integration_selection)?;
+    plan::build_install_plan(repository, profile, &integrations)
+}
+
+/// Validate install inputs, then apply the manifest-driven repository writes.
+pub fn apply_install(
+    repository: &Path,
+    profile: &str,
+    integration_selection: Option<&str>,
+) -> Result<InstallReport, InstallError> {
+    let plan = plan_install(repository, profile, integration_selection)?;
+    writer::apply_install_plan(&plan)
 }

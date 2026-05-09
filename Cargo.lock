@@ -4299,12 +4299,14 @@ dependencies = [
  "anyhow",
  "clap",
  "secrecy",
+ "serde",
  "sha2 0.11.0",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
 ]
 
 [[package]]
