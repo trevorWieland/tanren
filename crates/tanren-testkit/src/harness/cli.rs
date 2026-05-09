@@ -7,7 +7,7 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -68,7 +68,7 @@ impl CliHarness {
             .map_err(|e| HarnessError::Transport(format!("migrate store: {e}")))?;
         let store = Arc::new(store);
 
-        let binary = locate_workspace_binary("tanren-cli")?;
+        let binary = locate_or_build_workspace_binary("tanren-cli").await?;
 
         Ok(Self {
             store,
@@ -268,6 +268,46 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
         "binary `{name}` not found alongside test executable {} — run `cargo build --workspace`",
         exe.display()
     )))
+}
+
+async fn locate_or_build_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
+    match locate_workspace_binary(name) {
+        Ok(path) => Ok(path),
+        Err(initial) => {
+            build_workspace_binary(name).await?;
+            locate_workspace_binary(name).map_err(|final_err| {
+                HarnessError::Transport(format!(
+                    "{initial}; attempted `cargo build --bin {name}` but binary is still missing: {final_err}"
+                ))
+            })
+        }
+    }
+}
+
+async fn build_workspace_binary(name: &str) -> HarnessResult<()> {
+    let output = Command::new("cargo")
+        .args(["build", "-q", "--locked", "--bin", name])
+        .current_dir(workspace_root())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("spawn cargo build for `{name}`: {e}")))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(HarnessError::Transport(format!(
+        "cargo build --bin {name} failed: {stderr}"
+    )))
+}
+
+fn workspace_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root must exist")
 }
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {

@@ -218,9 +218,27 @@ async fn run_cli(harness: &CliHarness, args: &[String]) -> RoleHarnessResult<std
 
 fn parse_json_stdout<T: DeserializeOwned>(stdout: &[u8], context: &str) -> RoleHarnessResult<T> {
     let text = String::from_utf8_lossy(stdout);
-    serde_json::from_str(text.trim()).map_err(|e| {
+    let payload = find_json_payload(&text).ok_or_else(|| {
+        RoleHarnessError::Transport(format!(
+            "decode {context} response from cli stdout: no JSON object found in `{text}`"
+        ))
+    })?;
+    serde_json::from_value(payload).map_err(|e| {
         RoleHarnessError::Transport(format!("decode {context} response from cli stdout: {e}"))
     })
+}
+
+fn find_json_payload(stdout: &str) -> Option<serde_json::Value> {
+    for line in stdout.lines().rev() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(trimmed) {
+            return Some(value);
+        }
+    }
+    None
 }
 
 fn role_scope_kind_label(scope: RoleScope) -> &'static str {

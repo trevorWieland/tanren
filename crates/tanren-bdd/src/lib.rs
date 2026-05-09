@@ -16,9 +16,11 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::PermissionCheckResponse;
+use tanren_identity_policy::{AccountId, RoleScope, ScopedRole};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, McpHarness, RoleHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -61,11 +63,13 @@ impl TanrenWorld {
 /// state lives inside the harness implementation.
 pub struct AccountContext {
     /// Active wire harness for the current scenario.
-    pub harness: Box<dyn AccountHarness>,
+    pub harness: Box<dyn ScenarioHarness>,
     /// Registry of actors by display name.
     pub actors: HashMap<String, ActorState>,
     /// The most recent action's outcome.
     pub last_outcome: Option<HarnessOutcome>,
+    /// Role-proof scenario state.
+    pub role: RoleScenarioState,
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
@@ -76,6 +80,7 @@ impl std::fmt::Debug for AccountContext {
         f.debug_struct("AccountContext")
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
+            .field("role_active", &self.role.active_role.is_some())
             .field("invitations", &self.invitations)
             .field(
                 "last_outcome",
@@ -99,7 +104,7 @@ impl AccountContext {
     /// so it surfaces during the first step rather than blocking
     /// scenario discovery.
     pub async fn new_for(kind: HarnessKind) -> Self {
-        let harness: Box<dyn AccountHarness> = match kind {
+        let harness: Box<dyn ScenarioHarness> = match kind {
             HarnessKind::InProcess => Box::new(
                 InProcessHarness::new(kind)
                     .await
@@ -118,9 +123,31 @@ impl AccountContext {
             harness,
             actors: HashMap::new(),
             last_outcome: None,
+            role: RoleScenarioState::default(),
             invitations: HashSet::new(),
         }
     }
+}
+
+/// Combined BDD harness trait for scenarios that exercise both account
+/// and role flows.
+pub trait ScenarioHarness: AccountHarness + RoleHarness {}
+
+impl<T> ScenarioHarness for T where T: AccountHarness + RoleHarness {}
+
+/// Mutable role-proof state tracked per scenario.
+#[derive(Debug, Default)]
+pub struct RoleScenarioState {
+    /// Scope used for role-template operations in this scenario.
+    pub scope: Option<RoleScope>,
+    /// Active role template under test.
+    pub active_role: Option<ScopedRole>,
+    /// Stable account principals keyed by scenario alias.
+    pub principals: HashMap<String, AccountId>,
+    /// Last role failure code observed.
+    pub last_error_code: Option<String>,
+    /// Last permission-check response observed.
+    pub last_permission_check: Option<PermissionCheckResponse>,
 }
 
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
