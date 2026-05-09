@@ -493,8 +493,14 @@ When(
     if (!targetId) {
       throw new Error(`actor ${name} has no ${which} account id recorded`);
     }
-    const listing = await switchActiveAccountViaFetch(page, windowId, targetId);
-    world.windowAccounts.set(windowId, listing);
+    const result = await switchActiveAccountViaFetch(page, windowId, targetId);
+    if (result.ok) {
+      a.lastFailureCode = undefined;
+      world.windowAccounts.set(windowId, result.accounts);
+      return;
+    }
+    a.lastFailureCode = result.failure;
+    world.windowAccounts.delete(windowId);
   },
 );
 
@@ -875,7 +881,9 @@ async function switchActiveAccountViaFetch(
   page: import("@playwright/test").Page,
   windowId: string,
   targetAccountId: string,
-): Promise<ActiveAccountListing> {
+): Promise<
+  { ok: true; accounts: ActiveAccountListing } | { ok: false; failure: string }
+> {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   const result = await page.evaluate(
     async ({ apiUrl, windowId, targetAccountId }) => {
@@ -896,18 +904,18 @@ async function switchActiveAccountViaFetch(
           code?: string;
           summary?: string;
         };
-        return body.code ?? body.summary ?? `HTTP ${response.status}`;
+        return {
+          ok: false as const,
+          failure: body.code ?? body.summary ?? `HTTP ${response.status}`,
+        };
       }
       const payload = (await response.json()) as {
         accounts: ActiveAccountListing;
       };
-      return payload.accounts;
+      return { ok: true as const, accounts: payload.accounts };
     },
     { apiUrl, windowId, targetAccountId },
   );
-  if (typeof result === "string") {
-    throw new Error(`switch active failed for window '${windowId}': ${result}`);
-  }
   return result;
 }
 

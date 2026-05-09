@@ -21,13 +21,17 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest, SignedInAccountView};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountFailureReason, SignInRequest, SignUpRequest,
+    SignedInAccountView,
+};
 use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
+use uuid::Uuid;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
 
@@ -86,6 +90,7 @@ impl AccountHarness for WebHarness {
         &mut self,
         window_id: &str,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
+        validate_window_context_id(window_id)?;
         self.inner.list_active_accounts_in_window(window_id).await
     }
 
@@ -101,6 +106,7 @@ impl AccountHarness for WebHarness {
         window_id: &str,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
+        validate_window_context_id(window_id)?;
         self.inner
             .switch_active_account_in_window(window_id, target_account_id)
             .await
@@ -109,4 +115,18 @@ impl AccountHarness for WebHarness {
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
     }
+}
+
+fn validate_window_context_id(window_id: &str) -> HarnessResult<()> {
+    let trimmed = window_id.trim();
+    if trimmed.is_empty() {
+        return Ok(());
+    }
+    if Uuid::parse_str(trimmed).is_ok() {
+        return Ok(());
+    }
+    Err(HarnessError::Account(
+        AccountFailureReason::ValidationFailed,
+        format!("invalid window context id `{trimmed}`"),
+    ))
 }

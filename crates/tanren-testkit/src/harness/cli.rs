@@ -73,7 +73,7 @@ impl CliHarness {
 
         let binary = locate_workspace_binary("tanren-cli")?;
         let session_file = db_path.with_extension("session.json");
-        let window_id = "bdd-cli-window".to_owned();
+        let window_id = "33333333-3333-4333-8333-333333333333".to_owned();
 
         Ok(Self {
             store,

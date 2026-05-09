@@ -72,6 +72,13 @@ Feature: Switch the active account
       Then the request fails with code "target_account_not_signed_in"
 
     @falsification @web
+    Scenario: Web rejects non-UUID window ids without mutating active state
+      Given alice holds two signed-in accounts via the web
+      When alice switches the active account to the second account in window "web-window-invalid" via the web
+      Then the request fails with code "validation_failed"
+      And alice sees the second account as active via the web
+
+    @falsification @web
     Scenario: Web switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the web
       When alice switches the active account to the first account in window "22222222-2222-4222-8222-22222222222a" via the web
