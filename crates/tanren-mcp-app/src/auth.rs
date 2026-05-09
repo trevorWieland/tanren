@@ -89,12 +89,12 @@ pub(crate) async fn require_api_key(
 }
 
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
+    let mut diff = a.len() ^ b.len();
+    let max_len = a.len().max(b.len());
+    for idx in 0..max_len {
+        let left = if idx < a.len() { a[idx] } else { 0 };
+        let right = if idx < b.len() { b[idx] } else { 0 };
+        diff |= usize::from(left ^ right);
     }
     diff == 0
 }
