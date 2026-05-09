@@ -1,6 +1,6 @@
 use std::path::{Component, Path, PathBuf};
 
-use tanren_cli_app::install::manifest::RepoRelativePath;
+use tanren_testkit::InstallProofRepoRelativePath;
 
 use crate::steps::install::InstallStepError;
 
@@ -17,8 +17,8 @@ impl RepositoryRelativePath {
         self.0.as_str()
     }
 
-    pub(super) fn as_install_path(&self) -> Result<RepoRelativePath, InstallStepError> {
-        RepoRelativePath::parse(self.as_str()).map_err(|_| {
+    pub(super) fn as_install_path(&self) -> Result<InstallProofRepoRelativePath, InstallStepError> {
+        InstallProofRepoRelativePath::parse(self.as_str()).map_err(|_| {
             InstallStepError::InstallPathContractRejected {
                 path: self.as_str().to_owned(),
             }

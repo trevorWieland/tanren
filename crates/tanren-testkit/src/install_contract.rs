@@ -1,9 +1,12 @@
 //! Typed install-proof contract helpers shared by BDD assertions.
 
 use std::collections::BTreeSet;
+use std::path::Path;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
+use tanren_cli_app::install::contract;
+use tanren_cli_app::install::manifest;
 use thiserror::Error;
 
 /// Install manifest schema version asserted by the BDD install proofs.
@@ -132,4 +135,72 @@ pub enum InstallProofContractError {
     UnsupportedIntegration { name: String },
     #[error("integration selection is empty")]
     EmptyIntegrationSelection,
+}
+
+/// Delivery-owned proof failure type surfaced to BDD assertion mapping.
+pub use contract::InstallProofError;
+/// Delivery-owned repository-relative install path contract type.
+pub type InstallProofRepoRelativePath = manifest::RepoRelativePath;
+
+/// Assert the default rust-cargo install writes both command and standards assets.
+pub fn assert_rust_cargo_default_assets_installed(
+    repository_root: &Path,
+) -> Result<(), InstallProofError> {
+    contract::assert_rust_cargo_default_assets_installed(repository_root)
+}
+
+/// Assert rust-cargo standards profile assets are installed.
+pub fn assert_rust_cargo_standards_installed(
+    repository_root: &Path,
+) -> Result<(), InstallProofError> {
+    contract::assert_rust_cargo_standards_installed(repository_root)
+}
+
+/// Assert only the selected integration command assets are installed.
+pub fn assert_selected_integration_command_assets(
+    repository_root: &Path,
+    selected_integrations: &str,
+) -> Result<(), InstallProofError> {
+    contract::assert_selected_integration_command_assets(repository_root, selected_integrations)
+}
+
+/// Assert install manifest defaults for rust-cargo profile installs.
+pub fn assert_manifest_rust_cargo_defaults(
+    repository_root: &Path,
+) -> Result<(), InstallProofError> {
+    contract::assert_manifest_rust_cargo_defaults(repository_root)
+}
+
+/// Append a stale generated-manifest row for mutation-flow fixtures.
+#[cfg(feature = "test-hooks")]
+pub fn append_stale_generated_manifest_entry(
+    manifest: &mut String,
+    relative_path: &InstallProofRepoRelativePath,
+    content_hash: &str,
+) {
+    contract::append_stale_generated_manifest_entry(manifest, relative_path, content_hash);
+}
+
+/// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
+#[cfg(feature = "test-hooks")]
+pub fn tamper_manifest_with_raw_generated_entry(
+    repository_root: &Path,
+    raw_path: &str,
+) -> Result<(), InstallProofError> {
+    contract::tamper_manifest_with_raw_generated_entry(repository_root, raw_path)
+}
+
+/// Read a workspace catalog file for fixture seeding.
+#[cfg(feature = "test-hooks")]
+pub fn read_workspace_catalog_file(
+    relative_path: &InstallProofRepoRelativePath,
+) -> Result<String, InstallProofError> {
+    contract::read_workspace_catalog_file(relative_path)
+}
+
+/// Calculate a hex SHA-256 digest for fixture bytes.
+#[must_use]
+#[cfg(feature = "test-hooks")]
+pub fn sha256_hex_string(bytes: &[u8]) -> String {
+    manifest::sha256_hex(bytes)
 }

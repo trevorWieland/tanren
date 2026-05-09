@@ -1,9 +1,8 @@
 use std::path::PathBuf;
 
-use tanren_cli_app::install::contract::InstallProofError;
 use thiserror::Error;
 
-use tanren_testkit::{HarnessError, HarnessKind};
+use tanren_testkit::{HarnessError, HarnessKind, InstallProofError};
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallStepError {

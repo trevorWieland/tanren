@@ -19,7 +19,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }
 tanren-contract = { path = "../tanren-contract" }
-tanren-cli-app = { path = "../tanren-cli-app", features = ["test-hooks"] }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
