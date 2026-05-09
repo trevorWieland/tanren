@@ -1,4 +1,4 @@
-use reqwest::Client;
+use reqwest::{Client, Method};
 use serde_json::Value;
 use tanren_configuration_secrets::OwnerScope;
 use tanren_contract::{
@@ -8,6 +8,7 @@ use tanren_contract::{
 };
 use tanren_identity_policy::AccountId;
 
+use super::request_retry::{send, send_get_with_retry, send_json};
 use super::{HarnessError, HarnessResult, failure_from_body};
 
 pub(super) async fn list_user_settings(
@@ -16,10 +17,7 @@ pub(super) async fn list_user_settings(
     requested_account_id: AccountId,
 ) -> HarnessResult<ListUserSettingsResponse> {
     let url = format!("{base_url}/accounts/{requested_account_id}/user-settings");
-    let response =
-        client.get(&url).send().await.map_err(|e| {
-            HarnessError::Transport(format!("GET /accounts/{{id}}/user-settings: {e}"))
-        })?;
+    let response = send_get_with_retry(client, &url, "GET /accounts/{id}/user-settings").await?;
     let status = response.status();
     let json: Value = response
         .json()
@@ -39,9 +37,14 @@ pub(super) async fn upsert_user_setting(
     request: UpsertUserSettingRequest,
 ) -> HarnessResult<UpsertUserSettingResponse> {
     let url = format!("{base_url}/accounts/{requested_account_id}/user-settings");
-    let response = client.post(&url).json(&request).send().await.map_err(|e| {
-        HarnessError::Transport(format!("POST /accounts/{{id}}/user-settings: {e}"))
-    })?;
+    let response = send_json(
+        client,
+        Method::POST,
+        &url,
+        &request,
+        "POST /accounts/{id}/user-settings",
+    )
+    .await?;
     let status = response.status();
     let json: Value = response
         .json()
@@ -60,9 +63,7 @@ pub(super) async fn list_user_credentials(
     requested_account_id: AccountId,
 ) -> HarnessResult<ListUserCredentialsResponse> {
     let url = format!("{base_url}/accounts/{requested_account_id}/user-credentials");
-    let response = client.get(&url).send().await.map_err(|e| {
-        HarnessError::Transport(format!("GET /accounts/{{id}}/user-credentials: {e}"))
-    })?;
+    let response = send_get_with_retry(client, &url, "GET /accounts/{id}/user-credentials").await?;
     let status = response.status();
     let json: Value = response
         .json()
@@ -85,9 +86,14 @@ pub(super) async fn add_user_credential(
         account_id: requested_account_id,
     };
     let url = format!("{base_url}/accounts/{requested_account_id}/user-credentials");
-    let response = client.post(&url).json(&request).send().await.map_err(|e| {
-        HarnessError::Transport(format!("POST /accounts/{{id}}/user-credentials: {e}"))
-    })?;
+    let response = send_json(
+        client,
+        Method::POST,
+        &url,
+        &request,
+        "POST /accounts/{id}/user-credentials",
+    )
+    .await?;
     let status = response.status();
     let json: Value = response
         .json()
@@ -107,11 +113,13 @@ pub(super) async fn remove_user_credential(
     item_id: &str,
 ) -> HarnessResult<RemoveUserCredentialResponse> {
     let url = format!("{base_url}/accounts/{requested_account_id}/user-credentials/{item_id}");
-    let response = client.delete(&url).send().await.map_err(|e| {
-        HarnessError::Transport(format!(
-            "DELETE /accounts/{{id}}/user-credentials/{{item_id}}: {e}"
-        ))
-    })?;
+    let response = send(
+        client,
+        Method::DELETE,
+        &url,
+        "DELETE /accounts/{id}/user-credentials/{item_id}",
+    )
+    .await?;
     let status = response.status();
     let json: Value = response
         .json()

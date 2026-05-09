@@ -1,3 +1,4 @@
+mod request_retry;
 mod user_configuration;
 use std::{path::PathBuf, sync::Arc};
 
@@ -7,7 +8,8 @@ use super::{
 };
 use async_trait::async_trait;
 use axum::http::HeaderValue;
-use reqwest::Client;
+use request_retry::send_json;
+use reqwest::{Client, Method};
 use secrecy::ExposeSecret;
 use serde_json::Value;
 use tanren_app_services::Store;
@@ -129,13 +131,7 @@ impl AccountHarness for ApiHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let body = sign_up_body(&req);
         let url = format!("{}/accounts", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("POST /accounts: {e}")))?;
+        let response = send_json(&self.client, Method::POST, &url, &body, "POST /accounts").await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -171,13 +167,7 @@ impl AccountHarness for ApiHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let body = sign_in_body(&req);
         let url = format!("{}/sessions", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("POST /sessions: {e}")))?;
+        let response = send_json(&self.client, Method::POST, &url, &body, "POST /sessions").await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -217,15 +207,14 @@ impl AccountHarness for ApiHarness {
         let body = accept_invitation_body(&req);
         let token = req.invitation_token.as_str().to_owned();
         let url = format!("{}/invitations/{token}/accept", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
-            })?;
+        let response = send_json(
+            &self.client,
+            Method::POST,
+            &url,
+            &body,
+            "POST /invitations/{token}/accept",
+        )
+        .await?;
         let status = response.status();
         let cookies_set = response
             .headers()

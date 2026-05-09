@@ -1,4 +1,5 @@
 import * as m from "@/i18n/paraglide/messages";
+import { withJsonContentType } from "@/app/lib/http";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
@@ -111,7 +112,7 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   try {
     response = await fetch(`${API_URL}${path}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers: withJsonContentType(),
       body: JSON.stringify(body),
       // Cookie transport: send/receive HTTP-only session cookie on every
       // request. Replaces localStorage token storage (M2).

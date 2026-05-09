@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
+import { withJsonContentType } from "@/app/lib/http";
 import * as m from "@/i18n/paraglide/messages";
 
 interface HealthReport {
@@ -104,10 +105,7 @@ export default function Home(): ReactNode {
     const response = await fetch(`${API_URL}${path}`, {
       ...init,
       credentials: "include",
-      headers: {
-        "content-type": "application/json",
-        ...(init.headers ?? {}),
-      },
+      headers: withJsonContentType(init.headers),
     });
     if (!response.ok) {
       throw new Error(await parseFailure(response));
