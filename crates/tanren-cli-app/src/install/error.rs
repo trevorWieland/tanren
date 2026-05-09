@@ -24,6 +24,9 @@ pub enum InstallError {
     /// Repository root must already exist and be a directory.
     #[error("repository path does not exist or is not a directory: '{path}'")]
     RepositoryPathNotDirectory { path: String },
+    /// Resolved path exits the repository boundary or traverses symlink components.
+    #[error("repository path '{path}' is unsafe for install operations: {message}")]
+    UnsafeRepositoryPath { path: String, message: String },
     /// Reading or parsing install manifest failed.
     #[error("install manifest at '{path}' is invalid: {message}")]
     InvalidInstallManifest { path: String, message: String },

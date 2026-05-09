@@ -8,6 +8,7 @@ pub mod catalog;
 pub mod cli;
 pub mod error;
 pub mod manifest;
+mod path_guard;
 pub mod plan;
 pub mod writer;
 

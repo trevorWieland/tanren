@@ -76,6 +76,7 @@ fn classify_install_error(err: &InstallError) -> anyhow::Error {
         | InstallError::UnsupportedIntegration { .. }
         | InstallError::EmptyIntegrationSelection
         | InstallError::InvalidRepositoryPath { .. }
+        | InstallError::UnsafeRepositoryPath { .. }
         | InstallError::RepositoryPathNotDirectory { .. } => {
             anyhow!("error: validation_failed — {err}")
         }
