@@ -19,9 +19,9 @@ mod traits;
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, MyOrganizationPermissionsRecord,
-    MyPermissionRecord, MyPermissionsRecord, MyProjectPermissionsRecord, NewAccount, NewInvitation,
-    NewPermissionConstraint, NewPermissionGrant, PermissionConstraintRecord, PermissionGrantRecord,
-    PermissionGrantScope, SessionRecord,
+    MyPermissionRecord, MyPermissionsPage, MyPermissionsRecord, MyProjectPermissionsRecord,
+    NewAccount, NewInvitation, NewPermissionConstraint, NewPermissionGrant,
+    PermissionConstraintRecord, PermissionGrantRecord, PermissionGrantScope, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
@@ -311,8 +311,9 @@ impl AccountStore for Store {
     async fn my_permissions(
         &self,
         account_id: AccountId,
+        page: MyPermissionsPage,
     ) -> Result<MyPermissionsRecord, StoreError> {
-        permission_introspection::load_my_permissions(&self.conn, account_id).await
+        permission_introspection::load_my_permissions(&self.conn, account_id, page).await
     }
 
     async fn append_event(

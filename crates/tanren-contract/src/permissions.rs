@@ -12,12 +12,43 @@ use tanren_identity_policy::{
 };
 use utoipa::ToSchema;
 
+/// Default number of permission entries returned by the self-permissions view
+/// when callers do not provide a limit.
+pub const MY_PERMISSIONS_DEFAULT_LIMIT: u16 = 100;
+/// Maximum allowed `limit` for self-permissions reads across all interfaces.
+pub const MY_PERMISSIONS_MAX_LIMIT: u16 = 200;
+
 /// Request payload for self-permission introspection.
 ///
-/// The shape is intentionally empty because identity comes from the current
-/// authenticated session, not from caller-supplied target ids.
+/// Identity comes from the current authenticated session; callers may only
+/// provide pagination hints.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
-pub struct MyPermissionsRequest;
+pub struct MyPermissionsRequest {
+    /// Maximum number of permission entries to return.
+    ///
+    /// Values above [`MY_PERMISSIONS_MAX_LIMIT`] are clamped to that maximum.
+    /// Missing or zero values fall back to [`MY_PERMISSIONS_DEFAULT_LIMIT`].
+    pub limit: Option<u16>,
+}
+
+impl Default for MyPermissionsRequest {
+    fn default() -> Self {
+        Self {
+            limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
+        }
+    }
+}
+
+impl MyPermissionsRequest {
+    /// Resolve the caller-supplied limit to a bounded value.
+    #[must_use]
+    pub fn resolved_limit(&self) -> u16 {
+        match self.limit {
+            Some(0) | None => MY_PERMISSIONS_DEFAULT_LIMIT,
+            Some(limit) => limit.min(MY_PERMISSIONS_MAX_LIMIT),
+        }
+    }
+}
 
 /// Response payload for self-permission introspection.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]

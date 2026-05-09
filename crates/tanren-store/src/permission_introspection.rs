@@ -1,76 +1,59 @@
 //! Read-model query for self-permission introspection.
 
-use sea_orm::{ColumnTrait, DatabaseConnection, EntityTrait, QueryFilter};
-use std::collections::HashMap;
+use crate::{
+    MyOrganizationPermissionsRecord, MyPermissionRecord, MyPermissionsPage, MyPermissionsRecord,
+    MyProjectPermissionsRecord, PermissionConstraintRecord, StoreError,
+};
+use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use tanren_identity_policy::{
     AccountId, OrgId, PermissionEffectiveState, PermissionGrantSource, ProjectId,
-};
-use uuid::Uuid;
-
-use crate::entity;
-use crate::{
-    MyOrganizationPermissionsRecord, MyPermissionRecord, MyPermissionsRecord,
-    MyProjectPermissionsRecord, PermissionConstraintRecord, PermissionGrantRecord, StoreError,
 };
 
 pub(crate) async fn load_my_permissions(
     conn: &DatabaseConnection,
     account_id: AccountId,
+    page: MyPermissionsPage,
 ) -> Result<MyPermissionsRecord, StoreError> {
-    let grant_rows = entity::permission_grants::Entity::find()
-        .filter(entity::permission_grants::Column::AccountId.eq(account_id.as_uuid()))
-        .all(conn)
+    let rows = conn
+        .query_all(introspection_query(
+            conn.get_database_backend(),
+            account_id,
+            page.limit,
+        ))
         .await?;
-    let mut grants: Vec<PermissionGrantRecord> = grant_rows
-        .into_iter()
-        .map(PermissionGrantRecord::from)
-        .collect();
 
-    if grants.is_empty() {
-        return Ok(MyPermissionsRecord {
-            organizations: Vec::new(),
-            projects: Vec::new(),
-        });
-    }
+    let mut organizations: Vec<MyOrganizationPermissionsRecord> = Vec::new();
+    let mut projects: Vec<MyProjectPermissionsRecord> = Vec::new();
 
-    let grant_ids: Vec<Uuid> = grants.iter().map(|grant| grant.id.as_uuid()).collect();
-    let constraint_rows = entity::permission_constraints::Entity::find()
-        .filter(entity::permission_constraints::Column::GrantId.is_in(grant_ids))
-        .all(conn)
-        .await?;
-    let mut constraints_by_grant = constraints_by_grant(constraint_rows)?;
+    for row in rows {
+        let org_id: Option<uuid::Uuid> = row.try_get("", "org_id")?;
+        let project_id: Option<uuid::Uuid> = row.try_get("", "project_id")?;
+        let permission_name: String = row.try_get("", "permission_name")?;
+        let role_template_name: Option<String> = row.try_get("", "role_template_name")?;
+        let constraint_reason: Option<String> = row.try_get("", "constraint_reason")?;
+        let constraint_is_project_policy: Option<bool> =
+            row.try_get("", "constraint_is_project_policy")?;
 
-    // Sort upfront so grouped output stays deterministic across backends.
-    grants.sort_by(compare_permission_grants);
-
-    let mut organization_permissions: HashMap<Uuid, Vec<MyPermissionRecord>> =
-        HashMap::with_capacity(grants.len());
-    let mut project_permissions: HashMap<Uuid, Vec<MyPermissionRecord>> =
-        HashMap::with_capacity(grants.len());
-
-    for grant in grants {
-        let policy_constraint = constraints_by_grant.remove(&grant.id.as_uuid());
+        let policy_constraint =
+            parse_policy_constraint(constraint_reason, constraint_is_project_policy)?;
         let effective_state = if policy_constraint.is_some() {
             PermissionEffectiveState::Constrained
         } else {
             PermissionEffectiveState::Granted
         };
         let permission = MyPermissionRecord {
-            permission: grant.permission,
+            permission: tanren_identity_policy::PermissionName::new(permission_name),
             effective_state,
-            grant_source: grant.grant_source,
+            grant_source: parse_grant_source(role_template_name),
             policy_constraint,
         };
-
-        match (grant.org_id, grant.project_id) {
-            (Some(org_id), None) => organization_permissions
-                .entry(org_id.as_uuid())
-                .or_default()
-                .push(permission),
-            (None, Some(project_id)) => project_permissions
-                .entry(project_id.as_uuid())
-                .or_default()
-                .push(permission),
+        match (org_id.map(OrgId::new), project_id.map(ProjectId::new)) {
+            (Some(scope_org_id), None) => {
+                append_organization_permission(&mut organizations, scope_org_id, permission);
+            }
+            (None, Some(scope_project_id)) => {
+                append_project_permission(&mut projects, scope_project_id, permission);
+            }
             _ => {
                 return Err(StoreError::Invariant {
                     entity: "permission_grants",
@@ -80,100 +63,136 @@ pub(crate) async fn load_my_permissions(
         }
     }
 
-    let organizations = project_sorted_organizations(organization_permissions)?;
-    let projects = project_sorted_projects(project_permissions)?;
     Ok(MyPermissionsRecord {
         organizations,
         projects,
     })
 }
 
-fn compare_permission_grants(
-    left: &PermissionGrantRecord,
-    right: &PermissionGrantRecord,
-) -> std::cmp::Ordering {
-    let left_scope = match (left.org_id, left.project_id) {
-        (Some(org_id), None) => (0_u8, org_id.as_uuid()),
-        (None, Some(project_id)) => (1_u8, project_id.as_uuid()),
-        _ => (2_u8, left.id.as_uuid()),
+fn append_organization_permission(
+    organizations: &mut Vec<MyOrganizationPermissionsRecord>,
+    org_id: OrgId,
+    permission: MyPermissionRecord,
+) {
+    if let Some(last) = organizations.last_mut()
+        && last.org_id == org_id
+    {
+        last.permissions.push(permission);
+        return;
+    }
+
+    organizations.push(MyOrganizationPermissionsRecord {
+        org_id,
+        permissions: vec![permission],
+    });
+}
+
+fn append_project_permission(
+    projects: &mut Vec<MyProjectPermissionsRecord>,
+    project_id: ProjectId,
+    permission: MyPermissionRecord,
+) {
+    if let Some(last) = projects.last_mut()
+        && last.project_id == project_id
+    {
+        last.permissions.push(permission);
+        return;
+    }
+
+    projects.push(MyProjectPermissionsRecord {
+        project_id,
+        permissions: vec![permission],
+    });
+}
+
+fn introspection_query(backend: DbBackend, account_id: AccountId, limit: u16) -> Statement {
+    let sql = match backend {
+        DbBackend::Postgres => INTROSPECTION_QUERY_POSTGRES,
+        DbBackend::Sqlite | DbBackend::MySql => INTROSPECTION_QUERY_SQLITE,
     };
-    let right_scope = match (right.org_id, right.project_id) {
-        (Some(org_id), None) => (0_u8, org_id.as_uuid()),
-        (None, Some(project_id)) => (1_u8, project_id.as_uuid()),
-        _ => (2_u8, right.id.as_uuid()),
-    };
-    let left_source = permission_grant_source_sort_key(&left.grant_source);
-    let right_source = permission_grant_source_sort_key(&right.grant_source);
-
-    left_scope
-        .cmp(&right_scope)
-        .then_with(|| left.permission.as_str().cmp(right.permission.as_str()))
-        .then_with(|| left_source.cmp(&right_source))
-        .then_with(|| left.id.cmp(&right.id))
+    Statement::from_sql_and_values(
+        backend,
+        sql,
+        [account_id.as_uuid().into(), i64::from(limit).into()],
+    )
 }
 
-fn permission_grant_source_sort_key(source: &PermissionGrantSource) -> (u8, &str) {
-    match source {
-        PermissionGrantSource::Direct => (0, ""),
-        PermissionGrantSource::RoleTemplate { role_template } => (1, role_template.as_str()),
+fn parse_grant_source(role_template_name: Option<String>) -> PermissionGrantSource {
+    match role_template_name {
+        Some(role_template) => PermissionGrantSource::RoleTemplate {
+            role_template: tanren_identity_policy::RoleTemplateName::new(role_template),
+        },
+        None => PermissionGrantSource::Direct,
     }
 }
 
-fn project_sorted_organizations(
-    mut by_org: HashMap<Uuid, Vec<MyPermissionRecord>>,
-) -> Result<Vec<MyOrganizationPermissionsRecord>, StoreError> {
-    let mut org_ids: Vec<Uuid> = by_org.keys().copied().collect();
-    org_ids.sort_unstable();
-    let mut organizations = Vec::with_capacity(org_ids.len());
-    for org_id in org_ids {
-        let Some(permissions) = by_org.remove(&org_id) else {
-            return Err(StoreError::Invariant {
-                entity: "permission_grants",
-                detail: "organization permission bucket missing during projection",
-            });
-        };
-        organizations.push(MyOrganizationPermissionsRecord {
-            org_id: OrgId::new(org_id),
-            permissions,
-        });
+fn parse_policy_constraint(
+    constraint_reason: Option<String>,
+    constraint_is_project_policy: Option<bool>,
+) -> Result<Option<PermissionConstraintRecord>, StoreError> {
+    match (constraint_reason, constraint_is_project_policy) {
+        (Some(reason), Some(is_project_policy)) => Ok(Some(PermissionConstraintRecord {
+            reason: tanren_identity_policy::PolicyConstraintReason::new(reason),
+            source: if is_project_policy {
+                tanren_identity_policy::PolicyConstraintSource::ProjectPolicy
+            } else {
+                tanren_identity_policy::PolicyConstraintSource::OrganizationPolicy
+            },
+        })),
+        (None, None) => Ok(None),
+        _ => Err(StoreError::Invariant {
+            entity: "permission_constraints",
+            detail: "constraint reason/source columns must be both null or both set",
+        }),
     }
-    Ok(organizations)
 }
 
-fn project_sorted_projects(
-    mut by_project: HashMap<Uuid, Vec<MyPermissionRecord>>,
-) -> Result<Vec<MyProjectPermissionsRecord>, StoreError> {
-    let mut project_ids: Vec<Uuid> = by_project.keys().copied().collect();
-    project_ids.sort_unstable();
-    let mut projects = Vec::with_capacity(project_ids.len());
-    for project_id in project_ids {
-        let Some(permissions) = by_project.remove(&project_id) else {
-            return Err(StoreError::Invariant {
-                entity: "permission_grants",
-                detail: "project permission bucket missing during projection",
-            });
-        };
-        projects.push(MyProjectPermissionsRecord {
-            project_id: ProjectId::new(project_id),
-            permissions,
-        });
-    }
-    Ok(projects)
-}
+const INTROSPECTION_QUERY_POSTGRES: &str = r"
+SELECT
+  pg.org_id AS org_id,
+  pg.project_id AS project_id,
+  pg.permission_name,
+  pg.role_template_name,
+  pc.reason AS constraint_reason,
+  pc.is_project_policy AS constraint_is_project_policy
+FROM permission_grants pg
+LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
+WHERE pg.account_id = $1
+ORDER BY
+  CASE
+    WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
+    WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
+    ELSE 2
+  END,
+  COALESCE(pg.org_id, pg.project_id),
+  pg.permission_name,
+  CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
+  COALESCE(pg.role_template_name, ''),
+  pg.id
+LIMIT $2
+";
 
-fn constraints_by_grant(
-    rows: Vec<entity::permission_constraints::Model>,
-) -> Result<HashMap<Uuid, PermissionConstraintRecord>, StoreError> {
-    let mut constraints_by_grant = HashMap::with_capacity(rows.len());
-    for row in rows {
-        let grant_id = row.grant_id;
-        let previous = constraints_by_grant.insert(grant_id, PermissionConstraintRecord::from(row));
-        if previous.is_some() {
-            return Err(StoreError::Invariant {
-                entity: "permission_constraints",
-                detail: "at most one constraint row is allowed per grant",
-            });
-        }
-    }
-    Ok(constraints_by_grant)
-}
+const INTROSPECTION_QUERY_SQLITE: &str = r"
+SELECT
+  pg.org_id AS org_id,
+  pg.project_id AS project_id,
+  pg.permission_name,
+  pg.role_template_name,
+  pc.reason AS constraint_reason,
+  pc.is_project_policy AS constraint_is_project_policy
+FROM permission_grants pg
+LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
+WHERE pg.account_id = ?
+ORDER BY
+  CASE
+    WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
+    WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
+    ELSE 2
+  END,
+  COALESCE(pg.org_id, pg.project_id),
+  pg.permission_name,
+  CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
+  COALESCE(pg.role_template_name, ''),
+  pg.id
+LIMIT ?
+";

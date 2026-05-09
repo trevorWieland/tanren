@@ -217,12 +217,12 @@ impl Handlers {
         &self,
         store: &S,
         context: MyPermissionsContext,
-        _request: MyPermissionsRequest,
+        request: MyPermissionsRequest,
     ) -> Result<MyPermissionsResponse, AppServiceError>
     where
         S: AccountStore + ?Sized,
     {
-        permissions::my_permissions(store, context).await
+        permissions::my_permissions(store, context, request).await
     }
 }
 

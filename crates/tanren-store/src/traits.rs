@@ -32,8 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, MyPermissionsRecord, NewAccount, SessionRecord,
-    StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, MyPermissionsPage, MyPermissionsRecord,
+    NewAccount, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -254,10 +254,11 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     ///
     /// Implementations must scope exclusively by the supplied `account_id`
     /// and return deterministic ordering for organizations, projects, and
-    /// permission entries.
+    /// permission entries. Returned rows must be bounded by `page.limit`.
     async fn my_permissions(
         &self,
         account_id: AccountId,
+        page: MyPermissionsPage,
     ) -> Result<MyPermissionsRecord, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied

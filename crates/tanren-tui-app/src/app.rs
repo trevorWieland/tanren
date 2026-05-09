@@ -15,7 +15,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, MyPermissionsContext, Store};
-use tanren_contract::MyPermissionsRequest;
+use tanren_contract::{MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsRequest};
 use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
@@ -312,7 +312,9 @@ impl App {
         let response = self.runtime.block_on(self.handlers.my_permissions(
             store.as_ref(),
             MyPermissionsContext::self_scoped(account_id),
-            MyPermissionsRequest,
+            MyPermissionsRequest {
+                limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
+            },
         ));
         match response {
             Ok(permissions) => {

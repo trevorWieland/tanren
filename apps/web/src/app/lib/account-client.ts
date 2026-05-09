@@ -1,6 +1,7 @@
 import * as m from "@/i18n/paraglide/messages";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const MY_PERMISSIONS_LIMIT = 100;
 
 export interface SignUpInput {
   email: string;
@@ -215,7 +216,10 @@ export function acceptInvitation(
 }
 
 export function myPermissions(): Promise<MyPermissionsResponse> {
-  return requestJson<MyPermissionsResponse>("/me/permissions", "GET");
+  return requestJson<MyPermissionsResponse>(
+    `/me/permissions?limit=${MY_PERMISSIONS_LIMIT}`,
+    "GET",
+  );
 }
 
 /**

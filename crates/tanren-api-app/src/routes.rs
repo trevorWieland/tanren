@@ -6,7 +6,7 @@
 //! tower-sessions layer) lives in `lib.rs::build_app`.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
@@ -323,6 +323,9 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
 #[utoipa::path(
     get,
     path = "/me/permissions",
+    params(
+        ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
+    ),
     responses(
         (status = 200, body = MyPermissionsResponse, description = "Self permissions loaded"),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
@@ -334,6 +337,7 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
 pub(crate) async fn my_permissions_route(
     State(state): State<AppState>,
     session: Session,
+    Query(request): Query<MyPermissionsRequest>,
 ) -> Response {
     let account_id = match authenticated_account_id(&session).await {
         Ok(account_id) => account_id,
@@ -342,7 +346,7 @@ pub(crate) async fn my_permissions_route(
     let context = MyPermissionsContext::self_scoped(account_id);
     match state
         .handlers
-        .my_permissions(state.store.as_ref(), context, MyPermissionsRequest)
+        .my_permissions(state.store.as_ref(), context, request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -358,6 +362,7 @@ pub(crate) async fn my_permissions_route(
     path = "/accounts/{account_id}/permissions",
     params(
         ("account_id" = AccountId, Path, description = "Target account id (rejected; use /me/permissions)"),
+        ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
     ),
     responses(
         (status = 403, body = AccountFailureBody, description = "permission_denied"),
@@ -370,6 +375,7 @@ pub(crate) async fn target_account_permissions_route(
     State(state): State<AppState>,
     session: Session,
     Path(requested_account_id): Path<AccountId>,
+    Query(request): Query<MyPermissionsRequest>,
 ) -> Response {
     let session_account_id = match authenticated_account_id(&session).await {
         Ok(account_id) => account_id,
@@ -381,7 +387,7 @@ pub(crate) async fn target_account_permissions_route(
     };
     match state
         .handlers
-        .my_permissions(state.store.as_ref(), context, MyPermissionsRequest)
+        .my_permissions(state.store.as_ref(), context, request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),

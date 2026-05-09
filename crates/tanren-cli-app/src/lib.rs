@@ -19,8 +19,8 @@ use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AccountStore, AppServiceError, Handlers, MyPermissionsContext, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, MyPermissionEntry, MyPermissionsRequest, MyPermissionsResponse,
-    SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionEntry, MyPermissionsRequest,
+    MyPermissionsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, SessionToken};
 use uuid::Uuid;
@@ -123,8 +123,7 @@ enum AccountAction {
     },
 }
 
-/// Run the CLI to completion. Returns an [`ExitCode`] so the binary
-/// `main` can return it directly without re-encoding error context.
+/// Run the CLI to completion.
 #[must_use]
 pub fn run(config: Config) -> ExitCode {
     let result = match config.command {
@@ -350,7 +349,9 @@ async fn run_account_my_permissions(
                 session_account_id,
                 requested_account_id,
             },
-            MyPermissionsRequest,
+            MyPermissionsRequest {
+                limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
+            },
         )
         .await
         .map_err(account_error)?;

@@ -37,13 +37,10 @@ const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
-/// Comma-separated extra hostnames / `host:port` authorities to add to
-/// rmcp's `allowed_hosts` Host-header allowlist.
+/// Comma-separated extra hostnames / `host:port` authorities for rmcp `allowed_hosts`.
 const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
 
-/// Configuration for the tanren-mcp runtime. R-0001 sub-8 keeps it
-/// env-driven; downstream PRs may swap in a typed config crate without
-/// changing the [`serve`] signature.
+/// Configuration for the tanren-mcp runtime.
 #[derive(Debug, Default)]
 pub struct Config;
 
@@ -142,7 +139,7 @@ impl TanrenMcp {
 
     #[rmcp::tool(
         name = "account.my_permissions",
-        description = "Read the caller account's effective permissions grouped by organization and project. This tool is read-only and enforces self-scope from the authenticated session token."
+        description = "Read the caller account's effective permissions grouped by organization and project. This tool is read-only, enforces self-scope from the authenticated session token, and supports an optional bounded limit."
     )]
     async fn account_my_permissions(
         &self,
@@ -175,7 +172,13 @@ impl TanrenMcp {
         };
         match self
             .handlers
-            .my_permissions(self.store.as_ref(), context, MyPermissionsRequest)
+            .my_permissions(
+                self.store.as_ref(),
+                context,
+                MyPermissionsRequest {
+                    limit: request.limit,
+                },
+            )
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -201,14 +204,11 @@ impl ServerHandler for TanrenMcp {
     }
 }
 
-/// Encode a successful handler response as a JSON-text `CallToolResult`.
 fn success<T: Serialize>(value: &T) -> CallToolResult {
     let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::success(vec![Content::text(text)])
 }
 
-/// Encode an [`AppServiceError`] as the shared `{code, summary}` error
-/// body and surface it as an MCP tool failure result.
 fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
@@ -245,6 +245,7 @@ fn auth_required_failure(summary: &str) -> CallToolResult {
 struct MyPermissionsToolRequest {
     session_token: Option<SessionToken>,
     target_account_id: Option<AccountId>,
+    limit: Option<u16>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

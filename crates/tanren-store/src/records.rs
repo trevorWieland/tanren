@@ -242,6 +242,30 @@ pub struct MyPermissionsRecord {
     pub projects: Vec<MyProjectPermissionsRecord>,
 }
 
+/// Pagination envelope for self-permission reads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsPage {
+    /// Maximum number of permission entries to return.
+    pub limit: u16,
+}
+
+impl MyPermissionsPage {
+    /// Workspace-wide default limit for self-permission reads.
+    pub const DEFAULT_LIMIT: u16 = 100;
+    /// Hard maximum limit for self-permission reads.
+    pub const MAX_LIMIT: u16 = 200;
+
+    /// Build a bounded page contract from an optional caller hint.
+    #[must_use]
+    pub fn bounded(limit: Option<u16>) -> Self {
+        let resolved = match limit {
+            Some(0) | None => Self::DEFAULT_LIMIT,
+            Some(value) => value.min(Self::MAX_LIMIT),
+        };
+        Self { limit: resolved }
+    }
+}
+
 /// Input shape for [`crate::AccountStore::insert_account`].
 #[derive(Debug, Clone)]
 pub struct NewAccount {

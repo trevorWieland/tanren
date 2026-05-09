@@ -141,7 +141,7 @@ impl AccountHarness for InProcessHarness {
         };
         match self
             .handlers
-            .my_permissions(&self.store, context, MyPermissionsRequest)
+            .my_permissions(&self.store, context, MyPermissionsRequest::default())
             .await
         {
             Ok(response) => Ok(HarnessPermissionsView {

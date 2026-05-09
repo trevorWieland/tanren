@@ -4,16 +4,17 @@
 //! authenticated account's effective permissions from the store.
 
 use tanren_contract::{
-    MyOrganizationPermissions, MyPermissionEntry, MyPermissionsResponse, MyProjectPermissions,
-    PermissionConstraintView,
+    MyOrganizationPermissions, MyPermissionEntry, MyPermissionsRequest, MyPermissionsResponse,
+    MyProjectPermissions, PermissionConstraintView,
 };
-use tanren_store::{AccountStore, MyPermissionsRecord};
+use tanren_store::{AccountStore, MyPermissionsPage, MyPermissionsRecord};
 
 use crate::{AppServiceError, MyPermissionsContext, PermissionsFailureReason};
 
 pub(crate) async fn my_permissions<S>(
     store: &S,
     context: MyPermissionsContext,
+    request: MyPermissionsRequest,
 ) -> Result<MyPermissionsResponse, AppServiceError>
 where
     S: AccountStore + ?Sized,
@@ -24,7 +25,12 @@ where
         ));
     }
 
-    let record = store.my_permissions(context.session_account_id).await?;
+    let record = store
+        .my_permissions(
+            context.session_account_id,
+            MyPermissionsPage::bounded(Some(request.resolved_limit())),
+        )
+        .await?;
     Ok(to_contract_response(record))
 }
 
