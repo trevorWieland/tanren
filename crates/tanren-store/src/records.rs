@@ -9,11 +9,13 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, PermissionEffectiveState,
+    PermissionGrantSource, PermissionName, PolicyConstraintReason, PolicyConstraintSource,
+    ProjectId, RoleTemplateName, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{PermissionGrantId, StoreError, parse_db_identifier, parse_db_invitation_token};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -136,6 +138,110 @@ impl From<entity::account_sessions::Model> for SessionRecord {
     }
 }
 
+/// One policy-constraint detail attached to a constrained permission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionConstraintRecord {
+    /// Human-readable reason surfaced to callers.
+    pub reason: PolicyConstraintReason,
+    /// Scope that produced this constraint.
+    pub source: PolicyConstraintSource,
+}
+
+impl From<entity::permission_constraints::Model> for PermissionConstraintRecord {
+    fn from(model: entity::permission_constraints::Model) -> Self {
+        let source = if model.is_project_policy {
+            PolicyConstraintSource::ProjectPolicy
+        } else {
+            PolicyConstraintSource::OrganizationPolicy
+        };
+        Self {
+            reason: PolicyConstraintReason::new(model.reason),
+            source,
+        }
+    }
+}
+
+/// Persisted permission grant row used by test-hook seeders and
+/// introspection queries.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionGrantRecord {
+    /// Stable grant id (opaque persistence key).
+    pub id: PermissionGrantId,
+    /// Account this grant applies to.
+    pub account_id: AccountId,
+    /// Organization scope when this is an organization-level grant.
+    pub org_id: Option<OrgId>,
+    /// Project scope when this is a project-level grant.
+    pub project_id: Option<ProjectId>,
+    /// Canonical permission identifier.
+    pub permission: PermissionName,
+    /// How this permission grant entered the account's access set.
+    pub grant_source: PermissionGrantSource,
+    /// Wall-clock time the grant was recorded.
+    pub created_at: DateTime<Utc>,
+}
+
+impl From<entity::permission_grants::Model> for PermissionGrantRecord {
+    fn from(model: entity::permission_grants::Model) -> Self {
+        let grant_source = match model.role_template_name {
+            Some(role_template) => PermissionGrantSource::RoleTemplate {
+                role_template: RoleTemplateName::new(role_template),
+            },
+            None => PermissionGrantSource::Direct,
+        };
+
+        Self {
+            id: PermissionGrantId::new(model.id),
+            account_id: AccountId::new(model.account_id),
+            org_id: model.org_id.map(OrgId::new),
+            project_id: model.project_id.map(ProjectId::new),
+            permission: PermissionName::new(model.permission_name),
+            grant_source,
+            created_at: model.created_at,
+        }
+    }
+}
+
+/// One effective permission in a self-introspection response.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionRecord {
+    /// Canonical permission identifier.
+    pub permission: PermissionName,
+    /// Effective state after policy constraints are applied.
+    pub effective_state: PermissionEffectiveState,
+    /// How this permission was granted.
+    pub grant_source: PermissionGrantSource,
+    /// Optional policy constraint when effective state is constrained.
+    pub policy_constraint: Option<PermissionConstraintRecord>,
+}
+
+/// Organization-level self-introspection section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyOrganizationPermissionsRecord {
+    /// Organization this section is scoped to.
+    pub org_id: OrgId,
+    /// Effective permissions for this organization.
+    pub permissions: Vec<MyPermissionRecord>,
+}
+
+/// Project-level self-introspection section.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyProjectPermissionsRecord {
+    /// Project this section is scoped to.
+    pub project_id: ProjectId,
+    /// Effective permissions for this project.
+    pub permissions: Vec<MyPermissionRecord>,
+}
+
+/// Read-model returned by self-permission introspection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsRecord {
+    /// Organization-scoped permission sections.
+    pub organizations: Vec<MyOrganizationPermissionsRecord>,
+    /// Project-scoped permission sections.
+    pub projects: Vec<MyProjectPermissionsRecord>,
+}
+
 /// Input shape for [`crate::AccountStore::insert_account`].
 #[derive(Debug, Clone)]
 pub struct NewAccount {
@@ -164,4 +270,41 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Permission grant scope for test-hook seeding.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PermissionGrantScope {
+    /// Organization-level grant.
+    Organization(OrgId),
+    /// Project-level grant.
+    Project(ProjectId),
+}
+
+/// Input shape for [`crate::Store::seed_permission_grant`].
+#[derive(Debug, Clone)]
+pub struct NewPermissionGrant {
+    /// Account receiving the grant.
+    pub account_id: AccountId,
+    /// Scope for this grant.
+    pub scope: PermissionGrantScope,
+    /// Canonical permission name.
+    pub permission: PermissionName,
+    /// Grant source metadata (direct vs role-template).
+    pub grant_source: PermissionGrantSource,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::Store::seed_permission_constraint`].
+#[derive(Debug, Clone)]
+pub struct NewPermissionConstraint {
+    /// Grant id this constraint decorates.
+    pub grant_id: PermissionGrantId,
+    /// Human-readable constraint reason.
+    pub reason: PolicyConstraintReason,
+    /// Scope that produced the constraint.
+    pub source: PolicyConstraintSource,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
 }
