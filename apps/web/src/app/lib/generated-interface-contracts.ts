@@ -3,42 +3,12 @@
 // and apps/web/scripts/generate-interface-contracts.mjs
 // Do not hand-edit this file.
 
+export interface InterfaceError {
+  code: InterfaceErrorCode;
+  summary: string;
+}
 export interface MyAccountCapabilitiesResponse {
   can_view_my_permissions: boolean;
-}
-export type PermissionGrantSource =
-  | {
-      kind: "direct";
-    }
-  | {
-      kind: "role_template";
-      role_template: RoleTemplateName;
-    };
-export interface PermissionConstraintView {
-  reason: PolicyConstraintReason;
-  source: PolicyConstraintSource;
-  source_reference: string;
-}
-export interface MyPermissionEntry {
-  effective_state: PermissionEffectiveState;
-  grant_source: PermissionGrantSource;
-  grant_source_reference: string;
-  permission: PermissionName;
-  policy_constraint?: null | PermissionConstraintView;
-}
-export interface MyOrganizationPermissions {
-  org_id: OrgId;
-  permissions: MyPermissionEntry[];
-}
-export interface MyProjectPermissions {
-  permissions: MyPermissionEntry[];
-  project_id: ProjectId;
-}
-export interface MyPermissionsPageMeta {
-  limit: number;
-  next_cursor?: string | null;
-  request_cursor?: string | null;
-  returned: number;
 }
 export interface MyPermissionsResponse {
   freshness: MyPermissionsFreshnessMeta;
@@ -66,9 +36,16 @@ export type InterfaceErrorCode =
   | "invitation_not_found"
   | "invitation_expired"
   | "invitation_already_consumed";
-export interface InterfaceError {
-  code: InterfaceErrorCode;
-  summary: string;
+export interface MyOrganizationPermissions {
+  org_id: OrgId;
+  permissions: MyPermissionEntry[];
+}
+export interface MyPermissionEntry {
+  effective_state: PermissionEffectiveState;
+  grant_source: PermissionGrantSource;
+  grant_source_reference: string;
+  permission: PermissionName;
+  policy_constraint?: null | PermissionConstraintView;
 }
 export interface MyPermissionsFreshnessMeta {
   checkpoint?: string | null;
@@ -76,9 +53,32 @@ export interface MyPermissionsFreshnessMeta {
   projection: string;
   staleness: MyPermissionsStaleness;
 }
+export interface MyPermissionsPageMeta {
+  limit: number;
+  next_cursor?: string | null;
+  request_cursor?: string | null;
+  returned: number;
+}
 export type MyPermissionsStaleness = "fresh" | "stale";
+export interface MyProjectPermissions {
+  permissions: MyPermissionEntry[];
+  project_id: ProjectId;
+}
 export type OrgId = string;
+export interface PermissionConstraintView {
+  reason: PolicyConstraintReason;
+  source: PolicyConstraintSource;
+  source_reference: string;
+}
 export type PermissionEffectiveState = "granted" | "constrained";
+export type PermissionGrantSource =
+  | {
+      kind: "direct";
+    }
+  | {
+      kind: "role_template";
+      role_template: RoleTemplateName;
+    };
 export type PermissionName = string;
 export type PolicyConstraintReason = string;
 export type PolicyConstraintSource = "organization_policy" | "project_policy";
