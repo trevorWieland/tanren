@@ -1,175 +1,64 @@
 /* eslint-disable */
 // playwright-bdd step definitions for the `@web` slice of B-0066.
 //
-// The web UI does not yet expose organization-management screens, so
-// these steps drive the same authenticated API calls from within the
-// browser context (cookie transport via `credentials: include`).
+// These steps drive a web-owned organization wire surface (`/organizations`)
+// instead of issuing direct Playwright API requests.
 
 import { createBdd } from "playwright-bdd";
+
+import {
+  ORGANIZATION_WIRE_TEST_IDS,
+  organizationRowTestId,
+  normalizeOrganizationName,
+} from "@/lib/organization-routes";
+
+import {
+  openOrganizationWireSurface,
+  readWireSequence,
+  readOrganizationSnapshot,
+  signInActorViaUi,
+  waitForWireOutcome,
+} from "./api-client";
 import { test } from "./account.steps";
+import {
+  ALL_ADMIN_PERMISSIONS,
+  actor,
+  orgState,
+  type OrganizationWorld,
+} from "./organization-world";
 
 const { Then, When } = createBdd(test);
-
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
-const ALL_ADMIN_PERMISSIONS = [
-  "invite",
-  "manage_access",
-  "configure",
-  "set_policy",
-  "delete",
-] as const;
-
-interface OrganizationSnapshot {
-  id: string;
-  grantedPermissions: string[];
-}
-
-interface OrganizationWorldState {
-  organizationsByName: Map<string, OrganizationSnapshot>;
-  lastListedNames: Set<string>;
-  lastOperationSucceeded: boolean;
-}
-
-interface WireResponse {
-  ok: boolean;
-  status: number;
-  text: string;
-  json: unknown;
-}
-
-function actor(world: any, name: string): any {
-  let state = world.actors.get(name);
-  if (!state) {
-    state = {};
-    world.actors.set(name, state);
-  }
-  return state;
-}
-
-function orgState(world: any): OrganizationWorldState {
-  if (!world.__orgState) {
-    world.__orgState = {
-      organizationsByName: new Map<string, OrganizationSnapshot>(),
-      lastListedNames: new Set<string>(),
-      lastOperationSucceeded: false,
-    };
-  }
-  return world.__orgState as OrganizationWorldState;
-}
-
-function normalizeOrganizationName(raw: string): string {
-  return raw.trim().split(/\s+/).join(" ").toLowerCase();
-}
-
-function failureCode(response: WireResponse): string {
-  const body = response.json as { code?: unknown } | null;
-  if (body && typeof body.code === "string") {
-    return body.code;
-  }
-  if (response.status === 401) return "auth_required";
-  if (response.status === 403) return "permission_denied";
-  return "unknown";
-}
-
-function failureDetail(response: WireResponse): string {
-  return `status=${response.status} code=${failureCode(response)} body=${response.text}`;
-}
-
-async function callApi(
-  page: import("@playwright/test").Page,
-  method: "GET" | "POST",
-  path: string,
-  payload?: unknown,
-): Promise<WireResponse> {
-  return await page.evaluate(
-    async ({ apiUrl, path, method, payload }) => {
-      const headers: Record<string, string> = {};
-      let body: string | null = null;
-      if (payload !== undefined) {
-        headers["content-type"] = "application/json";
-        body = JSON.stringify(payload);
-      }
-      const res = await fetch(`${apiUrl}${path}`, {
-        method,
-        headers,
-        body,
-        credentials: "include",
-      });
-      const text = await res.text();
-      let json: unknown = null;
-      try {
-        json = JSON.parse(text);
-      } catch {
-        json = null;
-      }
-      return { ok: res.ok, status: res.status, text, json };
-    },
-    { apiUrl: API_URL, path, method, payload },
-  );
-}
-
-async function signInActorViaUi(
-  page: import("@playwright/test").Page,
-  world: any,
-  name: string,
-): Promise<void> {
-  const a = actor(world, name);
-  if (!a.email || !a.password) {
-    throw new Error(`actor ${name} has no recorded credentials`);
-  }
-  await page.context().clearCookies();
-  await page.goto("/sign-in");
-  await waitForHydration(page);
-  await page.getByLabel(/email/i).fill(a.email);
-  await page.getByLabel(/password/i).fill(a.password);
-  await page.getByRole("button", { name: /^sign in$/i }).click();
-  const result = await Promise.race([
-    page.waitForURL("/").then(() => "ok" as const),
-    page
-      .locator('form [role="alert"]')
-      .first()
-      .waitFor({ state: "visible" })
-      .then(() => "alert" as const),
-  ]);
-  if (result !== "ok") {
-    a.hasSession = false;
-    a.lastFailureCode = await classifyFailureFromAlert(page);
-    orgState(world).lastOperationSucceeded = false;
-    throw new Error(`sign-in failed for ${name} via web UI`);
-  }
-  a.hasSession = true;
-  a.lastFailureCode = undefined;
-}
 
 When(
   /^(\w+) creates organization "([^"]+)"$/,
   async ({ page, world }, name: string, organizationName: string) => {
-    const state = orgState(world);
-    const a = actor(world, name);
-    await signInActorViaUi(page, world, name);
+    const state = orgState(world as OrganizationWorld);
+    const a = actor(world as OrganizationWorld, name);
 
-    const response = await callApi(page, "POST", "/organizations", {
-      name: organizationName,
-    });
+    await signInActorViaUi(page, world as OrganizationWorld, name);
+    await openOrganizationWireSurface(page);
+    await page
+      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.createNameInput)
+      .fill(organizationName);
+    const previousSequence = await readWireSequence(page);
+    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.createSubmit).click();
 
-    if (!response.ok) {
+    const outcome = await waitForWireOutcome(page, previousSequence);
+    if (outcome.status !== "success") {
       a.hasSession = false;
-      a.lastFailureCode = failureCode(response);
+      a.lastFailureCode = outcome.failureCode ?? "unknown";
       state.lastOperationSucceeded = false;
-      throw new Error(`create organization failed: ${failureDetail(response)}`);
+      throw new Error(
+        `create organization failed: ${outcome.failureDetail ?? outcome.failureCode ?? "unknown"}`,
+      );
     }
 
-    const body = response.json as {
-      organization: { id: string; name: string };
-      granted_permissions: string[];
-    };
-    state.organizationsByName.set(
-      normalizeOrganizationName(body.organization.name),
-      {
-        id: body.organization.id,
-        grantedPermissions: body.granted_permissions,
-      },
-    );
+    const snapshot = await readOrganizationSnapshot(page, organizationName);
+    state.organizationsByName.set(normalizeOrganizationName(organizationName), {
+      id: snapshot.id,
+      grantedPermissions: snapshot.grantedPermissions,
+      initialProjectCount: snapshot.initialProjectCount,
+    });
     state.lastOperationSucceeded = true;
   },
 );
@@ -177,36 +66,27 @@ When(
 When(
   /^(\w+) creates organization "([^"]+)" without signing in$/,
   async ({ page, world }, name: string, organizationName: string) => {
-    const state = orgState(world);
-    const a = actor(world, name);
+    const state = orgState(world as OrganizationWorld);
+    const a = actor(world as OrganizationWorld, name);
+
     await page.context().clearCookies();
+    await openOrganizationWireSurface(page);
+    await page
+      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.createNameInput)
+      .fill(organizationName);
+    const previousSequence = await readWireSequence(page);
+    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.createSubmit).click();
 
-    const raw = await page.context().request.post(`${API_URL}/organizations`, {
-      data: { name: organizationName },
-    });
-    const text = await raw.text();
-    let json: unknown = null;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      json = null;
-    }
-    const response: WireResponse = {
-      ok: raw.ok(),
-      status: raw.status(),
-      text,
-      json,
-    };
-
-    if (response.ok) {
+    const outcome = await waitForWireOutcome(page, previousSequence);
+    if (outcome.status === "success") {
       a.hasSession = true;
-      a.lastFailureCode = undefined;
+      delete a.lastFailureCode;
       state.lastOperationSucceeded = true;
       return;
     }
 
     a.hasSession = false;
-    a.lastFailureCode = failureCode(response);
+    a.lastFailureCode = outcome.failureCode ?? "unknown";
     state.lastOperationSucceeded = false;
   },
 );
@@ -214,32 +94,24 @@ When(
 When(
   /^(\w+) lists available organizations$/,
   async ({ page, world }, name: string) => {
-    const state = orgState(world);
-    const a = actor(world, name);
-    await signInActorViaUi(page, world, name);
+    const state = orgState(world as OrganizationWorld);
+    const a = actor(world as OrganizationWorld, name);
 
-    const response = await callApi(page, "GET", "/organizations");
-    if (!response.ok) {
+    await signInActorViaUi(page, world as OrganizationWorld, name);
+    await openOrganizationWireSurface(page);
+    const previousSequence = await readWireSequence(page);
+    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.listSubmit).click();
+
+    const outcome = await waitForWireOutcome(page, previousSequence);
+    if (outcome.status !== "success") {
       a.hasSession = false;
-      a.lastFailureCode = failureCode(response);
+      a.lastFailureCode = outcome.failureCode ?? "unknown";
       state.lastOperationSucceeded = false;
-      throw new Error(`list organizations failed: ${failureDetail(response)}`);
+      throw new Error(
+        `list organizations failed: ${outcome.failureDetail ?? outcome.failureCode ?? "unknown"}`,
+      );
     }
 
-    const body = response.json as {
-      organizations: Array<{ id: string; name: string }>;
-    };
-    state.lastListedNames = new Set(
-      body.organizations.map((org) => normalizeOrganizationName(org.name)),
-    );
-    for (const org of body.organizations) {
-      const key = normalizeOrganizationName(org.name);
-      const prior = state.organizationsByName.get(key);
-      state.organizationsByName.set(key, {
-        id: org.id,
-        grantedPermissions: prior?.grantedPermissions ?? [],
-      });
-    }
     state.lastOperationSucceeded = true;
   },
 );
@@ -252,9 +124,10 @@ When(
     permission: string,
     organizationName: string,
   ) => {
-    const state = orgState(world);
-    const a = actor(world, name);
-    await signInActorViaUi(page, world, name);
+    const state = orgState(world as OrganizationWorld);
+    const a = actor(world as OrganizationWorld, name);
+
+    await signInActorViaUi(page, world as OrganizationWorld, name);
 
     const org = state.organizationsByName.get(
       normalizeOrganizationName(organizationName),
@@ -265,19 +138,20 @@ When(
       );
     }
 
-    const response = await callApi(
-      page,
-      "POST",
-      "/organizations/permissions/check",
-      {
-        org_id: org.id,
-        permission,
-      },
-    );
+    await openOrganizationWireSurface(page);
+    await page
+      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionOrgIdInput)
+      .fill(org.id);
+    await page
+      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSelect)
+      .selectOption(permission);
+    const previousSequence = await readWireSequence(page);
+    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSubmit).click();
 
-    if (!response.ok) {
+    const outcome = await waitForWireOutcome(page, previousSequence);
+    if (outcome.status !== "success") {
       a.hasSession = false;
-      a.lastFailureCode = failureCode(response);
+      a.lastFailureCode = outcome.failureCode ?? "unknown";
       state.lastOperationSucceeded = false;
       return;
     }
@@ -287,7 +161,7 @@ When(
 );
 
 Then("the operation succeeds", async ({ world }) => {
-  const state = orgState(world);
+  const state = orgState(world as OrganizationWorld);
   if (!state.lastOperationSucceeded) {
     throw new Error("expected operation success");
   }
@@ -295,8 +169,8 @@ Then("the operation succeeds", async ({ world }) => {
 
 Then(
   /^(\w+) holds all organization admin permissions in "([^"]+)"$/,
-  async ({ world }, _name: string, organizationName: string) => {
-    const state = orgState(world);
+  async ({ page, world }, name: string, organizationName: string) => {
+    const state = orgState(world as OrganizationWorld);
     const org = state.organizationsByName.get(
       normalizeOrganizationName(organizationName),
     );
@@ -313,56 +187,45 @@ Then(
         `expected admin permissions ${expected.join(",")}, got ${actual.join(",")}`,
       );
     }
+
+    await signInActorViaUi(page, world as OrganizationWorld, name);
+    for (const permission of ALL_ADMIN_PERMISSIONS) {
+      await openOrganizationWireSurface(page);
+      await page
+        .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionOrgIdInput)
+        .fill(org.id);
+      await page
+        .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSelect)
+        .selectOption(permission);
+      const previousSequence = await readWireSequence(page);
+      await page
+        .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSubmit)
+        .click();
+      const outcome = await waitForWireOutcome(page, previousSequence);
+      if (outcome.status !== "success") {
+        throw new Error(
+          `admin permission check failed for ${permission}: ${outcome.failureDetail ?? outcome.failureCode ?? "unknown"}`,
+        );
+      }
+    }
   },
 );
 
 Then(
   /^organization "([^"]+)" has zero initial projects$/,
-  async ({ page, world }, organizationName: string) => {
-    const state = orgState(world);
+  async ({ world }, organizationName: string) => {
+    const state = orgState(world as OrganizationWorld);
     const normalized = normalizeOrganizationName(organizationName);
-    const org = state.organizationsByName.get(normalized);
-    if (!org) {
+    const snapshot = state.organizationsByName.get(normalized);
+    if (!snapshot) {
       throw new Error(
         `organization ${organizationName} must exist before zero-project assertion`,
       );
     }
 
-    const raw = await page
-      .context()
-      .request.get(`${API_URL}/test-hooks/events?limit=200`);
-    if (!raw.ok()) {
+    if (snapshot.initialProjectCount !== 0) {
       throw new Error(
-        `failed to read test-hook events: status=${raw.status()} body=${await raw.text()}`,
-      );
-    }
-    const events = (await raw.json()) as Array<{ payload?: unknown }>;
-
-    const created = [...events]
-      .reverse()
-      .map((event) => event.payload as Record<string, unknown> | undefined)
-      .find((payload) => {
-        if (!payload) return false;
-        if (payload["kind"] !== "organization_created") return false;
-        const eventPayload = payload["payload"] as
-          | Record<string, unknown>
-          | undefined;
-        if (!eventPayload) return false;
-        return eventPayload["name"] === organizationName;
-      });
-    if (!created) {
-      throw new Error(
-        `missing organization_created event for ${organizationName} in test-hook stream`,
-      );
-    }
-
-    const eventPayload = created["payload"] as
-      | Record<string, unknown>
-      | undefined;
-    const initialProjectCount = eventPayload?.["initial_project_count"];
-    if (typeof initialProjectCount !== "number" || initialProjectCount !== 0) {
-      throw new Error(
-        `expected initial_project_count=0 for ${organizationName}, got ${String(initialProjectCount)}`,
+        `expected initial_project_count=0 for ${organizationName}, got ${String(snapshot.initialProjectCount)}`,
       );
     }
   },
@@ -370,53 +233,9 @@ Then(
 
 Then(
   /^organization "([^"]+)" is listed for (\w+)$/,
-  async ({ world }, organizationName: string, _name: string) => {
-    const state = orgState(world);
-    const key = normalizeOrganizationName(organizationName);
-    if (!state.lastListedNames.has(key)) {
-      throw new Error(
-        `expected organization ${organizationName} in list response`,
-      );
-    }
+  async ({ page }, organizationName: string, _name: string) => {
+    await page
+      .getByTestId(organizationRowTestId(organizationName))
+      .waitFor({ state: "visible", timeout: 30_000 });
   },
 );
-
-async function waitForHydration(
-  page: import("@playwright/test").Page,
-): Promise<void> {
-  await page.waitForFunction(
-    () => {
-      const root = document as unknown as Record<string, unknown>;
-      const keys = Object.keys(root).filter(
-        (k) =>
-          k.startsWith("__reactContainer") ||
-          k.startsWith("_reactRootContainer"),
-      );
-      if (keys.length > 0) return true;
-      return Array.from(document.querySelectorAll("*")).some((el) =>
-        Object.keys(el).some((k) => k.startsWith("__reactProps$")),
-      );
-    },
-    { timeout: 30_000 },
-  );
-}
-
-async function classifyFailureFromAlert(
-  page: import("@playwright/test").Page,
-): Promise<string> {
-  const text = (
-    await page.locator('form [role="alert"]').first().innerText()
-  ).toLowerCase();
-  if (text.includes("invitation") && text.includes("expired"))
-    return "invitation_expired";
-  if (text.includes("invitation") && text.includes("not recognized"))
-    return "invitation_not_found";
-  if (text.includes("invitation") && text.includes("already been accepted"))
-    return "invitation_already_consumed";
-  if (text.includes("account already exists")) return "duplicate_identifier";
-  if (text.includes("email or password is invalid"))
-    return "invalid_credential";
-  if (text.includes("check the form fields") || text.includes("required"))
-    return "validation_failed";
-  return "unknown";
-}
