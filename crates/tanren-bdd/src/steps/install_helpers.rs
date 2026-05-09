@@ -183,6 +183,12 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
     hex
 }
 
+pub(crate) fn read_workspace_catalog_file(relative_path: &str) -> Result<String, InstallStepError> {
+    validate_relative_path(relative_path)?;
+    let absolute = workspace_root()?.join(relative_path);
+    read_to_string_with_context(&absolute, "read workspace catalog file")
+}
+
 fn assert_file_exists(repository_root: &Path, relative_path: &str) -> Result<(), InstallStepError> {
     let absolute = repository_root.join(relative_path);
     if !absolute.exists() {
@@ -243,11 +249,7 @@ impl GeneratedManifestEntry {
 fn list_relative_files_under_workspace(
     relative_root: &'static str,
 ) -> Result<Vec<String>, InstallStepError> {
-    let workspace_root = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .map_err(|source| InstallStepError::CanonicalizeWorkspaceRoot { source })?;
-    let root = workspace_root.join(relative_root);
+    let root = workspace_root()?.join(relative_root);
     if !root.exists() || !root.is_dir() {
         return Err(InstallStepError::MissingCatalogRoot { path: root });
     }
@@ -255,6 +257,13 @@ fn list_relative_files_under_workspace(
     let mut files = BTreeMap::new();
     collect_files(&root, &root, &mut files)?;
     Ok(files.into_keys().collect())
+}
+
+fn workspace_root() -> Result<PathBuf, InstallStepError> {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .canonicalize()
+        .map_err(|source| InstallStepError::CanonicalizeWorkspaceRoot { source })
 }
 
 fn collect_files(

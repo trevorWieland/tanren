@@ -350,10 +350,13 @@ fn plan_asset_write(
         return Ok(PlannedAssetAction::Unchanged);
     }
 
-    if asset.preservation == PreservationPolicy::PreserveUserEdits
-        && previous_entry.is_some_and(|entry| current_hash != entry.content_hash)
-    {
-        return Ok(PlannedAssetAction::Preserve(asset.destination_path.clone()));
+    if asset.preservation == PreservationPolicy::PreserveUserEdits {
+        let first_install_preserve = previous_entry.is_none();
+        let previously_tracked_user_edit =
+            previous_entry.is_some_and(|entry| current_hash != entry.content_hash);
+        if first_install_preserve || previously_tracked_user_edit {
+            return Ok(PlannedAssetAction::Preserve(asset.destination_path.clone()));
+        }
     }
 
     Ok(PlannedAssetAction::Write(PlannedWrite {

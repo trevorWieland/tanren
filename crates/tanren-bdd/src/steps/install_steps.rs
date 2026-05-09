@@ -4,6 +4,7 @@ use cucumber::{given, then, when};
 
 use crate::TanrenWorld;
 use crate::steps::install::{InstallContext, InstallStepResult};
+use crate::steps::install_helpers;
 use crate::steps::install_helpers::RepositoryRelativePath;
 
 #[given(expr = "a clean repository fixture")]
@@ -21,6 +22,17 @@ fn given_repository_file_contains(
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     let relative_path = RepositoryRelativePath::parse(path)?;
+    ctx.write_fixture_file(&relative_path, content)
+}
+
+#[given(expr = "repository file {string} is seeded from workspace catalog")]
+fn given_repository_file_seeded_from_catalog(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    let content = install_helpers::read_workspace_catalog_file(relative_path.as_str())?;
     ctx.write_fixture_file(&relative_path, content)
 }
 

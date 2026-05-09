@@ -14,6 +14,20 @@ Feature: Bootstrap Tanren assets into an existing repository
       And rust-cargo defaults install all methodology command assets and standards files
       And the install manifest records the rust-cargo profile and default integrations
 
+    @falsification @cli
+    Scenario: First install preserves pre-existing user-edited standards files
+      Given a clean repository fixture
+      And repository file "profiles/rust-cargo/global/dependency-management.md" contains "custom organization dependency policy"
+      And repository file "profiles/rust-cargo/global/dependency-management.md" baseline is recorded
+      And repository file "profiles/rust-cargo/global/just-ci-gate.md" is seeded from workspace catalog
+      And repository file "profiles/rust-cargo/global/just-ci-gate.md" baseline is recorded
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      And the install output reports created, updated, removed, restored, and preserved summaries
+      And rust-cargo defaults install all methodology command assets and standards files
+      And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
+      And repository file "profiles/rust-cargo/global/just-ci-gate.md" preserves its baseline content
+
     @positive @cli
     Scenario: Reinstall rust-cargo assets reconciles generated and standards drift
       Given a clean repository fixture
