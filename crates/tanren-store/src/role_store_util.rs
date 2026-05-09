@@ -1,0 +1,39 @@
+//! Shared utility helpers for the role store adapter.
+
+use std::collections::BTreeSet;
+
+use sea_orm::DbErr;
+use tanren_identity_policy::PermissionName;
+
+use crate::StoreError;
+
+pub(crate) fn dedup_permission_names(permissions: &[PermissionName]) -> Vec<String> {
+    permissions
+        .iter()
+        .map(|permission| permission.as_str().to_owned())
+        .collect::<BTreeSet<_>>()
+        .into_iter()
+        .collect::<Vec<_>>()
+}
+
+pub(crate) fn is_unique_violation(err: &DbErr) -> bool {
+    let err_text = err.to_string().to_ascii_lowercase();
+    err_text.contains("unique") || err_text.contains("duplicate")
+}
+
+pub(crate) fn map_store_txn_error(err: sea_orm::TransactionError<StoreError>) -> StoreError {
+    match err {
+        sea_orm::TransactionError::Connection(db_err) => StoreError::from(db_err),
+        sea_orm::TransactionError::Transaction(inner) => inner,
+    }
+}
+
+pub(crate) fn map_wrapped_txn_error<E>(err: sea_orm::TransactionError<E>) -> E
+where
+    E: From<StoreError>,
+{
+    match err {
+        sea_orm::TransactionError::Connection(db_err) => StoreError::from(db_err).into(),
+        sea_orm::TransactionError::Transaction(inner) => inner,
+    }
+}

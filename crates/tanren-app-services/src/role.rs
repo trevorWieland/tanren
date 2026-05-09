@@ -1,13 +1,13 @@
 //! Role-template lifecycle and permission-check handlers.
-//!
 //! Role templates are permission bundles, not authorization principals.
 //! Applying a role snapshots its current permissions into direct grants.
 
 use tanren_contract::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
-    DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
-    PermissionCheckResponse, PermissionGrantView, RoleActor, RoleAdminAction,
-    RoleAdminCapabilities, RoleFailureReason, RoleTemplateView,
+    DeleteRoleResponse, EditRoleRequest, EditRoleResponse, MAX_ROLE_TEMPLATE_PERMISSIONS,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView,
+    ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE, RoleActor, RoleAdminAction, RoleAdminCapabilities,
+    RoleFailureReason, RoleTemplateView,
 };
 use tanren_identity_policy::{
     AccountId, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope,
@@ -81,6 +81,8 @@ where
     S: RoleStore + AccountStore + ?Sized,
 {
     authorize_manage_role_scope(store, actor.account_id, request.scope).await?;
+    ensure_role_scope_exists(store, request.scope).await?;
+    validate_role_permissions_bundle(&request.permissions)?;
     let now = clock.now();
     let role = store
         .create_role(NewRole {
@@ -122,6 +124,7 @@ where
     S: RoleStore + AccountStore + ?Sized,
 {
     authorize_manage_role_scope(store, actor.account_id, request.role.scope).await?;
+    validate_role_permissions_bundle(&request.permissions)?;
     let now = clock.now();
     let role = store
         .edit_role(EditRole {
@@ -191,10 +194,16 @@ where
     S: RoleStore + AccountStore + ?Sized,
 {
     authorize_manage_permission_scope(store, actor.account_id, request.grant_scope).await?;
+    ensure_role_scope_exists(store, request.role.scope).await?;
+    ensure_permission_scope_exists(store, request.grant_scope).await?;
     if matches!(request.principal, PrincipalRef::Role { .. }) {
         return Err(RoleServiceError::Role(
             RoleFailureReason::RoleAsPrincipalRejected,
         ));
+    }
+    ensure_principal_exists(store, request.principal).await?;
+    if !request.role.scope.allows_grant_scope(request.grant_scope) {
+        return Err(RoleServiceError::Role(RoleFailureReason::ValidationFailed));
     }
     let now = clock.now();
     let grants = store
@@ -245,6 +254,7 @@ where
     S: RoleStore + AccountStore + ?Sized,
 {
     authorize_read_permission_scope(store, actor.account_id, request.scope).await?;
+    ensure_permission_scope_exists(store, request.scope).await?;
     if matches!(request.principal, PrincipalRef::Role { .. }) {
         let now = clock.now();
         store
@@ -266,6 +276,7 @@ where
             RoleFailureReason::RoleAsPrincipalRejected,
         ));
     }
+    ensure_principal_exists(store, request.principal).await?;
 
     let grants = store
         .find_direct_grants(request.principal, request.scope, &request.permission)
@@ -321,7 +332,7 @@ where
     authorize_role_permission(
         store,
         actor,
-        permission_scope_from_role_scope(scope),
+        scope.as_permission_scope(),
         &role_manage_permission()?,
     )
     .await
@@ -384,12 +395,59 @@ fn role_read_permission() -> Result<PermissionName, RoleServiceError> {
         .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
 }
 
-fn permission_scope_from_role_scope(scope: RoleScope) -> PermissionScope {
-    match scope {
-        RoleScope::Account { account_id } => PermissionScope::Account { account_id },
-        RoleScope::Organization { org_id } => PermissionScope::Organization { org_id },
-        RoleScope::Project { project_id } => PermissionScope::Project { project_id },
+async fn ensure_role_scope_exists<S>(store: &S, scope: RoleScope) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    if store.role_scope_exists(scope).await? {
+        Ok(())
+    } else {
+        Err(RoleServiceError::Role(RoleFailureReason::NotFound))
     }
+}
+
+async fn ensure_permission_scope_exists<S>(
+    store: &S,
+    scope: PermissionScope,
+) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    if store.permission_scope_exists(scope).await? {
+        Ok(())
+    } else {
+        Err(RoleServiceError::Role(RoleFailureReason::NotFound))
+    }
+}
+
+async fn ensure_principal_exists<S>(
+    store: &S,
+    principal: PrincipalRef,
+) -> Result<(), RoleServiceError>
+where
+    S: RoleStore + ?Sized,
+{
+    if store.principal_exists(principal).await? {
+        Ok(())
+    } else {
+        Err(RoleServiceError::Role(RoleFailureReason::NotFound))
+    }
+}
+
+fn validate_role_permissions_bundle(
+    permissions: &[PermissionName],
+) -> Result<(), RoleServiceError> {
+    if permissions.is_empty() && !ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE {
+        return Err(RoleServiceError::InvalidInput(
+            "role templates must include at least one permission".to_owned(),
+        ));
+    }
+    if permissions.len() > MAX_ROLE_TEMPLATE_PERMISSIONS {
+        return Err(RoleServiceError::InvalidInput(format!(
+            "role templates can include at most {MAX_ROLE_TEMPLATE_PERMISSIONS} permissions"
+        )));
+    }
+    Ok(())
 }
 
 fn map_create_role_error(err: CreateRoleError) -> RoleServiceError {
@@ -409,7 +467,12 @@ fn map_edit_role_error(err: EditRoleError) -> RoleServiceError {
 
 fn map_apply_role_error(err: ApplyRoleError) -> RoleServiceError {
     match err {
-        ApplyRoleError::RoleNotFound => RoleServiceError::Role(RoleFailureReason::NotFound),
+        ApplyRoleError::RoleNotFound
+        | ApplyRoleError::PrincipalNotFound
+        | ApplyRoleError::GrantScopeNotFound => RoleServiceError::Role(RoleFailureReason::NotFound),
+        ApplyRoleError::IncompatibleGrantScope => {
+            RoleServiceError::Role(RoleFailureReason::ValidationFailed)
+        }
         ApplyRoleError::Store(store_err) => RoleServiceError::Store(store_err),
     }
 }

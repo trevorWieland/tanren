@@ -7,10 +7,16 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, PermissionGrantId, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleName,
-    RoleScope, ScopedRole,
+    AccountId, PermissionGrantId, PermissionName, PermissionScope, PrincipalRef,
+    ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED, ROLE_TEMPLATE_MAX_PERMISSIONS, RoleId, RoleName, RoleScope,
+    ScopedRole,
 };
 use utoipa::ToSchema;
+
+/// Documented maximum size of a role-template permission bundle.
+pub const MAX_ROLE_TEMPLATE_PERMISSIONS: usize = ROLE_TEMPLATE_MAX_PERMISSIONS;
+/// Explicit empty-bundle policy for role templates.
+pub const ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE: bool = ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED;
 
 /// Create-role request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]

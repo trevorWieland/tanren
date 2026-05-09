@@ -10,6 +10,10 @@ use crate::{AccountId, OrgId};
 const ROLE_NAME_MAX_LEN: usize = 64;
 /// Maximum byte length of a valid permission name.
 const PERMISSION_NAME_MAX_LEN: usize = 120;
+/// Maximum number of permissions a role template may bundle.
+pub const ROLE_TEMPLATE_MAX_PERMISSIONS: usize = 64;
+/// Whether an empty role-template permission bundle is allowed.
+pub const ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED: bool = false;
 
 /// Stable identifier for a Tanren project.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -359,6 +363,40 @@ pub enum RoleScope {
     Organization { org_id: OrgId },
     /// Role scoped to one project.
     Project { project_id: ProjectId },
+}
+
+impl RoleScope {
+    /// Convert this role scope to the equivalent permission scope.
+    #[must_use]
+    pub const fn as_permission_scope(self) -> PermissionScope {
+        match self {
+            Self::Account { account_id } => PermissionScope::Account { account_id },
+            Self::Organization { org_id } => PermissionScope::Organization { org_id },
+            Self::Project { project_id } => PermissionScope::Project { project_id },
+        }
+    }
+
+    /// Whether a role defined at this scope can be applied into
+    /// `grant_scope` under the currently modelled scope relationships.
+    ///
+    /// Today this allows only exact scope equality. Descendant scope
+    /// relationships are intentionally rejected until a canonical scope
+    /// lineage store is available for verification.
+    #[must_use]
+    pub fn allows_grant_scope(self, grant_scope: PermissionScope) -> bool {
+        match (self, grant_scope) {
+            (Self::Account { account_id: lhs }, PermissionScope::Account { account_id: rhs }) => {
+                lhs.as_uuid() == rhs.as_uuid()
+            }
+            (Self::Organization { org_id: lhs }, PermissionScope::Organization { org_id: rhs }) => {
+                lhs.as_uuid() == rhs.as_uuid()
+            }
+            (Self::Project { project_id: lhs }, PermissionScope::Project { project_id: rhs }) => {
+                lhs.as_uuid() == rhs.as_uuid()
+            }
+            _ => false,
+        }
+    }
 }
 
 /// Scope where permission grants apply.

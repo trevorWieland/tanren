@@ -7,9 +7,9 @@ Feature: Manage roles as permission templates
   permissions. Applying a role grants direct permissions at that moment;
   editing or deleting a role does not retroactively change existing grants.
   Authorization checks resolve on permissions only and reject role principals.
-  Each interface (`web`, `api`, `mcp`, `cli`, `tui`) repeats the same two
-  witness shapes: role lifecycle + non-retroactivity as a positive witness,
-  and role-as-principal permission-check rejection as a falsification witness.
+  Each interface (`web`, `api`, `mcp`, `cli`, `tui`) repeats positive lifecycle
+  witnesses plus falsification witnesses for role-principal rejection and input
+  validation boundaries.
 
   Background:
     Given a clean role-template environment
@@ -41,6 +41,20 @@ Feature: Manage roles as permission templates
       Then the permission check result is allowed
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
+
+    @falsification @api
+    Scenario: API role validation rejects empty or oversized bundles, incompatible grant scopes, and missing principals
+      When the operator attempts to create role template "Empty API" with 0 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to create role template "Oversized API" with 65 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator creates role template "Scope Guard API" with permissions "project.read"
+      When the operator attempts to apply the role template with an account grant-scope mismatch
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to apply the role template to missing account principal ghost
+      Then the role request fails with code "not_found"
+      When the operator checks permission "project.read" for missing account principal ghost
+      Then the role request fails with code "not_found"
 
   Rule: Web surface
 
@@ -95,6 +109,20 @@ Feature: Manage roles as permission templates
       Then the permission check result is allowed
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
+
+    @falsification @mcp
+    Scenario: MCP role validation rejects empty or oversized bundles, incompatible grant scopes, and missing principals
+      When the operator attempts to create role template "Empty MCP" with 0 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to create role template "Oversized MCP" with 65 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator creates role template "Scope Guard MCP" with permissions "project.read"
+      When the operator attempts to apply the role template with an account grant-scope mismatch
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to apply the role template to missing account principal ghost
+      Then the role request fails with code "not_found"
+      When the operator checks permission "project.read" for missing account principal ghost
+      Then the role request fails with code "not_found"
 
   Rule: CLI surface
 

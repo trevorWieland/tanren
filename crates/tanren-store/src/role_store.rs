@@ -1,17 +1,21 @@
 //! `SeaORM`-backed role-template + direct-grant persistence adapter.
 
-use std::collections::{BTreeSet, HashMap};
+use std::collections::HashMap;
 
 use async_trait::async_trait;
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction, DbErr,
+    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
     EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
 use tanren_identity_policy::{PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope};
 use uuid::Uuid;
 
 use crate::entity;
+use crate::role_scope_lookup::{permission_scope_exists, principal_exists, role_scope_exists};
+use crate::role_store_util::{
+    dedup_permission_names, is_unique_violation, map_store_txn_error, map_wrapped_txn_error,
+};
 use crate::{
     ApplyRole, ApplyRoleError, CreateRoleError, EditRole, EditRoleError, NewRole,
     PermissionGrantRecord, RoleRecord, RoleStore, Store, StoreError, parse_db_permission_name,
@@ -59,6 +63,18 @@ impl RoleStore for Store {
         role: tanren_identity_policy::ScopedRole,
     ) -> Result<Option<RoleRecord>, StoreError> {
         load_role_record(&self.conn, role.role_id, role.scope).await
+    }
+
+    async fn role_scope_exists(&self, scope: RoleScope) -> Result<bool, StoreError> {
+        role_scope_exists(&self.conn, scope).await
+    }
+
+    async fn permission_scope_exists(&self, scope: PermissionScope) -> Result<bool, StoreError> {
+        permission_scope_exists(&self.conn, scope).await
+    }
+
+    async fn principal_exists(&self, principal: PrincipalRef) -> Result<bool, StoreError> {
+        principal_exists(&self.conn, principal).await
     }
 
     async fn apply_role(
@@ -285,6 +301,15 @@ async fn apply_role_in_txn(
     if role_row.is_none() {
         return Err(ApplyRoleError::RoleNotFound);
     }
+    if !principal_exists(txn, principal).await? {
+        return Err(ApplyRoleError::PrincipalNotFound);
+    }
+    if !permission_scope_exists(txn, grant_scope).await? {
+        return Err(ApplyRoleError::GrantScopeNotFound);
+    }
+    if !role.scope.allows_grant_scope(grant_scope) {
+        return Err(ApplyRoleError::IncompatibleGrantScope);
+    }
     let permission_names = list_role_permission_names(txn, role.role_id).await?;
     if permission_names.is_empty() {
         return Ok(Vec::new());
@@ -448,35 +473,4 @@ async fn insert_role_permissions_in_txn(
         .exec(txn)
         .await?;
     Ok(())
-}
-
-fn dedup_permission_names(permissions: &[PermissionName]) -> Vec<String> {
-    permissions
-        .iter()
-        .map(|permission| permission.as_str().to_owned())
-        .collect::<BTreeSet<_>>()
-        .into_iter()
-        .collect::<Vec<_>>()
-}
-
-fn is_unique_violation(err: &DbErr) -> bool {
-    let err_text = err.to_string().to_ascii_lowercase();
-    err_text.contains("unique") || err_text.contains("duplicate")
-}
-
-fn map_store_txn_error(err: sea_orm::TransactionError<StoreError>) -> StoreError {
-    match err {
-        sea_orm::TransactionError::Connection(db_err) => StoreError::from(db_err),
-        sea_orm::TransactionError::Transaction(inner) => inner,
-    }
-}
-
-fn map_wrapped_txn_error<E>(err: sea_orm::TransactionError<E>) -> E
-where
-    E: From<StoreError>,
-{
-    match err {
-        sea_orm::TransactionError::Connection(db_err) => StoreError::from(db_err).into(),
-        sea_orm::TransactionError::Transaction(inner) => inner,
-    }
 }

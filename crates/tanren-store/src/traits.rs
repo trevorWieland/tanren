@@ -318,6 +318,15 @@ pub enum ApplyRoleError {
     /// No role template matches the requested scoped id.
     #[error("role not found")]
     RoleNotFound,
+    /// Principal referenced by the request does not exist.
+    #[error("principal not found")]
+    PrincipalNotFound,
+    /// Grant scope referenced by the request does not exist.
+    #[error("grant scope not found")]
+    GrantScopeNotFound,
+    /// Grant scope is incompatible with the role template scope.
+    #[error("grant scope is incompatible with role scope")]
+    IncompatibleGrantScope,
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
@@ -343,6 +352,15 @@ pub trait RoleStore: Send + Sync + std::fmt::Debug {
 
     /// Resolve one role template by id + scope.
     async fn find_role(&self, role: ScopedRole) -> Result<Option<RoleRecord>, StoreError>;
+
+    /// Whether the supplied role scope reference exists.
+    async fn role_scope_exists(&self, scope: RoleScope) -> Result<bool, StoreError>;
+
+    /// Whether the supplied permission scope reference exists.
+    async fn permission_scope_exists(&self, scope: PermissionScope) -> Result<bool, StoreError>;
+
+    /// Whether the supplied principal reference exists.
+    async fn principal_exists(&self, principal: PrincipalRef) -> Result<bool, StoreError>;
 
     /// Apply a role template to a principal in one transaction by
     /// inserting direct permission grants for the template's current

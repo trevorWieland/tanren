@@ -11,7 +11,9 @@ mod accept_invitation;
 mod entity;
 mod migration;
 mod records;
+mod role_scope_lookup;
 mod role_store;
+mod role_store_util;
 mod traits;
 
 pub use migration::Migrator;

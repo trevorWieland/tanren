@@ -1,7 +1,4 @@
 //! Role-template step definitions for B-0038.
-//!
-//! Step bodies dispatch through the per-interface
-//! [`RoleHarness`](tanren_testkit::RoleHarness) trait.
 
 use std::collections::BTreeSet;
 
@@ -9,7 +6,7 @@ use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
     ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest, EditRoleRequest,
-    PermissionCheckRequest, SignUpRequest,
+    PermissionCheckRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, Email, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleName, RoleScope,
@@ -18,15 +15,17 @@ use tanren_identity_policy::{
 
 use crate::{RoleScenarioState, TanrenWorld};
 
+const ROLE_OPERATOR_EMAIL: &str = "role-operator@tanren.test";
+const ROLE_OPERATOR_PASSWORD: &str = "role-operator-password";
 #[given(expr = "a clean role-template environment")]
 async fn given_clean_role_env(world: &mut TanrenWorld) {
     let ctx = world.ensure_account_ctx().await;
-    let operator_email = Email::parse("role-operator@tanren.test")
-        .expect("role-operator scenario email literal must parse");
+    let operator_email =
+        Email::parse(ROLE_OPERATOR_EMAIL).expect("role-operator scenario email literal must parse");
     ctx.harness
         .sign_up(SignUpRequest {
             email: operator_email,
-            password: SecretString::from("role-operator-password".to_owned()),
+            password: SecretString::from(ROLE_OPERATOR_PASSWORD.to_owned()),
             display_name: "Role Operator".to_owned(),
         })
         .await
@@ -77,6 +76,36 @@ async fn when_create_role(world: &mut TanrenWorld, name: String, permissions: St
 }
 
 #[when(
+    expr = "the operator attempts to create role template {string} with {int} synthetic permissions"
+)]
+async fn when_create_role_too_many_permissions(
+    world: &mut TanrenWorld,
+    name: String,
+    permission_count: usize,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    let scope = scenario_role_scope(&mut ctx.role);
+    let request = CreateRoleRequest {
+        scope,
+        name: RoleName::parse(&name).expect("scenario role names must parse"),
+        permissions: synthetic_permissions(permission_count),
+    };
+    match ctx.harness.create_role(request).await {
+        Ok(response) => {
+            ctx.role.active_role = Some(ScopedRole {
+                role_id: response.role.id,
+                scope: response.role.scope,
+            });
+            ctx.role.last_error_code = Some("unexpected_success".to_owned());
+        }
+        Err(err) => {
+            ctx.role.last_error_code = Some(err.code());
+        }
+    }
+    ctx.role.last_permission_check = None;
+}
+
+#[when(
     expr = "the operator edits the active role template to name {string} and permissions {string}"
 )]
 async fn when_edit_role(world: &mut TanrenWorld, name: String, permissions: String) {
@@ -118,8 +147,8 @@ async fn when_delete_role(world: &mut TanrenWorld) {
 async fn when_apply_role_to_account(world: &mut TanrenWorld, alias: String) {
     let ctx = world.ensure_account_ctx().await;
     let role = active_role(&ctx.role);
-    let grant_scope = permission_scope_from_role_scope(scenario_role_scope(&mut ctx.role));
-    let account_id = scenario_principal_account_id(&mut ctx.role, alias);
+    let grant_scope = scenario_role_scope(&mut ctx.role).as_permission_scope();
+    let account_id = ensure_scenario_principal_account(ctx, alias).await;
     let principal = PrincipalRef::Account { account_id };
     let applied = ctx
         .harness
@@ -147,6 +176,64 @@ async fn when_apply_role_to_account(world: &mut TanrenWorld, alias: String) {
     ctx.role.last_permission_check = None;
 }
 
+#[when(
+    expr = "the operator attempts to apply the role template to missing account principal {word}"
+)]
+async fn when_apply_role_to_missing_account(world: &mut TanrenWorld, alias: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let role = active_role(&ctx.role);
+    let principal = PrincipalRef::Account {
+        account_id: missing_principal_account_id(&ctx.role, alias),
+    };
+    match ctx
+        .harness
+        .apply_role(ApplyRoleRequest {
+            role,
+            principal,
+            grant_scope: scenario_role_scope(&mut ctx.role).as_permission_scope(),
+        })
+        .await
+    {
+        Ok(_) => ctx.role.last_error_code = Some("unexpected_success".to_owned()),
+        Err(err) => ctx.role.last_error_code = Some(err.code()),
+    }
+    ctx.role.last_permission_check = None;
+}
+
+#[when(
+    expr = "the operator attempts to apply the role template with an account grant-scope mismatch"
+)]
+async fn when_apply_role_with_scope_mismatch(world: &mut TanrenWorld) {
+    let ctx = world.ensure_account_ctx().await;
+    let role = active_role(&ctx.role);
+    let account_id = ensure_scenario_principal_account(ctx, "scope-mismatch".to_owned()).await;
+    let principal = PrincipalRef::Account { account_id };
+    let mismatched_scope = PermissionScope::Account { account_id };
+    ctx.harness
+        .seed_role_admin_for_authenticated_actor(
+            RoleScope::Account { account_id },
+            vec![
+                PermissionName::parse("roles.manage")
+                    .expect("roles.manage permission literal must parse"),
+            ],
+        )
+        .await
+        .expect("seed role-admin permission for mismatched scope");
+    match ctx
+        .harness
+        .apply_role(ApplyRoleRequest {
+            role,
+            principal,
+            grant_scope: mismatched_scope,
+        })
+        .await
+    {
+        Ok(_) => ctx.role.last_error_code = Some("unexpected_success".to_owned()),
+        Err(err) => ctx.role.last_error_code = Some(err.code()),
+    }
+    ctx.role.last_permission_check = None;
+}
+
 #[when(expr = "the operator checks permission {string} for account principal {word}")]
 async fn when_check_permission_for_account(
     world: &mut TanrenWorld,
@@ -154,11 +241,11 @@ async fn when_check_permission_for_account(
     alias: String,
 ) {
     let ctx = world.ensure_account_ctx().await;
-    let account_id = scenario_principal_account_id(&mut ctx.role, alias);
+    let account_id = ensure_scenario_principal_account(ctx, alias).await;
     let request = PermissionCheckRequest {
         principal: PrincipalRef::Account { account_id },
         permission: PermissionName::parse(&permission).expect("scenario permission must parse"),
-        scope: permission_scope_from_role_scope(scenario_role_scope(&mut ctx.role)),
+        scope: scenario_role_scope(&mut ctx.role).as_permission_scope(),
     };
     let response = ctx
         .harness
@@ -178,7 +265,33 @@ async fn when_check_permission_for_role_principal(world: &mut TanrenWorld, permi
             role_id: role.role_id,
         },
         permission: PermissionName::parse(&permission).expect("scenario permission must parse"),
-        scope: permission_scope_from_role_scope(scenario_role_scope(&mut ctx.role)),
+        scope: scenario_role_scope(&mut ctx.role).as_permission_scope(),
+    };
+    match ctx.harness.check_permission(request).await {
+        Ok(response) => {
+            ctx.role.last_permission_check = Some(response);
+            ctx.role.last_error_code = Some("unexpected_success".to_owned());
+        }
+        Err(err) => {
+            ctx.role.last_error_code = Some(err.code());
+            ctx.role.last_permission_check = None;
+        }
+    }
+}
+
+#[when(expr = "the operator checks permission {string} for missing account principal {word}")]
+async fn when_check_permission_for_missing_account(
+    world: &mut TanrenWorld,
+    permission: String,
+    alias: String,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    let request = PermissionCheckRequest {
+        principal: PrincipalRef::Account {
+            account_id: missing_principal_account_id(&ctx.role, alias),
+        },
+        permission: PermissionName::parse(&permission).expect("scenario permission must parse"),
+        scope: scenario_role_scope(&mut ctx.role).as_permission_scope(),
     };
     match ctx.harness.check_permission(request).await {
         Ok(response) => {
@@ -230,7 +343,7 @@ async fn then_account_has_direct_grants(
 ) {
     let ctx = world.ensure_account_ctx().await;
     let role = active_role(&ctx.role);
-    let account_id = scenario_principal_account_id(&mut ctx.role, alias);
+    let account_id = ensure_scenario_principal_account(ctx, alias).await;
     let principal = PrincipalRef::Account { account_id };
     let grants = ctx
         .harness
@@ -238,7 +351,7 @@ async fn then_account_has_direct_grants(
         .await
         .expect("read direct grants should succeed");
     let expected_permissions = parse_permissions_csv(&permissions);
-    let expected_scope = permission_scope_from_role_scope(scenario_role_scope(&mut ctx.role));
+    let expected_scope = scenario_role_scope(&mut ctx.role).as_permission_scope();
     assert!(
         !grants.is_empty(),
         "principal must have at least one direct grant"
@@ -315,6 +428,15 @@ fn parse_outcome_word(word: &str) -> bool {
     word == "allowed"
 }
 
+fn synthetic_permissions(permission_count: usize) -> Vec<PermissionName> {
+    (0..permission_count)
+        .map(|idx| {
+            PermissionName::parse(&format!("project.synthetic_{idx}"))
+                .expect("synthetic scenario permission must parse")
+        })
+        .collect()
+}
+
 fn scenario_role_scope(role: &mut RoleScenarioState) -> RoleScope {
     if let Some(scope) = role.scope {
         scope
@@ -327,22 +449,45 @@ fn scenario_role_scope(role: &mut RoleScenarioState) -> RoleScope {
     }
 }
 
-fn permission_scope_from_role_scope(scope: RoleScope) -> PermissionScope {
-    match scope {
-        RoleScope::Account { account_id } => PermissionScope::Account { account_id },
-        RoleScope::Organization { org_id } => PermissionScope::Organization { org_id },
-        RoleScope::Project { project_id } => PermissionScope::Project { project_id },
-    }
-}
-
 fn active_role(role: &RoleScenarioState) -> ScopedRole {
     role.active_role
         .expect("active role template must be created first")
 }
 
-fn scenario_principal_account_id(role: &mut RoleScenarioState, alias: String) -> AccountId {
-    *role
-        .principals
-        .entry(alias)
-        .or_insert_with(AccountId::fresh)
+async fn ensure_scenario_principal_account(
+    ctx: &mut crate::AccountContext,
+    alias: String,
+) -> AccountId {
+    if let Some(account_id) = ctx.role.principals.get(&alias) {
+        return *account_id;
+    }
+
+    let email = Email::parse(&format!("{alias}@tanren.test"))
+        .expect("scenario principal email literal must parse");
+    let password = SecretString::from(format!("{alias}-password"));
+    let session = ctx
+        .harness
+        .sign_up(SignUpRequest {
+            email: email.clone(),
+            password: password.clone(),
+            display_name: format!("Principal {alias}"),
+        })
+        .await
+        .expect("scenario principal sign-up should succeed");
+    let account_id = session.account.id;
+    ctx.role.principals.insert(alias, account_id);
+
+    ctx.harness
+        .sign_in(SignInRequest {
+            email: Email::parse(ROLE_OPERATOR_EMAIL)
+                .expect("role-operator scenario email literal must parse"),
+            password: SecretString::from(ROLE_OPERATOR_PASSWORD.to_owned()),
+        })
+        .await
+        .expect("role-operator sign-in should succeed after principal provisioning");
+    account_id
+}
+
+fn missing_principal_account_id(_role: &RoleScenarioState, _alias: String) -> AccountId {
+    AccountId::fresh()
 }
