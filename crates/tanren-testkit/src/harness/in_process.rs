@@ -1,8 +1,7 @@
 //! Direct-`Handlers` harness — the legacy path the rest of the test
 //! suite ran on before R-0001 sub-9. Kept as the fallback for
 //! untagged scenarios and as the temporary stand-in for `@web` (until
-//! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
-//! is hardened).
+//! PR 11 wires `playwright-bdd`).
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -28,8 +27,8 @@ use super::{
 
 /// In-process harness that drives `tanren_app_services::Handlers`
 /// against an ephemeral `SQLite` store. Used for untagged scenarios and
-/// as the temporary stand-in for `@web` / `@tui` until those harnesses
-/// land their real wire drivers.
+/// as the temporary stand-in for `@web` until that harness lands its
+/// real wire driver.
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
@@ -77,7 +76,7 @@ impl InProcessHarness {
     }
 
     /// Borrow the handle of the underlying store. Exposed so the
-    /// fallback `@tui` / `@web` paths can read events out alongside
+    /// fallback `@web` path can read events out alongside
     /// the trait-driven path. Production-shape callers must go
     /// through the [`AccountHarness`] trait.
     #[must_use]

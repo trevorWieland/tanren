@@ -16,7 +16,7 @@
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
 //!
-//! ## Status of each harness (PR 9)
+//! ## Status of each harness
 //!
 //! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
 //!   on an ephemeral port, drives via `reqwest::Client` with
@@ -29,10 +29,9 @@
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
+//! - `@tui` — full impl. Spawns the `tanren-tui` binary and drives it
+//!   over a pty via `expectrl`, asserting on rendered screen content
+//!   and form error taxonomy messages.
 //! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
 //!   parallel Node-side Playwright harness for the same `@web` Gherkin
 //!   scenarios via `playwright-bdd`. The two layers prove themselves
@@ -49,6 +48,7 @@ mod common;
 mod in_process;
 mod mcp;
 mod tui;
+mod tui_support;
 mod web;
 
 use std::collections::HashMap;
@@ -90,8 +90,7 @@ pub enum HarnessKind {
     /// Spawns the `tanren-mcp` server on an ephemeral port; rmcp
     /// streamable-HTTP client.
     Mcp,
-    /// Drives the `tanren-tui` binary inside a pty (deferred — falls
-    /// back to in-process for PR 9).
+    /// Drives the `tanren-tui` binary inside a pty.
     Tui,
     /// Drives the web frontend via Playwright (deferred to PR 11 —
     /// falls back to in-process).

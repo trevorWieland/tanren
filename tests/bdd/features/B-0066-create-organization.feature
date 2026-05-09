@@ -27,10 +27,22 @@ Feature: Create an organization
       Then the operation succeeds
       When alice checks organization permission "set_policy" in "alpha api org"
       Then the operation succeeds
+      When alice checks organization permission "delete" in "alpha api org"
+      Then the operation succeeds
 
     @falsification @api
     Scenario: API rejects unsigned organization create
       When alice creates organization "unsigned api org" without signing in
+      Then the request fails with code "auth_required"
+
+    @falsification @api
+    Scenario: API rejects unsigned organization list and permission check
+      Given alice has signed up with email "alice-b0066-api-authz@example.com" and password "p4ssw0rd"
+      When alice creates organization "api authz org"
+      Then the operation succeeds
+      When alice lists available organizations without signing in
+      Then the request fails with code "auth_required"
+      When alice checks organization permission "invite" in "api authz org" without signing in
       Then the request fails with code "auth_required"
 
     @falsification @api
@@ -39,6 +51,8 @@ Feature: Create an organization
       And bob has signed up with email "bob-b0066-api-other@example.com" and password "p4ssw0rd"
       When alice creates organization "api owner org"
       Then the operation succeeds
+      When bob lists available organizations
+      Then organization "api owner org" is not listed for bob
       When bob checks organization permission "invite" in "api owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "manage_access" in "api owner org"
@@ -46,6 +60,8 @@ Feature: Create an organization
       When bob checks organization permission "configure" in "api owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "set_policy" in "api owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "delete" in "api owner org"
       Then the request fails with code "permission_denied"
 
   Rule: Web surface
@@ -67,10 +83,22 @@ Feature: Create an organization
       Then the operation succeeds
       When alice checks organization permission "set_policy" in "alpha web org"
       Then the operation succeeds
+      When alice checks organization permission "delete" in "alpha web org"
+      Then the operation succeeds
 
     @falsification @web
     Scenario: Web rejects unsigned organization create
       When alice creates organization "unsigned web org" without signing in
+      Then the request fails with code "auth_required"
+
+    @falsification @web
+    Scenario: Web rejects unsigned organization list and permission check
+      Given alice has signed up with email "alice-b0066-web-authz@example.com" and password "p4ssw0rd"
+      When alice creates organization "web authz org"
+      Then the operation succeeds
+      When alice lists available organizations without signing in
+      Then the request fails with code "auth_required"
+      When alice checks organization permission "invite" in "web authz org" without signing in
       Then the request fails with code "auth_required"
 
     @falsification @web
@@ -79,6 +107,8 @@ Feature: Create an organization
       And bob has signed up with email "bob-b0066-web-other@example.com" and password "p4ssw0rd"
       When alice creates organization "web owner org"
       Then the operation succeeds
+      When bob lists available organizations
+      Then organization "web owner org" is not listed for bob
       When bob checks organization permission "invite" in "web owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "manage_access" in "web owner org"
@@ -86,6 +116,8 @@ Feature: Create an organization
       When bob checks organization permission "configure" in "web owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "set_policy" in "web owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "delete" in "web owner org"
       Then the request fails with code "permission_denied"
 
   Rule: CLI surface
@@ -107,10 +139,22 @@ Feature: Create an organization
       Then the operation succeeds
       When alice checks organization permission "set_policy" in "alpha-cli-org"
       Then the operation succeeds
+      When alice checks organization permission "delete" in "alpha-cli-org"
+      Then the operation succeeds
 
     @falsification @cli
     Scenario: CLI rejects unsigned organization create
       When alice creates organization "unsigned-cli-org" without signing in
+      Then the request fails with code "auth_required"
+
+    @falsification @cli
+    Scenario: CLI rejects unsigned organization list and permission check
+      Given alice has signed up with email "alice-b0066-cli-authz@example.com" and password "p4ssw0rd"
+      When alice creates organization "cli-authz-org"
+      Then the operation succeeds
+      When alice lists available organizations without signing in
+      Then the request fails with code "auth_required"
+      When alice checks organization permission "invite" in "cli-authz-org" without signing in
       Then the request fails with code "auth_required"
 
     @falsification @cli
@@ -119,6 +163,8 @@ Feature: Create an organization
       And bob has signed up with email "bob-b0066-cli-other@example.com" and password "p4ssw0rd"
       When alice creates organization "cli-owner-org"
       Then the operation succeeds
+      When bob lists available organizations
+      Then organization "cli-owner-org" is not listed for bob
       When bob checks organization permission "invite" in "cli-owner-org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "manage_access" in "cli-owner-org"
@@ -126,6 +172,8 @@ Feature: Create an organization
       When bob checks organization permission "configure" in "cli-owner-org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "set_policy" in "cli-owner-org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "delete" in "cli-owner-org"
       Then the request fails with code "permission_denied"
 
   Rule: MCP surface
@@ -147,10 +195,22 @@ Feature: Create an organization
       Then the operation succeeds
       When alice checks organization permission "set_policy" in "alpha mcp org"
       Then the operation succeeds
+      When alice checks organization permission "delete" in "alpha mcp org"
+      Then the operation succeeds
 
     @falsification @mcp
     Scenario: MCP rejects unsigned organization create
       When alice creates organization "unsigned mcp org" without signing in
+      Then the request fails with code "auth_required"
+
+    @falsification @mcp
+    Scenario: MCP rejects unsigned organization list and permission check
+      Given alice has signed up with email "alice-b0066-mcp-authz@example.com" and password "p4ssw0rd"
+      When alice creates organization "mcp authz org"
+      Then the operation succeeds
+      When alice lists available organizations without signing in
+      Then the request fails with code "auth_required"
+      When alice checks organization permission "invite" in "mcp authz org" without signing in
       Then the request fails with code "auth_required"
 
     @falsification @mcp
@@ -159,6 +219,8 @@ Feature: Create an organization
       And bob has signed up with email "bob-b0066-mcp-other@example.com" and password "p4ssw0rd"
       When alice creates organization "mcp owner org"
       Then the operation succeeds
+      When bob lists available organizations
+      Then organization "mcp owner org" is not listed for bob
       When bob checks organization permission "invite" in "mcp owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "manage_access" in "mcp owner org"
@@ -166,6 +228,8 @@ Feature: Create an organization
       When bob checks organization permission "configure" in "mcp owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "set_policy" in "mcp owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "delete" in "mcp owner org"
       Then the request fails with code "permission_denied"
 
   Rule: TUI surface
@@ -187,10 +251,22 @@ Feature: Create an organization
       Then the operation succeeds
       When alice checks organization permission "set_policy" in "alpha tui org"
       Then the operation succeeds
+      When alice checks organization permission "delete" in "alpha tui org"
+      Then the operation succeeds
 
     @falsification @tui
     Scenario: TUI rejects unsigned organization create
       When alice creates organization "unsigned tui org" without signing in
+      Then the request fails with code "auth_required"
+
+    @falsification @tui
+    Scenario: TUI rejects unsigned organization list and permission check
+      Given alice has signed up with email "alice-b0066-tui-authz@example.com" and password "p4ssw0rd"
+      When alice creates organization "tui authz org"
+      Then the operation succeeds
+      When alice lists available organizations without signing in
+      Then the request fails with code "auth_required"
+      When alice checks organization permission "invite" in "tui authz org" without signing in
       Then the request fails with code "auth_required"
 
     @falsification @tui
@@ -199,6 +275,8 @@ Feature: Create an organization
       And bob has signed up with email "bob-b0066-tui-other@example.com" and password "p4ssw0rd"
       When alice creates organization "tui owner org"
       Then the operation succeeds
+      When bob lists available organizations
+      Then organization "tui owner org" is not listed for bob
       When bob checks organization permission "invite" in "tui owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "manage_access" in "tui owner org"
@@ -206,4 +284,6 @@ Feature: Create an organization
       When bob checks organization permission "configure" in "tui owner org"
       Then the request fails with code "permission_denied"
       When bob checks organization permission "set_policy" in "tui owner org"
+      Then the request fails with code "permission_denied"
+      When bob checks organization permission "delete" in "tui owner org"
       Then the request fails with code "permission_denied"

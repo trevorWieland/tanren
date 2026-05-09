@@ -15,9 +15,12 @@ workspace = true
 anyhow = { workspace = true }
 crossterm = { workspace = true }
 ratatui = { workspace = true }
+reqwest = { workspace = true, features = ["cookies", "json"] }
 secrecy = { workspace = true }
-tanren-app-services = { path = "../tanren-app-services" }
+serde = { workspace = true }
+serde_json = { workspace = true }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 tokio = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }

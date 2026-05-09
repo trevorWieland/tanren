@@ -179,6 +179,10 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
 /// wire harness from the active scenario's tags.
 pub async fn run_features(features_dir: impl Into<PathBuf>) {
     TanrenWorld::cucumber()
+        // Keep BDD witness runs deterministic across all wire harnesses.
+        // Concurrent scenarios can starve per-scenario SQLite pools and
+        // introduce transport flakes that are unrelated to behavior.
+        .max_concurrent_scenarios(1)
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
             Box::pin(async move {

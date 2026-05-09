@@ -139,6 +139,35 @@ When(
 );
 
 When(
+  /^(\w+) lists available organizations without signing in$/,
+  async ({ page, world }, name: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+
+    await page.context().clearCookies();
+    const operation = await listOrganizationsViaWire(page);
+    state.lastListResponse = operation.response.ok
+      ? operation.response.body
+      : null;
+    state.lastCheckResponse = null;
+
+    if (operation.outcome.status === "success" && operation.response.ok) {
+      state.lastOperationSucceeded = true;
+      a.hasSession = true;
+      delete a.lastFailureCode;
+      return;
+    }
+
+    state.lastOperationSucceeded = false;
+    a.hasSession = false;
+    a.lastFailureCode =
+      operation.outcome.failureCode ??
+      (operation.response.ok ? "unknown" : operation.response.error.code);
+  },
+);
+
+When(
   /^(\w+) checks organization permission "([^"]+)" in "([^"]+)"$/,
   async (
     { page, world },
@@ -179,6 +208,50 @@ When(
     state.lastOperationSucceeded = true;
     a.hasSession = true;
     delete a.lastFailureCode;
+  },
+);
+
+When(
+  /^(\w+) checks organization permission "([^"]+)" in "([^"]+)" without signing in$/,
+  async (
+    { page, world },
+    name: string,
+    permission: string,
+    organizationName: string,
+  ) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+    const org = state.organizationsByName.get(
+      organizationKey(organizationName),
+    );
+    if (!org) {
+      throw new Error(
+        `organization ${organizationName} must be created or listed before permission checks`,
+      );
+    }
+
+    await page.context().clearCookies();
+    const operation = await checkOrganizationPermissionViaWire(
+      page,
+      org.id,
+      permission,
+    );
+
+    if (operation.outcome.status === "success" && operation.response.ok) {
+      state.lastCheckResponse = operation.response.body;
+      state.lastOperationSucceeded = true;
+      a.hasSession = true;
+      delete a.lastFailureCode;
+      return;
+    }
+
+    state.lastCheckResponse = null;
+    state.lastOperationSucceeded = false;
+    a.hasSession = false;
+    a.lastFailureCode =
+      operation.outcome.failureCode ??
+      (operation.response.ok ? "unknown" : operation.response.error.code);
   },
 );
 
@@ -242,6 +315,26 @@ Then(
           `permission ${permission} should be granted but was denied`,
         );
       }
+    }
+  },
+);
+
+Then(
+  /^organization "([^"]+)" is not listed for (\w+)$/,
+  async ({ world }, organizationName: string, _name: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const listed = orgState(typedWorld).lastListResponse;
+    if (!listed) {
+      throw new Error("organization list response must be captured first");
+    }
+
+    const found = listed.organizations.some(
+      (org) => organizationKey(org.name) === organizationKey(organizationName),
+    );
+    if (found) {
+      throw new Error(
+        `expected organization ${organizationName} to be hidden from non-member`,
+      );
     }
   },
 );

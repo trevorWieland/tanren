@@ -4,13 +4,11 @@
 
 use secrecy::SecretString;
 use std::str::FromStr;
-use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
-    CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
-    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsRequest,
-    ListOrganizationsResponse, SessionView, SignInRequest, SignInResponse, SignUpRequest,
-    SignUpResponse,
+    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionResponse,
+    CreateOrganizationApiRequest, CreateOrganizationResponse, ListOrganizationsResponse,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission, ValidationError,
@@ -106,33 +104,37 @@ pub(crate) fn check_organization_permission_fields() -> Vec<FormField> {
     ]
 }
 
-pub(crate) fn sign_up_outcome(response: &SignUpResponse) -> OutcomeView {
+pub(crate) fn sign_up_outcome(account: &AccountView, has_token: bool) -> OutcomeView {
     OutcomeView {
         title: "Account created",
         lines: vec![
-            format!("account_id: {}", response.account.id),
-            format!("session token: {}", response.session.token.expose_secret()),
+            format!("account_id: {}", account.id),
+            format!("session established: {has_token}"),
         ],
     }
 }
 
-pub(crate) fn sign_in_outcome(response: &SignInResponse) -> OutcomeView {
+pub(crate) fn sign_in_outcome(account: &AccountView, has_token: bool) -> OutcomeView {
     OutcomeView {
         title: "Signed in",
         lines: vec![
-            format!("account_id: {}", response.account.id),
-            format!("session token: {}", response.session.token.expose_secret()),
+            format!("account_id: {}", account.id),
+            format!("session established: {has_token}"),
         ],
     }
 }
 
-pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> OutcomeView {
+pub(crate) fn accept_invitation_outcome(
+    account: &AccountView,
+    joined_org: OrgId,
+    has_token: bool,
+) -> OutcomeView {
     OutcomeView {
         title: "Invitation accepted",
         lines: vec![
-            format!("account_id: {}", response.account.id),
-            format!("joined org: {}", response.joined_org),
-            format!("session token: {}", response.session.token.expose_secret()),
+            format!("account_id: {}", account.id),
+            format!("joined org: {joined_org}"),
+            format!("session established: {has_token}"),
         ],
     }
 }
@@ -188,22 +190,12 @@ pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
     format!("{}: {}", reason.code(), reason.summary())
 }
 
-pub(crate) fn render_error(err: AppServiceError) -> String {
-    match err {
-        AppServiceError::Account(reason) => format_failure(reason),
-        AppServiceError::CreateOrganization(reason) => {
-            format!("{}: {}", reason.code(), reason.summary())
-        }
-        AppServiceError::InvalidInput(message) => {
-            format!("validation_failed: {message}")
-        }
-        AppServiceError::Store(err) => format!("internal_error: {err}"),
-        _ => "internal_error: unknown app-service failure".to_owned(),
-    }
-}
-
 pub(crate) fn auth_required_message() -> String {
     format_failure(AccountFailureReason::AuthRequired)
+}
+
+pub(crate) fn permission_denied_message() -> String {
+    format_failure(AccountFailureReason::PermissionDenied)
 }
 
 fn validation_message(err: &ValidationError) -> String {
@@ -245,36 +237,20 @@ pub(crate) fn parse_accept_invitation(
 
 pub(crate) fn parse_create_organization(
     state: &FormState,
-    session: &SessionView,
-) -> Result<CreateOrganizationRequest, String> {
+) -> Result<CreateOrganizationApiRequest, String> {
     let name = OrganizationName::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    Ok(CreateOrganizationRequest {
-        session_token: session.token.clone(),
-        account_id: session.account_id,
+    Ok(CreateOrganizationApiRequest {
         name,
         idempotency_key: None,
     })
 }
 
-pub(crate) fn parse_list_organizations(session: &SessionView) -> ListOrganizationsRequest {
-    ListOrganizationsRequest {
-        session_token: session.token.clone(),
-        account_id: session.account_id,
-    }
-}
-
 pub(crate) fn parse_check_organization_permission(
     state: &FormState,
-    session: &SessionView,
-) -> Result<CheckOrganizationPermissionRequest, String> {
+) -> Result<CheckOrganizationPermissionApiRequest, String> {
     let org_id = parse_org_id(state.value(0))?;
     let permission = parse_permission(state.value(1))?;
-    Ok(CheckOrganizationPermissionRequest {
-        session_token: session.token.clone(),
-        account_id: session.account_id,
-        org_id,
-        permission,
-    })
+    Ok(CheckOrganizationPermissionApiRequest { org_id, permission })
 }
 
 fn parse_org_id(raw: &str) -> Result<OrgId, String> {

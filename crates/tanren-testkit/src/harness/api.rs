@@ -1,13 +1,9 @@
 //! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
 //! drives it via `reqwest::Client` with `cookie_store(true)`.
 //!
-//! The harness owns the `SQLite` database (a per-scenario file under
-//! the OS temp directory). The same database is shared between (a)
-//! the `Arc<Store>` injected into the api app for account-flow data
-//! and (b) the tower-sessions sqlite-backed cookie store. Reading
-//! recent events for the `Then a "..." event is recorded` step
-//! goes through the harness's own `Store` handle (the api app's
-//! `Arc<Store>` is a clone of the same `Store`).
+//! Uses one per-scenario `SQLite` file shared by the app store and
+//! cookie-session store. Event assertions read through the harness's
+//! own `Store` handle.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,6 +13,7 @@ use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
 use serde_json::Value;
+use std::time::Duration;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView,
@@ -30,7 +27,7 @@ use tokio::task::JoinHandle;
 
 use super::common::{
     accept_invitation_body, code_to_reason, scenario_db_path, sign_in_body, sign_up_body,
-    sqlite_url,
+    sqlite_url, wait_for_http_ready,
 };
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
@@ -100,6 +97,7 @@ impl ApiHarness {
         let server = tokio::spawn(async move {
             let _ = axum::serve(listener, app).await;
         });
+        wait_for_http_ready(&base_url, Duration::from_secs(2)).await?;
 
         Ok(Self {
             base_url,
@@ -124,6 +122,7 @@ impl ApiHarness {
             .ok_or_else(super::auth_required_failure)
     }
 }
+
 impl Drop for ApiHarness {
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {

@@ -101,6 +101,29 @@ async fn when_list_organizations(world: &mut TanrenWorld, actor: String) {
     }
 }
 
+#[when(expr = "{word} lists available organizations without signing in")]
+async fn when_list_organizations_unsigned(world: &mut TanrenWorld, actor: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let result = ctx.harness.list_organizations(AccountId::fresh()).await;
+    match result {
+        Ok(response) => {
+            for org in &response.organizations {
+                ctx.organizations_by_name
+                    .insert(org.name.as_str().to_owned(), org.id);
+            }
+            ctx.last_listed_organizations = Some(response);
+            ctx.last_checked_organization_permission = None;
+            ctx.last_outcome = Some(HarnessOutcome::Other(
+                "list_organizations_without_sign_in_unexpectedly_succeeded".to_owned(),
+            ));
+        }
+        Err(err) => {
+            let entry = ctx.actors.entry(actor).or_default();
+            ctx.last_outcome = Some(record_failure(err, entry));
+        }
+    }
+}
+
 #[when(expr = "{word} checks organization permission {string} in {string}")]
 async fn when_check_org_permission(
     world: &mut TanrenWorld,
@@ -127,6 +150,39 @@ async fn when_check_org_permission(
             ctx.last_checked_organization_permission = Some(response);
             ctx.last_outcome = Some(HarnessOutcome::Other(
                 "check_organization_permission_succeeded".to_owned(),
+            ));
+        }
+        Err(err) => {
+            let entry = ctx.actors.entry(actor).or_default();
+            ctx.last_outcome = Some(record_failure(err, entry));
+        }
+    }
+}
+
+#[when(expr = "{word} checks organization permission {string} in {string} without signing in")]
+async fn when_check_org_permission_unsigned(
+    world: &mut TanrenWorld,
+    actor: String,
+    permission: String,
+    name: String,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    let org_name = OrganizationName::parse(&name).expect("scenario organization names must parse");
+    let org_id = *ctx
+        .organizations_by_name
+        .get(org_name.as_str())
+        .expect("organization must have been created/listed earlier in the scenario");
+    let permission = parse_permission(&permission);
+
+    let result = ctx
+        .harness
+        .check_organization_admin_permission(AccountId::fresh(), org_id, permission)
+        .await;
+    match result {
+        Ok(response) => {
+            ctx.last_checked_organization_permission = Some(response);
+            ctx.last_outcome = Some(HarnessOutcome::Other(
+                "check_organization_permission_without_sign_in_unexpectedly_succeeded".to_owned(),
             ));
         }
         Err(err) => {
@@ -165,6 +221,25 @@ async fn then_org_is_listed(world: &mut TanrenWorld, name: String, actor: String
     assert!(
         found,
         "expected organization {org_name} to be listed for {actor}"
+    );
+}
+
+#[then(expr = "organization {string} is not listed for {word}")]
+async fn then_org_is_not_listed(world: &mut TanrenWorld, name: String, actor: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let org_name = OrganizationName::parse(&name).expect("scenario organization names must parse");
+    let listed = ctx
+        .last_listed_organizations
+        .as_ref()
+        .expect("organization-list response must be captured before this assertion");
+
+    let found = listed
+        .organizations
+        .iter()
+        .any(|org| org.name.as_str() == org_name.as_str());
+    assert!(
+        !found,
+        "expected organization {org_name} to not be listed for {actor}"
     );
 }
 

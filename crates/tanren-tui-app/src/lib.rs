@@ -15,8 +15,8 @@
 //! - `draw` hosts the ratatui rendering primitives.
 //! - `ui` hosts form-field factories, outcome adapters, and validation.
 //!
-//! The TUI returns bearer-mode `SessionView` responses from
-//! `tanren-app-services` (no cookie jar to use).
+//! The TUI runs as an HTTP client against the control-plane API using a
+//! cookie jar-backed `reqwest::Client`.
 
 mod app;
 mod draw;
@@ -33,7 +33,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 
 /// Configuration for the TUI runtime. R-0001 sub-8 keeps it deliberately
-/// empty — the TUI reads `DATABASE_URL` at startup so this struct exists
+/// empty — the TUI reads `TANREN_API_BASE_URL` at startup so this struct exists
 /// only to satisfy the `bin/tanren-tui/src/main.rs` → `run(config)`
 /// contract documented in the thin-binary-crate profile.
 #[derive(Debug, Default)]
