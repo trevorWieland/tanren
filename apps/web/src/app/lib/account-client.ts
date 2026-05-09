@@ -16,6 +16,8 @@ import { asAccountId, asOrgId } from "@/app/lib/generated/account-contract";
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const WINDOW_ID_HEADER = "x-tanren-window-id";
 const WINDOW_ID_STORAGE_KEY = "tanren.window_id";
+const WINDOW_ID_FAILURE_SUMMARY =
+  "Unable to initialize browser window context.";
 type WindowContextId = Brand<string, "WindowContextId">;
 
 export interface SignUpInput {
@@ -245,13 +247,14 @@ async function requestJson<T>(
   decode: JsonDecoder<T>,
   body?: unknown,
 ): Promise<T> {
+  const identityHeader = windowIdentityHeader();
   let response: Response;
   try {
     const init: RequestInit = {
       method,
       headers: {
         ...(method === "POST" ? { "content-type": "application/json" } : {}),
-        ...windowIdentityHeader(),
+        ...identityHeader,
       },
       // Cookie transport: send/receive HTTP-only session cookie on every
       // request. Replaces localStorage token storage (M2).
@@ -344,11 +347,12 @@ export function switchActiveAccount(
  * `Set-Cookie: tanren_session=; Max-Age=0`.
  */
 export async function signOut(): Promise<void> {
+  const identityHeader = windowIdentityHeader();
   let response: Response;
   try {
     response = await fetch(`${API_URL}/sessions/revoke`, {
       method: "POST",
-      headers: windowIdentityHeader(),
+      headers: identityHeader,
       credentials: "include",
     });
   } catch (cause: unknown) {
@@ -372,7 +376,10 @@ export function parseAccountId(value: string): AccountId | null {
 function windowIdentityHeader(): Record<string, string> {
   const windowId = getWindowId();
   if (windowId === null) {
-    return {};
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: WINDOW_ID_FAILURE_SUMMARY,
+    });
   }
   return { [WINDOW_ID_HEADER]: windowId };
 }

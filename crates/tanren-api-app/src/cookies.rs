@@ -9,7 +9,8 @@ use std::collections::{BTreeMap, HashSet};
 use std::str::FromStr;
 
 use anyhow::{Context, Result};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration as ChronoDuration, Utc};
+use serde::{Deserialize, Serialize};
 use tanren_app_services::{ACTIVE_ACCOUNT_REGISTRY_LIMIT, ACTIVE_ACCOUNT_WINDOW_REGISTRY_LIMIT};
 use tanren_identity_policy::AccountId;
 use tower_sessions::cookie::SameSite;
@@ -23,9 +24,16 @@ const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
+const SESSION_KEY_SIGNED_IN_ACCOUNTS: &str = "signed_in_accounts";
+// Legacy key retained for backward-compatible reads from older session rows.
 const SESSION_KEY_SIGNED_IN_ACCOUNT_IDS: &str = "signed_in_account_ids";
 const SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW: &str = "active_account_by_window";
-const SESSION_DEFAULT_WINDOW_KEY: &str = "_default";
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct SignedInAccountSessionEntry {
+    account_id: AccountId,
+    expires_at: DateTime<Utc>,
+}
 
 /// `(account_id, expires_at)` projection of a freshly minted session.
 /// All three account-flow handlers pass this into
@@ -49,7 +57,7 @@ pub(crate) struct SessionAccountContext {
 pub(crate) async fn install_cookie_session(
     session: &Session,
     write: &SessionWrite,
-    window_context: Option<WindowContextId>,
+    window_context: WindowContextId,
 ) -> Result<()> {
     session
         .insert(SESSION_KEY_ACCOUNT, write.account_id)
@@ -60,13 +68,17 @@ pub(crate) async fn install_cookie_session(
         .await
         .context("insert expires_at into session")?;
 
-    let mut signed_in_ids = session
-        .get::<Vec<AccountId>>(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS)
+    let mut signed_in_accounts = read_signed_in_accounts(session).await?;
+    signed_in_accounts.push(SignedInAccountSessionEntry {
+        account_id: write.account_id,
+        expires_at: write.expires_at,
+    });
+    let signed_in_accounts = sanitize_signed_in_accounts(signed_in_accounts, Utc::now());
+    let signed_in_ids = signed_in_account_ids(&signed_in_accounts);
+    session
+        .insert(SESSION_KEY_SIGNED_IN_ACCOUNTS, signed_in_accounts.clone())
         .await
-        .context("read signed_in_account_ids from session")?
-        .unwrap_or_default();
-    signed_in_ids.push(write.account_id);
-    let signed_in_ids = sanitize_signed_in_account_ids(signed_in_ids);
+        .context("insert signed_in_accounts into session")?;
     session
         .insert(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS, signed_in_ids.clone())
         .await
@@ -92,25 +104,40 @@ pub(crate) async fn install_cookie_session(
 /// scope. Returns `Ok(None)` when no account session is present.
 pub(crate) async fn read_session_account_context(
     session: &Session,
-    window_context: Option<WindowContextId>,
+    window_context: WindowContextId,
 ) -> Result<Option<SessionAccountContext>> {
     let active_account = session
         .get::<AccountId>(SESSION_KEY_ACCOUNT)
         .await
         .context("read account_id from session")?;
-    let mut signed_in_ids = session
-        .get::<Vec<AccountId>>(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS)
-        .await
-        .context("read signed_in_account_ids from session")?
-        .unwrap_or_default();
-
-    if signed_in_ids.is_empty() {
+    let mut signed_in_accounts = read_signed_in_accounts(session).await?;
+    if signed_in_accounts.is_empty() {
         if let Some(account_id) = active_account {
-            signed_in_ids.push(account_id);
+            signed_in_accounts.push(SignedInAccountSessionEntry {
+                account_id,
+                expires_at: read_or_default_session_expiry(session).await?,
+            });
         }
     }
-    let signed_in_ids = sanitize_signed_in_account_ids(signed_in_ids);
+    let signed_in_accounts = sanitize_signed_in_accounts(signed_in_accounts, Utc::now());
+    let signed_in_ids = signed_in_account_ids(&signed_in_accounts);
+    session
+        .insert(SESSION_KEY_SIGNED_IN_ACCOUNTS, signed_in_accounts.clone())
+        .await
+        .context("insert signed_in_accounts into session")?;
+    session
+        .insert(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS, signed_in_ids.clone())
+        .await
+        .context("insert signed_in_account_ids into session")?;
+
     if signed_in_ids.is_empty() {
+        session
+            .insert(
+                SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW,
+                BTreeMap::<String, AccountId>::new(),
+            )
+            .await
+            .context("clear active_account_by_window in session")?;
         return Ok(None);
     }
 
@@ -130,6 +157,20 @@ pub(crate) async fn read_session_account_context(
     if !signed_in_ids.contains(&active_account_id) {
         active_account_id = signed_in_ids[0];
     }
+    session
+        .insert(SESSION_KEY_ACCOUNT, active_account_id)
+        .await
+        .context("insert account_id into session")?;
+    let active_expires_at = expiry_for_account(&signed_in_accounts, active_account_id)
+        .unwrap_or_else(default_session_expiry);
+    session
+        .insert(SESSION_KEY_EXPIRES, active_expires_at)
+        .await
+        .context("insert expires_at into session")?;
+    session
+        .insert(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW, active_by_window)
+        .await
+        .context("insert active_account_by_window into session")?;
 
     Ok(Some(SessionAccountContext {
         active_account_id,
@@ -140,7 +181,7 @@ pub(crate) async fn read_session_account_context(
 /// Persist a successful active-account switch for one window scope.
 pub(crate) async fn write_active_account_for_window(
     session: &Session,
-    window_context: Option<WindowContextId>,
+    window_context: WindowContextId,
     active_account_id: AccountId,
 ) -> Result<()> {
     session
@@ -148,13 +189,19 @@ pub(crate) async fn write_active_account_for_window(
         .await
         .context("insert account_id into session")?;
 
-    let mut signed_in_ids = session
-        .get::<Vec<AccountId>>(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS)
+    let mut signed_in_accounts = read_signed_in_accounts(session).await?;
+    let active_expires_at = expiry_for_account(&signed_in_accounts, active_account_id)
+        .unwrap_or(read_or_default_session_expiry(session).await?);
+    signed_in_accounts.push(SignedInAccountSessionEntry {
+        account_id: active_account_id,
+        expires_at: active_expires_at,
+    });
+    let signed_in_accounts = sanitize_signed_in_accounts(signed_in_accounts, Utc::now());
+    let signed_in_ids = signed_in_account_ids(&signed_in_accounts);
+    session
+        .insert(SESSION_KEY_SIGNED_IN_ACCOUNTS, signed_in_accounts)
         .await
-        .context("read signed_in_account_ids from session")?
-        .unwrap_or_default();
-    signed_in_ids.push(active_account_id);
-    let signed_in_ids = sanitize_signed_in_account_ids(signed_in_ids);
+        .context("insert signed_in_accounts into session")?;
     session
         .insert(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS, signed_in_ids.clone())
         .await
@@ -172,29 +219,92 @@ pub(crate) async fn write_active_account_for_window(
         .insert(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW, active_by_window)
         .await
         .context("insert active_account_by_window into session")?;
+    session
+        .insert(SESSION_KEY_EXPIRES, active_expires_at)
+        .await
+        .context("insert expires_at into session")?;
     Ok(())
 }
 
-fn normalize_window_key(window_context: Option<WindowContextId>) -> String {
-    window_context.map_or_else(
-        || SESSION_DEFAULT_WINDOW_KEY.to_owned(),
-        WindowContextId::as_session_key,
-    )
+fn normalize_window_key(window_context: WindowContextId) -> String {
+    window_context.as_session_key()
 }
 
-fn sanitize_signed_in_account_ids(ids: Vec<AccountId>) -> Vec<AccountId> {
-    let mut deduped = Vec::with_capacity(ids.len());
+async fn read_signed_in_accounts(session: &Session) -> Result<Vec<SignedInAccountSessionEntry>> {
+    let signed_in_accounts = session
+        .get::<Vec<SignedInAccountSessionEntry>>(SESSION_KEY_SIGNED_IN_ACCOUNTS)
+        .await
+        .context("read signed_in_accounts from session")?
+        .unwrap_or_default();
+    if !signed_in_accounts.is_empty() {
+        return Ok(signed_in_accounts);
+    }
+
+    let legacy_signed_in_ids = session
+        .get::<Vec<AccountId>>(SESSION_KEY_SIGNED_IN_ACCOUNT_IDS)
+        .await
+        .context("read signed_in_account_ids from session")?
+        .unwrap_or_default();
+    if legacy_signed_in_ids.is_empty() {
+        return Ok(Vec::new());
+    }
+    let legacy_expires_at = read_or_default_session_expiry(session).await?;
+    Ok(legacy_signed_in_ids
+        .into_iter()
+        .map(|account_id| SignedInAccountSessionEntry {
+            account_id,
+            expires_at: legacy_expires_at,
+        })
+        .collect())
+}
+
+async fn read_or_default_session_expiry(session: &Session) -> Result<DateTime<Utc>> {
+    let expires_at = session
+        .get::<DateTime<Utc>>(SESSION_KEY_EXPIRES)
+        .await
+        .context("read expires_at from session")?
+        .unwrap_or_else(default_session_expiry);
+    Ok(expires_at)
+}
+
+fn default_session_expiry() -> DateTime<Utc> {
+    Utc::now() + ChronoDuration::days(SESSION_MAX_AGE_DAYS)
+}
+
+fn sanitize_signed_in_accounts(
+    accounts: Vec<SignedInAccountSessionEntry>,
+    now: DateTime<Utc>,
+) -> Vec<SignedInAccountSessionEntry> {
+    let mut deduped = Vec::with_capacity(accounts.len());
     let mut seen = HashSet::new();
-    for account_id in ids {
-        if seen.insert(account_id) {
-            deduped.push(account_id);
+    for entry in accounts.into_iter().rev() {
+        if entry.expires_at <= now {
+            continue;
+        }
+        if seen.insert(entry.account_id) {
+            deduped.push(entry);
         }
     }
+    deduped.reverse();
     if deduped.len() > ACTIVE_ACCOUNT_REGISTRY_LIMIT {
         let drop_count = deduped.len() - ACTIVE_ACCOUNT_REGISTRY_LIMIT;
         deduped.drain(0..drop_count);
     }
     deduped
+}
+
+fn signed_in_account_ids(accounts: &[SignedInAccountSessionEntry]) -> Vec<AccountId> {
+    accounts.iter().map(|entry| entry.account_id).collect()
+}
+
+fn expiry_for_account(
+    accounts: &[SignedInAccountSessionEntry],
+    account_id: AccountId,
+) -> Option<DateTime<Utc>> {
+    accounts
+        .iter()
+        .find(|entry| entry.account_id == account_id)
+        .map(|entry| entry.expires_at)
 }
 
 fn sanitize_active_by_window_map(

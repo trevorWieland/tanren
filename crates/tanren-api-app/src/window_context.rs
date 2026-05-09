@@ -27,6 +27,7 @@ impl WindowContextId {
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum WindowContextError {
+    Missing,
     InvalidUtf8,
     Empty,
     TooLong,
@@ -36,6 +37,7 @@ pub(crate) enum WindowContextError {
 impl WindowContextError {
     pub(crate) const fn summary(self) -> &'static str {
         match self {
+            Self::Missing => "x-tanren-window-id header is required",
             Self::InvalidUtf8 => "window id must be valid UTF-8",
             Self::Empty => "window id must not be empty",
             Self::TooLong => "window id must be 128 bytes or shorter",
@@ -46,16 +48,16 @@ impl WindowContextError {
 
 pub(crate) fn resolve_window_context(
     headers: &HeaderMap,
-) -> Result<Option<WindowContextId>, WindowContextError> {
+) -> Result<WindowContextId, WindowContextError> {
     let Some(value) = headers.get(WINDOW_ID_HEADER) else {
-        return Ok(None);
+        return Err(WindowContextError::Missing);
     };
     let Ok(value) = value.to_str() else {
         return Err(WindowContextError::InvalidUtf8);
     };
     let trimmed = value.trim();
     if trimmed.is_empty() {
-        return Ok(None);
+        return Err(WindowContextError::Empty);
     }
-    WindowContextId::parse(trimmed).map(Some)
+    WindowContextId::parse(trimmed)
 }

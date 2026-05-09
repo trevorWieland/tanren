@@ -1,9 +1,10 @@
 //! `@api` harness — spawns `tanren-api-app` on an ephemeral port and drives it
 //! via `reqwest::Client` with `cookie_store(true)`.
 
+mod wire;
+
 use std::path::PathBuf;
 use std::sync::Arc;
-use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::http::HeaderValue;
@@ -18,21 +19,21 @@ use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
-use tokio::time::sleep;
 
 use super::api_codec::{accept_invitation_body, failure_from_body, sign_in_body, sign_up_body};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
+pub(crate) use wire::{scenario_db_path, sqlite_url};
+use wire::{send_with_retry, wait_for_server_ready};
 
 const WINDOW_ID_HEADER: &str = "x-tanren-window-id";
-const TRANSPORT_RETRY_ATTEMPTS: usize = 3;
-const TRANSPORT_RETRY_DELAY: Duration = Duration::from_millis(50);
 
 /// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
+    window_id: String,
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
@@ -97,65 +98,13 @@ impl ApiHarness {
 
         Ok(Self {
             base_url,
+            window_id: "11111111-1111-4111-8111-111111111111".to_owned(),
             client,
             store,
             server: Some(server),
             db_path,
         })
     }
-}
-async fn wait_for_server_ready(base_url: &str) -> HarnessResult<()> {
-    let health_url = format!("{base_url}/accounts/active");
-    let probe = Client::builder()
-        .timeout(Duration::from_millis(250))
-        .build()
-        .map_err(|e| HarnessError::Transport(format!("probe client build: {e}")))?;
-    let mut last_error: Option<String> = None;
-    for _ in 0..100 {
-        match probe.get(&health_url).send().await {
-            Ok(_) => {
-                return Ok(());
-            }
-            Err(err) => {
-                last_error = Some(err.to_string());
-                sleep(Duration::from_millis(20)).await;
-            }
-        }
-    }
-    let detail = last_error.unwrap_or_else(|| "unknown error".to_owned());
-    Err(HarnessError::Transport(format!(
-        "api harness server did not become ready at {base_url}: {detail}"
-    )))
-}
-
-fn should_retry_transport(err: &reqwest::Error) -> bool {
-    err.is_connect() || err.is_timeout()
-}
-
-async fn send_with_retry<F>(
-    mut build_request: F,
-    operation: &'static str,
-) -> HarnessResult<reqwest::Response>
-where
-    F: FnMut() -> reqwest::RequestBuilder,
-{
-    let mut last_error: Option<String> = None;
-    for attempt in 1..=TRANSPORT_RETRY_ATTEMPTS {
-        match build_request().send().await {
-            Ok(response) => return Ok(response),
-            Err(err) if should_retry_transport(&err) && attempt < TRANSPORT_RETRY_ATTEMPTS => {
-                last_error = Some(err.to_string());
-                sleep(TRANSPORT_RETRY_DELAY).await;
-            }
-            Err(err) => {
-                return Err(HarnessError::Transport(format!("{operation}: {err}")));
-            }
-        }
-    }
-    let detail = last_error.unwrap_or_else(|| "unknown transport error".to_owned());
-    Err(HarnessError::Transport(format!(
-        "{operation}: exhausted retries ({TRANSPORT_RETRY_ATTEMPTS} attempts): {detail}"
-    )))
 }
 
 impl Drop for ApiHarness {
@@ -176,8 +125,17 @@ impl AccountHarness for ApiHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let body = sign_up_body(&req);
         let url = format!("{}/accounts", self.base_url);
-        let response =
-            send_with_retry(|| self.client.post(&url).json(&body), "POST /accounts").await?;
+        let window_id = self.window_id.clone();
+        let response = send_with_retry(
+            || {
+                self.client
+                    .post(&url)
+                    .header(WINDOW_ID_HEADER, &window_id)
+                    .json(&body)
+            },
+            "POST /accounts",
+        )
+        .await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -213,8 +171,17 @@ impl AccountHarness for ApiHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let body = sign_in_body(&req);
         let url = format!("{}/sessions", self.base_url);
-        let response =
-            send_with_retry(|| self.client.post(&url).json(&body), "POST /sessions").await?;
+        let window_id = self.window_id.clone();
+        let response = send_with_retry(
+            || {
+                self.client
+                    .post(&url)
+                    .header(WINDOW_ID_HEADER, &window_id)
+                    .json(&body)
+            },
+            "POST /sessions",
+        )
+        .await?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -254,8 +221,14 @@ impl AccountHarness for ApiHarness {
         let body = accept_invitation_body(&req);
         let token = req.invitation_token.as_str().to_owned();
         let url = format!("{}/invitations/{token}/accept", self.base_url);
+        let window_id = self.window_id.clone();
         let response = send_with_retry(
-            || self.client.post(&url).json(&body),
+            || {
+                self.client
+                    .post(&url)
+                    .header(WINDOW_ID_HEADER, &window_id)
+                    .json(&body)
+            },
             "POST /invitations/{token}/accept",
         )
         .await?;
@@ -309,6 +282,7 @@ impl AccountHarness for ApiHarness {
                 req.invitation_token.as_str()
             );
             let body = accept_invitation_body(&req);
+            let window_id = self.window_id.clone();
             let client = match Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {
@@ -321,9 +295,15 @@ impl AccountHarness for ApiHarness {
                 }
             };
             handles.push(tokio::spawn(async move {
-                let response = client.post(&url).json(&body).send().await.map_err(|e| {
-                    HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
-                })?;
+                let response = client
+                    .post(&url)
+                    .header(WINDOW_ID_HEADER, window_id)
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| {
+                        HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
+                    })?;
                 let status = response.status();
                 let cookies_set = response
                     .headers()
@@ -386,7 +366,9 @@ impl AccountHarness for ApiHarness {
     }
 
     async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
-        self.list_active_accounts_with_window(None).await
+        let window_id = self.window_id.clone();
+        self.list_active_accounts_with_window(Some(window_id.as_str()))
+            .await
     }
 
     async fn list_active_accounts_in_window(
@@ -400,7 +382,8 @@ impl AccountHarness for ApiHarness {
         &mut self,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
-        self.switch_active_account_with_window(None, target_account_id)
+        let window_id = self.window_id.clone();
+        self.switch_active_account_with_window(Some(window_id.as_str()), target_account_id)
             .await
     }
 
@@ -480,18 +463,4 @@ impl ApiHarness {
         serde_json::from_value(json["accounts"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
     }
-}
-
-pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!(
-        "tanren-bdd-{prefix}-{}-{}.db",
-        std::process::id(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    p
-}
-
-pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
-    format!("sqlite://{}?mode=rwc", path.display())
 }

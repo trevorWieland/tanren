@@ -771,9 +771,22 @@ async function signUpViaApi(
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   const result = await page.evaluate(
     async ({ apiUrl, body }) => {
+      const existingWindowId =
+        window.sessionStorage.getItem("tanren.window_id");
+      const resolvedWindowId =
+        typeof existingWindowId === "string" && existingWindowId.trim() !== ""
+          ? existingWindowId
+          : (globalThis.crypto?.randomUUID?.() ?? "");
+      if (resolvedWindowId.trim() === "") {
+        return "window_context_unavailable";
+      }
+      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
       const response = await fetch(`${apiUrl}/accounts`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
+        headers: {
+          "content-type": "application/json",
+          "x-tanren-window-id": resolvedWindowId,
+        },
         credentials: "include",
         body: JSON.stringify(body),
       });
@@ -802,11 +815,24 @@ async function acceptInvitationViaApi(
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   const result = await page.evaluate(
     async ({ apiUrl, token, body }) => {
+      const existingWindowId =
+        window.sessionStorage.getItem("tanren.window_id");
+      const resolvedWindowId =
+        typeof existingWindowId === "string" && existingWindowId.trim() !== ""
+          ? existingWindowId
+          : (globalThis.crypto?.randomUUID?.() ?? "");
+      if (resolvedWindowId.trim() === "") {
+        return "window_context_unavailable";
+      }
+      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
       const response = await fetch(
         `${apiUrl}/invitations/${encodeURIComponent(token)}/accept`,
         {
           method: "POST",
-          headers: { "content-type": "application/json" },
+          headers: {
+            "content-type": "application/json",
+            "x-tanren-window-id": resolvedWindowId,
+          },
           credentials: "include",
           body: JSON.stringify(body),
         },
@@ -845,13 +871,20 @@ async function switchUnsignedAccountViaFetch(
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   return page.evaluate(
     async ({ target, apiUrl }) => {
-      const windowId = window.sessionStorage.getItem("tanren.window_id");
+      const existingWindowId =
+        window.sessionStorage.getItem("tanren.window_id");
+      const windowId =
+        typeof existingWindowId === "string" && existingWindowId.trim() !== ""
+          ? existingWindowId
+          : (globalThis.crypto?.randomUUID?.() ?? "");
+      if (windowId.trim() === "") {
+        return "window_context_unavailable";
+      }
+      window.sessionStorage.setItem("tanren.window_id", windowId);
       const headers: Record<string, string> = {
         "content-type": "application/json",
+        "x-tanren-window-id": windowId,
       };
-      if (windowId && windowId.trim() !== "") {
-        headers["x-tanren-window-id"] = windowId;
-      }
       const response = await fetch(`${apiUrl}/accounts/active/switch`, {
         method: "POST",
         headers,
@@ -887,12 +920,23 @@ async function switchActiveAccountViaFetch(
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   const result = await page.evaluate(
     async ({ apiUrl, windowId, targetAccountId }) => {
+      const existingWindowId =
+        window.sessionStorage.getItem("tanren.window_id");
+      const resolvedWindowId =
+        windowId.trim() !== ""
+          ? windowId
+          : typeof existingWindowId === "string" &&
+              existingWindowId.trim() !== ""
+            ? existingWindowId
+            : (globalThis.crypto?.randomUUID?.() ?? "");
+      if (resolvedWindowId.trim() === "") {
+        return { ok: false as const, failure: "window_context_unavailable" };
+      }
+      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
       const headers: Record<string, string> = {
         "content-type": "application/json",
+        "x-tanren-window-id": resolvedWindowId,
       };
-      if (windowId.trim() !== "") {
-        headers["x-tanren-window-id"] = windowId;
-      }
       const response = await fetch(`${apiUrl}/accounts/active/switch`, {
         method: "POST",
         headers,
@@ -926,14 +970,23 @@ async function listActiveAccountsViaFetch(
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   return page.evaluate(
     async ({ apiUrl, windowIdOverride }) => {
-      const windowId =
+      const providedWindowId =
         typeof windowIdOverride === "string"
           ? windowIdOverride
           : window.sessionStorage.getItem("tanren.window_id");
-      const headers: Record<string, string> = {};
-      if (windowId && windowId.trim() !== "") {
-        headers["x-tanren-window-id"] = windowId;
+      const resolvedWindowId =
+        typeof providedWindowId === "string" && providedWindowId.trim() !== ""
+          ? providedWindowId
+          : (globalThis.crypto?.randomUUID?.() ?? "");
+      if (resolvedWindowId.trim() === "") {
+        throw new Error(
+          "list active accounts failed: window_context_unavailable",
+        );
       }
+      window.sessionStorage.setItem("tanren.window_id", resolvedWindowId);
+      const headers: Record<string, string> = {
+        "x-tanren-window-id": resolvedWindowId,
+      };
       const response = await fetch(`${apiUrl}/accounts/active`, {
         method: "GET",
         headers,
