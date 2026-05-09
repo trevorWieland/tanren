@@ -10,40 +10,38 @@
 //! The MCP surface continues to return bearer-mode `SessionView`
 //! responses — there is no cookie jar between the rmcp client and server.
 
-use anyhow::{Context, Result};
-use axum::Json;
-use axum::Router;
-use axum::extract::Request;
-use axum::http::{HeaderMap, StatusCode, header};
-use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
-use axum::routing::get;
+use anyhow::Result;
 use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
-use rmcp::transport::streamable_http_server::{
-    StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
-};
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
-use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tokio::net::TcpListener;
-use tokio_util::sync::CancellationToken;
-use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
+use tanren_configuration_secrets::{OwnerScope, UserSettingKey, UserSettingValue};
+use tanren_contract::{
+    AcceptInvitationRequest, CreateUserCredentialRequest, SignInRequest, SignUpRequest,
+    UpdateUserCredentialRequest, UpsertUserSettingRequest,
+};
+use tanren_identity_policy::AccountId;
+use uuid::Uuid;
 
-const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
-const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
-const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
-const DATABASE_URL_ENV: &str = "DATABASE_URL";
+pub(crate) const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
+pub(crate) const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
+pub(crate) const DATABASE_URL_ENV: &str = "DATABASE_URL";
 /// Comma-separated extra hostnames / `host:port` authorities to add to
 /// rmcp's `allowed_hosts` Host-header allowlist.
-const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
+pub(crate) const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
+
+mod auth;
+mod server;
+
+#[cfg(any(test, feature = "test-hooks"))]
+pub use crate::server::build_router_with_store;
+pub use crate::server::serve;
 
 /// Configuration for the tanren-mcp runtime. R-0001 sub-8 keeps it
 /// env-driven; downstream PRs may swap in a typed config crate without
@@ -82,7 +80,7 @@ impl std::fmt::Debug for TanrenMcp {
 
 #[rmcp::tool_router]
 impl TanrenMcp {
-    fn new(handlers: Handlers, store: Arc<Store>) -> Self {
+    pub(crate) fn new(handlers: Handlers, store: Arc<Store>) -> Self {
         Self {
             handlers,
             store,
@@ -144,6 +142,200 @@ impl TanrenMcp {
         }
     }
 
+    /// List user-tier settings for one account.
+    #[rmcp::tool(
+        name = "config.user.list",
+        description = "List authenticated user-tier settings for one account id. Returns metadata/value only (no credential secrets)."
+    )]
+    async fn config_user_list(
+        &self,
+        Parameters(request): Parameters<AccountScopeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .list_user_settings(self.store.as_ref(), account_id, account_id)
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Upsert one user-tier setting for one account.
+    #[rmcp::tool(
+        name = "config.user.set",
+        description = "Set one authenticated user-tier setting for one account id."
+    )]
+    async fn config_user_set(
+        &self,
+        Parameters(request): Parameters<SetUserConfigParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .upsert_user_setting(
+                self.store.as_ref(),
+                account_id,
+                account_id,
+                UpsertUserSettingRequest {
+                    key: request.key,
+                    value: request.value,
+                },
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Remove one user-tier setting for one account.
+    #[rmcp::tool(
+        name = "config.user.remove",
+        description = "Remove one authenticated user-tier setting by key for one account id."
+    )]
+    async fn config_user_remove(
+        &self,
+        Parameters(request): Parameters<RemoveUserConfigParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .remove_user_setting(self.store.as_ref(), account_id, account_id, request.key)
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Add one user-owned credential.
+    #[rmcp::tool(
+        name = "credential.add",
+        description = "Create one user-owned credential. Returns metadata only and never returns raw secret values."
+    )]
+    async fn credential_add(
+        &self,
+        Parameters(request): Parameters<AddCredentialParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .add_user_credential(
+                self.store.as_ref(),
+                account_id,
+                CreateUserCredentialRequest {
+                    kind: request.kind,
+                    owner_scope: OwnerScope::User { account_id },
+                    value: request.value,
+                },
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Update one user-owned credential value.
+    #[rmcp::tool(
+        name = "credential.update",
+        description = "Update one user-owned credential value by metadata id. Response remains metadata-only."
+    )]
+    async fn credential_update(
+        &self,
+        Parameters(request): Parameters<UpdateCredentialParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .update_user_credential(
+                self.store.as_ref(),
+                account_id,
+                &request.item_id,
+                OwnerScope::User { account_id },
+                UpdateUserCredentialRequest {
+                    value: request.value,
+                },
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// List user-owned credential metadata.
+    #[rmcp::tool(
+        name = "credential.list",
+        description = "List user-owned credential metadata for one account id. Secret values are never returned."
+    )]
+    async fn credential_list(
+        &self,
+        Parameters(request): Parameters<AccountScopeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .list_user_credentials(
+                self.store.as_ref(),
+                account_id,
+                OwnerScope::User { account_id },
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Remove one user-owned credential by metadata id.
+    #[rmcp::tool(
+        name = "credential.remove",
+        description = "Remove one user-owned credential by metadata id."
+    )]
+    async fn credential_remove(
+        &self,
+        Parameters(request): Parameters<RemoveCredentialParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let account_id = match parse_account_id(&request.account_id) {
+            Ok(value) => value,
+            Err(summary) => return Ok(validation_failure(&summary)),
+        };
+        match self
+            .handlers
+            .remove_user_credential(
+                self.store.as_ref(),
+                account_id,
+                &request.item_id,
+                OwnerScope::User { account_id },
+            )
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
     /// Borrow the cached `ToolRouter`. Exists so the dead-code lint can
     /// see the field as read even on rmcp macro versions whose
     /// `#[tool_handler]` expansion path does not access the field
@@ -174,6 +366,54 @@ impl ServerHandler for TanrenMcp {
     }
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct AccountScopeParams {
+    account_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct SetUserConfigParams {
+    account_id: String,
+    key: UserSettingKey,
+    value: UserSettingValue,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct RemoveUserConfigParams {
+    account_id: String,
+    key: UserSettingKey,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct AddCredentialParams {
+    account_id: String,
+    kind: tanren_configuration_secrets::UserCredentialKind,
+    #[serde(
+        deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password",
+        serialize_with = "tanren_identity_policy::secret_serde::serialize_password_expose"
+    )]
+    #[schemars(with = "String")]
+    value: secrecy::SecretString,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct UpdateCredentialParams {
+    account_id: String,
+    item_id: String,
+    #[serde(
+        deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password",
+        serialize_with = "tanren_identity_policy::secret_serde::serialize_password_expose"
+    )]
+    #[schemars(with = "String")]
+    value: secrecy::SecretString,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+struct RemoveCredentialParams {
+    account_id: String,
+    item_id: String,
+}
+
 /// Encode a successful handler response as a JSON-text `CallToolResult`.
 fn success<T: Serialize>(value: &T) -> CallToolResult {
     let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
@@ -185,6 +425,9 @@ fn success<T: Serialize>(value: &T) -> CallToolResult {
 fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
+        AppServiceError::Configuration(reason) => {
+            (reason.code().to_owned(), reason.summary().to_owned())
+        }
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
         AppServiceError::Store(err) => (
             "internal_error".to_owned(),
@@ -203,268 +446,16 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     CallToolResult::error(vec![Content::text(text)])
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-struct HealthResponse {
-    status: String,
-    version: String,
-    contract_version: u32,
-}
-
-async fn health() -> Json<HealthResponse> {
-    let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
-    Json(HealthResponse {
-        status: report.status.to_owned(),
-        version: report.version.to_owned(),
-        contract_version: report.contract_version.value(),
-    })
-}
-
-/// Shared error response shape per
-/// `docs/architecture/subsystems/interfaces.md` "Error Taxonomy".
-fn error_body(code: &str, summary: &str) -> serde_json::Value {
-    json!({
-        "code": code,
+fn validation_failure(summary: &str) -> CallToolResult {
+    let body = json!({
+        "code": "validation_failed",
         "summary": summary,
-    })
-}
-
-#[derive(Debug, Clone)]
-struct AuthConfig {
-    /// Bootstrap API key. F-0002 sources this from `TANREN_MCP_API_KEY`;
-    /// R-0008 will route through the real credential store. Wrapped in
-    /// `SecretString` so accidental `Debug` / `Serialize` calls do not
-    /// leak the credential.
-    bootstrap_key: Option<secrecy::SecretString>,
-}
-
-impl AuthConfig {
-    fn from_env() -> Self {
-        let bootstrap_key = env::var(API_KEY_ENV)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(secrecy::SecretString::from);
-        Self { bootstrap_key }
-    }
-
-    fn extract_credential(headers: &HeaderMap) -> Option<&str> {
-        if let Some(value) = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            && let Some(token) = value
-                .strip_prefix("Bearer ")
-                .or_else(|| value.strip_prefix("bearer "))
-        {
-            return Some(token.trim());
-        }
-        if let Some(value) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
-            return Some(value.trim());
-        }
-        None
-    }
-}
-
-async fn require_api_key(
-    axum::extract::State(config): axum::extract::State<Arc<AuthConfig>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    // Operator-config check first: an unconfigured server is in an
-    // outage state, not an auth-failure state.
-    let Some(expected) = config
-        .bootstrap_key
-        .as_ref()
-        .map(secrecy::ExposeSecret::expose_secret)
-    else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(error_body(
-                "unavailable",
-                "MCP credential store is not configured. Set TANREN_MCP_API_KEY (bootstrap key) until R-0008 lands the real store.",
-            )),
-        )
-            .into_response();
-    };
-
-    let Some(presented) = AuthConfig::extract_credential(request.headers()) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(error_body(
-                "auth_required",
-                "Missing Authorization: Bearer <api-key> or X-API-Key header.",
-            )),
-        )
-            .into_response();
-    };
-
-    if !constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(error_body(
-                "permission_denied",
-                "Presented credential is not authorized for this MCP service.",
-            )),
-        )
-            .into_response();
-    }
-
-    next.run(request).await
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
-}
-
-fn build_router(
-    auth_config: Arc<AuthConfig>,
-    handlers: Handlers,
-    store: Arc<Store>,
-    cancellation: CancellationToken,
-) -> Router {
-    let config = streamable_http_config(cancellation);
-    let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
-        StreamableHttpService::new(
-            move || Ok(TanrenMcp::new(handlers.clone(), store.clone())),
-            Arc::new(LocalSessionManager::default()),
-            config,
-        );
-
-    let mcp_with_auth = ServiceBuilder::new()
-        .layer(middleware::from_fn_with_state(auth_config, require_api_key))
-        .service(mcp_service);
-
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
-    Router::new()
-        .route("/health", get(health))
-        .nest_service("/mcp", mcp_with_auth)
-        .layer(cors)
-}
-
-/// Build rmcp's `StreamableHttpServerConfig` honouring the
-/// `TANREN_MCP_ALLOWED_HOSTS` env var.
-fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServerConfig {
-    let base = StreamableHttpServerConfig::default().with_cancellation_token(cancellation);
-    let raw = env::var(ALLOWED_HOSTS_ENV).ok().filter(|s| !s.is_empty());
-    let Some(value) = raw else {
-        return base;
-    };
-    if value.trim() == "*" {
-        tracing::warn!(
-            target: "tanren_mcp",
-            env_var = ALLOWED_HOSTS_ENV,
-            "Host-header validation disabled by `*`; relying on API-key auth as the sole gate."
-        );
-        return base.disable_allowed_hosts();
-    }
-    let mut hosts: Vec<String> = vec!["localhost".into(), "127.0.0.1".into(), "::1".into()];
-    for host in value.split(',') {
-        let trimmed = host.trim();
-        if !trimmed.is_empty() {
-            hosts.push(trimmed.to_owned());
-        }
-    }
-    tracing::info!(
-        target: "tanren_mcp",
-        allowed_hosts = ?hosts,
-        "Host-header validation extended via {ALLOWED_HOSTS_ENV}"
-    );
-    base.with_allowed_hosts(hosts)
-}
-
-/// Build the MCP axum router around a caller-supplied `Arc<Store>` and a
-/// caller-supplied bootstrap API key. Intended for the BDD wire-harness
-/// in `tanren-testkit`: the harness owns the database, seeds
-/// invitations + reads events directly, and spawns this router on an
-/// ephemeral port. Returns the router plus the `CancellationToken`
-/// callers can flip to drive graceful shutdown of the rmcp streaming
-/// service.
-#[cfg(any(test, feature = "test-hooks"))]
-pub fn build_router_with_store(
-    store: Arc<Store>,
-    api_key: secrecy::SecretString,
-) -> (Router, CancellationToken) {
-    let auth_config = Arc::new(AuthConfig {
-        bootstrap_key: Some(api_key),
     });
-    let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, Handlers::new(), store, cancellation.clone());
-    (router, cancellation)
+    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
+    CallToolResult::error(vec![Content::text(text)])
 }
 
-/// Serve the tanren-mcp surface to completion. Honours `SIGTERM`/`SIGINT`
-/// for graceful shutdown.
-///
-/// # Errors
-///
-/// Returns an error if the database connection cannot be established,
-/// the listener cannot bind, or `axum::serve` returns an error.
-pub async fn serve(_config: Config) -> Result<()> {
-    let bind = env::var(BIND_ADDRESS_ENV).unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned());
-    let auth_config = Arc::new(AuthConfig::from_env());
-    if auth_config.bootstrap_key.is_none() {
-        tracing::warn!(
-            target: "tanren_mcp",
-            env_var = API_KEY_ENV,
-            "TANREN_MCP_API_KEY is not set — every /mcp request will be rejected with `unavailable` until a bootstrap key is provided."
-        );
-    }
-
-    let database_url = env::var(DATABASE_URL_ENV).with_context(|| {
-        format!("{DATABASE_URL_ENV} must be set so tanren-mcp can connect to the event store")
-    })?;
-    let store = Arc::new(
-        Store::connect(&database_url)
-            .await
-            .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
-    );
-    let handlers = Handlers::new();
-
-    let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, handlers, store, cancellation.clone());
-
-    let listener = TcpListener::bind(&bind)
-        .await
-        .with_context(|| format!("bind {bind}"))?;
-    tracing::info!(target: "tanren_mcp", address = %bind, "tanren-mcp listening on streamable HTTP");
-
-    let cancel = cancellation.clone();
-    axum::serve(listener, router)
-        .with_graceful_shutdown(async move {
-            shutdown_signal().await;
-            cancel.cancel();
-        })
-        .await
-        .context("axum serve")?;
-    Ok(())
-}
-
-#[cfg(unix)]
-async fn shutdown_signal() {
-    use tokio::signal::unix::{SignalKind, signal};
-    let sigterm = signal(SignalKind::terminate()).ok();
-    if let Some(mut sigterm) = sigterm {
-        tokio::select! {
-            _ = tokio::signal::ctrl_c() => {}
-            _ = sigterm.recv() => {}
-        }
-    } else {
-        let _ = tokio::signal::ctrl_c().await;
-    }
-    tracing::info!(target: "tanren_mcp", "shutdown signal received");
-}
-
-#[cfg(not(unix))]
-async fn shutdown_signal() {
-    let _ = tokio::signal::ctrl_c().await;
-    tracing::info!(target: "tanren_mcp", "shutdown signal received");
+fn parse_account_id(raw: &str) -> std::result::Result<AccountId, String> {
+    let parsed = Uuid::parse_str(raw).map_err(|_| "account_id must be a valid uuid".to_owned())?;
+    Ok(AccountId::new(parsed))
 }

@@ -4,11 +4,15 @@
 
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
+use tanren_configuration_secrets::{
+    ThemePreference, UserCredentialKind, UserSettingKey, UserSettingValue,
+};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    SignInResponse, SignUpRequest, SignUpResponse, UserCredentialView,
 };
-use tanren_identity_policy::{Email, InvitationToken, ValidationError};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, ValidationError};
+use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -110,6 +114,9 @@ pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
 pub(crate) fn render_error(err: AppServiceError) -> String {
     match err {
         AppServiceError::Account(reason) => format_failure(reason),
+        AppServiceError::Configuration(reason) => {
+            format!("{}: {}", reason.code(), reason.summary())
+        }
         AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
         AppServiceError::Store(err) => format!("internal_error: {err}"),
         _ => "internal_error: unknown app-service failure".to_owned(),
@@ -129,6 +136,277 @@ pub(crate) fn parse_sign_up(state: &FormState) -> Result<SignUpRequest, String> 
         password,
         display_name,
     })
+}
+
+pub(crate) fn config_list_settings_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Account id",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+pub(crate) fn config_set_setting_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Key (theme|editor)",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Value",
+            secret: false,
+            value: String::new(),
+        },
+    ]
+}
+
+pub(crate) fn config_remove_setting_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Key (theme|editor)",
+            secret: false,
+            value: String::new(),
+        },
+    ]
+}
+
+pub(crate) fn config_list_credentials_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Account id",
+        secret: false,
+        value: String::new(),
+    }]
+}
+
+pub(crate) fn config_add_credential_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Kind (provider_api_token|harness_api_token)",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Value",
+            secret: true,
+            value: String::new(),
+        },
+    ]
+}
+
+pub(crate) fn config_update_credential_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Item id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Value",
+            secret: true,
+            value: String::new(),
+        },
+    ]
+}
+
+pub(crate) fn config_remove_credential_fields() -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Account id",
+            secret: false,
+            value: String::new(),
+        },
+        FormField {
+            label: "Item id",
+            secret: false,
+            value: String::new(),
+        },
+    ]
+}
+
+pub(crate) fn parse_account_id_field(state: &FormState) -> Result<AccountId, String> {
+    parse_account_id(state.value(0))
+}
+
+pub(crate) fn parse_setting_key_field(
+    state: &FormState,
+    idx: usize,
+) -> Result<UserSettingKey, String> {
+    match state.value(idx).trim() {
+        "theme" => Ok(UserSettingKey::Theme),
+        "editor" => Ok(UserSettingKey::Editor),
+        _ => Err("validation_failed: key must be one of theme|editor".to_owned()),
+    }
+}
+
+pub(crate) fn parse_setting_value_field(
+    key: UserSettingKey,
+    state: &FormState,
+    idx: usize,
+) -> Result<UserSettingValue, String> {
+    match key {
+        UserSettingKey::Theme => match state.value(idx).trim() {
+            "system" => Ok(UserSettingValue::Theme(ThemePreference::System)),
+            "light" => Ok(UserSettingValue::Theme(ThemePreference::Light)),
+            "dark" => Ok(UserSettingValue::Theme(ThemePreference::Dark)),
+            _ => Err("validation_failed: theme value must be system|light|dark".to_owned()),
+        },
+        UserSettingKey::Editor => Ok(UserSettingValue::Editor(state.value(idx).to_owned())),
+    }
+}
+
+pub(crate) fn parse_credential_kind_field(
+    state: &FormState,
+    idx: usize,
+) -> Result<UserCredentialKind, String> {
+    match state.value(idx).trim() {
+        "provider_api_token" => Ok(UserCredentialKind::ProviderApiToken),
+        "harness_api_token" => Ok(UserCredentialKind::HarnessApiToken),
+        _ => Err("validation_failed: kind must be provider_api_token|harness_api_token".to_owned()),
+    }
+}
+
+pub(crate) fn credential_list_outcome(items: &[UserCredentialView]) -> OutcomeView {
+    if items.is_empty() {
+        return OutcomeView {
+            title: "Credentials",
+            lines: vec!["No credentials found.".to_owned()],
+        };
+    }
+    let mut lines = Vec::with_capacity(items.len());
+    for item in items {
+        lines.push(format!(
+            "{} kind={} status={} updated_at={}",
+            item.id,
+            credential_kind(item.kind),
+            credential_status(item.status),
+            item.updated_at.to_rfc3339()
+        ));
+    }
+    OutcomeView {
+        title: "Credentials",
+        lines,
+    }
+}
+
+pub(crate) fn credential_item_outcome(
+    title: &'static str,
+    item: &UserCredentialView,
+) -> OutcomeView {
+    OutcomeView {
+        title,
+        lines: vec![
+            format!("id: {}", item.id),
+            format!("kind: {}", credential_kind(item.kind)),
+            format!("status: {}", credential_status(item.status)),
+            format!("updated_at: {}", item.updated_at.to_rfc3339()),
+            "secret: [redacted]".to_owned(),
+        ],
+    }
+}
+
+pub(crate) fn settings_list_outcome(items: &[tanren_contract::UserSettingView]) -> OutcomeView {
+    if items.is_empty() {
+        return OutcomeView {
+            title: "User settings",
+            lines: vec!["No settings found.".to_owned()],
+        };
+    }
+    let mut lines = Vec::with_capacity(items.len());
+    for item in items {
+        lines.push(format!(
+            "{}={} updated_at={}",
+            setting_key(item.key),
+            setting_value(&item.value),
+            item.updated_at.to_rfc3339()
+        ));
+    }
+    OutcomeView {
+        title: "User settings",
+        lines,
+    }
+}
+
+pub(crate) fn setting_item_outcome(
+    title: &'static str,
+    item: &tanren_contract::UserSettingView,
+) -> OutcomeView {
+    OutcomeView {
+        title,
+        lines: vec![
+            format!("key: {}", setting_key(item.key)),
+            format!("value: {}", setting_value(&item.value)),
+            format!("updated_at: {}", item.updated_at.to_rfc3339()),
+        ],
+    }
+}
+
+pub(crate) fn parse_item_id_field(state: &FormState, idx: usize) -> Result<String, String> {
+    let raw = state.value(idx).trim();
+    if raw.is_empty() {
+        return Err("validation_failed: item id is required".to_owned());
+    }
+    Ok(raw.to_owned())
+}
+
+fn parse_account_id(raw: &str) -> Result<AccountId, String> {
+    let trimmed = raw.trim();
+    let parsed = Uuid::parse_str(trimmed)
+        .map_err(|_| "validation_failed: account id must be a uuid".to_owned())?;
+    Ok(AccountId::new(parsed))
+}
+
+fn setting_key(key: UserSettingKey) -> &'static str {
+    match key {
+        UserSettingKey::Theme => "theme",
+        UserSettingKey::Editor => "editor",
+    }
+}
+
+fn setting_value(value: &UserSettingValue) -> String {
+    match value {
+        UserSettingValue::Theme(theme) => match theme {
+            ThemePreference::System => "system".to_owned(),
+            ThemePreference::Light => "light".to_owned(),
+            ThemePreference::Dark => "dark".to_owned(),
+        },
+        UserSettingValue::Editor(editor) => editor.clone(),
+    }
+}
+
+fn credential_kind(kind: UserCredentialKind) -> &'static str {
+    match kind {
+        UserCredentialKind::ProviderApiToken => "provider_api_token",
+        UserCredentialKind::HarnessApiToken => "harness_api_token",
+    }
+}
+
+fn credential_status(status: tanren_configuration_secrets::UserCredentialStatus) -> &'static str {
+    match status {
+        tanren_configuration_secrets::UserCredentialStatus::Pending => "pending",
+        tanren_configuration_secrets::UserCredentialStatus::Active => "active",
+        tanren_configuration_secrets::UserCredentialStatus::Invalid => "invalid",
+    }
 }
 
 pub(crate) fn parse_sign_in(state: &FormState) -> Result<SignInRequest, String> {

@@ -4373,9 +4373,11 @@ dependencies = [
  "clap",
  "secrecy",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
@@ -4465,16 +4467,20 @@ dependencies = [
  "anyhow",
  "axum",
  "rmcp",
+ "schemars",
  "secrecy",
  "serde",
  "serde_json",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
+ "tanren-identity-policy",
  "tokio",
  "tokio-util",
  "tower",
  "tower-http",
  "tracing",
+ "uuid",
 ]
 
 [[package]]
@@ -4620,9 +4626,11 @@ dependencies = [
  "ratatui",
  "secrecy",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "tokio",
+ "uuid",
 ]
 
 [[package]]

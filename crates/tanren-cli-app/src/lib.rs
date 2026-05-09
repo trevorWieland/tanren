@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod user_config;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -24,6 +26,8 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
+
+use crate::user_config::{ConfigAction, CredentialAction, dispatch_config, dispatch_credential};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +67,16 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// User-tier setting operations.
+    Config {
+        #[command(subcommand)]
+        action: ConfigAction,
+    },
+    /// User-owned credential operations.
+    Credential {
+        #[command(subcommand)]
+        action: CredentialAction,
     },
 }
 
@@ -122,6 +136,8 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Config { action }) => dispatch_config(action),
+        Some(Command::Credential { action }) => dispatch_credential(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -271,9 +287,12 @@ async fn run_account(action: AccountAction) -> Result<()> {
     Ok(())
 }
 
-fn account_error(err: AppServiceError) -> anyhow::Error {
+pub(crate) fn account_error(err: AppServiceError) -> anyhow::Error {
     match err {
         AppServiceError::Account(reason) => {
+            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
+        }
+        AppServiceError::Configuration(reason) => {
             anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
         }
         AppServiceError::InvalidInput(message) => {

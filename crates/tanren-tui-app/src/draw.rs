@@ -9,27 +9,41 @@ use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
 use crate::{FormState, MenuChoice, OutcomeView};
 
 pub(crate) fn draw_menu(frame: &mut ratatui::Frame<'_>, area: Rect, selected: usize) {
-    let mut lines = vec![
-        Line::from("Tanren TUI"),
-        Line::from(""),
-        Line::from("Choose an action:"),
-        Line::from(""),
-    ];
-    for (idx, choice) in MenuChoice::ALL.iter().enumerate() {
+    let labels: Vec<&str> = MenuChoice::ALL
+        .iter()
+        .map(|choice| choice.label())
+        .collect();
+    draw_choice_menu(
+        frame,
+        area,
+        " tanren-tui ",
+        "Choose an action:",
+        &labels,
+        selected,
+    );
+}
+
+pub(crate) fn draw_choice_menu(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    title: &str,
+    prompt: &str,
+    labels: &[&str],
+    selected: usize,
+) {
+    let mut lines = vec![Line::from(""), Line::from(prompt), Line::from("")];
+    for (idx, label) in labels.iter().enumerate() {
         let marker = if idx == selected { "> " } else { "  " };
         let style = if idx == selected {
             Style::default().add_modifier(Modifier::REVERSED)
         } else {
             Style::default()
         };
-        lines.push(Line::from(Span::styled(
-            format!("{marker}{}", choice.label()),
-            style,
-        )));
+        lines.push(Line::from(Span::styled(format!("{marker}{label}"), style)));
     }
     lines.push(Line::from(""));
-    lines.push(Line::from("↑/↓ select   Enter confirm   q/Esc quit"));
-    let block = Block::default().borders(Borders::ALL).title(" tanren-tui ");
+    lines.push(Line::from("↑/↓ select   Enter confirm   Esc back   q quit"));
+    let block = Block::default().borders(Borders::ALL).title(title);
     let para = Paragraph::new(lines)
         .alignment(Alignment::Left)
         .block(block);
