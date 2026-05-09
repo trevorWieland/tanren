@@ -254,7 +254,8 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     ///
     /// Implementations must scope exclusively by the supplied `account_id`
     /// and return deterministic ordering for organizations, projects, and
-    /// permission entries. Returned rows must be bounded by `page.limit`.
+    /// permission entries. Pagination must be cursor-aware and bounded by
+    /// `page.limit` via limit-plus-one (or equivalent) semantics.
     async fn my_permissions(
         &self,
         account_id: AccountId,

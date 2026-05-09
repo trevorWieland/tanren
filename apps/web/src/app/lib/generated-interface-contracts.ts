@@ -34,9 +34,12 @@ export interface MyProjectPermissions {
 }
 export interface MyPermissionsPageMeta {
   limit: number;
+  next_cursor?: string | null;
+  request_cursor?: string | null;
   returned: number;
 }
 export interface MyPermissionsResponse {
+  freshness: MyPermissionsFreshnessMeta;
   organizations: MyOrganizationPermissions[];
   page: MyPermissionsPageMeta;
   projects: MyProjectPermissions[];
@@ -65,6 +68,13 @@ export interface InterfaceError {
   code: InterfaceErrorCode;
   summary: string;
 }
+export interface MyPermissionsFreshnessMeta {
+  checkpoint?: string | null;
+  generated_at: string;
+  projection: string;
+  staleness: MyPermissionsStaleness;
+}
+export type MyPermissionsStaleness = "fresh" | "stale";
 export type OrgId = string;
 export type PermissionEffectiveState = "granted" | "constrained";
 export type PermissionName = string;

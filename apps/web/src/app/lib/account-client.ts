@@ -62,6 +62,10 @@ export interface AcceptInvitationResult {
   session: SessionView;
   joined_org: string;
 }
+export interface MyPermissionsQuery {
+  limit?: number;
+  cursor?: null | string;
+}
 export type PermissionScopeView =
   | {
       kind: "organization";
@@ -250,9 +254,16 @@ export function acceptInvitation(
   });
 }
 
-export function myPermissions(): Promise<MyPermissionsResponse> {
+export function myPermissions(
+  query: MyPermissionsQuery = {},
+): Promise<MyPermissionsResponse> {
+  const params = new URLSearchParams();
+  params.set("limit", String(query.limit ?? MY_PERMISSIONS_LIMIT));
+  if (query.cursor && query.cursor.trim() !== "") {
+    params.set("cursor", query.cursor);
+  }
   return requestJson<MyPermissionsResponse>(
-    `/me/permissions?limit=${MY_PERMISSIONS_LIMIT}`,
+    `/me/permissions?${params.toString()}`,
     "GET",
   );
 }

@@ -375,6 +375,7 @@ pub(crate) async fn my_permissions_capabilities_route(
     path = "/me/permissions",
     params(
         ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
+        ("cursor" = Option<String>, Query, description = "Opaque continuation token from a prior page."),
     ),
     responses(
         (status = 200, body = MyPermissionsResponse, description = "Self permissions loaded"),
@@ -413,6 +414,7 @@ pub(crate) async fn my_permissions_route(
     params(
         ("account_id" = AccountId, Path, description = "Target account id (rejected; use /me/permissions)"),
         ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
+        ("cursor" = Option<String>, Query, description = "Opaque continuation token from a prior page."),
     ),
     responses(
         (status = 403, body = InterfaceError, description = "permission_denied"),
@@ -481,11 +483,9 @@ async fn clear_malformed_session(session: &Session, summary: &str) -> Response {
     auth_required_response(summary)
 }
 
-/// Build the `OpenApiRouter` carrying every account-flow route. Called
-/// from `lib.rs::build_app` after the cookie/CORS layers are
-/// constructed; the macros that `routes!()` expands need to live in the
-/// same module as the `#[utoipa::path]`-annotated handlers, so the
-/// router constructor lives here too.
+/// Build the `OpenApiRouter` carrying every account-flow route.
+/// Called from `lib.rs::build_app` after the cookie/CORS layers are constructed.
+/// `routes!()` expansions must live with the `#[utoipa::path]` handlers.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
     OpenApiRouter::with_openapi(openapi_document())
         .routes(routes!(health_route))

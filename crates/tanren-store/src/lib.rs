@@ -19,9 +19,10 @@ mod traits;
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, MyOrganizationPermissionsRecord,
-    MyPermissionRecord, MyPermissionsPage, MyPermissionsRecord, MyProjectPermissionsRecord,
-    NewAccount, NewInvitation, NewPermissionConstraint, NewPermissionGrant,
-    PermissionConstraintRecord, PermissionGrantRecord, PermissionGrantScope, SessionRecord,
+    MyPermissionRecord, MyPermissionsCursor, MyPermissionsFreshnessRecord, MyPermissionsPage,
+    MyPermissionsRecord, MyPermissionsScopeKind, MyProjectPermissionsRecord, NewAccount,
+    NewInvitation, NewPermissionConstraint, NewPermissionGrant, PermissionConstraintRecord,
+    PermissionGrantRecord, PermissionGrantScope, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,

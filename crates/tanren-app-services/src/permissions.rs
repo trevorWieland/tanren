@@ -5,10 +5,11 @@
 
 use tanren_contract::{
     MyAccountCapabilitiesResponse, MyOrganizationPermissions, MyPermissionEntry,
-    MyPermissionsFailureReason, MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse,
-    MyProjectPermissions, PermissionConstraintView,
+    MyPermissionsFailureReason, MyPermissionsFreshnessMeta, MyPermissionsPageMeta,
+    MyPermissionsRequest, MyPermissionsResponse, MyPermissionsStaleness, MyProjectPermissions,
+    PermissionConstraintView,
 };
-use tanren_store::{AccountStore, MyPermissionsPage, MyPermissionsRecord};
+use tanren_store::{AccountStore, MyPermissionsCursor, MyPermissionsPage, MyPermissionsRecord};
 
 use crate::{AppServiceError, MyPermissionsContext};
 
@@ -22,14 +23,16 @@ where
 {
     authorize_my_permissions(context)?;
     let resolved_limit = request.resolved_limit();
+    let request_cursor = request.resolved_cursor();
+    let decoded_cursor = decode_cursor(request_cursor.as_deref())?;
 
     let record = store
         .my_permissions(
             context.session_account_id(),
-            MyPermissionsPage::bounded(Some(resolved_limit)),
+            MyPermissionsPage::bounded(Some(resolved_limit), decoded_cursor),
         )
         .await?;
-    Ok(to_contract_response(record, resolved_limit))
+    Ok(to_contract_response(record, resolved_limit, request_cursor))
 }
 
 pub(crate) fn my_permissions_capabilities(
@@ -50,8 +53,18 @@ fn authorize_my_permissions(context: MyPermissionsContext) -> Result<(), AppServ
     ))
 }
 
-fn to_contract_response(record: MyPermissionsRecord, resolved_limit: u16) -> MyPermissionsResponse {
+fn to_contract_response(
+    record: MyPermissionsRecord,
+    resolved_limit: u16,
+    request_cursor: Option<String>,
+) -> MyPermissionsResponse {
     let returned_entries = total_entries(&record);
+    let next_cursor = encode_cursor(record.next_cursor);
+    let staleness = if record.freshness.is_stale {
+        MyPermissionsStaleness::Stale
+    } else {
+        MyPermissionsStaleness::Fresh
+    };
     let organizations = record
         .organizations
         .into_iter()
@@ -81,10 +94,31 @@ fn to_contract_response(record: MyPermissionsRecord, resolved_limit: u16) -> MyP
         page: MyPermissionsPageMeta {
             limit: resolved_limit,
             returned: u16::try_from(returned_entries).unwrap_or(u16::MAX),
+            request_cursor,
+            next_cursor,
+        },
+        freshness: MyPermissionsFreshnessMeta {
+            projection: record.freshness.projection,
+            checkpoint: record.freshness.checkpoint,
+            generated_at: record.freshness.generated_at,
+            staleness,
         },
         organizations,
         projects,
     }
+}
+
+fn decode_cursor(token: Option<&str>) -> Result<Option<MyPermissionsCursor>, AppServiceError> {
+    let Some(token) = token else {
+        return Ok(None);
+    };
+    let cursor = serde_json::from_str(token)
+        .map_err(|_| AppServiceError::InvalidInput("cursor must be valid JSON".to_owned()))?;
+    Ok(Some(cursor))
+}
+
+fn encode_cursor(cursor: Option<MyPermissionsCursor>) -> Option<String> {
+    cursor.and_then(|value| serde_json::to_string(&value).ok())
 }
 
 fn to_permission_entry(record: tanren_store::MyPermissionRecord) -> MyPermissionEntry {

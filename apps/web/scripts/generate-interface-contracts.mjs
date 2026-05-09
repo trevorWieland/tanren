@@ -44,6 +44,11 @@ function renderTypeExpr(schema) {
   if (!isObject(schema)) {
     return "unknown";
   }
+  if (Array.isArray(schema.type)) {
+    return schema.type
+      .map((entry) => renderTypeExpr({ ...schema, type: entry }))
+      .join(" | ");
+  }
   if (schema.$ref) {
     return refName(schema.$ref);
   }

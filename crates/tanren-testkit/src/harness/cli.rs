@@ -1,5 +1,8 @@
 //! `@cli` harness — shells out to the `tanren-cli` binary against a per-scenario `SQLite` file.
 
+#[path = "cli_output_parse.rs"]
+mod cli_output_parse;
+
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -9,18 +12,15 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{
-    AcceptInvitationRequest, AccountView, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsPageMeta,
-    MyPermissionsResponse, SignInRequest, SignUpRequest,
-};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_identity_policy::AccountId;
 use tanren_store::{
     AccountStore, EventEnvelope, NewInvitation, NewPermissionConstraint, NewPermissionGrant,
     PermissionGrantScope,
 };
 use tokio::process::Command;
-use uuid::Uuid;
 
+use self::cli_output_parse::{parse_joined_org, parse_permissions_output, parse_session};
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
@@ -350,149 +350,4 @@ fn translate_cli_error(stderr: &[u8]) -> HarnessError {
         };
     }
     HarnessError::Transport(text.into_owned())
-}
-
-fn parse_session(
-    stdout: &str,
-    email: &str,
-    display_name: &str,
-) -> HarnessResult<(AccountView, bool)> {
-    let re = Regex::new(r"account_id=([0-9a-fA-F-]+)\s+session=([^\s]+)").expect("constant regex");
-    let captures = re
-        .captures(stdout)
-        .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
-    let id_raw = captures.get(1).map_or("", |m| m.as_str());
-    let token = captures.get(2).map_or("", |m| m.as_str());
-    let id = AccountId::from(
-        Uuid::parse_str(id_raw)
-            .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?,
-    );
-    let identifier = Identifier::from_email(
-        &tanren_identity_policy::Email::parse(email)
-            .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?,
-    );
-    let account = AccountView {
-        id,
-        identifier,
-        display_name: if display_name.is_empty() {
-            String::new()
-        } else {
-            display_name.to_owned()
-        },
-        org: None,
-    };
-    Ok((account, !token.is_empty()))
-}
-
-fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
-    let re = Regex::new(r"joined_org=([0-9a-fA-F-]+)").expect("constant regex");
-    let captures = re.captures(stdout).ok_or_else(|| {
-        HarnessError::Transport(format!(
-            "could not parse joined_org from cli stdout: {stdout}"
-        ))
-    })?;
-    let raw = captures.get(1).map_or("", |m| m.as_str());
-    Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
-        HarnessError::Transport(format!("parse org id: {e}"))
-    })?))
-}
-
-fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissionsResponse> {
-    let mut organizations = Vec::new();
-    let mut projects = Vec::new();
-    let mut returned: u16 = 0;
-    for line in stdout.lines() {
-        let line = line.trim();
-        if line.is_empty() || line == "permissions=none" {
-            continue;
-        }
-        let scope = if line.contains("scope=organization") {
-            "organization"
-        } else if line.contains("scope=project") {
-            "project"
-        } else {
-            continue;
-        };
-        let scope_id = capture(line, r"scope_id=([0-9a-fA-F-]+)")?;
-        let permission = parse_permission_name(line)?;
-        let effective_state = if line.contains("effective_state=Constrained") {
-            tanren_identity_policy::PermissionEffectiveState::Constrained
-        } else {
-            tanren_identity_policy::PermissionEffectiveState::Granted
-        };
-        let grant_source = if line.contains("source=Direct") {
-            tanren_identity_policy::PermissionGrantSource::Direct
-        } else {
-            let role_template = capture(line, r#"RoleTemplateName\("([^"]+)"\)"#)?;
-            tanren_identity_policy::PermissionGrantSource::RoleTemplate {
-                role_template: tanren_identity_policy::RoleTemplateName::new(role_template),
-            }
-        };
-        let policy_constraint = if line.contains("constraint_reason=none") {
-            None
-        } else {
-            let reason = capture(
-                line,
-                r#"constraint_reason=PolicyConstraintReason\("([^"]+)"\)"#,
-            )?;
-            let source = if line.contains("constraint_source=OrganizationPolicy") {
-                tanren_identity_policy::PolicyConstraintSource::OrganizationPolicy
-            } else {
-                tanren_identity_policy::PolicyConstraintSource::ProjectPolicy
-            };
-            Some(tanren_contract::PermissionConstraintView {
-                reason: tanren_identity_policy::PolicyConstraintReason::new(reason),
-                source,
-            })
-        };
-        let entry = tanren_contract::MyPermissionEntry {
-            permission: tanren_identity_policy::PermissionName::new(permission),
-            effective_state,
-            grant_source,
-            policy_constraint,
-        };
-        returned = returned.saturating_add(1);
-        match scope {
-            "organization" => organizations.push(tanren_contract::MyOrganizationPermissions {
-                org_id: OrgId::from(
-                    Uuid::parse_str(&scope_id)
-                        .map_err(|e| HarnessError::Transport(format!("parse org scope id: {e}")))?,
-                ),
-                permissions: vec![entry],
-            }),
-            "project" => projects.push(tanren_contract::MyProjectPermissions {
-                project_id: tanren_identity_policy::ProjectId::from(
-                    Uuid::parse_str(&scope_id).map_err(|e| {
-                        HarnessError::Transport(format!("parse project scope id: {e}"))
-                    })?,
-                ),
-                permissions: vec![entry],
-            }),
-            _ => {}
-        }
-    }
-    Ok(MyPermissionsResponse {
-        page: MyPermissionsPageMeta {
-            limit: MY_PERMISSIONS_DEFAULT_LIMIT,
-            returned,
-        },
-        organizations,
-        projects,
-    })
-}
-
-fn capture(line: &str, pattern: &str) -> HarnessResult<String> {
-    let re = Regex::new(pattern).expect("constant regex");
-    let captures = re
-        .captures(line)
-        .ok_or_else(|| HarnessError::Transport(format!("parse permissions line: {line}")))?;
-    Ok(captures.get(1).map_or("", |m| m.as_str()).to_owned())
-}
-
-fn parse_permission_name(line: &str) -> HarnessResult<String> {
-    if let Ok(name) = capture(line, r#"permission=PermissionName\("([^"]+)"\)"#) {
-        return Ok(name);
-    }
-    let raw = capture(line, r#"permission=("[^"]+"|\S+)"#)?;
-    Ok(raw.trim_matches('"').to_owned())
 }

@@ -236,17 +236,88 @@ pub struct MyProjectPermissionsRecord {
 /// Read-model returned by self-permission introspection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MyPermissionsRecord {
+    /// Cursor to continue pagination from this page, if any.
+    pub next_cursor: Option<MyPermissionsCursor>,
+    /// Read-model freshness metadata for this response.
+    pub freshness: MyPermissionsFreshnessRecord,
     /// Organization-scoped permission sections.
     pub organizations: Vec<MyOrganizationPermissionsRecord>,
     /// Project-scoped permission sections.
     pub projects: Vec<MyProjectPermissionsRecord>,
 }
 
-/// Pagination envelope for self-permission reads.
+/// Cursor payload for self-permissions pagination.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsCursor {
+    /// Organization scope id of the last row, when cursor points to an
+    /// organization-scoped permission.
+    pub org_id: Option<OrgId>,
+    /// Project scope id of the last row, when cursor points to a project-scoped
+    /// permission.
+    pub project_id: Option<ProjectId>,
+    /// Permission name of the last row.
+    pub permission_name: String,
+    /// Role-template discriminator of the last row.
+    pub role_template_name: Option<String>,
+    /// Stable grant id tiebreaker of the last row.
+    pub grant_id: PermissionGrantId,
+}
+
+/// Scope class discriminator used in cursor ordering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MyPermissionsScopeKind {
+    /// Organization scope rows sort before project scope rows.
+    Organization,
+    /// Project scope rows sort after organization scope rows.
+    Project,
+}
+
+impl MyPermissionsScopeKind {
+    /// Integer rank used in SQL tuple ordering.
+    #[must_use]
+    pub const fn rank(self) -> i16 {
+        match self {
+            Self::Organization => 0,
+            Self::Project => 1,
+        }
+    }
+}
+
+impl MyPermissionsCursor {
+    /// Resolve the scope class from the cursor payload.
+    pub fn scope_kind(&self) -> Result<MyPermissionsScopeKind, StoreError> {
+        match (self.org_id, self.project_id) {
+            (Some(_), None) => Ok(MyPermissionsScopeKind::Organization),
+            (None, Some(_)) => Ok(MyPermissionsScopeKind::Project),
+            _ => Err(StoreError::Invariant {
+                entity: "permission_grants",
+                detail: "cursor must carry exactly one scope id (org or project)",
+            }),
+        }
+    }
+}
+
+/// Read-model freshness metadata for self-permission introspection.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsFreshnessRecord {
+    /// Canonical projection name serving this read model.
+    pub projection: String,
+    /// Source checkpoint describing what the read model has observed.
+    pub checkpoint: Option<String>,
+    /// Wall-clock instant when this snapshot was generated.
+    pub generated_at: DateTime<Utc>,
+    /// Whether this read model is stale for the requested consistency.
+    pub is_stale: bool,
+}
+
+/// Pagination envelope for self-permission reads.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MyPermissionsPage {
     /// Maximum number of permission entries to return.
     pub limit: u16,
+    /// Opaque continuation token for cursor-based pagination.
+    pub cursor: Option<MyPermissionsCursor>,
 }
 
 impl MyPermissionsPage {
@@ -257,12 +328,15 @@ impl MyPermissionsPage {
 
     /// Build a bounded page contract from an optional caller hint.
     #[must_use]
-    pub fn bounded(limit: Option<u16>) -> Self {
+    pub fn bounded(limit: Option<u16>, cursor: Option<MyPermissionsCursor>) -> Self {
         let resolved = match limit {
             Some(0) | None => Self::DEFAULT_LIMIT,
             Some(value) => value.min(Self::MAX_LIMIT),
         };
-        Self { limit: resolved }
+        Self {
+            limit: resolved,
+            cursor,
+        }
     }
 }
 

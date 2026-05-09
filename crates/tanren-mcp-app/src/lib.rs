@@ -177,6 +177,7 @@ impl TanrenMcp {
                 context,
                 MyPermissionsRequest {
                     limit: request.limit,
+                    cursor: request.cursor,
                 },
             )
             .await
@@ -246,6 +247,7 @@ struct MyPermissionsToolRequest {
     session_token: Option<SessionToken>,
     target_account_id: Option<AccountId>,
     limit: Option<u16>,
+    cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -430,8 +432,7 @@ pub fn build_router_with_store(
     (router, cancellation)
 }
 
-/// Serve the tanren-mcp surface to completion. Honours `SIGTERM`/`SIGINT`
-/// for graceful shutdown.
+/// Serve the tanren-mcp surface to completion. Honours `SIGTERM`/`SIGINT` for graceful shutdown.
 ///
 /// # Errors
 ///

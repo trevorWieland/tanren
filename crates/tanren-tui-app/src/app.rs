@@ -314,6 +314,7 @@ impl App {
             MyPermissionsContext::self_scoped(account_id),
             MyPermissionsRequest {
                 limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
+                cursor: None,
             },
         ));
         match response {

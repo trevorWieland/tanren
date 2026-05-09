@@ -4,6 +4,7 @@
 //! by api/mcp/cli/tui/web. The request is intentionally self-scoped: callers
 //! cannot pass an arbitrary account id.
 
+use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
@@ -29,12 +30,18 @@ pub struct MyPermissionsRequest {
     /// Values above [`MY_PERMISSIONS_MAX_LIMIT`] are clamped to that maximum.
     /// Missing or zero values fall back to [`MY_PERMISSIONS_DEFAULT_LIMIT`].
     pub limit: Option<u16>,
+    /// Opaque continuation token for cursor-based pagination.
+    ///
+    /// Omit this field for the first page. Empty strings are treated as
+    /// no cursor.
+    pub cursor: Option<String>,
 }
 
 impl Default for MyPermissionsRequest {
     fn default() -> Self {
         Self {
             limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
+            cursor: None,
         }
     }
 }
@@ -48,6 +55,16 @@ impl MyPermissionsRequest {
             Some(limit) => limit.min(MY_PERMISSIONS_MAX_LIMIT),
         }
     }
+
+    /// Resolve the caller-provided cursor hint.
+    #[must_use]
+    pub fn resolved_cursor(&self) -> Option<String> {
+        self.cursor
+            .as_deref()
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .map(ToOwned::to_owned)
+    }
 }
 
 /// Response payload for self-permission introspection.
@@ -55,6 +72,8 @@ impl MyPermissionsRequest {
 pub struct MyPermissionsResponse {
     /// Pagination metadata for this response page.
     pub page: MyPermissionsPageMeta,
+    /// Read-model freshness metadata for the returned snapshot.
+    pub freshness: MyPermissionsFreshnessMeta,
     /// Organization-scoped permission sections visible to the caller.
     pub organizations: Vec<MyOrganizationPermissions>,
     /// Project-scoped permission sections visible to the caller.
@@ -68,6 +87,33 @@ pub struct MyPermissionsPageMeta {
     pub limit: u16,
     /// Number of permission entries included in this page.
     pub returned: u16,
+    /// Cursor that produced this page; omitted for first-page reads.
+    pub request_cursor: Option<String>,
+    /// Cursor to fetch the next page; null when no continuation exists.
+    pub next_cursor: Option<String>,
+}
+
+/// Read-model freshness metadata returned with self-permission pages.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct MyPermissionsFreshnessMeta {
+    /// Canonical read-model/projection name serving this response.
+    pub projection: String,
+    /// Source checkpoint identifier for the returned read-model slice.
+    pub checkpoint: Option<String>,
+    /// Wall-clock instant when this response snapshot was generated.
+    pub generated_at: DateTime<Utc>,
+    /// Whether the read-model is stale relative to requested freshness.
+    pub staleness: MyPermissionsStaleness,
+}
+
+/// Staleness classification for a read-model response.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MyPermissionsStaleness {
+    /// Read-model is at an acceptable freshness point for this request.
+    Fresh,
+    /// Read-model is stale for the requested freshness target.
+    Stale,
 }
 
 /// Organization-level permission section for the current caller.

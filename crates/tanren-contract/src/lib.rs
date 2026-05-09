@@ -16,8 +16,8 @@ pub use account::{
 pub use permissions::{
     InterfaceError, InterfaceErrorCode, MY_PERMISSIONS_DEFAULT_LIMIT, MY_PERMISSIONS_MAX_LIMIT,
     MyOrganizationPermissions, MyPermissionEntry, MyPermissionsFailureReason,
-    MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse, MyProjectPermissions,
-    PermissionConstraintView,
+    MyPermissionsFreshnessMeta, MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse,
+    MyPermissionsStaleness, MyProjectPermissions, PermissionConstraintView,
 };
 
 use serde::{Deserialize, Serialize};

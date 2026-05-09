@@ -67,5 +67,19 @@
   "myPermissions_sourceDirect": "direct",
   "myPermissions_sourceRoleTemplate": "role template",
   "myPermissions_constraintSourceOrganizationPolicy": "organization policy",
-  "myPermissions_constraintSourceProjectPolicy": "project policy"
+  "myPermissions_constraintSourceProjectPolicy": "project policy",
+  "myPermissions_metadataTitle": "Snapshot metadata",
+  "myPermissions_metadataProjectionLabel": "Projection",
+  "myPermissions_metadataGeneratedAtLabel": "Generated at",
+  "myPermissions_metadataCheckpointLabel": "Checkpoint",
+  "myPermissions_metadataStalenessLabel": "Staleness",
+  "myPermissions_metadataLimitLabel": "Page limit",
+  "myPermissions_metadataReturnedLabel": "Returned entries",
+  "myPermissions_metadataRequestCursorLabel": "Request cursor",
+  "myPermissions_metadataNextCursorLabel": "Next cursor",
+  "myPermissions_metadataPagesLoadedLabel": "Pages loaded",
+  "myPermissions_metadataNone": "none",
+  "myPermissions_loadMore": "Load next page",
+  "myPermissions_loadingMore": "Loading next page…",
+  "myPermissions_noMorePages": "No further pages."
 }

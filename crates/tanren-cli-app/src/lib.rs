@@ -7,6 +7,8 @@
 //! persistence — lives here so the BDD harness can depend on it directly
 //! without spinning up a child process.
 
+mod permissions_output;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -19,11 +21,13 @@ use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AccountStore, AppServiceError, Handlers, MyPermissionsContext, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionEntry, MyPermissionsRequest,
-    MyPermissionsResponse, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsRequest, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, SessionToken};
 use uuid::Uuid;
+
+use crate::permissions_output::print_permissions;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -348,6 +352,7 @@ async fn run_account_my_permissions(
             MyPermissionsContext::with_requested_account(session_account_id, requested_account_id),
             MyPermissionsRequest {
                 limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
+                cursor: None,
             },
         )
         .await
@@ -428,66 +433,6 @@ fn read_session_token() -> Result<SessionToken> {
         "error: auth_required — session is missing token; sign in again to refresh {}",
         path.display()
     )
-}
-
-fn print_permissions(response: &MyPermissionsResponse) -> Result<()> {
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
-
-    if response.organizations.is_empty() && response.projects.is_empty() {
-        writeln!(handle, "permissions=none").context("write permissions result")?;
-        return Ok(());
-    }
-
-    for organization in &response.organizations {
-        for permission in &organization.permissions {
-            write_permission_row(
-                &mut handle,
-                "organization",
-                &organization.org_id.to_string(),
-                permission,
-            )
-            .context("write organization permission row")?;
-        }
-    }
-    for project in &response.projects {
-        for permission in &project.permissions {
-            write_permission_row(
-                &mut handle,
-                "project",
-                &project.project_id.to_string(),
-                permission,
-            )
-            .context("write project permission row")?;
-        }
-    }
-    Ok(())
-}
-
-fn write_permission_row(
-    handle: &mut impl Write,
-    scope: &str,
-    scope_id: &str,
-    permission: &MyPermissionEntry,
-) -> Result<()> {
-    let (constraint_reason, constraint_source) = permission.policy_constraint.as_ref().map_or_else(
-        || ("none".to_owned(), "none".to_owned()),
-        |constraint| {
-            (
-                format!("{:?}", constraint.reason),
-                format!("{:?}", constraint.source),
-            )
-        },
-    );
-
-    writeln!(
-        handle,
-        "scope={scope} scope_id={scope_id} permission={permission_name:?} effective_state={effective_state:?} source={grant_source:?} constraint_reason={constraint_reason} constraint_source={constraint_source}",
-        permission_name = permission.permission,
-        effective_state = permission.effective_state,
-        grant_source = permission.grant_source,
-    )
-    .context("write permission row")
 }
 
 fn parse_account_id(raw: &str, context_label: &str) -> Result<AccountId> {
