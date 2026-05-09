@@ -272,6 +272,15 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
 
+    /// Resolve an active (non-expired) session by bearer token.
+    ///
+    /// Implementations must only return rows where `expires_at > now`.
+    async fn find_active_session_by_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
     /// Append a payload to the canonical event log at the supplied
     /// instant.
     async fn append_event(

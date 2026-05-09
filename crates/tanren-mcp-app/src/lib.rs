@@ -22,6 +22,7 @@ use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
+use rmcp::service::RequestContext;
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
@@ -35,7 +36,6 @@ use tanren_contract::{
     AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest,
     SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::AccountId;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -172,9 +172,14 @@ impl TanrenMcp {
     )]
     async fn deployment_posture_set(
         &self,
+        request_context: RequestContext<rmcp::RoleServer>,
         Parameters(request): Parameters<SetDeploymentPostureRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let actor = actor_from_scope(request.scope);
+        let Some(actor) = actor_from_principal(&request_context) else {
+            return Ok(permission_denied_result(
+                "Authenticated MCP principal required for deployment_posture.set.",
+            ));
+        };
         match self
             .handlers
             .set_deployment_posture(self.store.as_ref(), actor, request)
@@ -254,14 +259,22 @@ fn internal_error_result(summary: &str) -> CallToolResult {
     CallToolResult::error(vec![Content::text(text)])
 }
 
-fn actor_from_scope(scope: DeploymentPostureScope) -> AccountId {
-    match scope {
-        DeploymentPostureScope::Account { account_id } => account_id,
-        DeploymentPostureScope::Project { project_id } => AccountId::from(project_id.as_uuid()),
-        DeploymentPostureScope::Installation { installation_id } => {
-            AccountId::from(installation_id.as_uuid())
-        }
-    }
+fn actor_from_principal(
+    request_context: &RequestContext<rmcp::RoleServer>,
+) -> Option<tanren_identity_policy::AccountId> {
+    let parts = request_context
+        .extensions
+        .get::<axum::http::request::Parts>()?;
+    auth::principal_from_request(parts).map(|principal| principal.account_id)
+}
+
+fn permission_denied_result(summary: &str) -> CallToolResult {
+    let body = json!({
+        "code": "permission_denied",
+        "summary": summary,
+    });
+    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
+    CallToolResult::error(vec![Content::text(text)])
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -281,7 +294,7 @@ async fn health() -> Json<HealthResponse> {
 }
 
 fn build_router(
-    auth_config: Arc<auth::AuthConfig>,
+    auth_state: Arc<auth::AuthState>,
     handlers: Handlers,
     store: Arc<Store>,
     cancellation: CancellationToken,
@@ -296,7 +309,7 @@ fn build_router(
 
     let mcp_with_auth = ServiceBuilder::new()
         .layer(middleware::from_fn_with_state(
-            auth_config,
+            auth_state,
             auth::require_api_key,
         ))
         .service(mcp_service);
@@ -349,8 +362,12 @@ pub fn build_router_with_store(
     let auth_config = Arc::new(auth::AuthConfig {
         bootstrap_key: Some(api_key),
     });
+    let auth_state = Arc::new(auth::AuthState {
+        config: auth_config,
+        store: store.clone(),
+    });
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, Handlers::new(), store, cancellation.clone());
+    let router = build_router(auth_state, Handlers::new(), store, cancellation.clone());
     (router, cancellation)
 }
 
@@ -376,7 +393,11 @@ pub async fn serve(_config: Config) -> Result<()> {
     let handlers = Handlers::new();
 
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, handlers, store, cancellation.clone());
+    let auth_state = Arc::new(auth::AuthState {
+        config: auth_config,
+        store: store.clone(),
+    });
+    let router = build_router(auth_state, handlers, store, cancellation.clone());
 
     let listener = TcpListener::bind(&bind)
         .await

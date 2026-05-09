@@ -9,7 +9,7 @@ use tanren_contract::{
     DeploymentPosture, DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
     DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, Email, ProjectId};
+use tanren_identity_policy::{AccountId, Email};
 use tanren_testkit::{HarnessError, HarnessKind, HarnessOutcome, record_failure};
 
 use super::{poll_until, retry_on_transport};
@@ -69,24 +69,8 @@ async fn when_set_for_another_scope(world: &mut TanrenWorld, posture: String, in
         return;
     };
     let other_id = account_id_for(world, "other").await;
-    let scope = {
-        let ctx = world.ensure_account_ctx().await;
-        match ctx.harness.kind() {
-            // MCP's posture.set tool derives actor from scope internally, so
-            // account-scope mismatch isn't representable over wire today.
-            // Use a project scope to prove falsification behavior through the
-            // real MCP transport.
-            HarnessKind::Mcp => DeploymentPostureScope::Project {
-                project_id: ProjectId::from(other_id.as_uuid()),
-            },
-            HarnessKind::Api
-            | HarnessKind::Cli
-            | HarnessKind::Tui
-            | HarnessKind::Web
-            | HarnessKind::InProcess => DeploymentPostureScope::Account {
-                account_id: other_id,
-            },
-        }
+    let scope = DeploymentPostureScope::Account {
+        account_id: other_id,
     };
     let request = SetDeploymentPostureRequest { scope, posture };
     execute_set(world, &interface, "actor", actor_id, request).await;

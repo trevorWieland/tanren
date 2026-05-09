@@ -36,6 +36,8 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    endpoint: String,
+    auth_header: SecretString,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
@@ -85,22 +87,43 @@ impl McpHarness {
                 .await;
         });
 
-        // Build the rmcp client transport with the bearer-token header.
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
-                .auth_header(TEST_API_KEY.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-        let client = ClientInfo::default()
-            .serve(transport)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
+        let endpoint = format!("http://{local_addr}/mcp");
+        let client = Self::connect_client(&endpoint, TEST_API_KEY).await?;
 
         Ok(Self {
             store,
             db_path,
+            endpoint,
+            auth_header: SecretString::from(TEST_API_KEY.to_owned()),
             client: Some(client),
             server: Some(server),
         })
+    }
+
+    async fn connect_client(
+        endpoint: &str,
+        auth_header: &str,
+    ) -> HarnessResult<RunningService<RoleClient, ClientInfo>> {
+        let config = StreamableHttpClientTransportConfig::with_uri(endpoint.to_owned())
+            .auth_header(auth_header.to_owned());
+        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+        ClientInfo::default()
+            .serve(transport)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))
+    }
+
+    async fn use_auth_header(&mut self, auth_header: String) -> HarnessResult<()> {
+        if self.auth_header.expose_secret() == auth_header.as_str() {
+            return Ok(());
+        }
+        if let Some(client) = self.client.take() {
+            drop(client);
+        }
+        let client = Self::connect_client(&self.endpoint, &auth_header).await?;
+        self.auth_header = SecretString::from(auth_header);
+        self.client = Some(client);
+        Ok(())
     }
 
     async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
@@ -166,7 +189,10 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        let token = session_token_from_payload(&payload)?;
+        self.use_auth_header(token).await?;
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -298,4 +324,12 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
+}
+
+fn session_token_from_payload(payload: &Value) -> HarnessResult<String> {
+    payload["session"]["token"]
+        .as_str()
+        .map(ToOwned::to_owned)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| HarnessError::Transport("missing session.token".to_owned()))
 }

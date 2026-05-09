@@ -97,10 +97,10 @@ Feature: Choose a deployment posture
       And the MCP response reflects inherited runtime and credential capability availability for posture "hosted"
 
     @falsification @mcp
-    Scenario: MCP rejects changing posture for an unresolved non-account scope
+    Scenario: MCP denies changing another account's posture
       Given an MCP account actor without posture permission
       When the actor sets deployment posture "hosted" for another account scope over MCP
-      Then the request fails with code "scope_not_found"
+      Then the request fails with code "permission_denied"
       And the error summary is readable
 
     @falsification @mcp
