@@ -22,7 +22,7 @@ tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
 tanren-testkit = { path = "../tanren-testkit" }
-tokio = { workspace = true, features = ["process"] }
+tokio = { workspace = true }
 
 [[bin]]
 name = "tanren-bdd-runner"
