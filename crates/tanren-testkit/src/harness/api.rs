@@ -9,6 +9,7 @@
 //! goes through the harness's own `Store` handle (the api app's
 //! `Arc<Store>` is a clone of the same `Store`).
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -18,12 +19,19 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+    SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+use super::common::{
+    accept_invitation_body, code_to_reason, scenario_db_path, sign_in_body, sign_up_body,
+    sqlite_url,
+};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -32,11 +40,11 @@ use super::{
 /// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
-    client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
     /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
+    session_clients: HashMap<AccountId, Client>,
 }
 
 impl std::fmt::Debug for ApiHarness {
@@ -93,19 +101,27 @@ impl ApiHarness {
             let _ = axum::serve(listener, app).await;
         });
 
-        let client = Client::builder()
-            .cookie_store(true)
-            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
-            .build()
-            .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
-
         Ok(Self {
             base_url,
-            client,
             store,
             server: Some(server),
             db_path,
+            session_clients: HashMap::new(),
         })
+    }
+
+    fn new_client() -> HarnessResult<Client> {
+        Client::builder()
+            .cookie_store(true)
+            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+            .build()
+            .map_err(|e| HarnessError::Transport(format!("client build: {e}")))
+    }
+
+    fn session_client(&self, account_id: AccountId) -> HarnessResult<&Client> {
+        self.session_clients
+            .get(&account_id)
+            .ok_or_else(super::auth_required_failure)
     }
 }
 
@@ -129,8 +145,8 @@ impl AccountHarness for ApiHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let body = sign_up_body(&req);
         let url = format!("{}/accounts", self.base_url);
-        let response = self
-            .client
+        let client = Self::new_client()?;
+        let response = client
             .post(&url)
             .json(&body)
             .send()
@@ -160,19 +176,21 @@ impl AccountHarness for ApiHarness {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
-        Ok(HarnessSession {
+        let session = HarnessSession {
             account_id: account.id,
             account,
             expires_at,
             has_token: cookies_set,
-        })
+        };
+        self.session_clients.insert(session.account_id, client);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let body = sign_in_body(&req);
         let url = format!("{}/sessions", self.base_url);
-        let response = self
-            .client
+        let client = Self::new_client()?;
+        let response = client
             .post(&url)
             .json(&body)
             .send()
@@ -202,12 +220,14 @@ impl AccountHarness for ApiHarness {
             .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
             .map(|d| d.with_timezone(&chrono::Utc))
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
-        Ok(HarnessSession {
+        let session = HarnessSession {
             account_id: account.id,
             account,
             expires_at,
             has_token: cookies_set,
-        })
+        };
+        self.session_clients.insert(session.account_id, client);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -217,15 +237,10 @@ impl AccountHarness for ApiHarness {
         let body = accept_invitation_body(&req);
         let token = req.invitation_token.as_str().to_owned();
         let url = format!("{}/invitations/{token}/accept", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
-            .await
-            .map_err(|e| {
-                HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
-            })?;
+        let client = Self::new_client()?;
+        let response = client.post(&url).json(&body).send().await.map_err(|e| {
+            HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
+        })?;
         let status = response.status();
         let cookies_set = response
             .headers()
@@ -252,7 +267,7 @@ impl AccountHarness for ApiHarness {
             .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
         let joined_org = serde_json::from_value(json["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
-        Ok(HarnessAcceptance {
+        let acceptance = HarnessAcceptance {
             session: HarnessSession {
                 account_id: account.id,
                 account,
@@ -260,7 +275,98 @@ impl AccountHarness for ApiHarness {
                 has_token: cookies_set,
             },
             joined_org,
-        })
+        };
+        self.session_clients
+            .insert(acceptance.session.account_id, client);
+        Ok(acceptance)
+    }
+
+    async fn create_organization(
+        &mut self,
+        account_id: AccountId,
+        name: OrganizationName,
+    ) -> HarnessResult<CreateOrganizationResponse> {
+        let body = serde_json::json!({ "name": name });
+        let url = format!("{}/organizations", self.base_url);
+        let response = self
+            .session_client(account_id)?
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /organizations: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode create_organization: {e}")))
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationsResponse> {
+        let url = format!("{}/organizations", self.base_url);
+        let response = self
+            .session_client(account_id)?
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET /organizations: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode list_organizations: {e}")))
+    }
+
+    async fn check_organization_admin_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse> {
+        let body = serde_json::json!({ "org_id": org_id, "permission": permission });
+        let url = format!("{}/organizations/permissions/check", self.base_url);
+        let response = self
+            .session_client(account_id)?
+            .post(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| {
+                HarnessError::Transport(format!("POST /organizations/permissions/check: {e}"))
+            })?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let response: CheckOrganizationPermissionResponse =
+            serde_json::from_value(json).map_err(|e| {
+                HarnessError::Transport(format!("decode check_organization_permission: {e}"))
+            })?;
+        if response.allowed {
+            Ok(response)
+        } else {
+            Err(HarnessError::Account(
+                AccountFailureReason::PermissionDenied,
+                AccountFailureReason::PermissionDenied.summary().to_owned(),
+            ))
+        }
     }
 
     async fn accept_invitations_concurrent(
@@ -372,46 +478,6 @@ impl AccountHarness for ApiHarness {
     }
 }
 
-pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!(
-        "tanren-bdd-{prefix}-{}-{}.db",
-        std::process::id(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    p
-}
-
-pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
-    format!("sqlite://{}?mode=rwc", path.display())
-}
-
-fn sign_up_body(req: &SignUpRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-fn sign_in_body(req: &SignInRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-    })
-}
-
-fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
 pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     let code = json
         .get("code")
@@ -428,16 +494,4 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
-}
-
-pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
-    Some(match code {
-        "duplicate_identifier" => AccountFailureReason::DuplicateIdentifier,
-        "invalid_credential" => AccountFailureReason::InvalidCredential,
-        "validation_failed" => AccountFailureReason::ValidationFailed,
-        "invitation_not_found" => AccountFailureReason::InvitationNotFound,
-        "invitation_expired" => AccountFailureReason::InvitationExpired,
-        "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
-        _ => return None,
-    })
 }

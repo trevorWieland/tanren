@@ -44,6 +44,8 @@
 
 mod api;
 mod cli;
+mod cli_support;
+mod common;
 mod in_process;
 mod mcp;
 mod tui;
@@ -57,9 +59,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
+};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -211,6 +217,29 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance>;
 
+    /// Create an organization for the signed-in account.
+    async fn create_organization(
+        &mut self,
+        account_id: AccountId,
+        name: OrganizationName,
+    ) -> HarnessResult<CreateOrganizationResponse>;
+
+    /// List organizations visible to the signed-in account.
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationsResponse>;
+
+    /// Check whether a signed-in account has the supplied organization
+    /// admin permission. Surfaces `permission_denied` as a stable
+    /// taxonomy failure for downstream assertions.
+    async fn check_organization_admin_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse>;
+
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race
     /// scenario to prove `consume_invitation`'s atomicity. The default
@@ -311,6 +340,16 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
         }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
+}
+
+/// Build the stable `auth_required` failure used when a harness is asked
+/// to execute an authenticated operation without a known actor session.
+#[must_use]
+pub(crate) fn auth_required_failure() -> HarnessError {
+    HarnessError::Account(
+        AccountFailureReason::AuthRequired,
+        AccountFailureReason::AuthRequired.summary().to_owned(),
+    )
 }
 
 /// Filter `recent_events` rows by their `payload.kind` field — the

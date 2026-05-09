@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,12 +16,18 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
+    CreateOrganizationResponse, ListOrganizationsResponse, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{
+    AccountId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::common::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -34,6 +41,7 @@ pub struct McpHarness {
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    session_tokens: HashMap<AccountId, SessionToken>,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -96,7 +104,15 @@ impl McpHarness {
             db_path,
             client: Some(client),
             server: Some(server),
+            session_tokens: HashMap::new(),
         })
+    }
+
+    fn session_token(&self, account_id: AccountId) -> HarnessResult<SessionToken> {
+        self.session_tokens
+            .get(&account_id)
+            .cloned()
+            .ok_or_else(super::auth_required_failure)
     }
 
     async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
@@ -153,7 +169,9 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let (session, token) = decode_session_with_token(&payload)?;
+        self.session_tokens.insert(session.account_id, token);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +180,9 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let (session, token) = decode_session_with_token(&payload)?;
+        self.session_tokens.insert(session.account_id, token);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -176,13 +196,73 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
-        let session = decode_session(&payload)?;
+        let (session, token) = decode_session_with_token(&payload)?;
+        self.session_tokens.insert(session.account_id, token);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
             session,
             joined_org,
         })
+    }
+
+    async fn create_organization(
+        &mut self,
+        account_id: AccountId,
+        name: OrganizationName,
+    ) -> HarnessResult<CreateOrganizationResponse> {
+        let body = serde_json::json!({
+            "session_token": self.session_token(account_id)?,
+            "account_id": account_id,
+            "name": name,
+        });
+        let payload = self.call_tool("organization.create", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode organization.create: {e}")))
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationsResponse> {
+        let body = serde_json::json!({
+            "session_token": self.session_token(account_id)?,
+            "account_id": account_id,
+        });
+        let payload = self.call_tool("organization.list", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode organization.list: {e}")))
+    }
+
+    async fn check_organization_admin_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse> {
+        let body = serde_json::json!({
+            "session_token": self.session_token(account_id)?,
+            "account_id": account_id,
+            "org_id": org_id,
+            "permission": permission,
+        });
+        let payload = self
+            .call_tool("organization.check_permission", body)
+            .await?;
+        let response: CheckOrganizationPermissionResponse = serde_json::from_value(payload)
+            .map_err(|e| {
+                HarnessError::Transport(format!("decode organization.check_permission: {e}"))
+            })?;
+        if response.allowed {
+            Ok(response)
+        } else {
+            Err(HarnessError::Account(
+                tanren_contract::AccountFailureReason::PermissionDenied,
+                tanren_contract::AccountFailureReason::PermissionDenied
+                    .summary()
+                    .to_owned(),
+            ))
+        }
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
@@ -213,7 +293,7 @@ fn first_text(content: &[Content]) -> Option<String> {
     None
 }
 
-fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
+fn decode_session_with_token(payload: &Value) -> HarnessResult<(HarnessSession, SessionToken)> {
     let account: AccountView = serde_json::from_value(payload["account"].clone())
         .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
     let expires_at = payload["session"]["expires_at"]
@@ -221,15 +301,18 @@ fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.with_timezone(&chrono::Utc))
         .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
-    let token_present = payload["session"]["token"]
-        .as_str()
-        .is_some_and(|s| !s.is_empty());
-    Ok(HarnessSession {
-        account_id: account.id,
-        account,
-        expires_at,
-        has_token: token_present,
-    })
+    let token: SessionToken = serde_json::from_value(payload["session"]["token"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode session token: {e}")))?;
+    let token_present = !token.expose_secret().is_empty();
+    Ok((
+        HarnessSession {
+            account_id: account.id,
+            account,
+            expires_at,
+            has_token: token_present,
+        },
+        token,
+    ))
 }
 
 fn failure_from_payload(payload: &Value) -> HarnessError {

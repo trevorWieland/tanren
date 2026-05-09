@@ -4,13 +4,20 @@
 //! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
 //! is hardened).
 
+use std::collections::HashMap;
 use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, CheckOrganizationPermissionRequest,
+    CheckOrganizationPermissionResponse, CreateOrganizationRequest, CreateOrganizationResponse,
+    ListOrganizationsRequest, ListOrganizationsResponse, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{
+    AccountId, Argon2idVerifier, OrganizationName, OrganizationPermission, SessionToken,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
@@ -26,6 +33,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    sessions: HashMap<AccountId, SessionToken>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -63,6 +71,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            sessions: HashMap::new(),
         })
     }
 
@@ -84,24 +93,32 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.sessions
+                    .insert(response.account.id, response.session.token.clone());
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.sessions
+                    .insert(response.account.id, response.session.token.clone());
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -111,15 +128,92 @@ impl AccountHarness for InProcessHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         match self.handlers.accept_invitation(&self.store, req).await {
-            Ok(response) => Ok(HarnessAcceptance {
-                session: HarnessSession {
-                    account: response.account.clone(),
-                    account_id: response.account.id,
-                    expires_at: response.session.expires_at,
-                    has_token: !response.session.token.expose_secret().is_empty(),
+            Ok(response) => {
+                self.sessions
+                    .insert(response.account.id, response.session.token.clone());
+                Ok(HarnessAcceptance {
+                    session: HarnessSession {
+                        account: response.account.clone(),
+                        account_id: response.account.id,
+                        expires_at: response.session.expires_at,
+                        has_token: !response.session.token.expose_secret().is_empty(),
+                    },
+                    joined_org: response.joined_org,
+                })
+            }
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn create_organization(
+        &mut self,
+        account_id: AccountId,
+        name: OrganizationName,
+    ) -> HarnessResult<CreateOrganizationResponse> {
+        let Some(session_token) = self.sessions.get(&account_id).cloned() else {
+            return Err(super::auth_required_failure());
+        };
+        self.handlers
+            .create_organization(
+                &self.store,
+                CreateOrganizationRequest {
+                    session_token,
+                    account_id,
+                    name,
                 },
-                joined_org: response.joined_org,
-            }),
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationsResponse> {
+        let Some(session_token) = self.sessions.get(&account_id).cloned() else {
+            return Err(super::auth_required_failure());
+        };
+        self.handlers
+            .list_organizations(
+                &self.store,
+                ListOrganizationsRequest {
+                    session_token,
+                    account_id,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn check_organization_admin_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: tanren_identity_policy::OrgId,
+        permission: OrganizationPermission,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse> {
+        let Some(session_token) = self.sessions.get(&account_id).cloned() else {
+            return Err(super::auth_required_failure());
+        };
+        match self
+            .handlers
+            .check_organization_permission(
+                &self.store,
+                CheckOrganizationPermissionRequest {
+                    session_token,
+                    account_id,
+                    org_id,
+                    permission,
+                },
+            )
+            .await
+        {
+            Ok(response) if response.allowed => Ok(response),
+            Ok(_) => Err(HarnessError::Account(
+                tanren_contract::AccountFailureReason::PermissionDenied,
+                tanren_contract::AccountFailureReason::PermissionDenied
+                    .summary()
+                    .to_owned(),
+            )),
             Err(err) => Err(translate_app_error(err)),
         }
     }

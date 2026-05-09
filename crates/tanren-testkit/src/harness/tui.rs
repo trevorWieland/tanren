@@ -16,7 +16,11 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
+    ListOrganizationsResponse, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
@@ -65,6 +69,32 @@ impl AccountHarness for TuiHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         self.inner.accept_invitation(req).await
+    }
+
+    async fn create_organization(
+        &mut self,
+        account_id: AccountId,
+        name: OrganizationName,
+    ) -> HarnessResult<CreateOrganizationResponse> {
+        self.inner.create_organization(account_id, name).await
+    }
+
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationsResponse> {
+        self.inner.list_organizations(account_id).await
+    }
+
+    async fn check_organization_admin_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse> {
+        self.inner
+            .check_organization_admin_permission(account_id, org_id, permission)
+            .await
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
