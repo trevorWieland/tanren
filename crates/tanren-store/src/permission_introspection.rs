@@ -6,7 +6,8 @@ use crate::{
 };
 use sea_orm::{ConnectionTrait, DatabaseConnection, DbBackend, Statement};
 use tanren_identity_policy::{
-    AccountId, OrgId, PermissionEffectiveState, PermissionGrantSource, ProjectId,
+    AccountId, OrgId, PermissionEffectiveState, PermissionGrantSource, PermissionName,
+    PolicyConstraintReason, ProjectId, RoleTemplateName,
 };
 
 pub(crate) async fn load_my_permissions(
@@ -42,9 +43,9 @@ pub(crate) async fn load_my_permissions(
             PermissionEffectiveState::Granted
         };
         let permission = MyPermissionRecord {
-            permission: tanren_identity_policy::PermissionName::new(permission_name),
+            permission: parse_permission_name(&permission_name)?,
             effective_state,
-            grant_source: parse_grant_source(role_template_name),
+            grant_source: parse_grant_source(role_template_name)?,
             policy_constraint,
         };
         match (org_id.map(OrgId::new), project_id.map(ProjectId::new)) {
@@ -117,12 +118,14 @@ fn introspection_query(backend: DbBackend, account_id: AccountId, limit: u16) ->
     )
 }
 
-fn parse_grant_source(role_template_name: Option<String>) -> PermissionGrantSource {
+fn parse_grant_source(
+    role_template_name: Option<String>,
+) -> Result<PermissionGrantSource, StoreError> {
     match role_template_name {
-        Some(role_template) => PermissionGrantSource::RoleTemplate {
-            role_template: tanren_identity_policy::RoleTemplateName::new(role_template),
-        },
-        None => PermissionGrantSource::Direct,
+        Some(role_template) => Ok(PermissionGrantSource::RoleTemplate {
+            role_template: parse_role_template_name(&role_template)?,
+        }),
+        None => Ok(PermissionGrantSource::Direct),
     }
 }
 
@@ -132,7 +135,7 @@ fn parse_policy_constraint(
 ) -> Result<Option<PermissionConstraintRecord>, StoreError> {
     match (constraint_reason, constraint_is_project_policy) {
         (Some(reason), Some(is_project_policy)) => Ok(Some(PermissionConstraintRecord {
-            reason: tanren_identity_policy::PolicyConstraintReason::new(reason),
+            reason: parse_policy_constraint_reason(&reason)?,
             source: if is_project_policy {
                 tanren_identity_policy::PolicyConstraintSource::ProjectPolicy
             } else {
@@ -145,6 +148,27 @@ fn parse_policy_constraint(
             detail: "constraint reason/source columns must be both null or both set",
         }),
     }
+}
+
+fn parse_permission_name(raw: &str) -> Result<PermissionName, StoreError> {
+    PermissionName::parse(raw).map_err(|cause| StoreError::DataInvariant {
+        column: "permission_grants.permission_name",
+        cause,
+    })
+}
+
+fn parse_role_template_name(raw: &str) -> Result<RoleTemplateName, StoreError> {
+    RoleTemplateName::parse(raw).map_err(|cause| StoreError::DataInvariant {
+        column: "permission_grants.role_template_name",
+        cause,
+    })
+}
+
+fn parse_policy_constraint_reason(raw: &str) -> Result<PolicyConstraintReason, StoreError> {
+    PolicyConstraintReason::parse(raw).map_err(|cause| StoreError::DataInvariant {
+        column: "permission_constraints.reason",
+        cause,
+    })
 }
 
 const INTROSPECTION_QUERY_POSTGRES: &str = r"

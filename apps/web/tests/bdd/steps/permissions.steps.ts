@@ -14,6 +14,9 @@ const PROJECT_CONSTRAINED_PERMISSION = "project.deploy.approve";
 const ROLE_TEMPLATE_NAME = "release_manager";
 const ORG_SCOPE_ID = "11111111-1111-7111-8111-111111111139";
 const PROJECT_SCOPE_ID = "22222222-2222-7222-8222-222222222239";
+type ScopeKind = "organization" | "project";
+type GrantSourceKind = "direct" | "role_template";
+type ConstraintSource = "organization_policy" | "project_policy";
 
 interface ActorState {
   email?: string;
@@ -45,6 +48,21 @@ function permissionsMemo(world: unknown): PermissionsMemo {
 
 type RecentEvent = { id: string; kind: string | null };
 
+interface SeedPolicyConstraintPayload {
+  reason: string;
+  source: ConstraintSource;
+}
+
+interface SeedPermissionGrantPayload {
+  account_email: string;
+  scope_kind: ScopeKind;
+  scope_id: string;
+  permission: string;
+  grant_source_kind: GrantSourceKind;
+  role_template_name?: string;
+  policy_constraint?: SeedPolicyConstraintPayload;
+}
+
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   const response = await fetch(`${API_URL}${path}`, {
     method: "POST",
@@ -71,6 +89,12 @@ async function snapshotEventIds(): Promise<Set<string>> {
     },
   );
   return new Set(body.events.map((event) => event.id));
+}
+
+async function seedPermissionGrant(
+  payload: SeedPermissionGrantPayload,
+): Promise<void> {
+  await postJson("/test-hooks/permission-grants", payload);
 }
 
 async function signInActor(
@@ -102,14 +126,14 @@ Given(
       );
     }
 
-    await postJson("/test-hooks/permission-grants", {
+    await seedPermissionGrant({
       account_email: a.email,
       scope_kind: "organization",
       scope_id: ORG_SCOPE_ID,
       permission: ORG_PERMISSION,
       grant_source_kind: "direct",
     });
-    await postJson("/test-hooks/permission-grants", {
+    await seedPermissionGrant({
       account_email: a.email,
       scope_kind: "project",
       scope_id: PROJECT_SCOPE_ID,
@@ -117,7 +141,7 @@ Given(
       grant_source_kind: "role_template",
       role_template_name: ROLE_TEMPLATE_NAME,
     });
-    await postJson("/test-hooks/permission-grants", {
+    await seedPermissionGrant({
       account_email: a.email,
       scope_kind: "project",
       scope_id: PROJECT_SCOPE_ID,

@@ -378,10 +378,8 @@ pub(crate) async fn target_account_permissions_route(
         Ok(account_id) => account_id,
         Err(response) => return response,
     };
-    let context = MyPermissionsContext {
-        session_account_id,
-        requested_account_id,
-    };
+    let context =
+        MyPermissionsContext::with_requested_account(session_account_id, requested_account_id);
     match state
         .handlers
         .my_permissions(state.store.as_ref(), context, request)

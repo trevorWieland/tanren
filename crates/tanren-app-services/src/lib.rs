@@ -233,9 +233,9 @@ impl Handlers {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct MyPermissionsContext {
     /// Account id bound to the authenticated session.
-    pub session_account_id: AccountId,
+    session_account_id: AccountId,
     /// Account id the caller is trying to introspect.
-    pub requested_account_id: AccountId,
+    requested_account_id: AccountId,
 }
 
 impl MyPermissionsContext {
@@ -247,6 +247,31 @@ impl MyPermissionsContext {
             session_account_id: account_id,
             requested_account_id: account_id,
         }
+    }
+
+    /// Construct a context where the caller is attempting to introspect
+    /// a specific target account. Callers must supply typed account ids.
+    #[must_use]
+    pub const fn with_requested_account(
+        session_account_id: AccountId,
+        requested_account_id: AccountId,
+    ) -> Self {
+        Self {
+            session_account_id,
+            requested_account_id,
+        }
+    }
+
+    /// Account id bound to the authenticated session.
+    #[must_use]
+    pub const fn session_account_id(self) -> AccountId {
+        self.session_account_id
+    }
+
+    /// Account id being introspected by this request.
+    #[must_use]
+    pub const fn requested_account_id(self) -> AccountId {
+        self.requested_account_id
     }
 }
 

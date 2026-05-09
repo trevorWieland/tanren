@@ -1,8 +1,8 @@
 import * as m from "@/i18n/paraglide/messages";
 import type {
-  InterfaceError,
+  InterfaceErrorCode,
   MyPermissionEntry,
-  MyPermissionsResponse,
+  MyPermissionsResponse as GeneratedMyPermissionsResponse,
   PermissionConstraintView,
   PermissionGrantSource,
 } from "@/app/lib/generated-interface-contracts";
@@ -61,13 +61,56 @@ export interface AcceptInvitationResult {
   session: SessionView;
   joined_org: string;
 }
+export interface InterfaceError {
+  code: InterfaceErrorCode;
+  summary: string;
+}
+export type MyPermissionsResponse = GeneratedMyPermissionsResponse;
+export type PermissionScopeView =
+  | {
+      kind: "organization";
+      scope_id: string;
+      permissions: MyPermissionEntry[];
+    }
+  | {
+      kind: "project";
+      scope_id: string;
+      permissions: MyPermissionEntry[];
+    };
 export type {
-  InterfaceError,
   MyPermissionEntry,
-  MyPermissionsResponse,
   PermissionConstraintView,
   PermissionGrantSource,
 };
+
+function scopeLabel(scope: PermissionScopeView): string {
+  switch (scope.kind) {
+    case "organization":
+      return scope.scope_id;
+    case "project":
+      return scope.scope_id;
+  }
+}
+
+export function permissionScopes(
+  response: MyPermissionsResponse,
+): PermissionScopeView[] {
+  const organizations: PermissionScopeView[] = response.organizations.map(
+    (section) => ({
+      kind: "organization",
+      scope_id: section.org_id,
+      permissions: section.permissions,
+    }),
+  );
+  const projects: PermissionScopeView[] = response.projects.map((section) => ({
+    kind: "project",
+    scope_id: section.project_id,
+    permissions: section.permissions,
+  }));
+  return [...organizations, ...projects].sort((left, right) =>
+    scopeLabel(left).localeCompare(scopeLabel(right)),
+  );
+}
 
 /**
  * Map an `InterfaceError` to a localized message via paraglide. Falls back
@@ -75,16 +118,41 @@ export type {
  * so unknown failure codes still surface something meaningful.
  */
 export function describeFailure(failure: InterfaceError): string {
-  const key = `failure_${failure.code}`;
-  const lookup = m as unknown as Record<string, (() => string) | undefined>;
-  const fn = lookup[key];
-  if (typeof fn === "function") {
-    return fn();
+  switch (failure.code) {
+    case "duplicate_identifier":
+      return m.failure_duplicate_identifier();
+    case "invalid_credential":
+      return m.failure_invalid_credential();
+    case "validation_failed":
+      return m.failure_validation_failed();
+    case "invitation_not_found":
+      return m.failure_invitation_not_found();
+    case "invitation_already_consumed":
+      return m.failure_invitation_already_consumed();
+    case "invitation_expired":
+      return m.failure_invitation_expired();
+    case "auth_required":
+      return m.failure_auth_required();
+    case "permission_denied":
+      return m.failure_permission_denied();
+    case "unavailable":
+      return m.failure_unavailable();
+    case "internal_error":
+      return m.failure_internal_error();
+    case "not_found":
+    case "conflict":
+    case "idempotency_conflict":
+    case "stale_projection":
+    case "drift_detected":
+    case "rate_limited":
+    case "unsupported_action":
+    case "provider_failure":
+    case "execution_failure":
+      if (failure.summary !== "") {
+        return failure.summary;
+      }
+      return m.failure_fallback();
   }
-  if (failure.summary !== "") {
-    return failure.summary;
-  }
-  return m.failure_fallback();
 }
 
 export class AccountRequestError extends Error {
@@ -110,10 +178,44 @@ function normalizeInterfaceError(
     const code = (payload as { code: unknown }).code;
     const summary = (payload as { summary: unknown }).summary;
     if (typeof code === "string" && typeof summary === "string") {
-      return { code, summary };
+      const normalizedCode = parseInterfaceErrorCode(code);
+      if (normalizedCode !== null) {
+        return { code: normalizedCode, summary };
+      }
+      return { code: "internal_error", summary };
     }
   }
-  return { code: "internal_error", summary: `HTTP ${fallbackStatus}` };
+  return {
+    code: "internal_error",
+    summary: fallbackStatus > 0 ? `HTTP ${fallbackStatus}` : "",
+  };
+}
+
+function parseInterfaceErrorCode(raw: string): InterfaceErrorCode | null {
+  switch (raw) {
+    case "auth_required":
+    case "permission_denied":
+    case "validation_failed":
+    case "not_found":
+    case "conflict":
+    case "idempotency_conflict":
+    case "stale_projection":
+    case "drift_detected":
+    case "rate_limited":
+    case "unavailable":
+    case "unsupported_action":
+    case "provider_failure":
+    case "execution_failure":
+    case "internal_error":
+    case "duplicate_identifier":
+    case "invalid_credential":
+    case "invitation_not_found":
+    case "invitation_expired":
+    case "invitation_already_consumed":
+      return raw;
+    default:
+      return null;
+  }
 }
 
 async function requestJson<T>(
@@ -139,10 +241,11 @@ async function requestJson<T>(
     // request. Replaces localStorage token storage (M2).
     response = await fetch(`${API_URL}${path}`, requestInit);
   } catch (cause: unknown) {
-    throw new AccountRequestError({
+    const failure: InterfaceError = {
       code: "unavailable",
       summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    };
+    throw new AccountRequestError(failure);
   }
 
   if (!response.ok) {
@@ -218,10 +321,11 @@ export async function signOut(): Promise<void> {
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new AccountRequestError({
+    const failure: InterfaceError = {
       code: "unavailable",
       summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    };
+    throw new AccountRequestError(failure);
   }
   if (!response.ok) {
     throw new AccountRequestError({

@@ -26,7 +26,7 @@ use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use tanren_identity_policy::{
-    AccountId, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
+    AccountId, Email, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
     PolicyConstraintReason, PolicyConstraintSource, ProjectId, RoleTemplateName,
 };
 use tanren_store::{
@@ -74,33 +74,47 @@ pub(crate) async fn seed_invitation_route(
 #[derive(Debug, Deserialize)]
 pub(crate) struct SeedPermissionGrantBody {
     #[serde(default)]
-    pub account_id: Option<Uuid>,
+    pub account_id: Option<AccountId>,
     #[serde(default)]
-    pub account_email: Option<String>,
-    pub scope_kind: String,
+    pub account_email: Option<Email>,
+    pub scope_kind: SeedPermissionScopeKind,
     pub scope_id: Uuid,
-    pub permission: String,
-    pub grant_source_kind: String,
+    pub permission: PermissionName,
+    pub grant_source_kind: SeedPermissionGrantSourceKind,
     #[serde(default)]
-    pub role_template_name: Option<String>,
+    pub role_template_name: Option<RoleTemplateName>,
     #[serde(default)]
     pub policy_constraint: Option<SeedPolicyConstraintBody>,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct SeedPolicyConstraintBody {
-    pub reason: String,
-    pub source: String,
+    pub reason: PolicyConstraintReason,
+    pub source: PolicyConstraintSource,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SeedPermissionScopeKind {
+    Organization,
+    Project,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SeedPermissionGrantSourceKind {
+    Direct,
+    RoleTemplate,
 }
 
 #[derive(Debug, Deserialize)]
 pub(crate) struct ResolveAccountBody {
-    pub account_email: String,
+    pub account_email: Email,
 }
 
 #[derive(Debug, serde::Serialize)]
 pub(crate) struct ResolveAccountResponse {
-    pub account_id: Uuid,
+    pub account_id: AccountId,
 }
 
 #[derive(Debug, Deserialize)]
@@ -125,11 +139,9 @@ pub(crate) async fn seed_permission_grant_route(
     Json(body): Json<SeedPermissionGrantBody>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let account_id = if let Some(id) = body.account_id {
-        AccountId::from(id)
+        id
     } else if let Some(email_raw) = body.account_email {
-        let email = tanren_identity_policy::Email::parse(&email_raw)
-            .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
-        let account = AccountStore::find_account_by_email(store.as_ref(), &email)
+        let account = AccountStore::find_account_by_email(store.as_ref(), &email_raw)
             .await
             .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
             .ok_or_else(|| {
@@ -145,34 +157,24 @@ pub(crate) async fn seed_permission_grant_route(
             "either account_id or account_email is required".to_owned(),
         ));
     };
-    let scope = match body.scope_kind.as_str() {
-        "organization" => PermissionGrantScope::Organization(OrgId::from(body.scope_id)),
-        "project" => PermissionGrantScope::Project(ProjectId::from(body.scope_id)),
-        other => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("unsupported scope_kind '{other}'"),
-            ));
+    let scope = match body.scope_kind {
+        SeedPermissionScopeKind::Organization => {
+            PermissionGrantScope::Organization(OrgId::from(body.scope_id))
+        }
+        SeedPermissionScopeKind::Project => {
+            PermissionGrantScope::Project(ProjectId::from(body.scope_id))
         }
     };
-    let grant_source = match body.grant_source_kind.as_str() {
-        "direct" => PermissionGrantSource::Direct,
-        "role_template" => {
+    let grant_source = match body.grant_source_kind {
+        SeedPermissionGrantSourceKind::Direct => PermissionGrantSource::Direct,
+        SeedPermissionGrantSourceKind::RoleTemplate => {
             let role_template = body.role_template_name.ok_or_else(|| {
                 (
                     StatusCode::BAD_REQUEST,
                     "role_template_name is required for role_template grants".to_owned(),
                 )
             })?;
-            PermissionGrantSource::RoleTemplate {
-                role_template: RoleTemplateName::new(role_template),
-            }
-        }
-        other => {
-            return Err((
-                StatusCode::BAD_REQUEST,
-                format!("unsupported grant_source_kind '{other}'"),
-            ));
+            PermissionGrantSource::RoleTemplate { role_template }
         }
     };
 
@@ -180,7 +182,7 @@ pub(crate) async fn seed_permission_grant_route(
         .seed_permission_grant(NewPermissionGrant {
             account_id,
             scope,
-            permission: PermissionName::new(body.permission),
+            permission: body.permission,
             grant_source,
             created_at: Utc::now(),
         })
@@ -188,21 +190,11 @@ pub(crate) async fn seed_permission_grant_route(
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
 
     if let Some(constraint) = body.policy_constraint {
-        let source = match constraint.source.as_str() {
-            "organization_policy" => PolicyConstraintSource::OrganizationPolicy,
-            "project_policy" => PolicyConstraintSource::ProjectPolicy,
-            other => {
-                return Err((
-                    StatusCode::BAD_REQUEST,
-                    format!("unsupported policy constraint source '{other}'"),
-                ));
-            }
-        };
         store
             .seed_permission_constraint(NewPermissionConstraint {
                 grant_id: grant.id,
-                reason: PolicyConstraintReason::new(constraint.reason),
-                source,
+                reason: constraint.reason,
+                source: constraint.source,
                 created_at: Utc::now(),
             })
             .await
@@ -216,9 +208,7 @@ pub(crate) async fn resolve_account_route(
     State(store): State<Arc<Store>>,
     Json(body): Json<ResolveAccountBody>,
 ) -> Result<Json<ResolveAccountResponse>, (StatusCode, String)> {
-    let email = tanren_identity_policy::Email::parse(&body.account_email)
-        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
-    let account = AccountStore::find_account_by_email(store.as_ref(), &email)
+    let account = AccountStore::find_account_by_email(store.as_ref(), &body.account_email)
         .await
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
         .ok_or_else(|| {
@@ -228,7 +218,7 @@ pub(crate) async fn resolve_account_route(
             )
         })?;
     Ok(Json(ResolveAccountResponse {
-        account_id: account.id.as_uuid(),
+        account_id: account.id,
     }))
 }
 

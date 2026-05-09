@@ -8,11 +8,13 @@ import {
   AccountRequestError,
   describeFailure,
   myPermissions,
+  permissionScopes,
   type InterfaceError,
   type MyPermissionEntry,
   type MyPermissionsResponse,
   type PermissionConstraintView,
   type PermissionGrantSource,
+  type PermissionScopeView,
 } from "@/app/lib/account-client";
 import * as m from "@/i18n/paraglide/messages";
 
@@ -41,6 +43,27 @@ function stateBadgeClass(state: MyPermissionEntry["effective_state"]): string {
     return "border-[--color-error] text-[--color-error]";
   }
   return "border-[--color-success] text-[--color-success]";
+}
+
+function scopeDisplayLabel(scope: PermissionScopeView): string {
+  switch (scope.kind) {
+    case "organization":
+      return m.myPermissions_organizationScopeLabel();
+    case "project":
+      return m.myPermissions_projectScopeLabel();
+  }
+}
+
+function isOrganizationScope(
+  scope: PermissionScopeView,
+): scope is Extract<PermissionScopeView, { kind: "organization" }> {
+  return scope.kind === "organization";
+}
+
+function isProjectScope(
+  scope: PermissionScopeView,
+): scope is Extract<PermissionScopeView, { kind: "project" }> {
+  return scope.kind === "project";
 }
 
 function ScopeCard({
@@ -105,6 +128,9 @@ export default function MyPermissionsPage(): ReactNode {
   const [data, setData] = useState<MyPermissionsResponse | null>(null);
   const [failure, setFailure] = useState<InterfaceError | null>(null);
   const [loading, setLoading] = useState(true);
+  const scopes = data === null ? [] : permissionScopes(data);
+  const organizationScopes = scopes.filter(isOrganizationScope);
+  const projectScopes = scopes.filter(isProjectScope);
 
   useEffect(() => {
     let cancelled = false;
@@ -176,18 +202,18 @@ export default function MyPermissionsPage(): ReactNode {
             <h2 className="text-lg font-semibold">
               {m.myPermissions_organizationsTitle()}
             </h2>
-            {data.organizations.length === 0 ? (
+            {organizationScopes.length === 0 ? (
               <p className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm text-[--color-fg-muted]">
                 {m.myPermissions_organizationsEmpty()}
               </p>
             ) : (
               <div className="space-y-3">
-                {data.organizations.map((section) => (
+                {organizationScopes.map((scope) => (
                   <ScopeCard
-                    key={section.org_id}
-                    scopeLabel={m.myPermissions_organizationScopeLabel()}
-                    scopeId={section.org_id}
-                    permissions={section.permissions}
+                    key={`${scope.kind}-${scope.scope_id}`}
+                    scopeLabel={scopeDisplayLabel(scope)}
+                    scopeId={scope.scope_id}
+                    permissions={scope.permissions}
                   />
                 ))}
               </div>
@@ -198,18 +224,18 @@ export default function MyPermissionsPage(): ReactNode {
             <h2 className="text-lg font-semibold">
               {m.myPermissions_projectsTitle()}
             </h2>
-            {data.projects.length === 0 ? (
+            {projectScopes.length === 0 ? (
               <p className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm text-[--color-fg-muted]">
                 {m.myPermissions_projectsEmpty()}
               </p>
             ) : (
               <div className="space-y-3">
-                {data.projects.map((section) => (
+                {projectScopes.map((scope) => (
                   <ScopeCard
-                    key={section.project_id}
-                    scopeLabel={m.myPermissions_projectScopeLabel()}
-                    scopeId={section.project_id}
-                    permissions={section.permissions}
+                    key={`${scope.kind}-${scope.scope_id}`}
+                    scopeLabel={scopeDisplayLabel(scope)}
+                    scopeId={scope.scope_id}
+                    permissions={scope.permissions}
                   />
                 ))}
               </div>

@@ -50,12 +50,26 @@ impl std::fmt::Display for ProjectId {
 }
 
 /// Canonical permission identifier used by policy and interfaces.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
 pub struct PermissionName(String);
 
 impl PermissionName {
+    /// Parse and validate a raw permission identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ValidationError::EmptyPermissionName`] when the
+    /// value is empty after trimming.
+    pub fn parse(raw: &str) -> Result<Self, crate::ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(crate::ValidationError::EmptyPermissionName);
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+
     /// Wrap a normalized permission name.
     #[must_use]
     pub fn new(value: String) -> Self {
@@ -75,13 +89,37 @@ impl std::fmt::Display for PermissionName {
     }
 }
 
+impl<'de> Deserialize<'de> for PermissionName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Name of a role template used as the source of a permission grant.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
 pub struct RoleTemplateName(String);
 
 impl RoleTemplateName {
+    /// Parse and validate a role-template identifier.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ValidationError::EmptyRoleTemplateName`] when the
+    /// value is empty after trimming.
+    pub fn parse(raw: &str) -> Result<Self, crate::ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(crate::ValidationError::EmptyRoleTemplateName);
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+
     /// Wrap a role-template name.
     #[must_use]
     pub fn new(value: String) -> Self {
@@ -98,6 +136,16 @@ impl RoleTemplateName {
 impl std::fmt::Display for RoleTemplateName {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for RoleTemplateName {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 
@@ -125,12 +173,26 @@ pub enum PermissionGrantSource {
 }
 
 /// Human-readable reason describing why policy constrained a grant.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
 pub struct PolicyConstraintReason(String);
 
 impl PolicyConstraintReason {
+    /// Parse and validate a policy-constraint reason.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`crate::ValidationError::EmptyPolicyConstraintReason`] when the
+    /// value is empty after trimming.
+    pub fn parse(raw: &str) -> Result<Self, crate::ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(crate::ValidationError::EmptyPolicyConstraintReason);
+        }
+        Ok(Self(trimmed.to_owned()))
+    }
+
     /// Wrap a policy-constraint reason string.
     #[must_use]
     pub fn new(value: String) -> Self {
@@ -147,6 +209,16 @@ impl PolicyConstraintReason {
 impl std::fmt::Display for PolicyConstraintReason {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+impl<'de> Deserialize<'de> for PolicyConstraintReason {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: serde::Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 

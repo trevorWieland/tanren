@@ -166,10 +166,10 @@ impl TanrenMcp {
         }
 
         let session_account_id = session.account_id;
-        let context = MyPermissionsContext {
+        let context = MyPermissionsContext::with_requested_account(
             session_account_id,
-            requested_account_id: request.target_account_id.unwrap_or(session_account_id),
-        };
+            request.target_account_id.unwrap_or(session_account_id),
+        );
         match self
             .handlers
             .my_permissions(

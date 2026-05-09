@@ -345,10 +345,7 @@ async fn run_account_my_permissions(
     let response = handlers
         .my_permissions(
             &store,
-            MyPermissionsContext {
-                session_account_id,
-                requested_account_id,
-            },
+            MyPermissionsContext::with_requested_account(session_account_id, requested_account_id),
             MyPermissionsRequest {
                 limit: Some(MY_PERMISSIONS_DEFAULT_LIMIT),
             },

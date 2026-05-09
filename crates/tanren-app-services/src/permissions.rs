@@ -21,7 +21,7 @@ where
     S: AccountStore + ?Sized,
 {
     let resolved_limit = request.resolved_limit();
-    if context.requested_account_id != context.session_account_id {
+    if context.requested_account_id() != context.session_account_id() {
         return Err(AppServiceError::Permissions(
             MyPermissionsFailureReason::PermissionDenied,
         ));
@@ -29,7 +29,7 @@ where
 
     let record = store
         .my_permissions(
-            context.session_account_id,
+            context.session_account_id(),
             MyPermissionsPage::bounded(Some(resolved_limit)),
         )
         .await?;
