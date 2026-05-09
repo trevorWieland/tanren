@@ -25,6 +25,8 @@ use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
+pub mod install;
+
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
