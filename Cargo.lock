@@ -4316,12 +4316,14 @@ name = "tanren-cli-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "clap",
  "secrecy",
  "tanren-app-services",
  "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-store",
  "tokio",
  "uuid",
 ]
@@ -4569,6 +4571,7 @@ name = "tanren-tui-app"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "crossterm",
  "ratatui",
  "secrecy",
@@ -4576,6 +4579,7 @@ dependencies = [
  "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-store",
  "tokio",
  "uuid",
 ]

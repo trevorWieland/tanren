@@ -1,9 +1,10 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
+use chrono::Utc;
 use clap::{Subcommand, ValueEnum};
 use secrecy::SecretString;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{AccountStore, Handlers, Store};
 use tanren_configuration_secrets::{
     OwnerScope, ThemePreference, UserCredentialKind, UserCredentialStatus, UserSettingKey,
     UserSettingValue,
@@ -13,9 +14,10 @@ use tanren_contract::{
     UserCredentialView,
 };
 use tanren_identity_policy::AccountId;
+use tanren_store::SessionAuthenticationLookup;
 use uuid::Uuid;
 
-use crate::account_error;
+use crate::{account_error, load_persisted_session_token};
 
 const ACCOUNT_ID_ENV: &str = "TANREN_ACCOUNT_ID";
 
@@ -171,12 +173,11 @@ async fn run_config(action: ConfigAction) -> Result<()> {
                 database_url,
                 account_id,
             } => {
-                let store = Store::connect(&database_url)
-                    .await
-                    .context("connect to store")?;
-                let account_id = parse_account_id(&account_id)?;
+                let (store, authenticated_account_id) =
+                    connect_store_and_authenticate(&database_url).await?;
+                let requested_account_id = parse_account_id(&account_id)?;
                 let response = handlers
-                    .list_user_settings(&store, account_id, account_id)
+                    .list_user_settings(&store, authenticated_account_id, requested_account_id)
                     .await
                     .map_err(account_error)?;
                 let stdout = std::io::stdout();
@@ -198,16 +199,20 @@ async fn run_config(action: ConfigAction) -> Result<()> {
                 key,
                 value,
             } => {
-                let store = Store::connect(&database_url)
-                    .await
-                    .context("connect to store")?;
-                let account_id = parse_account_id(&account_id)?;
+                let (store, authenticated_account_id) =
+                    connect_store_and_authenticate(&database_url).await?;
+                let requested_account_id = parse_account_id(&account_id)?;
                 let request = UpsertUserSettingRequest {
                     key: key.into(),
                     value: parse_setting_value(key, &value)?,
                 };
                 let response = handlers
-                    .upsert_user_setting(&store, account_id, account_id, request)
+                    .upsert_user_setting(
+                        &store,
+                        authenticated_account_id,
+                        requested_account_id,
+                        request,
+                    )
                     .await
                     .map_err(account_error)?;
                 let stdout = std::io::stdout();
@@ -226,12 +231,16 @@ async fn run_config(action: ConfigAction) -> Result<()> {
                 account_id,
                 key,
             } => {
-                let store = Store::connect(&database_url)
-                    .await
-                    .context("connect to store")?;
-                let account_id = parse_account_id(&account_id)?;
+                let (store, authenticated_account_id) =
+                    connect_store_and_authenticate(&database_url).await?;
+                let requested_account_id = parse_account_id(&account_id)?;
                 let response = handlers
-                    .remove_user_setting(&store, account_id, account_id, key.into())
+                    .remove_user_setting(
+                        &store,
+                        authenticated_account_id,
+                        requested_account_id,
+                        key.into(),
+                    )
                     .await
                     .map_err(account_error)?;
                 let stdout = std::io::stdout();
@@ -258,18 +267,19 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
             account_id,
             kind,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let account_id = parse_account_id(&account_id)?;
+            let (store, authenticated_account_id) =
+                connect_store_and_authenticate(&database_url).await?;
+            let requested_account_id = parse_account_id(&account_id)?;
             let value = read_secret_from_stdin()?;
             let response = handlers
                 .add_user_credential(
                     &store,
-                    account_id,
+                    authenticated_account_id,
                     CreateUserCredentialRequest {
                         kind: kind.into(),
-                        owner_scope: OwnerScope::User { account_id },
+                        owner_scope: OwnerScope::User {
+                            account_id: requested_account_id,
+                        },
                         value,
                     },
                 )
@@ -282,17 +292,18 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
             account_id,
             item_id,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let account_id = parse_account_id(&account_id)?;
+            let (store, authenticated_account_id) =
+                connect_store_and_authenticate(&database_url).await?;
+            let requested_account_id = parse_account_id(&account_id)?;
             let value = read_secret_from_stdin()?;
             let response = handlers
                 .update_user_credential(
                     &store,
-                    account_id,
+                    authenticated_account_id,
                     &item_id,
-                    OwnerScope::User { account_id },
+                    OwnerScope::User {
+                        account_id: requested_account_id,
+                    },
                     UpdateUserCredentialRequest { value },
                 )
                 .await
@@ -303,12 +314,17 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
             database_url,
             account_id,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let account_id = parse_account_id(&account_id)?;
+            let (store, authenticated_account_id) =
+                connect_store_and_authenticate(&database_url).await?;
+            let requested_account_id = parse_account_id(&account_id)?;
             let response = handlers
-                .list_user_credentials(&store, account_id, OwnerScope::User { account_id })
+                .list_user_credentials(
+                    &store,
+                    authenticated_account_id,
+                    OwnerScope::User {
+                        account_id: requested_account_id,
+                    },
+                )
                 .await
                 .map_err(account_error)?;
             for item in response.items {
@@ -320,16 +336,17 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
             account_id,
             item_id,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let account_id = parse_account_id(&account_id)?;
+            let (store, authenticated_account_id) =
+                connect_store_and_authenticate(&database_url).await?;
+            let requested_account_id = parse_account_id(&account_id)?;
             let response = handlers
                 .remove_user_credential(
                     &store,
-                    account_id,
+                    authenticated_account_id,
                     &item_id,
-                    OwnerScope::User { account_id },
+                    OwnerScope::User {
+                        account_id: requested_account_id,
+                    },
                 )
                 .await
                 .map_err(account_error)?;
@@ -337,6 +354,32 @@ async fn run_credential(action: CredentialAction) -> Result<()> {
         }
     }
     Ok(())
+}
+
+async fn resolve_authenticated_account_id(store: &Store) -> Result<AccountId> {
+    let session_token = load_persisted_session_token()?;
+    let authenticated = store
+        .authenticate_session(SessionAuthenticationLookup {
+            session_token,
+            now: Utc::now(),
+        })
+        .await
+        .context("authenticate persisted session token")?;
+    authenticated
+        .ok_or_else(|| {
+            anyhow::anyhow!(
+                "error: authentication_required — sign in first (`tanren-cli account sign-in`)."
+            )
+        })
+        .map(|session| session.authenticated_account_id)
+}
+
+async fn connect_store_and_authenticate(database_url: &str) -> Result<(Store, AccountId)> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let authenticated_account_id = resolve_authenticated_account_id(&store).await?;
+    Ok((store, authenticated_account_id))
 }
 
 fn parse_account_id(raw: &str) -> Result<AccountId> {

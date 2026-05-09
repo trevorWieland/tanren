@@ -142,7 +142,7 @@ pub(crate) fn parse_sign_up(state: &FormState) -> Result<SignUpRequest, String> 
 
 pub(crate) fn config_list_settings_fields() -> Vec<FormField> {
     vec![FormField {
-        label: "Account id",
+        label: "Requested account id",
         secret: false,
         value: String::new(),
     }]
@@ -151,7 +151,7 @@ pub(crate) fn config_list_settings_fields() -> Vec<FormField> {
 pub(crate) fn config_set_setting_fields() -> Vec<FormField> {
     vec![
         FormField {
-            label: "Account id",
+            label: "Requested account id",
             secret: false,
             value: String::new(),
         },
@@ -171,7 +171,7 @@ pub(crate) fn config_set_setting_fields() -> Vec<FormField> {
 pub(crate) fn config_remove_setting_fields() -> Vec<FormField> {
     vec![
         FormField {
-            label: "Account id",
+            label: "Requested account id",
             secret: false,
             value: String::new(),
         },
@@ -185,7 +185,7 @@ pub(crate) fn config_remove_setting_fields() -> Vec<FormField> {
 
 pub(crate) fn config_list_credentials_fields() -> Vec<FormField> {
     vec![FormField {
-        label: "Account id",
+        label: "Requested account id",
         secret: false,
         value: String::new(),
     }]
@@ -194,7 +194,7 @@ pub(crate) fn config_list_credentials_fields() -> Vec<FormField> {
 pub(crate) fn config_add_credential_fields() -> Vec<FormField> {
     vec![
         FormField {
-            label: "Account id",
+            label: "Requested account id",
             secret: false,
             value: String::new(),
         },
@@ -214,7 +214,7 @@ pub(crate) fn config_add_credential_fields() -> Vec<FormField> {
 pub(crate) fn config_update_credential_fields() -> Vec<FormField> {
     vec![
         FormField {
-            label: "Account id",
+            label: "Requested account id",
             secret: false,
             value: String::new(),
         },
@@ -234,7 +234,7 @@ pub(crate) fn config_update_credential_fields() -> Vec<FormField> {
 pub(crate) fn config_remove_credential_fields() -> Vec<FormField> {
     vec![
         FormField {
-            label: "Account id",
+            label: "Requested account id",
             secret: false,
             value: String::new(),
         },

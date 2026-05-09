@@ -23,6 +23,7 @@ use super::{HarnessError, HarnessResult, translate_cli_error};
 pub(super) async fn list_user_settings(
     binary: &Path,
     db_url: &str,
+    session_path: &Path,
     requested_account_id: AccountId,
 ) -> HarnessResult<ListUserSettingsResponse> {
     let output = Command::new(binary)
@@ -38,6 +39,7 @@ pub(super) async fn list_user_settings(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("TANREN_SESSION_FILE", session_path)
         .output()
         .await
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
@@ -51,6 +53,7 @@ pub(super) async fn list_user_settings(
 pub(super) async fn upsert_user_setting(
     binary: &Path,
     db_url: &str,
+    session_path: &Path,
     requested_account_id: AccountId,
     request: UpsertUserSettingRequest,
 ) -> HarnessResult<UpsertUserSettingResponse> {
@@ -73,6 +76,7 @@ pub(super) async fn upsert_user_setting(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("TANREN_SESSION_FILE", session_path)
         .output()
         .await
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
@@ -90,6 +94,7 @@ pub(super) async fn upsert_user_setting(
 pub(super) async fn list_user_credentials(
     binary: &Path,
     db_url: &str,
+    session_path: &Path,
     requested_account_id: AccountId,
 ) -> HarnessResult<ListUserCredentialsResponse> {
     let output = Command::new(binary)
@@ -104,6 +109,7 @@ pub(super) async fn list_user_credentials(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("TANREN_SESSION_FILE", session_path)
         .output()
         .await
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
@@ -117,6 +123,7 @@ pub(super) async fn list_user_credentials(
 pub(super) async fn add_user_credential(
     binary: &Path,
     db_url: &str,
+    session_path: &Path,
     requested_account_id: AccountId,
     request: CreateUserCredentialRequest,
 ) -> HarnessResult<CreateUserCredentialResponse> {
@@ -136,6 +143,7 @@ pub(super) async fn add_user_credential(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("TANREN_SESSION_FILE", session_path)
         .spawn()
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
     let mut stdin = child.stdin.take().ok_or_else(|| {
@@ -168,6 +176,7 @@ pub(super) async fn add_user_credential(
 pub(super) async fn remove_user_credential(
     binary: &Path,
     db_url: &str,
+    session_path: &Path,
     requested_account_id: AccountId,
     item_id: &str,
 ) -> HarnessResult<RemoveUserCredentialResponse> {
@@ -185,6 +194,7 @@ pub(super) async fn remove_user_credential(
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        .env("TANREN_SESSION_FILE", session_path)
         .output()
         .await
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;

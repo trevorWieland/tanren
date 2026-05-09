@@ -25,7 +25,7 @@ use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_identity_policy::{Email, InvitationToken, SessionToken};
 
 use crate::user_config::{ConfigAction, CredentialAction, dispatch_config, dispatch_credential};
 
@@ -334,4 +334,28 @@ fn persist_session(token: &str) -> Result<()> {
     }
     fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
+}
+
+pub(crate) fn load_persisted_session_token() -> Result<SessionToken> {
+    let path = session_path();
+    let raw = match fs::read_to_string(&path) {
+        Ok(raw) => raw,
+        Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
+            return Err(anyhow::anyhow!(
+                "error: authentication_required — sign in first (`tanren-cli account sign-in`)."
+            ));
+        }
+        Err(err) => {
+            return Err(err).with_context(|| format!("read session from {}", path.display()));
+        }
+    };
+    let token = raw.trim();
+    if token.is_empty() {
+        return Err(anyhow::anyhow!(
+            "error: authentication_required — sign in first (`tanren-cli account sign-in`)."
+        ));
+    }
+    Ok(SessionToken::from_secret(SecretString::from(
+        token.to_owned(),
+    )))
 }

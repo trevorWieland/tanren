@@ -18,6 +18,7 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_identity_policy::{AccountId, SessionToken};
 use tokio::runtime::Runtime;
 
 use self::app_keys::{
@@ -60,7 +61,14 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    authenticated_session: Option<AuthenticatedSession>,
     screen: Screen,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct AuthenticatedSession {
+    pub(crate) account_id: AccountId,
+    pub(crate) session_token: SessionToken,
 }
 
 impl App {
@@ -84,6 +92,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            authenticated_session: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
