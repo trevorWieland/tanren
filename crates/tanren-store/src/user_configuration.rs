@@ -17,7 +17,7 @@ use chacha20poly1305::{
 use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Condition, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder, QuerySelect, Set, TransactionTrait,
+    QueryOrder, QuerySelect, Set, TransactionTrait, sea_query::OnConflict,
 };
 use secrecy::{ExposeSecret, SecretString};
 use tanren_configuration_secrets::{
@@ -132,32 +132,33 @@ impl UserConfigurationStore for Store {
             source,
         })?;
         let key_db = user_setting_key_to_db(key);
-        if let Some(row) = entity::user_config_values::Entity::find()
-            .filter(entity::user_config_values::Column::AccountId.eq(account_id.as_uuid()))
-            .filter(entity::user_config_values::Column::Key.eq(key_db))
-            .one(&self.conn)
-            .await?
-        {
-            let mut active = row.into_active_model();
-            active.owner_scope = Set("user".to_owned());
-            active.value_kind = Set(user_setting_kind_to_db(&value).to_owned());
-            active.value_json = Set(value_json);
-            active.updated_at = Set(now);
-            return UserSettingRecord::try_from(active.update(&self.conn).await?);
-        }
-        let inserted = entity::user_config_values::ActiveModel {
-            id: Set(Uuid::now_v7()),
-            account_id: Set(account_id.as_uuid()),
-            owner_scope: Set("user".to_owned()),
-            key: Set(key_db.to_owned()),
-            value_kind: Set(user_setting_kind_to_db(&value).to_owned()),
-            value_json: Set(value_json),
-            created_at: Set(now),
-            updated_at: Set(now),
-        }
-        .insert(&self.conn)
-        .await?;
-        UserSettingRecord::try_from(inserted)
+        let upserted =
+            entity::user_config_values::Entity::insert(entity::user_config_values::ActiveModel {
+                id: Set(Uuid::now_v7()),
+                account_id: Set(account_id.as_uuid()),
+                owner_scope: Set("user".to_owned()),
+                key: Set(key_db.to_owned()),
+                value_kind: Set(user_setting_kind_to_db(&value).to_owned()),
+                value_json: Set(value_json),
+                created_at: Set(now),
+                updated_at: Set(now),
+            })
+            .on_conflict(
+                OnConflict::columns([
+                    entity::user_config_values::Column::AccountId,
+                    entity::user_config_values::Column::Key,
+                ])
+                .update_columns([
+                    entity::user_config_values::Column::OwnerScope,
+                    entity::user_config_values::Column::ValueKind,
+                    entity::user_config_values::Column::ValueJson,
+                    entity::user_config_values::Column::UpdatedAt,
+                ])
+                .to_owned(),
+            )
+            .exec_with_returning(&self.conn)
+            .await?;
+        UserSettingRecord::try_from(upserted)
     }
     async fn remove_user_setting(
         &self,
