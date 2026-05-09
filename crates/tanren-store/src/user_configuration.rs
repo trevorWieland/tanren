@@ -17,6 +17,7 @@ use tanren_configuration_secrets::{
     UserSettingKey, UserSettingValue, validate_user_credential_value, validate_user_setting,
 };
 use tanren_identity_policy::AccountId;
+use tokio::task;
 use uuid::Uuid;
 use zeroize::Zeroizing;
 
@@ -152,16 +153,21 @@ impl UserConfigurationStore for Store {
         now: DateTime<Utc>,
     ) -> Result<UserOwnedItemRecord, StoreError> {
         write.validate()?;
-        let (scope, account_id) = owner_scope_to_db(write.owner_scope);
+        let UserCredentialWrite {
+            kind,
+            owner_scope,
+            value,
+        } = write;
+        let (scope, account_id) = owner_scope_to_db(owner_scope);
         let item_id = Uuid::now_v7();
-        let sealed = seal_user_value(account_id, item_id, &write.value)?;
+        let sealed = seal_user_value(account_id, item_id, value).await?;
 
         let txn = self.conn.begin().await?;
         let inserted = entity::user_credentials::ActiveModel {
             id: Set(item_id),
             account_id: Set(account_id.as_uuid()),
             owner_scope: Set(scope.to_owned()),
-            kind: Set(user_item_kind_to_db(write.kind).to_owned()),
+            kind: Set(user_item_kind_to_db(kind).to_owned()),
             status: Set(user_item_status_to_db(status).to_owned()),
             created_at: Set(now),
             updated_at: Set(now),
@@ -210,7 +216,7 @@ impl UserConfigurationStore for Store {
             return Ok(None);
         };
 
-        let sealed = seal_user_value(account_id, parsed_id, &value)?;
+        let sealed = seal_user_value(account_id, parsed_id, value).await?;
         let txn = self.conn.begin().await?;
 
         let mut active = row.into_active_model();
@@ -310,7 +316,19 @@ fn parse_item_id(value: &str) -> Result<Uuid, StoreError> {
     })
 }
 
-fn seal_user_value(
+async fn seal_user_value(
+    account_id: AccountId,
+    item_id: Uuid,
+    value: SecretString,
+) -> Result<SealedValue, StoreError> {
+    task::spawn_blocking(move || seal_user_value_blocking(account_id, item_id, &value))
+        .await
+        .map_err(|_| StoreError::CredentialEncryption {
+            detail: "credential seal task failed".to_owned(),
+        })?
+}
+
+fn seal_user_value_blocking(
     account_id: AccountId,
     item_id: Uuid,
     value: &SecretString,

@@ -33,9 +33,9 @@ serde_json = { workspace = true }
 tanren-configuration-secrets = { path = "../tanren-configuration-secrets" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 uuid = { workspace = true }
 zeroize = { workspace = true }
 
 [dev-dependencies]
 anyhow = { workspace = true }
-tokio = { workspace = true }
