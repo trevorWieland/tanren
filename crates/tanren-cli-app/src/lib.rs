@@ -13,7 +13,6 @@
 //! lives only on the api-app surface.
 
 use std::env;
-use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
@@ -33,6 +32,8 @@ use tanren_identity_policy::{
     AccountId, Email, InstallationId, InvitationToken, ProjectId, SessionToken,
 };
 use uuid::Uuid;
+
+mod session_file;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -427,7 +428,7 @@ fn posture_error(err: &SetDeploymentPostureError) -> anyhow::Error {
 
 fn load_persisted_session_token() -> Result<SessionToken> {
     let path = session_path();
-    let raw = fs::read_to_string(&path).map_err(|_| {
+    let raw = session_file::read_session(&path).map_err(|_| {
         let failure = missing_or_expired_session_failure();
         posture_error(&failure)
     })?;
@@ -472,10 +473,6 @@ fn session_path() -> PathBuf {
 
 fn persist_session(token: &str) -> Result<()> {
     let path = session_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create session dir {}", parent.display()))?;
-    }
-    fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
-    Ok(())
+    session_file::persist_session(&path, token)
+        .with_context(|| format!("write session to {}", path.display()))
 }
