@@ -217,13 +217,9 @@ fn introspection_query_first_page(
     account_id: AccountId,
     limit: u16,
 ) -> Statement {
-    let sql = match backend {
-        DbBackend::Postgres => INTROSPECTION_QUERY_FIRST_PAGE_POSTGRES,
-        DbBackend::Sqlite | DbBackend::MySql => INTROSPECTION_QUERY_FIRST_PAGE_SQLITE,
-    };
     Statement::from_sql_and_values(
         backend,
-        sql,
+        introspection_query_first_page_sql(backend),
         [account_id.as_uuid().into(), i64::from(limit).into()],
     )
 }
@@ -234,10 +230,6 @@ fn introspection_query_from_cursor(
     cursor: &MyPermissionsCursor,
     limit: u16,
 ) -> Result<Statement, StoreError> {
-    let sql = match backend {
-        DbBackend::Postgres => INTROSPECTION_QUERY_FROM_CURSOR_POSTGRES,
-        DbBackend::Sqlite | DbBackend::MySql => INTROSPECTION_QUERY_FROM_CURSOR_SQLITE,
-    };
     let scope_kind = cursor.scope_kind()?;
     let scope_uuid = if let Some(org_id) = cursor.org_id {
         org_id.as_uuid()
@@ -253,7 +245,7 @@ fn introspection_query_from_cursor(
     let cursor_has_role_template = i32::from(cursor.role_template_name.is_some());
     Ok(Statement::from_sql_and_values(
         backend,
-        sql,
+        introspection_query_from_cursor_sql(backend),
         [
             account_id.as_uuid().into(),
             i32::from(scope_kind.rank()).into(),
@@ -265,6 +257,68 @@ fn introspection_query_from_cursor(
             i64::from(limit).into(),
         ],
     ))
+}
+
+fn introspection_query_first_page_sql(backend: DbBackend) -> String {
+    let query_dialect = introspection_query_dialect(backend);
+    let base_sql = introspection_query_base_sql(query_dialect.account);
+    let first_page_limit = query_dialect.first_page_limit;
+    let order_by = INTROSPECTION_QUERY_ORDER_BY;
+
+    format!(
+        r"{base_sql}
+{order_by}
+LIMIT {first_page_limit}
+"
+    )
+}
+
+fn introspection_query_from_cursor_sql(backend: DbBackend) -> String {
+    let query_dialect = introspection_query_dialect(backend);
+    let base_sql = introspection_query_base_sql(query_dialect.account);
+    let cursor_tuple = query_dialect.cursor_tuple;
+    let cursor_page_limit = query_dialect.cursor_page_limit;
+    let order_cursor_tuple = INTROSPECTION_QUERY_ORDER_CURSOR_TUPLE;
+    let order_by = INTROSPECTION_QUERY_ORDER_BY;
+
+    format!(
+        r"{base_sql}
+  AND {order_cursor_tuple} > {cursor_tuple}
+{order_by}
+LIMIT {cursor_page_limit}
+"
+    )
+}
+
+fn introspection_query_base_sql(account_placeholder: &str) -> String {
+    format!(
+        r"{INTROSPECTION_QUERY_SELECT_JOIN}
+WHERE pg.account_id = {account_placeholder}",
+    )
+}
+
+fn introspection_query_dialect(backend: DbBackend) -> IntrospectionQueryDialect {
+    match backend {
+        DbBackend::Postgres => IntrospectionQueryDialect {
+            account: "$1",
+            first_page_limit: "$2",
+            cursor_tuple: "($2, $3, $4, $5, $6, $7)",
+            cursor_page_limit: "$8",
+        },
+        DbBackend::Sqlite | DbBackend::MySql => IntrospectionQueryDialect {
+            account: "?",
+            first_page_limit: "?",
+            cursor_tuple: "(?, ?, ?, ?, ?, ?)",
+            cursor_page_limit: "?",
+        },
+    }
+}
+
+struct IntrospectionQueryDialect {
+    account: &'static str,
+    first_page_limit: &'static str,
+    cursor_tuple: &'static str,
+    cursor_page_limit: &'static str,
 }
 
 fn parse_grant_source(
@@ -326,7 +380,7 @@ fn parse_policy_constraint_reason(raw: &str) -> Result<PolicyConstraintReason, S
     })
 }
 
-const INTROSPECTION_QUERY_FIRST_PAGE_POSTGRES: &str = r"
+const INTROSPECTION_QUERY_SELECT_JOIN: &str = r"
 SELECT
   pg.org_id AS org_id,
   pg.project_id AS project_id,
@@ -338,35 +392,10 @@ SELECT
   pg.id AS grant_id
 FROM permission_grants pg
 LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
-WHERE pg.account_id = $1
-ORDER BY
-  CASE
-    WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
-    WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
-    ELSE 2
-  END,
-  COALESCE(pg.org_id, pg.project_id),
-  pg.permission_name,
-  CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
-  COALESCE(pg.role_template_name, ''),
-  pg.id
-LIMIT $2
 ";
 
-const INTROSPECTION_QUERY_FIRST_PAGE_SQLITE: &str = r"
-SELECT
-  pg.org_id AS org_id,
-  pg.project_id AS project_id,
-  pg.permission_name,
-  pg.role_template_name,
-  pc.id AS constraint_id,
-  pc.reason AS constraint_reason,
-  pc.is_project_policy AS constraint_is_project_policy,
-  pg.id AS grant_id
-FROM permission_grants pg
-LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
-WHERE pg.account_id = ?
-ORDER BY
+const INTROSPECTION_QUERY_ORDER_CURSOR_TUPLE: &str = r"
+(
   CASE
     WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
     WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
@@ -377,34 +406,9 @@ ORDER BY
   CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
   COALESCE(pg.role_template_name, ''),
   pg.id
-LIMIT ?
-";
+)";
 
-const INTROSPECTION_QUERY_FROM_CURSOR_POSTGRES: &str = r"
-SELECT
-  pg.org_id AS org_id,
-  pg.project_id AS project_id,
-  pg.permission_name,
-  pg.role_template_name,
-  pc.id AS constraint_id,
-  pc.reason AS constraint_reason,
-  pc.is_project_policy AS constraint_is_project_policy,
-  pg.id AS grant_id
-FROM permission_grants pg
-LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
-WHERE pg.account_id = $1
-  AND (
-    CASE
-      WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
-      WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
-      ELSE 2
-    END,
-    COALESCE(pg.org_id, pg.project_id),
-    pg.permission_name,
-    CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
-    COALESCE(pg.role_template_name, ''),
-    pg.id
-  ) > ($2, $3, $4, $5, $6, $7)
+const INTROSPECTION_QUERY_ORDER_BY: &str = r"
 ORDER BY
   CASE
     WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
@@ -416,44 +420,4 @@ ORDER BY
   CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
   COALESCE(pg.role_template_name, ''),
   pg.id
-LIMIT $8
-";
-
-const INTROSPECTION_QUERY_FROM_CURSOR_SQLITE: &str = r"
-SELECT
-  pg.org_id AS org_id,
-  pg.project_id AS project_id,
-  pg.permission_name,
-  pg.role_template_name,
-  pc.id AS constraint_id,
-  pc.reason AS constraint_reason,
-  pc.is_project_policy AS constraint_is_project_policy,
-  pg.id AS grant_id
-FROM permission_grants pg
-LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
-WHERE pg.account_id = ?
-  AND (
-    CASE
-      WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
-      WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
-      ELSE 2
-    END,
-    COALESCE(pg.org_id, pg.project_id),
-    pg.permission_name,
-    CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
-    COALESCE(pg.role_template_name, ''),
-    pg.id
-  ) > (?, ?, ?, ?, ?, ?)
-ORDER BY
-  CASE
-    WHEN pg.org_id IS NOT NULL AND pg.project_id IS NULL THEN 0
-    WHEN pg.org_id IS NULL AND pg.project_id IS NOT NULL THEN 1
-    ELSE 2
-  END,
-  COALESCE(pg.org_id, pg.project_id),
-  pg.permission_name,
-  CASE WHEN pg.role_template_name IS NULL THEN 0 ELSE 1 END,
-  COALESCE(pg.role_template_name, ''),
-  pg.id
-LIMIT ?
 ";
