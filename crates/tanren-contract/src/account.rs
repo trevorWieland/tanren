@@ -133,11 +133,22 @@ pub struct SessionView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
 pub struct ListActiveAccountsRequest {}
 
+/// Redacted account fields visible in active-account switcher listings.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ActiveAccountView {
+    /// Stable account id.
+    pub id: AccountId,
+    /// Display name shown in account switchers.
+    pub display_name: String,
+    /// Owning organization id — `None` for personal accounts.
+    pub org: Option<OrgId>,
+}
+
 /// Account entry returned by the active-account switcher.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SignedInAccountView {
     /// Account currently available in the caller's session set.
-    pub account: AccountView,
+    pub account: ActiveAccountView,
     /// True when this entry is the currently active account.
     pub is_active: bool,
 }

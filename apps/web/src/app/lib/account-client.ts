@@ -115,8 +115,14 @@ const AccountViewSchema = v.object({
   org: v.nullable(OrgIdSchema),
 });
 
+const ActiveAccountViewSchema = v.object({
+  id: AccountIdSchema,
+  display_name: v.string(),
+  org: v.nullable(OrgIdSchema),
+});
+
 const SignedInAccountViewSchema = v.object({
-  account: AccountViewSchema,
+  account: ActiveAccountViewSchema,
   is_active: v.boolean(),
 });
 

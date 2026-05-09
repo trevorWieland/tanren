@@ -9,8 +9,8 @@ pub mod account;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    ListActiveAccountsRequest, ListActiveAccountsResponse, SessionEnvelope, SessionView,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, SignedInAccountView,
+    ActiveAccountView, ListActiveAccountsRequest, ListActiveAccountsResponse, SessionEnvelope,
+    SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, SignedInAccountView,
     SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
 

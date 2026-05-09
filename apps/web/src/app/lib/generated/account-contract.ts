@@ -19,8 +19,14 @@ export interface AccountView {
   org: OrgId | null;
 }
 
+export interface ActiveAccountView {
+  id: AccountId;
+  display_name: string;
+  org: OrgId | null;
+}
+
 export interface SignedInAccountView {
-  account: AccountView;
+  account: ActiveAccountView;
   is_active: boolean;
 }
 

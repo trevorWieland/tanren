@@ -49,8 +49,13 @@ fn render_contract_file() -> String {
     rendered.push_str("  display_name: string;\n");
     rendered.push_str("  org: OrgId | null;\n");
     rendered.push_str("}\n\n");
+    rendered.push_str("export interface ActiveAccountView {\n");
+    rendered.push_str("  id: AccountId;\n");
+    rendered.push_str("  display_name: string;\n");
+    rendered.push_str("  org: OrgId | null;\n");
+    rendered.push_str("}\n\n");
     rendered.push_str("export interface SignedInAccountView {\n");
-    rendered.push_str("  account: AccountView;\n");
+    rendered.push_str("  account: ActiveAccountView;\n");
     rendered.push_str("  is_active: boolean;\n");
     rendered.push_str("}\n\n");
     rendered.push_str("export type ListActiveAccountsRequest = Record<never, never>;\n\n");

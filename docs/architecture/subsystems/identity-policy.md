@@ -256,6 +256,8 @@ Switching the active account is allowed only when the target account is
 already present in the caller's signed-in session set. Attempts to switch to
 an unsigned target are denied with
 `target_account_not_signed_in` and must not mutate the active scope.
+Active-account read models for switchers expose only redacted account fields
+needed for scope selection (`id`, `display_name`, and organization presence).
 
 Window-scoped active-account state is independent: switching in one window or
 session key must not leak into another window's actor context.

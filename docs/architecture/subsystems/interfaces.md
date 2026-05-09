@@ -430,7 +430,10 @@ credentials from a cookie jar or from request state.
 The API surface exposes active-account switching through
 `GET /accounts/active` and `POST /accounts/active/switch`. The response
 shape is `SignedInAccountView[]` with a single `is_active=true` entry
-for the caller's current window scope.
+for the caller's current window scope. `SignedInAccountView.account` is a
+redacted switcher projection that includes only `id`, `display_name`, and
+`org` (or `null` for personal accounts); identifier/email and other
+account-profile fields are excluded.
 
 For cookie-backed web and API traffic, callers may include
 `x-tanren-window-id` so concurrent windows keep independent active

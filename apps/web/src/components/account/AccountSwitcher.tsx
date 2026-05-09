@@ -120,7 +120,7 @@ export function AccountSwitcher(): ReactNode {
             ) : null}
             {accounts.map((entry) => (
               <option key={entry.account.id} value={entry.account.id}>
-                {entry.account.display_name} ({entry.account.identifier})
+                {entry.account.display_name}
               </option>
             ))}
           </select>

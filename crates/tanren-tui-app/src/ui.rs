@@ -110,8 +110,8 @@ pub(crate) fn active_accounts_outcome(accounts: &[SignedInAccountView]) -> Outco
     for entry in accounts {
         let marker = if entry.is_active { "*" } else { "-" };
         lines.push(format!(
-            "{marker} {} ({})",
-            entry.account.id, entry.account.identifier
+            "{marker} {} {}",
+            entry.account.id, entry.account.display_name
         ));
     }
     OutcomeView {
@@ -126,8 +126,8 @@ pub(crate) fn switch_active_outcome(response: &SwitchActiveAccountResponse) -> O
     for entry in &response.accounts {
         let marker = if entry.is_active { "*" } else { "-" };
         lines.push(format!(
-            "{marker} {} ({})",
-            entry.account.id, entry.account.identifier
+            "{marker} {} {}",
+            entry.account.id, entry.account.display_name
         ));
     }
     OutcomeView {

@@ -127,10 +127,7 @@ pub(crate) fn draw_switch_active(
             Style::default()
         };
         lines.push(Line::from(Span::styled(
-            format!(
-                "{marker}{active} {} ({})",
-                entry.account.display_name, entry.account.identifier
-            ),
+            format!("{marker}{active} {}", entry.account.display_name),
             style,
         )));
     }
