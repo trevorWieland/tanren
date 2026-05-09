@@ -15,6 +15,8 @@ Feature: Create an organization
       Given alice has signed up with email "alice-b0066-api@example.com" and password "p4ssw0rd"
       When alice creates organization "alpha api org"
       Then the operation succeeds
+      And alice holds all organization admin permissions in "alpha api org"
+      And organization "alpha api org" has zero initial projects
       When alice lists available organizations
       Then organization "alpha api org" is listed for alice
       When alice checks organization permission "invite" in "alpha api org"
@@ -41,6 +43,8 @@ Feature: Create an organization
       Given alice has signed up with email "alice-b0066-web@example.com" and password "p4ssw0rd"
       When alice creates organization "alpha web org"
       Then the operation succeeds
+      And alice holds all organization admin permissions in "alpha web org"
+      And organization "alpha web org" has zero initial projects
       When alice lists available organizations
       Then organization "alpha web org" is listed for alice
       When alice checks organization permission "invite" in "alpha web org"
@@ -65,25 +69,27 @@ Feature: Create an organization
     @positive @cli
     Scenario: CLI creates and lists an organization for the signed-in account
       Given alice has signed up with email "alice-b0066-cli@example.com" and password "p4ssw0rd"
-      When alice creates organization "alpha cli org"
+      When alice creates organization "alpha-cli-org"
       Then the operation succeeds
+      And alice holds all organization admin permissions in "alpha-cli-org"
+      And organization "alpha-cli-org" has zero initial projects
       When alice lists available organizations
-      Then organization "alpha cli org" is listed for alice
-      When alice checks organization permission "invite" in "alpha cli org"
+      Then organization "alpha-cli-org" is listed for alice
+      When alice checks organization permission "invite" in "alpha-cli-org"
       Then the operation succeeds
 
     @falsification @cli
     Scenario: CLI rejects unsigned organization create
-      When alice creates organization "unsigned cli org" without signing in
+      When alice creates organization "unsigned-cli-org" without signing in
       Then the request fails with code "auth_required"
 
     @falsification @cli
     Scenario: CLI rejects non-member permission check
       Given alice has signed up with email "alice-b0066-cli-owner@example.com" and password "p4ssw0rd"
       And bob has signed up with email "bob-b0066-cli-other@example.com" and password "p4ssw0rd"
-      When alice creates organization "cli owner org"
+      When alice creates organization "cli-owner-org"
       Then the operation succeeds
-      When bob checks organization permission "invite" in "cli owner org"
+      When bob checks organization permission "invite" in "cli-owner-org"
       Then the request fails with code "permission_denied"
 
   Rule: MCP surface
@@ -93,6 +99,8 @@ Feature: Create an organization
       Given alice has signed up with email "alice-b0066-mcp@example.com" and password "p4ssw0rd"
       When alice creates organization "alpha mcp org"
       Then the operation succeeds
+      And alice holds all organization admin permissions in "alpha mcp org"
+      And organization "alpha mcp org" has zero initial projects
       When alice lists available organizations
       Then organization "alpha mcp org" is listed for alice
       When alice checks organization permission "invite" in "alpha mcp org"
@@ -119,6 +127,8 @@ Feature: Create an organization
       Given alice has signed up with email "alice-b0066-tui@example.com" and password "p4ssw0rd"
       When alice creates organization "alpha tui org"
       Then the operation succeeds
+      And alice holds all organization admin permissions in "alpha tui org"
+      And organization "alpha tui org" has zero initial projects
       When alice lists available organizations
       Then organization "alpha tui org" is listed for alice
       When alice checks organization permission "invite" in "alpha tui org"

@@ -16,6 +16,10 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::{
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+};
+use tanren_identity_policy::OrgId;
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -69,6 +73,14 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Per-scenario map of normalized organization names to ids.
+    pub organizations_by_name: HashMap<String, OrgId>,
+    /// Most recent create-organization success payload.
+    pub last_created_organization: Option<CreateOrganizationResponse>,
+    /// Most recent list-organizations success payload.
+    pub last_listed_organizations: Option<ListOrganizationsResponse>,
+    /// Most recent permission-check success payload.
+    pub last_checked_organization_permission: Option<CheckOrganizationPermissionResponse>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -78,8 +90,33 @@ impl std::fmt::Debug for AccountContext {
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
             .field(
+                "organizations_by_name",
+                &self.organizations_by_name.keys().collect::<Vec<_>>(),
+            )
+            .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
+            )
+            .field(
+                "last_created_organization",
+                &self
+                    .last_created_organization
+                    .as_ref()
+                    .map(|r| r.organization.name.as_str()),
+            )
+            .field(
+                "last_listed_organizations_count",
+                &self
+                    .last_listed_organizations
+                    .as_ref()
+                    .map(|r| r.organizations.len()),
+            )
+            .field(
+                "last_checked_organization_permission",
+                &self
+                    .last_checked_organization_permission
+                    .as_ref()
+                    .map(|r| (r.org_id, r.permission, r.allowed)),
             )
             .finish()
     }
@@ -119,6 +156,10 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            organizations_by_name: HashMap::new(),
+            last_created_organization: None,
+            last_listed_organizations: None,
+            last_checked_organization_permission: None,
         }
     }
 }
