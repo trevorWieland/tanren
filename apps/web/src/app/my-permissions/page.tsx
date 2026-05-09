@@ -112,7 +112,7 @@ function ScopeCard({
                 {m.myPermissions_constraintSourceLabel()}
               </dt>
               <dd>
-                {permission.policy_constraint === null
+                {permission.policy_constraint == null
                   ? m.myPermissions_constraintNone()
                   : formatConstraintSource(permission.policy_constraint.source)}
               </dd>

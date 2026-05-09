@@ -1,11 +1,12 @@
 import * as m from "@/i18n/paraglide/messages";
 import type {
-  InterfaceErrorCode,
+  InterfaceError,
+  MyPermissionsResponse,
   MyPermissionEntry,
-  MyPermissionsResponse as GeneratedMyPermissionsResponse,
   PermissionConstraintView,
   PermissionGrantSource,
 } from "@/app/lib/generated-interface-contracts";
+import { isInterfaceErrorCode } from "@/app/lib/generated-interface-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const MY_PERMISSIONS_LIMIT = 100;
@@ -61,11 +62,6 @@ export interface AcceptInvitationResult {
   session: SessionView;
   joined_org: string;
 }
-export interface InterfaceError {
-  code: InterfaceErrorCode;
-  summary: string;
-}
-export type MyPermissionsResponse = GeneratedMyPermissionsResponse;
 export type PermissionScopeView =
   | {
       kind: "organization";
@@ -78,6 +74,8 @@ export type PermissionScopeView =
       permissions: MyPermissionEntry[];
     };
 export type {
+  InterfaceError,
+  MyPermissionsResponse,
   MyPermissionEntry,
   PermissionConstraintView,
   PermissionGrantSource,
@@ -139,15 +137,7 @@ export function describeFailure(failure: InterfaceError): string {
       return m.failure_unavailable();
     case "internal_error":
       return m.failure_internal_error();
-    case "not_found":
-    case "conflict":
-    case "idempotency_conflict":
-    case "stale_projection":
-    case "drift_detected":
-    case "rate_limited":
-    case "unsupported_action":
-    case "provider_failure":
-    case "execution_failure":
+    default:
       if (failure.summary !== "") {
         return failure.summary;
       }
@@ -178,9 +168,8 @@ function normalizeInterfaceError(
     const code = (payload as { code: unknown }).code;
     const summary = (payload as { summary: unknown }).summary;
     if (typeof code === "string" && typeof summary === "string") {
-      const normalizedCode = parseInterfaceErrorCode(code);
-      if (normalizedCode !== null) {
-        return { code: normalizedCode, summary };
+      if (isInterfaceErrorCode(code)) {
+        return { code, summary };
       }
       return { code: "internal_error", summary };
     }
@@ -189,33 +178,6 @@ function normalizeInterfaceError(
     code: "internal_error",
     summary: fallbackStatus > 0 ? `HTTP ${fallbackStatus}` : "",
   };
-}
-
-function parseInterfaceErrorCode(raw: string): InterfaceErrorCode | null {
-  switch (raw) {
-    case "auth_required":
-    case "permission_denied":
-    case "validation_failed":
-    case "not_found":
-    case "conflict":
-    case "idempotency_conflict":
-    case "stale_projection":
-    case "drift_detected":
-    case "rate_limited":
-    case "unavailable":
-    case "unsupported_action":
-    case "provider_failure":
-    case "execution_failure":
-    case "internal_error":
-    case "duplicate_identifier":
-    case "invalid_credential":
-    case "invitation_not_found":
-    case "invitation_expired":
-    case "invitation_already_consumed":
-      return raw;
-    default:
-      return null;
-  }
 }
 
 async function requestJson<T>(

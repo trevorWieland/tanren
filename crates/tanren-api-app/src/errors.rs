@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
 use tanren_app_services::AppServiceError;
-use tanren_contract::{AccountFailureReason, InterfaceError};
+use tanren_contract::{AccountFailureReason, InterfaceError, InterfaceErrorCode};
 
 /// Render the standard `internal_error` body for failed cookie-session
 /// writes. Shared between the sign-up / sign-in / accept-invitation
@@ -25,7 +25,10 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
 pub(crate) fn auth_required_response(summary: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        Json(InterfaceError::new("auth_required", summary)),
+        Json(InterfaceError::new(
+            InterfaceErrorCode::AuthRequired,
+            summary,
+        )),
     )
         .into_response()
 }
@@ -35,7 +38,7 @@ pub(crate) fn internal_error_response() -> (StatusCode, Json<InterfaceError>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(InterfaceError::new(
-            "internal_error",
+            InterfaceErrorCode::InternalError,
             "Tanren encountered an internal error.",
         )),
     )
@@ -47,12 +50,18 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
         AppServiceError::Account(reason) => failure_body(reason),
         AppServiceError::Permissions(reason) => (
             StatusCode::FORBIDDEN,
-            Json(InterfaceError::new(reason.code(), reason.summary())),
+            Json(InterfaceError::new(
+                reason.interface_error_code(),
+                reason.summary(),
+            )),
         )
             .into_response(),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
-            Json(InterfaceError::new("validation_failed", message)),
+            Json(InterfaceError::new(
+                InterfaceErrorCode::ValidationFailed,
+                message,
+            )),
         )
             .into_response(),
         AppServiceError::Store(err) => {
@@ -68,7 +77,10 @@ fn failure_body(reason: AccountFailureReason) -> Response {
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
         status,
-        Json(InterfaceError::new(reason.code(), reason.summary())),
+        Json(InterfaceError::new(
+            reason.interface_error_code(),
+            reason.summary(),
+        )),
     )
         .into_response()
 }
@@ -112,7 +124,10 @@ fn map_json_rejection(rejection: &JsonRejection) -> Response {
     };
     (
         StatusCode::BAD_REQUEST,
-        Json(InterfaceError::new("validation_failed", summary)),
+        Json(InterfaceError::new(
+            InterfaceErrorCode::ValidationFailed,
+            summary,
+        )),
     )
         .into_response()
 }

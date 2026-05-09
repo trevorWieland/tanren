@@ -114,7 +114,7 @@ pub struct PermissionConstraintView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct InterfaceError {
     /// Stable error code from the shared interfaces taxonomy.
-    pub code: String,
+    pub code: InterfaceErrorCode,
     /// Human-readable summary for the caller.
     pub summary: String,
 }
@@ -122,12 +122,56 @@ pub struct InterfaceError {
 impl InterfaceError {
     /// Build a new interface error body.
     #[must_use]
-    pub fn new(code: &str, summary: impl Into<String>) -> Self {
+    pub fn new(code: InterfaceErrorCode, summary: impl Into<String>) -> Self {
         Self {
-            code: code.to_owned(),
+            code,
             summary: summary.into(),
         }
     }
+}
+
+/// Shared interfaces error-code taxonomy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum InterfaceErrorCode {
+    /// No authenticated session was present, or it expired.
+    AuthRequired,
+    /// The authenticated actor is not allowed to perform this action.
+    PermissionDenied,
+    /// Request payload or parameters failed validation.
+    ValidationFailed,
+    /// Requested resource does not exist.
+    NotFound,
+    /// Request conflicts with current state.
+    Conflict,
+    /// Idempotency key does not match prior request payload.
+    IdempotencyConflict,
+    /// Read model is stale for the requested freshness guarantee.
+    StaleProjection,
+    /// Drift was detected between expected and observed state.
+    DriftDetected,
+    /// Request exceeded an enforced rate limit.
+    RateLimited,
+    /// Service dependency is currently unavailable.
+    Unavailable,
+    /// The action is recognized but unsupported for this actor or state.
+    UnsupportedAction,
+    /// Upstream provider returned a failure.
+    ProviderFailure,
+    /// Runtime execution failed.
+    ExecutionFailure,
+    /// Internal server error.
+    InternalError,
+    /// Submitted identifier already exists.
+    DuplicateIdentifier,
+    /// Submitted credential is invalid.
+    InvalidCredential,
+    /// Invitation token does not match a known invitation.
+    InvitationNotFound,
+    /// Invitation token is expired.
+    InvitationExpired,
+    /// Invitation token was already consumed or revoked.
+    InvitationAlreadyConsumed,
 }
 
 /// Closed taxonomy of self-permission query failures.
@@ -140,6 +184,14 @@ pub enum MyPermissionsFailureReason {
 }
 
 impl MyPermissionsFailureReason {
+    /// Typed interface error-code for this failure.
+    #[must_use]
+    pub const fn interface_error_code(self) -> InterfaceErrorCode {
+        match self {
+            Self::PermissionDenied => InterfaceErrorCode::PermissionDenied,
+        }
+    }
+
     /// Stable wire `code` for this failure.
     #[must_use]
     pub const fn code(self) -> &'static str {

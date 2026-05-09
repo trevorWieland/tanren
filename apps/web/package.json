@@ -18,7 +18,9 @@
     "storybook:test": "vitest run --project=storybook",
     "bddgen": "bddgen",
     "e2e": "bddgen && playwright test",
-    "e2e:install": "playwright install --with-deps chromium"
+    "e2e:install": "playwright install --with-deps chromium",
+    "contracts:generate": "node scripts/generate-interface-contracts.mjs",
+    "contracts:check": "node scripts/generate-interface-contracts.mjs --check"
   },
   "dependencies": {
     "@inlang/paraglide-js": "catalog:default",

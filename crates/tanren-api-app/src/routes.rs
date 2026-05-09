@@ -14,7 +14,7 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{Handlers, MyPermissionsContext};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, InterfaceError, MyPermissionsRequest,
+    AcceptInvitationRequest, AccountView, InterfaceError, InterfaceErrorCode, MyPermissionsRequest,
     MyPermissionsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
@@ -127,6 +127,10 @@ pub struct AcceptInvitationBody {
     )
 )]
 pub(crate) struct ApiDoc;
+
+pub(crate) fn openapi_document() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
+}
 
 /// Liveness probe.
 #[utoipa::path(
@@ -253,7 +257,10 @@ pub(crate) async fn accept_invitation_route(
         Err(err) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(InterfaceError::new("validation_failed", err.to_string())),
+                Json(InterfaceError::new(
+                    InterfaceErrorCode::ValidationFailed,
+                    err.to_string(),
+                )),
             )
                 .into_response();
         }
@@ -307,7 +314,7 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(InterfaceError::new(
-                "internal_error",
+                InterfaceErrorCode::InternalError,
                 "Tanren encountered an internal error.",
             )),
         )
@@ -434,7 +441,7 @@ async fn clear_malformed_session(session: &Session, summary: &str) -> Response {
 /// same module as the `#[utoipa::path]`-annotated handlers, so the
 /// router constructor lives here too.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
-    OpenApiRouter::with_openapi(ApiDoc::openapi())
+    OpenApiRouter::with_openapi(openapi_document())
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
