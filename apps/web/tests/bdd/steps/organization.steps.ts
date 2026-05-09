@@ -1,84 +1,83 @@
-/* eslint-disable */
 // playwright-bdd step definitions for the `@web` slice of B-0066.
 //
-// These steps drive a web-owned organization wire surface (`/organizations`)
-// instead of issuing direct Playwright API requests.
+// These steps drive the web-owned organization wire surface (`/organizations`).
 
 import { createBdd } from "playwright-bdd";
 
 import {
   ORGANIZATION_WIRE_TEST_IDS,
   organizationRowTestId,
-  normalizeOrganizationName,
 } from "@/lib/organization-routes";
 
-import {
-  openOrganizationWireSurface,
-  readWireSequence,
-  readOrganizationSnapshot,
-  signInActorViaUi,
-  waitForWireOutcome,
-} from "./api-client";
+import { signInActorViaUi } from "./api-client";
 import { test } from "./account.steps";
 import {
   ALL_ADMIN_PERMISSIONS,
   actor,
   orgState,
-  type OrganizationWorld,
+  requireOrganizationWorld,
 } from "./organization-world";
+import {
+  checkOrganizationPermissionViaWire,
+  createOrganizationViaWire,
+  listOrganizationsViaWire,
+  openOrganizationWireSurface,
+  organizationKey,
+} from "./organization-wire";
 
 const { Then, When } = createBdd(test);
 
 When(
   /^(\w+) creates organization "([^"]+)"$/,
   async ({ page, world }, name: string, organizationName: string) => {
-    const state = orgState(world as OrganizationWorld);
-    const a = actor(world as OrganizationWorld, name);
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
 
-    await signInActorViaUi(page, world as OrganizationWorld, name);
-    await openOrganizationWireSurface(page);
-    await page
-      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.createNameInput)
-      .fill(organizationName);
-    const previousSequence = await readWireSequence(page);
-    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.createSubmit).click();
+    await signInActorViaUi(page, typedWorld, name);
 
-    const outcome = await waitForWireOutcome(page, previousSequence);
-    if (outcome.status !== "success") {
+    const operation = await createOrganizationViaWire(page, organizationName);
+    if (operation.outcome.status !== "success" || !operation.response.ok) {
       a.hasSession = false;
-      a.lastFailureCode = outcome.failureCode ?? "unknown";
+      a.lastFailureCode =
+        operation.outcome.failureCode ??
+        (operation.response.ok ? "unknown" : operation.response.error.code);
       state.lastOperationSucceeded = false;
       throw new Error(
-        `create organization failed: ${outcome.failureDetail ?? outcome.failureCode ?? "unknown"}`,
+        `create organization failed: ${
+          operation.outcome.failureDetail ??
+          (operation.response.ok ? "unknown" : operation.response.error.summary)
+        }`,
+      );
+    }
+    if (!operation.snapshot) {
+      throw new Error(
+        "organization snapshot missing after successful create operation",
       );
     }
 
-    const snapshot = await readOrganizationSnapshot(page, organizationName);
-    state.organizationsByName.set(normalizeOrganizationName(organizationName), {
-      id: snapshot.id,
-      grantedPermissions: snapshot.grantedPermissions,
-      initialProjectCount: snapshot.initialProjectCount,
-    });
+    const normalized = organizationKey(organizationName);
+    state.organizationsByName.set(normalized, operation.snapshot);
+    state.lastCreateResponse = operation.response.body;
+    state.lastListResponse = null;
+    state.lastCheckResponse = null;
     state.lastOperationSucceeded = true;
+    a.hasSession = true;
+    delete a.lastFailureCode;
   },
 );
 
 When(
   /^(\w+) creates organization "([^"]+)" without signing in$/,
   async ({ page, world }, name: string, organizationName: string) => {
-    const state = orgState(world as OrganizationWorld);
-    const a = actor(world as OrganizationWorld, name);
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
 
     await page.context().clearCookies();
-    await openOrganizationWireSurface(page);
-    await page
-      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.createNameInput)
-      .fill(organizationName);
-    const previousSequence = await readWireSequence(page);
-    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.createSubmit).click();
+    const operation = await createOrganizationViaWire(page, organizationName);
 
-    const outcome = await waitForWireOutcome(page, previousSequence);
-    if (outcome.status === "success") {
+    if (operation.outcome.status === "success" && operation.response.ok) {
       a.hasSession = true;
       delete a.lastFailureCode;
       state.lastOperationSucceeded = true;
@@ -86,7 +85,9 @@ When(
     }
 
     a.hasSession = false;
-    a.lastFailureCode = outcome.failureCode ?? "unknown";
+    a.lastFailureCode =
+      operation.outcome.failureCode ??
+      (operation.response.ok ? "unknown" : operation.response.error.code);
     state.lastOperationSucceeded = false;
   },
 );
@@ -94,25 +95,44 @@ When(
 When(
   /^(\w+) lists available organizations$/,
   async ({ page, world }, name: string) => {
-    const state = orgState(world as OrganizationWorld);
-    const a = actor(world as OrganizationWorld, name);
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
 
-    await signInActorViaUi(page, world as OrganizationWorld, name);
-    await openOrganizationWireSurface(page);
-    const previousSequence = await readWireSequence(page);
-    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.listSubmit).click();
+    await signInActorViaUi(page, typedWorld, name);
+    const operation = await listOrganizationsViaWire(page);
 
-    const outcome = await waitForWireOutcome(page, previousSequence);
-    if (outcome.status !== "success") {
+    if (operation.outcome.status !== "success" || !operation.response.ok) {
       a.hasSession = false;
-      a.lastFailureCode = outcome.failureCode ?? "unknown";
+      a.lastFailureCode =
+        operation.outcome.failureCode ??
+        (operation.response.ok ? "unknown" : operation.response.error.code);
       state.lastOperationSucceeded = false;
       throw new Error(
-        `list organizations failed: ${outcome.failureDetail ?? outcome.failureCode ?? "unknown"}`,
+        `list organizations failed: ${
+          operation.outcome.failureDetail ??
+          (operation.response.ok ? "unknown" : operation.response.error.summary)
+        }`,
       );
     }
 
+    state.lastListResponse = operation.response.body;
+    state.lastCheckResponse = null;
+
+    for (const organization of operation.response.body.organizations) {
+      const key = organizationKey(organization.name);
+      const prior = state.organizationsByName.get(key);
+      state.organizationsByName.set(key, {
+        id: organization.id,
+        name: organization.name,
+        grantedPermissions: prior?.grantedPermissions ?? [],
+        initialProjectCount: prior?.initialProjectCount ?? null,
+      });
+    }
+
     state.lastOperationSucceeded = true;
+    a.hasSession = true;
+    delete a.lastFailureCode;
   },
 );
 
@@ -124,13 +144,14 @@ When(
     permission: string,
     organizationName: string,
   ) => {
-    const state = orgState(world as OrganizationWorld);
-    const a = actor(world as OrganizationWorld, name);
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
 
-    await signInActorViaUi(page, world as OrganizationWorld, name);
+    await signInActorViaUi(page, typedWorld, name);
 
     const org = state.organizationsByName.get(
-      normalizeOrganizationName(organizationName),
+      organizationKey(organizationName),
     );
     if (!org) {
       throw new Error(
@@ -138,30 +159,30 @@ When(
       );
     }
 
-    await openOrganizationWireSurface(page);
-    await page
-      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionOrgIdInput)
-      .fill(org.id);
-    await page
-      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSelect)
-      .selectOption(permission);
-    const previousSequence = await readWireSequence(page);
-    await page.getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSubmit).click();
-
-    const outcome = await waitForWireOutcome(page, previousSequence);
-    if (outcome.status !== "success") {
+    const operation = await checkOrganizationPermissionViaWire(
+      page,
+      org.id,
+      permission,
+    );
+    if (operation.outcome.status !== "success" || !operation.response.ok) {
       a.hasSession = false;
-      a.lastFailureCode = outcome.failureCode ?? "unknown";
+      a.lastFailureCode =
+        operation.outcome.failureCode ??
+        (operation.response.ok ? "unknown" : operation.response.error.code);
       state.lastOperationSucceeded = false;
       return;
     }
 
+    state.lastCheckResponse = operation.response.body;
     state.lastOperationSucceeded = true;
+    a.hasSession = true;
+    delete a.lastFailureCode;
   },
 );
 
 Then("the operation succeeds", async ({ world }) => {
-  const state = orgState(world as OrganizationWorld);
+  const typedWorld = requireOrganizationWorld(world);
+  const state = orgState(typedWorld);
   if (!state.lastOperationSucceeded) {
     throw new Error("expected operation success");
   }
@@ -170,9 +191,10 @@ Then("the operation succeeds", async ({ world }) => {
 Then(
   /^(\w+) holds all organization admin permissions in "([^"]+)"$/,
   async ({ page, world }, name: string, organizationName: string) => {
-    const state = orgState(world as OrganizationWorld);
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
     const org = state.organizationsByName.get(
-      normalizeOrganizationName(organizationName),
+      organizationKey(organizationName),
     );
     if (!org) {
       throw new Error(
@@ -188,23 +210,27 @@ Then(
       );
     }
 
-    await signInActorViaUi(page, world as OrganizationWorld, name);
+    await signInActorViaUi(page, typedWorld, name);
     for (const permission of ALL_ADMIN_PERMISSIONS) {
-      await openOrganizationWireSurface(page);
-      await page
-        .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionOrgIdInput)
-        .fill(org.id);
-      await page
-        .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSelect)
-        .selectOption(permission);
-      const previousSequence = await readWireSequence(page);
-      await page
-        .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSubmit)
-        .click();
-      const outcome = await waitForWireOutcome(page, previousSequence);
-      if (outcome.status !== "success") {
+      const operation = await checkOrganizationPermissionViaWire(
+        page,
+        org.id,
+        permission,
+      );
+      if (operation.outcome.status !== "success" || !operation.response.ok) {
         throw new Error(
-          `admin permission check failed for ${permission}: ${outcome.failureDetail ?? outcome.failureCode ?? "unknown"}`,
+          `admin permission check failed for ${permission}: ${
+            operation.outcome.failureDetail ??
+            (operation.response.ok
+              ? "unknown"
+              : operation.response.error.summary)
+          }`,
+        );
+      }
+
+      if (!operation.response.body.allowed) {
+        throw new Error(
+          `permission ${permission} should be granted but was denied`,
         );
       }
     }
@@ -214,9 +240,11 @@ Then(
 Then(
   /^organization "([^"]+)" has zero initial projects$/,
   async ({ world }, organizationName: string) => {
-    const state = orgState(world as OrganizationWorld);
-    const normalized = normalizeOrganizationName(organizationName);
-    const snapshot = state.organizationsByName.get(normalized);
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const snapshot = state.organizationsByName.get(
+      organizationKey(organizationName),
+    );
     if (!snapshot) {
       throw new Error(
         `organization ${organizationName} must exist before zero-project assertion`,
@@ -234,6 +262,10 @@ Then(
 Then(
   /^organization "([^"]+)" is listed for (\w+)$/,
   async ({ page }, organizationName: string, _name: string) => {
+    await openOrganizationWireSurface(page);
+    await page
+      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.listSubmit)
+      .click({ timeout: 30_000 });
     await page
       .getByTestId(organizationRowTestId(organizationName))
       .waitFor({ state: "visible", timeout: 30_000 });
