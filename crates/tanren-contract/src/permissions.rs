@@ -72,8 +72,8 @@ impl MyPermissionsRequest {
 pub struct MyPermissionsResponse {
     /// Pagination metadata for this response page.
     pub page: MyPermissionsPageMeta,
-    /// Read-model freshness metadata for the returned snapshot.
-    pub freshness: MyPermissionsFreshnessMeta,
+    /// Read metadata for the returned snapshot.
+    pub read_metadata: MyPermissionsReadMeta,
     /// Organization-scoped permission sections visible to the caller.
     pub organizations: Vec<MyOrganizationPermissions>,
     /// Project-scoped permission sections visible to the caller.
@@ -93,27 +93,16 @@ pub struct MyPermissionsPageMeta {
     pub next_cursor: Option<String>,
 }
 
-/// Read-model freshness metadata returned with self-permission pages.
+/// Read metadata returned with self-permission pages.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
-pub struct MyPermissionsFreshnessMeta {
-    /// Canonical read-model/projection name serving this response.
-    pub projection: String,
-    /// Source checkpoint identifier for the returned read-model slice.
-    pub checkpoint: Option<String>,
+pub struct MyPermissionsReadMeta {
+    /// Canonical read source name serving this response.
+    ///
+    /// This endpoint performs a direct read over permission tables. It does
+    /// not report projection checkpoint or staleness guarantees.
+    pub source: String,
     /// Wall-clock instant when this response snapshot was generated.
     pub generated_at: DateTime<Utc>,
-    /// Whether the read-model is stale relative to requested freshness.
-    pub staleness: MyPermissionsStaleness,
-}
-
-/// Staleness classification for a read-model response.
-#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, ToSchema)]
-#[serde(rename_all = "snake_case")]
-pub enum MyPermissionsStaleness {
-    /// Read-model is at an acceptable freshness point for this request.
-    Fresh,
-    /// Read-model is stale for the requested freshness target.
-    Stale,
 }
 
 /// Organization-level permission section for the current caller.

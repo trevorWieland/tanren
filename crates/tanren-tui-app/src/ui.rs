@@ -109,21 +109,14 @@ pub(crate) fn my_permissions_outcome(response: &MyPermissionsResponse) -> Outcom
     let mut lines = Vec::new();
     let request_cursor = response.page.request_cursor.as_deref().unwrap_or("none");
     let next_cursor = response.page.next_cursor.as_deref().unwrap_or("none");
-    let checkpoint = response.freshness.checkpoint.as_deref().unwrap_or("none");
-    let staleness = match response.freshness.staleness {
-        tanren_contract::MyPermissionsStaleness::Fresh => "fresh",
-        tanren_contract::MyPermissionsStaleness::Stale => "stale",
-    };
     lines.push(format!(
         "page limit={} returned={} request_cursor={} next_cursor={}",
         response.page.limit, response.page.returned, request_cursor, next_cursor
     ));
     lines.push(format!(
-        "freshness projection={} checkpoint={} generated_at={} staleness={}",
-        response.freshness.projection,
-        checkpoint,
-        response.freshness.generated_at.to_rfc3339(),
-        staleness
+        "read_metadata source={} generated_at={}",
+        response.read_metadata.source,
+        response.read_metadata.generated_at.to_rfc3339()
     ));
     if response.organizations.is_empty() && response.projects.is_empty() {
         lines.push("permissions=none".to_owned());

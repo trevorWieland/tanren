@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use tanren_contract::{MyPermissionEntry, MyPermissionsResponse, MyPermissionsStaleness};
+use tanren_contract::{MyPermissionEntry, MyPermissionsResponse};
 
 pub(crate) fn print_permissions(response: &MyPermissionsResponse) -> Result<()> {
     let stdout = std::io::stdout();
@@ -9,11 +9,6 @@ pub(crate) fn print_permissions(response: &MyPermissionsResponse) -> Result<()> 
 
     let request_cursor = response.page.request_cursor.as_deref().unwrap_or("none");
     let next_cursor = response.page.next_cursor.as_deref().unwrap_or("none");
-    let checkpoint = response.freshness.checkpoint.as_deref().unwrap_or("none");
-    let staleness = match response.freshness.staleness {
-        MyPermissionsStaleness::Fresh => "fresh",
-        MyPermissionsStaleness::Stale => "stale",
-    };
     writeln!(
         handle,
         "page limit={} returned={} request_cursor={} next_cursor={}",
@@ -22,13 +17,11 @@ pub(crate) fn print_permissions(response: &MyPermissionsResponse) -> Result<()> 
     .context("write page metadata")?;
     writeln!(
         handle,
-        "freshness projection={} checkpoint={} generated_at={} staleness={}",
-        response.freshness.projection,
-        checkpoint,
-        response.freshness.generated_at.to_rfc3339(),
-        staleness,
+        "read_metadata source={} generated_at={}",
+        response.read_metadata.source,
+        response.read_metadata.generated_at.to_rfc3339(),
     )
-    .context("write freshness metadata")?;
+    .context("write read metadata")?;
 
     if response.organizations.is_empty() && response.projects.is_empty() {
         writeln!(handle, "permissions=none").context("write permissions result")?;

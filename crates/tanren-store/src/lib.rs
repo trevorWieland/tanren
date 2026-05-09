@@ -19,7 +19,7 @@ mod traits;
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, MyOrganizationPermissionsRecord,
-    MyPermissionRecord, MyPermissionsCursor, MyPermissionsFreshnessRecord, MyPermissionsPage,
+    MyPermissionRecord, MyPermissionsCursor, MyPermissionsPage, MyPermissionsReadMetaRecord,
     MyPermissionsRecord, MyPermissionsScopeKind, MyProjectPermissionsRecord, NewAccount,
     NewInvitation, NewPermissionConstraint, NewPermissionGrant, PermissionConstraintRecord,
     PermissionGrantRecord, PermissionGrantScope, SessionRecord,

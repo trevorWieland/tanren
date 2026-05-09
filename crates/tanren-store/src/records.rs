@@ -246,8 +246,8 @@ pub struct MyProjectPermissionsRecord {
 pub struct MyPermissionsRecord {
     /// Cursor to continue pagination from this page, if any.
     pub next_cursor: Option<MyPermissionsCursor>,
-    /// Read-model freshness metadata for this response.
-    pub freshness: MyPermissionsFreshnessRecord,
+    /// Read metadata for this response.
+    pub read_metadata: MyPermissionsReadMetaRecord,
     /// Organization-scoped permission sections.
     pub organizations: Vec<MyOrganizationPermissionsRecord>,
     /// Project-scoped permission sections.
@@ -306,17 +306,13 @@ impl MyPermissionsCursor {
     }
 }
 
-/// Read-model freshness metadata for self-permission introspection.
+/// Read metadata for self-permission introspection.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct MyPermissionsFreshnessRecord {
-    /// Canonical projection name serving this read model.
-    pub projection: String,
-    /// Source checkpoint describing what the read model has observed.
-    pub checkpoint: Option<String>,
+pub struct MyPermissionsReadMetaRecord {
+    /// Canonical source name serving this read model.
+    pub source: String,
     /// Wall-clock instant when this snapshot was generated.
     pub generated_at: DateTime<Utc>,
-    /// Whether this read model is stale for the requested consistency.
-    pub is_stale: bool,
 }
 
 /// Pagination envelope for self-permission reads.

@@ -71,7 +71,7 @@
   "myPermissions_constraintSourceOrganizationPolicy": "organization policy",
   "myPermissions_constraintSourceProjectPolicy": "project policy",
   "myPermissions_metadataTitle": "Snapshot metadata",
-  "myPermissions_metadataProjectionLabel": "Projection",
+  "myPermissions_metadataProjectionLabel": "Read source",
   "myPermissions_metadataGeneratedAtLabel": "Generated at",
   "myPermissions_metadataCheckpointLabel": "Checkpoint",
   "myPermissions_metadataStalenessLabel": "Staleness",

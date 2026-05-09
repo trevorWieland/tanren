@@ -60,13 +60,9 @@ pub(crate) async fn load_my_permissions(
         } else {
             None
         },
-        freshness: crate::MyPermissionsFreshnessRecord {
-            projection: "permission_introspection_permission_grants_v1".to_owned(),
-            checkpoint: parsed_rows
-                .last()
-                .map(|row| format!("permission_grants:{}", row.cursor.grant_id.as_uuid())),
+        read_metadata: crate::MyPermissionsReadMetaRecord {
+            source: "permission_introspection_permission_grants_table_v1".to_owned(),
             generated_at,
-            is_stale: false,
         },
         organizations,
         projects,

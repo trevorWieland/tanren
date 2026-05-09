@@ -21,14 +21,14 @@ export interface components {
     };
     /** @description Response payload for self-permission introspection. */
     MyPermissionsResponse: {
-      /** @description Read-model freshness metadata for the returned snapshot. */
-      freshness: components["schemas"]["MyPermissionsFreshnessMeta"];
       /** @description Organization-scoped permission sections visible to the caller. */
       organizations: components["schemas"]["MyOrganizationPermissions"][];
       /** @description Pagination metadata for this response page. */
       page: components["schemas"]["MyPermissionsPageMeta"];
       /** @description Project-scoped permission sections visible to the caller. */
       projects: components["schemas"]["MyProjectPermissions"][];
+      /** @description Read metadata for the returned snapshot. */
+      read_metadata: components["schemas"]["MyPermissionsReadMeta"];
     };
     /**
      * @description Shared interfaces error-code taxonomy.
@@ -75,20 +75,6 @@ export interface components {
         | null
         | components["schemas"]["PermissionConstraintView"];
     };
-    /** @description Read-model freshness metadata returned with self-permission pages. */
-    MyPermissionsFreshnessMeta: {
-      /** @description Source checkpoint identifier for the returned read-model slice. */
-      checkpoint?: string | null;
-      /**
-       * Format: date-time
-       * @description Wall-clock instant when this response snapshot was generated.
-       */
-      generated_at: string;
-      /** @description Canonical read-model/projection name serving this response. */
-      projection: string;
-      /** @description Whether the read-model is stale relative to requested freshness. */
-      staleness: components["schemas"]["MyPermissionsStaleness"];
-    };
     /** @description Pagination metadata for a self-permissions response page. */
     MyPermissionsPageMeta: {
       /**
@@ -106,11 +92,21 @@ export interface components {
        */
       returned: number;
     };
-    /**
-     * @description Staleness classification for a read-model response.
-     * @enum {string}
-     */
-    MyPermissionsStaleness: "fresh" | "stale";
+    /** @description Read metadata returned with self-permission pages. */
+    MyPermissionsReadMeta: {
+      /**
+       * Format: date-time
+       * @description Wall-clock instant when this response snapshot was generated.
+       */
+      generated_at: string;
+      /**
+       * @description Canonical read source name serving this response.
+       *
+       *     This endpoint performs a direct read over permission tables. It does
+       *     not report projection checkpoint or staleness guarantees.
+       */
+      source: string;
+    };
     /** @description Project-level permission section for the current caller. */
     MyProjectPermissions: {
       /** @description Effective permission entries for this project. */
@@ -185,12 +181,10 @@ export type InterfaceErrorCode = components["schemas"]["InterfaceErrorCode"];
 export type MyOrganizationPermissions =
   components["schemas"]["MyOrganizationPermissions"];
 export type MyPermissionEntry = components["schemas"]["MyPermissionEntry"];
-export type MyPermissionsFreshnessMeta =
-  components["schemas"]["MyPermissionsFreshnessMeta"];
 export type MyPermissionsPageMeta =
   components["schemas"]["MyPermissionsPageMeta"];
-export type MyPermissionsStaleness =
-  components["schemas"]["MyPermissionsStaleness"];
+export type MyPermissionsReadMeta =
+  components["schemas"]["MyPermissionsReadMeta"];
 export type MyProjectPermissions =
   components["schemas"]["MyProjectPermissions"];
 export type OrgId = components["schemas"]["OrgId"];

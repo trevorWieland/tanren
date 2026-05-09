@@ -5,9 +5,8 @@
 
 use tanren_contract::{
     MyAccountCapabilitiesResponse, MyOrganizationPermissions, MyPermissionEntry,
-    MyPermissionsFailureReason, MyPermissionsFreshnessMeta, MyPermissionsPageMeta,
-    MyPermissionsRequest, MyPermissionsResponse, MyPermissionsStaleness, MyProjectPermissions,
-    PermissionConstraintView,
+    MyPermissionsFailureReason, MyPermissionsPageMeta, MyPermissionsReadMeta, MyPermissionsRequest,
+    MyPermissionsResponse, MyProjectPermissions, PermissionConstraintView,
 };
 use tanren_store::{AccountStore, MyPermissionsCursor, MyPermissionsPage, MyPermissionsRecord};
 
@@ -60,11 +59,6 @@ fn to_contract_response(
 ) -> MyPermissionsResponse {
     let returned_entries = total_entries(&record);
     let next_cursor = encode_cursor(record.next_cursor);
-    let staleness = if record.freshness.is_stale {
-        MyPermissionsStaleness::Stale
-    } else {
-        MyPermissionsStaleness::Fresh
-    };
     let organizations = record
         .organizations
         .into_iter()
@@ -97,11 +91,9 @@ fn to_contract_response(
             request_cursor,
             next_cursor,
         },
-        freshness: MyPermissionsFreshnessMeta {
-            projection: record.freshness.projection,
-            checkpoint: record.freshness.checkpoint,
-            generated_at: record.freshness.generated_at,
-            staleness,
+        read_metadata: MyPermissionsReadMeta {
+            source: record.read_metadata.source,
+            generated_at: record.read_metadata.generated_at,
         },
         organizations,
         projects,

@@ -376,26 +376,16 @@ export default function MyPermissionsPage(): ReactNode {
                     {m.myPermissions_metadataProjectionLabel()}
                   </dt>
                   <dd className="break-all">
-                    {pageView.response.freshness.projection}
+                    {pageView.response.read_metadata.source}
                   </dd>
                   <dt className="text-[--color-fg-muted]">
                     {m.myPermissions_metadataGeneratedAtLabel()}
                   </dt>
                   <dd>
                     {new Date(
-                      pageView.response.freshness.generated_at,
+                      pageView.response.read_metadata.generated_at,
                     ).toLocaleString()}
                   </dd>
-                  <dt className="text-[--color-fg-muted]">
-                    {m.myPermissions_metadataCheckpointLabel()}
-                  </dt>
-                  <dd className="break-all">
-                    {cursorOrNone(pageView.response.freshness.checkpoint)}
-                  </dd>
-                  <dt className="text-[--color-fg-muted]">
-                    {m.myPermissions_metadataStalenessLabel()}
-                  </dt>
-                  <dd>{pageView.response.freshness.staleness}</dd>
                   <dt className="text-[--color-fg-muted]">
                     {m.myPermissions_metadataLimitLabel()}
                   </dt>

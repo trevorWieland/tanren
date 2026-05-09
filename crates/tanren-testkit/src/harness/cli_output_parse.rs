@@ -1,8 +1,8 @@
 use chrono::{DateTime, Utc};
 use regex::Regex;
 use tanren_contract::{
-    AccountView, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsFreshnessMeta, MyPermissionsPageMeta,
-    MyPermissionsResponse, MyPermissionsStaleness,
+    AccountView, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsPageMeta, MyPermissionsReadMeta,
+    MyPermissionsResponse,
 };
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use uuid::Uuid;
@@ -61,10 +61,8 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
     let mut page_limit = MY_PERMISSIONS_DEFAULT_LIMIT;
     let mut page_request_cursor: Option<String> = None;
     let mut page_next_cursor: Option<String> = None;
-    let mut freshness_projection = "permission_introspection_permission_grants_v1".to_owned();
-    let mut freshness_checkpoint: Option<String> = None;
-    let mut freshness_generated_at = Utc::now();
-    let mut freshness_staleness = MyPermissionsStaleness::Fresh;
+    let mut read_source = "permission_introspection_permission_grants_table_v1".to_owned();
+    let mut read_generated_at = Utc::now();
 
     for line in stdout.lines() {
         let line = line.trim();
@@ -79,12 +77,10 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
             page_next_cursor = page_meta.next_cursor;
             continue;
         }
-        if line.starts_with("freshness ") {
-            let freshness_meta = parse_freshness_metadata_line(line)?;
-            freshness_projection = freshness_meta.projection;
-            freshness_checkpoint = freshness_meta.checkpoint;
-            freshness_generated_at = freshness_meta.generated_at;
-            freshness_staleness = freshness_meta.staleness;
+        if line.starts_with("read_metadata ") {
+            let read_meta = parse_read_metadata_line(line)?;
+            read_source = read_meta.source;
+            read_generated_at = read_meta.generated_at;
             continue;
         }
         let Some((scope, scope_id, entry)) = parse_permission_line(line)? else {
@@ -116,11 +112,9 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
             request_cursor: page_request_cursor,
             next_cursor: page_next_cursor,
         },
-        freshness: MyPermissionsFreshnessMeta {
-            projection: freshness_projection,
-            checkpoint: freshness_checkpoint,
-            generated_at: freshness_generated_at,
-            staleness: freshness_staleness,
+        read_metadata: MyPermissionsReadMeta {
+            source: read_source,
+            generated_at: read_generated_at,
         },
         organizations,
         projects,
@@ -155,29 +149,22 @@ fn parse_page_metadata_line(line: &str) -> HarnessResult<ParsedCliPageMeta> {
 }
 
 #[derive(Debug)]
-struct ParsedCliFreshnessMeta {
-    projection: String,
-    checkpoint: Option<String>,
+struct ParsedCliReadMeta {
+    source: String,
     generated_at: DateTime<Utc>,
-    staleness: MyPermissionsStaleness,
 }
 
-fn parse_freshness_metadata_line(line: &str) -> HarnessResult<ParsedCliFreshnessMeta> {
+fn parse_read_metadata_line(line: &str) -> HarnessResult<ParsedCliReadMeta> {
     let generated_at = DateTime::parse_from_rfc3339(&capture(line, r"generated_at=(\S+)")?)
         .map_err(|e| {
-            HarnessError::Transport(format!("parse freshness generated_at from cli stdout: {e}"))
+            HarnessError::Transport(format!(
+                "parse read metadata generated_at from cli stdout: {e}"
+            ))
         })?
         .with_timezone(&Utc);
-    let staleness = if capture(line, r"staleness=(\S+)")? == "stale" {
-        MyPermissionsStaleness::Stale
-    } else {
-        MyPermissionsStaleness::Fresh
-    };
-    Ok(ParsedCliFreshnessMeta {
-        projection: capture(line, r"projection=(\S+)")?,
-        checkpoint: normalize_optional(capture(line, r"checkpoint=(\S+)")?),
+    Ok(ParsedCliReadMeta {
+        source: capture(line, r"source=(\S+)")?,
         generated_at,
-        staleness,
     })
 }
 
