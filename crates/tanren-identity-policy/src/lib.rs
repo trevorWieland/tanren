@@ -8,10 +8,12 @@
 //! [`Argon2idVerifier`] as the canonical local-password implementation.
 
 mod argon2_verifier;
+mod project_identity;
 pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
+pub use project_identity::{ProjectId, RepositoryRef};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};
@@ -488,4 +490,10 @@ pub enum ValidationError {
     /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
+    /// The supplied repository identity was empty after trimming.
+    #[error("repository identity is empty")]
+    RepositoryRefEmpty,
+    /// The supplied repository identity was not in canonical `owner/name` form.
+    #[error("repository identity is not in canonical owner/name form")]
+    RepositoryRefInvalid,
 }

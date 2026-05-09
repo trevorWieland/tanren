@@ -9,11 +9,12 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, RepositoryRef,
+    SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{StoreError, parse_db_identifier, parse_db_invitation_token, parse_db_repository_ref};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -106,6 +107,57 @@ impl From<entity::memberships::Model> for MembershipRecord {
     }
 }
 
+/// Persisted project row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    /// Stable project id.
+    pub id: ProjectId,
+    /// Account that owns the project.
+    pub owning_account_id: AccountId,
+    /// Wall-clock time the project was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the project was selected as active, if active.
+    pub active_selected_at: Option<DateTime<Utc>>,
+}
+
+impl From<entity::projects::Model> for ProjectRecord {
+    fn from(model: entity::projects::Model) -> Self {
+        Self {
+            id: ProjectId::new(model.id),
+            owning_account_id: AccountId::new(model.owning_account_id),
+            created_at: model.created_at,
+            active_selected_at: model.active_selected_at,
+        }
+    }
+}
+
+/// Persisted project repository row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRepositoryRecord {
+    /// Project bound to this repository.
+    pub project_id: ProjectId,
+    /// Account that owns the project/repository binding.
+    pub owning_account_id: AccountId,
+    /// Canonical repository identity (`owner/name`).
+    pub repository_ref: RepositoryRef,
+    /// Wall-clock time the binding was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::project_repositories::Model> for ProjectRepositoryRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::project_repositories::Model) -> Result<Self, Self::Error> {
+        let repository_ref = parse_db_repository_ref(&model.repository_ref)?;
+        Ok(Self {
+            project_id: ProjectId::new(model.project_id),
+            owning_account_id: AccountId::new(model.owning_account_id),
+            repository_ref,
+            created_at: model.created_at,
+        })
+    }
+}
+
 /// Persisted session row — issued by `tanren-app-services` on
 /// successful sign-up / sign-in / invitation acceptance.
 ///
@@ -164,4 +216,47 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::ProjectStore::insert_project`].
+#[derive(Debug, Clone)]
+pub struct NewProject {
+    /// Stable id allocated by the caller (`UUIDv7`).
+    pub id: ProjectId,
+    /// Account that owns the project.
+    pub owning_account_id: AccountId,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+    /// Active-selection timestamp. `None` means inactive.
+    pub active_selected_at: Option<DateTime<Utc>>,
+}
+
+/// Input shape for [`crate::ProjectStore::insert_project_repository`].
+#[derive(Debug, Clone)]
+pub struct NewProjectRepository {
+    /// Project bound to this repository.
+    pub project_id: ProjectId,
+    /// Account that owns the binding.
+    pub owning_account_id: AccountId,
+    /// Canonical repository identity (`owner/name`).
+    pub repository_ref: RepositoryRef,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Read model for project setup/listing surfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSetupRecord {
+    /// Project row data.
+    pub project: ProjectRecord,
+    /// Repository bound to the project.
+    pub repository: ProjectRepositoryRecord,
+    /// Whether the project is currently active for the owning account.
+    pub is_active: bool,
+    /// Count of specs in the project.
+    pub spec_count: u64,
+    /// Count of milestones in the project.
+    pub milestone_count: u64,
+    /// Count of initiatives in the project.
+    pub initiative_count: u64,
 }

@@ -10,17 +10,20 @@
 mod accept_invitation;
 mod entity;
 mod migration;
+mod project_store;
 mod records;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, NewProject,
+    NewProjectRepository, ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord,
+    SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, ProjectStore, ProjectStoreError,
 };
 
 use async_trait::async_trait;
@@ -33,8 +36,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, RepositoryRef,
+    SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -353,6 +356,14 @@ pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
 pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, StoreError> {
     InvitationToken::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "invitation_token",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored repository identity into a [`RepositoryRef`].
+pub(crate) fn parse_db_repository_ref(raw: &str) -> Result<RepositoryRef, StoreError> {
+    RepositoryRef::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "repository_ref",
         cause: err,
     })
 }

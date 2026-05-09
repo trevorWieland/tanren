@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, RepositoryRef,
+    SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, NewProject, NewProjectRepository,
+    ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +285,50 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for project-setup persistence flows.
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectStoreError {
+    /// A project already exists for this repository in the owning account.
+    #[error("duplicate repository within owning account scope")]
+    DuplicateRepository,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Port consumed by project setup/listing handlers.
+#[async_trait]
+pub trait ProjectStore: Send + Sync + std::fmt::Debug {
+    /// Insert a project row.
+    async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError>;
+
+    /// Insert a project-repository binding row.
+    async fn insert_project_repository(
+        &self,
+        new: NewProjectRepository,
+    ) -> Result<ProjectRepositoryRecord, ProjectStoreError>;
+
+    /// Find a project-repository binding by account + repository identity.
+    async fn find_project_repository(
+        &self,
+        owning_account_id: AccountId,
+        repository_ref: &RepositoryRef,
+    ) -> Result<Option<ProjectRepositoryRecord>, StoreError>;
+
+    /// List project setup records for an account.
+    async fn list_projects_for_account(
+        &self,
+        owning_account_id: AccountId,
+    ) -> Result<Vec<ProjectSetupRecord>, StoreError>;
+
+    /// Mark one project active for an account and clear active selection
+    /// on every other project in that account.
+    async fn set_active_project(
+        &self,
+        owning_account_id: AccountId,
+        project_id: ProjectId,
+        selected_at: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 }
