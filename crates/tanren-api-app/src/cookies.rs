@@ -44,6 +44,26 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
     Ok(())
 }
 
+/// Read the authenticated account id from the current cookie session.
+///
+/// Returns `Ok(None)` when no account is bound to this session.
+pub(crate) async fn session_account_id(session: &Session) -> Result<Option<AccountId>> {
+    session
+        .get(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")
+}
+
+/// Read the session expiry timestamp from the current cookie session.
+///
+/// Returns `Ok(None)` when no expiry value is present.
+pub(crate) async fn session_expires_at(session: &Session) -> Result<Option<DateTime<Utc>>> {
+    session
+        .get(SESSION_KEY_EXPIRES)
+        .await
+        .context("read expires_at from session")
+}
+
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships
 /// `SqliteStore` and `PostgresStore`; we dispatch on the URL scheme so
 /// the same `serve` entry point covers both backends.

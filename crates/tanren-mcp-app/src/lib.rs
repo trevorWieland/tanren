@@ -26,12 +26,16 @@ use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
 use rmcp::transport::streamable_http_server::{
     StreamableHttpServerConfig, StreamableHttpService, session::local::LocalSessionManager,
 };
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_app_services::{AppServiceError, Handlers, MyPermissionsContext, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, MyPermissionsRequest, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -144,6 +148,28 @@ impl TanrenMcp {
         }
     }
 
+    #[rmcp::tool(
+        name = "account.my_permissions",
+        description = "Read the caller account's effective permissions grouped by organization and project. This tool is read-only and enforces self-scope: target_account_id must be omitted or equal account_id."
+    )]
+    async fn account_my_permissions(
+        &self,
+        Parameters(request): Parameters<MyPermissionsToolRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let context = MyPermissionsContext {
+            session_account_id: request.account_id,
+            requested_account_id: request.target_account_id.unwrap_or(request.account_id),
+        };
+        match self
+            .handlers
+            .my_permissions(self.store.as_ref(), context, MyPermissionsRequest)
+            .await
+        {
+            Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
     /// Borrow the cached `ToolRouter`. Exists so the dead-code lint can
     /// see the field as read even on rmcp macro versions whose
     /// `#[tool_handler]` expansion path does not access the field
@@ -155,7 +181,6 @@ impl TanrenMcp {
         &self.tool_router
     }
 }
-
 #[rmcp::tool_handler]
 impl ServerHandler for TanrenMcp {
     fn get_info(&self) -> ServerInfo {
@@ -185,14 +210,17 @@ fn success<T: Serialize>(value: &T) -> CallToolResult {
 fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
+        AppServiceError::Permissions(reason) => {
+            (reason.code().to_owned(), reason.summary().to_owned())
+        }
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
+        AppServiceError::Store(_err) => (
             "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
+            "Tanren encountered an internal error.".to_owned(),
         ),
         _ => (
             "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
+            "Tanren encountered an internal error.".to_owned(),
         ),
     };
     let body = json!({
@@ -201,6 +229,11 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
+}
+#[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
+struct MyPermissionsToolRequest {
+    account_id: AccountId,
+    target_account_id: Option<AccountId>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -218,9 +251,6 @@ async fn health() -> Json<HealthResponse> {
         contract_version: report.contract_version.value(),
     })
 }
-
-/// Shared error response shape per
-/// `docs/architecture/subsystems/interfaces.md` "Error Taxonomy".
 fn error_body(code: &str, summary: &str) -> serde_json::Value {
     json!({
         "code": code,

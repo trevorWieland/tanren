@@ -11,7 +11,6 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tanren_app_services::AppServiceError;
 use tanren_contract::AccountFailureReason;
 
@@ -29,6 +28,23 @@ pub struct AccountFailureBody {
 /// routes.
 pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
     tracing::error!(target: "tanren_api", error = %err, "session install");
+    internal_error_response().into_response()
+}
+
+/// Shared `401 auth_required` error body.
+pub(crate) fn auth_required_response(summary: &str) -> Response {
+    (
+        StatusCode::UNAUTHORIZED,
+        Json(AccountFailureBody {
+            code: "auth_required".to_owned(),
+            summary: summary.to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+/// Shared `500 internal_error` response body.
+pub(crate) fn internal_error_response() -> (StatusCode, Json<AccountFailureBody>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(AccountFailureBody {
@@ -36,37 +52,33 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
             summary: "Tanren encountered an internal error.".to_owned(),
         }),
     )
-        .into_response()
 }
 
 /// Map an [`AppServiceError`] to the matching HTTP response.
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     match err {
         AppServiceError::Account(reason) => failure_body(reason),
+        AppServiceError::Permissions(reason) => (
+            StatusCode::FORBIDDEN,
+            Json(AccountFailureBody {
+                code: reason.code().to_owned(),
+                summary: reason.summary().to_owned(),
+            }),
+        )
+            .into_response(),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
-            Json(json!({"code": "validation_failed", "summary": message})),
+            Json(AccountFailureBody {
+                code: "validation_failed".to_owned(),
+                summary: message,
+            }),
         )
             .into_response(),
         AppServiceError::Store(err) => {
             tracing::error!(target: "tanren_api", error = %err, "store error");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "code": "internal_error",
-                    "summary": "Tanren encountered an internal error.",
-                })),
-            )
-                .into_response()
+            internal_error_response().into_response()
         }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "code": "internal_error",
-                "summary": "Tanren encountered an internal error.",
-            })),
-        )
-            .into_response(),
+        _ => internal_error_response().into_response(),
     }
 }
 
@@ -75,7 +87,10 @@ fn failure_body(reason: AccountFailureReason) -> Response {
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
         status,
-        Json(json!({"code": reason.code(), "summary": reason.summary()})),
+        Json(AccountFailureBody {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }),
     )
         .into_response()
 }

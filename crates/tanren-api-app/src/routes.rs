@@ -9,21 +9,28 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
+use tanren_app_services::{Handlers, MyPermissionsContext};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, MyPermissionsRequest, MyPermissionsResponse,
+    SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::cookies::{
+    SessionWrite, install_cookie_session, session_account_id, session_expires_at,
+};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, auth_required_response, internal_error_response,
+    map_app_error, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -98,6 +105,8 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        my_permissions_route,
+        target_account_permissions_route,
     ),
     components(schemas(
         HealthResponse,
@@ -108,11 +117,13 @@ pub struct AcceptInvitationBody {
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
         AccountFailureBody,
+        MyPermissionsResponse,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "permissions", description = "Self-permission introspection."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +319,101 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Read the authenticated account's effective permissions.
+#[utoipa::path(
+    get,
+    path = "/me/permissions",
+    responses(
+        (status = 200, body = MyPermissionsResponse, description = "Self permissions loaded"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 500, body = AccountFailureBody, description = "internal_error"),
+    ),
+    tag = "permissions",
+)]
+pub(crate) async fn my_permissions_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let account_id = match authenticated_account_id(&session).await {
+        Ok(account_id) => account_id,
+        Err(response) => return response,
+    };
+    let context = MyPermissionsContext::self_scoped(account_id);
+    match state
+        .handlers
+        .my_permissions(state.store.as_ref(), context, MyPermissionsRequest)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Explicitly reject target-account permission introspection. API clients
+/// must use `/me/permissions`; the account id target is always resolved
+/// from the authenticated session.
+#[utoipa::path(
+    get,
+    path = "/accounts/{account_id}/permissions",
+    params(
+        ("account_id" = AccountId, Path, description = "Target account id (rejected; use /me/permissions)"),
+    ),
+    responses(
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 500, body = AccountFailureBody, description = "internal_error"),
+    ),
+    tag = "permissions",
+)]
+pub(crate) async fn target_account_permissions_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path(requested_account_id): Path<AccountId>,
+) -> Response {
+    let session_account_id = match authenticated_account_id(&session).await {
+        Ok(account_id) => account_id,
+        Err(response) => return response,
+    };
+    let context = MyPermissionsContext {
+        session_account_id,
+        requested_account_id,
+    };
+    match state
+        .handlers
+        .my_permissions(state.store.as_ref(), context, MyPermissionsRequest)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+async fn authenticated_account_id(session: &Session) -> Result<AccountId, Response> {
+    let account_id = match session_account_id(session).await {
+        Ok(Some(account_id)) => account_id,
+        Ok(None) => {
+            return Err(auth_required_response(
+                "No authenticated session is present. Sign in and retry.",
+            ));
+        }
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read account_id");
+            return Err(internal_error_response().into_response());
+        }
+    };
+    match session_expires_at(session).await {
+        Ok(Some(expires_at)) if expires_at < Utc::now() => Err(auth_required_response(
+            "The current session has expired. Sign in and retry.",
+        )),
+        Ok(_) => Ok(account_id),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read expires_at");
+            Err(internal_error_response().into_response())
+        }
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +426,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(my_permissions_route))
+        .routes(routes!(target_account_permissions_route))
         .with_state(state)
 }

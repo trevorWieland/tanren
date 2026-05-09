@@ -21,9 +21,13 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_app_services::{AppServiceError, Handlers, MyPermissionsContext, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, MyPermissionEntry, MyPermissionsRequest, MyPermissionsResponse,
+    SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Email, InvitationToken};
+use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -59,7 +63,8 @@ enum Command {
         #[command(subcommand)]
         action: MigrateAction,
     },
-    /// Account flow: self-signup, sign-in, accept-invitation.
+    /// Account flow: self-signup, sign-in, accept-invitation, and
+    /// self-permission introspection.
     Account {
         #[command(subcommand)]
         action: AccountAction,
@@ -109,6 +114,16 @@ enum AccountAction {
         /// Password.
         #[arg(long)]
         password: String,
+    },
+    /// Read the signed-in account's effective permissions.
+    MyPermissions {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Optional explicit target account id. Supplying a different id
+        /// than the signed-in account is rejected as `permission_denied`.
+        #[arg(long)]
+        target_account_id: Option<String>,
     },
 }
 
@@ -184,79 +199,56 @@ async fn run_account(action: AccountAction) -> Result<()> {
             display_name,
             invitation,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            match invitation {
-                None => {
-                    let response = handlers
-                        .sign_up(
-                            &store,
-                            SignUpRequest {
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
-                }
-                Some(token) => {
-                    let invitation_token = InvitationToken::parse(&token)
-                        .context("parse --invitation as invitation token")?;
-                    let response = handlers
-                        .accept_invitation(
-                            &store,
-                            AcceptInvitationRequest {
-                                invitation_token,
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
-                }
-            }
+            run_account_create(
+                &handlers,
+                &database_url,
+                &identifier,
+                password,
+                display_name,
+                invitation,
+            )
+            .await?;
         }
         AccountAction::SignIn {
             database_url,
             identifier,
             password,
-        } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
+        } => run_account_sign_in(&handlers, &database_url, &identifier, password).await?,
+        AccountAction::MyPermissions {
+            database_url,
+            target_account_id,
+        } => run_account_my_permissions(&handlers, &database_url, target_account_id).await?,
+    }
+    Ok(())
+}
+
+async fn run_account_create(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: String,
+    display_name: String,
+    invitation: Option<String>,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let email = Email::parse(identifier).context("parse --identifier as email")?;
+    let password = SecretString::from(password);
+    match invitation {
+        None => {
             let response = handlers
-                .sign_in(&store, SignInRequest { email, password })
+                .sign_up(
+                    &store,
+                    SignUpRequest {
+                        email,
+                        password,
+                        display_name,
+                    },
+                )
                 .await
                 .map_err(account_error)?;
-            persist_session(response.session.token.expose_secret())?;
+            persist_session(response.account.id, response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             writeln!(
@@ -265,9 +257,92 @@ async fn run_account(action: AccountAction) -> Result<()> {
                 id = response.account.id,
                 token = response.session.token.expose_secret(),
             )
-            .context("write sign-in result")?;
+            .context("write sign-up result")?;
+        }
+        Some(token) => {
+            let invitation_token =
+                InvitationToken::parse(&token).context("parse --invitation as invitation token")?;
+            let response = handlers
+                .accept_invitation(
+                    &store,
+                    AcceptInvitationRequest {
+                        invitation_token,
+                        email,
+                        password,
+                        display_name,
+                    },
+                )
+                .await
+                .map_err(account_error)?;
+            persist_session(response.account.id, response.session.token.expose_secret())?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(
+                handle,
+                "account_id={id} session={token} joined_org={org}",
+                id = response.account.id,
+                token = response.session.token.expose_secret(),
+                org = response.joined_org,
+            )
+            .context("write invitation-acceptance result")?;
         }
     }
+    Ok(())
+}
+
+async fn run_account_sign_in(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: String,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let email = Email::parse(identifier).context("parse --identifier as email")?;
+    let password = SecretString::from(password);
+    let response = handlers
+        .sign_in(&store, SignInRequest { email, password })
+        .await
+        .map_err(account_error)?;
+    persist_session(response.account.id, response.session.token.expose_secret())?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(
+        handle,
+        "account_id={id} session={token}",
+        id = response.account.id,
+        token = response.session.token.expose_secret(),
+    )
+    .context("write sign-in result")?;
+    Ok(())
+}
+
+async fn run_account_my_permissions(
+    handlers: &Handlers,
+    database_url: &str,
+    target_account_id: Option<String>,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let session_account_id = read_session_account_id()?;
+    let requested_account_id = target_account_id
+        .map(|raw| parse_account_id(&raw, "--target-account-id"))
+        .transpose()?
+        .unwrap_or(session_account_id);
+    let response = handlers
+        .my_permissions(
+            &store,
+            MyPermissionsContext {
+                session_account_id,
+                requested_account_id,
+            },
+            MyPermissionsRequest,
+        )
+        .await
+        .map_err(account_error)?;
+    print_permissions(&response)?;
     Ok(())
 }
 
@@ -278,6 +353,9 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
         }
         AppServiceError::InvalidInput(message) => {
             anyhow::anyhow!("error: validation_failed — {message}")
+        }
+        AppServiceError::Permissions(reason) => {
+            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
         }
         AppServiceError::Store(err) => {
             anyhow::anyhow!("error: internal_error — {err}")
@@ -307,12 +385,94 @@ fn session_path() -> PathBuf {
     base.join("tanren").join("session")
 }
 
-fn persist_session(token: &str) -> Result<()> {
+fn persist_session(account_id: AccountId, token: &str) -> Result<()> {
     let path = session_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create session dir {}", parent.display()))?;
     }
-    fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
+    let content = format!("version=1\naccount_id={account_id}\ntoken={token}\n");
+    fs::write(&path, content).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
+}
+
+fn read_session_account_id() -> Result<AccountId> {
+    let path = session_path();
+    let content = fs::read_to_string(&path)
+        .with_context(|| format!("read session from {}", path.display()))?;
+    for line in content.lines() {
+        if let Some(raw) = line.strip_prefix("account_id=") {
+            return parse_account_id(raw.trim(), "persisted session account_id");
+        }
+    }
+    anyhow::bail!(
+        "error: auth_required — session is missing account_id; sign in again to refresh {}",
+        path.display()
+    )
+}
+
+fn print_permissions(response: &MyPermissionsResponse) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+
+    if response.organizations.is_empty() && response.projects.is_empty() {
+        writeln!(handle, "permissions=none").context("write permissions result")?;
+        return Ok(());
+    }
+
+    for organization in &response.organizations {
+        for permission in &organization.permissions {
+            write_permission_row(
+                &mut handle,
+                "organization",
+                &organization.org_id.to_string(),
+                permission,
+            )
+            .context("write organization permission row")?;
+        }
+    }
+    for project in &response.projects {
+        for permission in &project.permissions {
+            write_permission_row(
+                &mut handle,
+                "project",
+                &project.project_id.to_string(),
+                permission,
+            )
+            .context("write project permission row")?;
+        }
+    }
+    Ok(())
+}
+
+fn write_permission_row(
+    handle: &mut impl Write,
+    scope: &str,
+    scope_id: &str,
+    permission: &MyPermissionEntry,
+) -> Result<()> {
+    let (constraint_reason, constraint_source) = permission.policy_constraint.as_ref().map_or_else(
+        || ("none".to_owned(), "none".to_owned()),
+        |constraint| {
+            (
+                format!("{:?}", constraint.reason),
+                format!("{:?}", constraint.source),
+            )
+        },
+    );
+
+    writeln!(
+        handle,
+        "scope={scope} scope_id={scope_id} permission={permission_name:?} effective_state={effective_state:?} source={grant_source:?} constraint_reason={constraint_reason} constraint_source={constraint_source}",
+        permission_name = permission.permission,
+        effective_state = permission.effective_state,
+        grant_source = permission.grant_source,
+    )
+    .context("write permission row")
+}
+
+fn parse_account_id(raw: &str, context_label: &str) -> Result<AccountId> {
+    let parsed = Uuid::parse_str(raw)
+        .with_context(|| format!("parse {context_label} as uuid-form account id"))?;
+    Ok(AccountId::new(parsed))
 }
