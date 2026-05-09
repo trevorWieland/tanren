@@ -7,6 +7,7 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -111,6 +112,14 @@ impl Drop for CliHarness {
 impl AccountHarness for CliHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Cli
+    }
+
+    async fn execute_cli_command(
+        &mut self,
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        let output = run_binary_command(&self.binary, args).await?;
+        Ok(CliCommandOutcome::from(output))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {

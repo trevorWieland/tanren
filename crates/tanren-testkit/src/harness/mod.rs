@@ -50,6 +50,7 @@ mod tui;
 mod web;
 
 use std::collections::HashMap;
+use std::ffi::OsString;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -198,6 +199,20 @@ pub struct HarnessInvitation {
 pub trait AccountHarness: Send + std::fmt::Debug {
     /// Identifier for diagnostic output.
     fn kind(&self) -> HarnessKind;
+
+    /// Execute a raw `tanren-cli` command through this harness.
+    /// CLI-specific BDD flows (for example install) use this to ensure
+    /// command execution routes through the active scenario harness
+    /// selected by interface tags.
+    async fn execute_cli_command(
+        &mut self,
+        _args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(HarnessError::Transport(format!(
+            "{:?} harness cannot execute tanren-cli commands",
+            self.kind()
+        )))
+    }
 
     /// Self-signup against the underlying surface.
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession>;

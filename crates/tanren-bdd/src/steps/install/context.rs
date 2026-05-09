@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{CliCommandOutcome, execute_tanren_cli};
+use tanren_testkit::{AccountHarness, CliCommandOutcome};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -39,6 +39,7 @@ impl InstallContext {
 
     pub(crate) async fn run_install(
         &mut self,
+        harness: &mut dyn AccountHarness,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
@@ -54,7 +55,8 @@ impl InstallContext {
             args.push(OsString::from("--integrations"));
             args.push(OsString::from(selected));
         }
-        let outcome = execute_tanren_cli(args)
+        let outcome = harness
+            .execute_cli_command(args)
             .await
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
         self.snapshot_before_last_run = Some(before);

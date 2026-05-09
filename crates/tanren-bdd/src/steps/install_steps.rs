@@ -97,8 +97,7 @@ async fn when_install_runs_with_profile(
     world: &mut TanrenWorld,
     profile: String,
 ) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.run_install(&profile, None).await
+    world.run_install(&profile, None).await
 }
 
 #[when(expr = "tanren-cli install runs with profile {string} and integrations {string}")]
@@ -107,8 +106,9 @@ async fn when_install_runs_with_profile_and_integrations(
     profile: String,
     integrations: String,
 ) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.run_install(&profile, Some(integrations.as_str())).await
+    world
+        .run_install(&profile, Some(integrations.as_str()))
+        .await
 }
 
 #[then(expr = "the install command succeeds")]

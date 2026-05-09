@@ -50,6 +50,16 @@ impl TanrenWorld {
         self.require_cli_account_ctx()?.reset_install_ctx()
     }
 
+    pub(crate) async fn run_install(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        self.require_cli_account_ctx()?
+            .run_install(profile, integrations)
+            .await
+    }
+
     fn require_cli_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
         let ctx = self
             .account
@@ -160,6 +170,23 @@ impl AccountContext {
     fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
         self.install = Some(InstallContext::new()?);
         Ok(())
+    }
+
+    async fn run_install(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        if self.install.is_none() {
+            self.install = Some(InstallContext::new()?);
+        }
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install
+            .run_install(self.harness.as_mut(), profile, integrations)
+            .await
     }
 }
 
