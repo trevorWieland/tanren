@@ -18,7 +18,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use crate::steps::install::{InstallContext, InstallStepError};
+use crate::steps::install::{InstallContext, InstallStepError, InstallStepResult};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -31,8 +31,6 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
-    /// Lazily initialized install-flow context.
-    pub(crate) install: Option<InstallContext>,
 }
 
 impl TanrenWorld {
@@ -48,12 +46,25 @@ impl TanrenWorld {
 
     /// Construct (or return) the lazy install context.
     pub(crate) fn ensure_install_ctx(&mut self) -> Result<&mut InstallContext, InstallStepError> {
-        if self.install.is_none() {
-            self.install = Some(InstallContext::new()?);
-        }
-        self.install
+        self.require_cli_account_ctx()?.ensure_install_ctx()
+    }
+
+    /// Reset the install context for the current scenario.
+    pub(crate) fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
+        self.require_cli_account_ctx()?.reset_install_ctx()
+    }
+
+    fn require_cli_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
+        let ctx = self
+            .account
             .as_mut()
-            .ok_or(InstallStepError::InstallContextUnavailable)
+            .ok_or(InstallStepError::AccountContextUnavailable)?;
+        if ctx.harness.kind() != HarnessKind::Cli {
+            return Err(InstallStepError::InstallRequiresCliHarness {
+                actual: ctx.harness.kind(),
+            });
+        }
+        Ok(ctx)
     }
 
     /// Refresh the account context with the harness chosen for the
@@ -84,6 +95,8 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Install-flow fixture state for CLI-tagged scenarios.
+    pub(crate) install: Option<InstallContext>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -92,6 +105,7 @@ impl std::fmt::Debug for AccountContext {
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
+            .field("has_install_ctx", &self.install.is_some())
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
@@ -134,7 +148,22 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            install: None,
         }
+    }
+
+    fn ensure_install_ctx(&mut self) -> InstallStepResult<&mut InstallContext> {
+        if self.install.is_none() {
+            self.install = Some(InstallContext::new()?);
+        }
+        self.install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)
+    }
+
+    fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
+        self.install = Some(InstallContext::new()?);
+        Ok(())
     }
 }
 
@@ -182,7 +211,6 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
-            install: None,
         };
         assert_eq!(world.seed.value(), 42);
     }

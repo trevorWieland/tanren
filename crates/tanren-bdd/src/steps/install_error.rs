@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use tanren_testkit::HarnessError;
+use tanren_testkit::{HarnessError, HarnessKind};
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallStepError {
@@ -117,6 +117,14 @@ pub(crate) enum InstallStepError {
     },
     #[error("install context should be available after initialization")]
     InstallContextUnavailable,
+    #[error(
+        "account harness context unavailable; scenario before-hook dispatch did not initialize"
+    )]
+    AccountContextUnavailable,
+    #[error(
+        "install steps require an active @cli harness from tag dispatch; got {actual:?} harness"
+    )]
+    InstallRequiresCliHarness { actual: HarnessKind },
 }
 
 pub(crate) type InstallStepResult<T> = Result<T, InstallStepError>;

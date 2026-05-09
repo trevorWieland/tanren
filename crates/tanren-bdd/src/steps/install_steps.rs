@@ -4,14 +4,13 @@ use cucumber::{given, then, when};
 
 use crate::TanrenWorld;
 use crate::steps::install::{
-    InstallContext, InstallStepResult, RepositoryRelativePath, read_workspace_catalog_file,
+    InstallStepResult, RepositoryRelativePath, read_workspace_catalog_file,
 };
 
 #[given(expr = "a clean repository fixture")]
 #[given(expr = "a clean install repository fixture")]
 fn given_clean_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<()> {
-    world.install = Some(InstallContext::new()?);
-    Ok(())
+    world.reset_install_ctx()
 }
 
 #[given(expr = "repository file {string} contains {string}")]
