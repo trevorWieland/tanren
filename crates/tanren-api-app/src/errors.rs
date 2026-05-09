@@ -48,6 +48,19 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
         .into_response()
 }
 
+/// Render the canonical authentication-required failure body.
+pub(crate) fn auth_required() -> Response {
+    let reason = ProjectFailureReason::AuthRequired;
+    (
+        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::UNAUTHORIZED),
+        Json(ProjectFailureBody {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        }),
+    )
+        .into_response()
+}
+
 /// Map an [`AppServiceError`] to the matching HTTP response.
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     match err {

@@ -1,26 +1,29 @@
-//! Axum route handlers + per-handler `#[utoipa::path(...)]` annotations
-//! + the top-level `ApiDoc` struct that the `OpenApi` derive walks.
-//!
-//! Split out of `lib.rs` so the api-app crate stays under the workspace
-//! 500-line line-budget. The wiring (router, openapi-json route,
-//! tower-sessions layer) lives in `lib.rs::build_app`.
+//! Axum route handlers and `OpenAPI` annotations.
 
+use crate::AppState;
+use crate::cookies::{SessionWrite, install_cookie_session, session_account};
+use crate::errors::{
+    AccountFailureBody, ProjectFailureBody, ValidatedJson, auth_required, map_app_error,
+    session_install_error,
+};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_app_services::AppServiceError;
 use tanren_app_services::Handlers;
 use tanren_app_services::project::{
     ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
     ListVisibleProjectsQuery,
 };
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, ActiveProjectRequest, ActiveProjectView,
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SessionEnvelope,
-    SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ActiveProjectCookieRequest, ActiveProjectRequest,
+    ActiveProjectView, ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,
+    ConnectProjectRepositoryResponse, CreateProjectCookieRequest, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest,
+    ProjectCollectionView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -28,72 +31,35 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
-use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{
-    AccountFailureBody, ProjectFailureBody, ValidatedJson, map_app_error, session_install_error,
-};
-
-/// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct HealthResponse {
-    /// Static "ok" string.
     pub status: String,
-    /// Build-time package version.
     pub version: String,
-    /// Wire-contract version.
     pub contract_version: u32,
 }
-
-/// Cookie-transport response shape for the api surface. Mirrors
-/// `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
-/// projects the session into [`SessionEnvelope::Cookie`] (no token in
-/// body — it ships in the `Set-Cookie` header).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignUpResponseCookie {
-    /// View of the freshly created account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
 }
-
-/// Cookie-transport projection of a sign-in response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignInResponseCookie {
-    /// View of the signed-in account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
 }
-
-/// Cookie-transport projection of an invitation-acceptance response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationResponseCookie {
-    /// View of the newly created account.
     pub account: AccountView,
-    /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
-    /// Organization the new account joined.
     pub joined_org: OrgId,
 }
-
-/// Path body for `POST /invitations/{token}/accept`. Splits the password
-/// into a `String` here (then re-wraps as `SecretString` before handing
-/// off to app-services) so utoipa can document the schema; the secret
-/// stays in memory only for the lifetime of this function.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationBody {
-    /// Email the invitee chose.
     pub email: Email,
-    /// Plaintext password.
     #[schema(value_type = String, format = Password)]
     pub password: String,
-    /// Display name.
     pub display_name: String,
 }
-
-/// Top-level `OpenAPI` doc. Each handler is annotated with
-/// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
 #[openapi(
     info(
@@ -122,13 +88,13 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         ProjectFailureBody,
-        ConnectProjectRepositoryRequest,
+        ConnectProjectRepositoryCookieRequest,
         ConnectProjectRepositoryResponse,
-        CreateProjectRequest,
+        CreateProjectCookieRequest,
         CreateProjectResponse,
-        ListVisibleProjectsRequest,
+        ListVisibleProjectsCookieRequest,
         ProjectCollectionView,
-        ActiveProjectRequest,
+        ActiveProjectCookieRequest,
         ActiveProjectView,
         SessionEnvelope,
     )),
@@ -140,7 +106,6 @@ pub struct AcceptInvitationBody {
 )]
 pub(crate) struct ApiDoc;
 
-/// Liveness probe.
 #[utoipa::path(
     get,
     path = "/health",
@@ -158,8 +123,6 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
     })
 }
 
-/// Self-signup: create a new personal account and mint a cookie-bound
-/// session.
 #[utoipa::path(
     post,
     path = "/accounts",
@@ -199,7 +162,6 @@ pub(crate) async fn sign_up_route(
     }
 }
 
-/// Sign-in: mint a cookie-bound session for an existing account.
 #[utoipa::path(
     post,
     path = "/sessions",
@@ -238,7 +200,6 @@ pub(crate) async fn sign_in_route(
     }
 }
 
-/// Accept an organization invitation and mint a cookie-bound session.
 #[utoipa::path(
     post,
     path = "/invitations/{token}/accept",
@@ -306,13 +267,13 @@ pub(crate) async fn accept_invitation_route(
     }
 }
 
-/// Connect an existing repository as a project.
 #[utoipa::path(
     post,
     path = "/projects/connect-repository",
-    request_body = ConnectProjectRepositoryRequest,
+    request_body = ConnectProjectRepositoryCookieRequest,
     responses(
         (status = 201, body = ConnectProjectRepositoryResponse, description = "Repository connected as project"),
+        (status = 401, body = ProjectFailureBody, description = "auth_required"),
         (status = 400, body = ProjectFailureBody, description = "validation_failed"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
         (status = 409, body = ProjectFailureBody, description = "duplicate_repository"),
@@ -322,9 +283,18 @@ pub(crate) async fn accept_invitation_route(
 )]
 pub(crate) async fn connect_project_repository_route(
     State(state): State<AppState>,
-    ValidatedJson(request): ValidatedJson<ConnectProjectRepositoryRequest>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<ConnectProjectRepositoryCookieRequest>,
 ) -> Response {
-    let actor_account_id = request.owning_account_id;
+    let actor_account_id = match session_actor_account_id(&session).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if legacy_scope_mismatch(request.legacy_owning_account_id, actor_account_id) {
+        return map_app_error(AppServiceError::Project(
+            tanren_contract::ProjectFailureReason::NoAccess,
+        ));
+    }
     match state
         .handlers
         .connect_project_repository(
@@ -332,7 +302,11 @@ pub(crate) async fn connect_project_repository_route(
             state.source_control.as_ref(),
             ConnectExistingRepositoryCommand {
                 actor_account_id,
-                request,
+                request: ConnectProjectRepositoryRequest {
+                    owning_account_id: actor_account_id,
+                    repository: request.repository,
+                    select_as_active: request.select_as_active,
+                },
             },
         )
         .await
@@ -342,13 +316,13 @@ pub(crate) async fn connect_project_repository_route(
     }
 }
 
-/// Create a new project and repository at a designated host.
 #[utoipa::path(
     post,
     path = "/projects/create",
-    request_body = CreateProjectRequest,
+    request_body = CreateProjectCookieRequest,
     responses(
         (status = 201, body = CreateProjectResponse, description = "Project and repository created"),
+        (status = 401, body = ProjectFailureBody, description = "auth_required"),
         (status = 400, body = ProjectFailureBody, description = "validation_failed"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
         (status = 409, body = ProjectFailureBody, description = "duplicate_repository"),
@@ -358,9 +332,18 @@ pub(crate) async fn connect_project_repository_route(
 )]
 pub(crate) async fn create_project_route(
     State(state): State<AppState>,
-    ValidatedJson(request): ValidatedJson<CreateProjectRequest>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<CreateProjectCookieRequest>,
 ) -> Response {
-    let actor_account_id = request.owning_account_id;
+    let actor_account_id = match session_actor_account_id(&session).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
+    if legacy_scope_mismatch(request.legacy_owning_account_id, actor_account_id) {
+        return map_app_error(AppServiceError::Project(
+            tanren_contract::ProjectFailureReason::NoAccess,
+        ));
+    }
     match state
         .handlers
         .create_project(
@@ -368,7 +351,12 @@ pub(crate) async fn create_project_route(
             state.source_control.as_ref(),
             CreateNewProjectCommand {
                 actor_account_id,
-                request,
+                request: CreateProjectRequest {
+                    owning_account_id: actor_account_id,
+                    repository: request.repository,
+                    designated_host: request.designated_host,
+                    select_as_active: request.select_as_active,
+                },
             },
         )
         .await
@@ -378,29 +366,35 @@ pub(crate) async fn create_project_route(
     }
 }
 
-/// List projects visible to an account.
 #[utoipa::path(
     post,
     path = "/projects/list",
-    request_body = ListVisibleProjectsRequest,
+    request_body = ListVisibleProjectsCookieRequest,
     responses(
         (status = 200, body = ProjectCollectionView, description = "Project list"),
+        (status = 401, body = ProjectFailureBody, description = "auth_required"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
     ),
     tag = "projects",
 )]
 pub(crate) async fn list_visible_projects_route(
     State(state): State<AppState>,
-    ValidatedJson(request): ValidatedJson<ListVisibleProjectsRequest>,
+    session: Session,
+    ValidatedJson(_request): ValidatedJson<ListVisibleProjectsCookieRequest>,
 ) -> Response {
-    let actor_account_id = request.owning_account_id;
+    let actor_account_id = match session_actor_account_id(&session).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     match state
         .handlers
         .list_visible_projects(
             state.store.as_ref(),
             ListVisibleProjectsQuery {
                 actor_account_id,
-                request,
+                request: ListVisibleProjectsRequest {
+                    owning_account_id: actor_account_id,
+                },
             },
         )
         .await
@@ -410,29 +404,35 @@ pub(crate) async fn list_visible_projects_route(
     }
 }
 
-/// Return active-project metadata for an account.
 #[utoipa::path(
     post,
     path = "/projects/active",
-    request_body = ActiveProjectRequest,
+    request_body = ActiveProjectCookieRequest,
     responses(
         (status = 200, body = ActiveProjectView, description = "Active-project metadata"),
+        (status = 401, body = ProjectFailureBody, description = "auth_required"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
     ),
     tag = "projects",
 )]
 pub(crate) async fn active_project_route(
     State(state): State<AppState>,
-    ValidatedJson(request): ValidatedJson<ActiveProjectRequest>,
+    session: Session,
+    ValidatedJson(_request): ValidatedJson<ActiveProjectCookieRequest>,
 ) -> Response {
-    let actor_account_id = request.owning_account_id;
+    let actor_account_id = match session_actor_account_id(&session).await {
+        Ok(id) => id,
+        Err(response) => return response,
+    };
     match state
         .handlers
         .active_project(
             state.store.as_ref(),
             ActiveProjectQuery {
                 actor_account_id,
-                request,
+                request: ActiveProjectRequest {
+                    owning_account_id: actor_account_id,
+                },
             },
         )
         .await
@@ -442,8 +442,6 @@ pub(crate) async fn active_project_route(
     }
 }
 
-/// Revoke (sign out) the current session. Clears the cookie via
-/// `Session::flush` and returns 204.
 #[utoipa::path(
     post,
     path = "/sessions/revoke",
@@ -467,11 +465,26 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Build the `OpenApiRouter` carrying every account-flow route. Called
-/// from `lib.rs::build_app` after the cookie/CORS layers are
-/// constructed; the macros that `routes!()` expands need to live in the
-/// same module as the `#[utoipa::path]`-annotated handlers, so the
-/// router constructor lives here too.
+async fn session_actor_account_id(
+    session: &Session,
+) -> Result<tanren_identity_policy::AccountId, Response> {
+    match session_account(session).await {
+        Ok(Some(context)) => Ok(context.account_id),
+        Ok(None) => Err(auth_required()),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read");
+            Err(auth_required())
+        }
+    }
+}
+
+fn legacy_scope_mismatch(
+    legacy_owning_account_id: Option<tanren_identity_policy::AccountId>,
+    actor_account_id: tanren_identity_policy::AccountId,
+) -> bool {
+    legacy_owning_account_id.is_some_and(|owning| owning != actor_account_id)
+}
+
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
     OpenApiRouter::with_openapi(ApiDoc::openapi())
         .routes(routes!(health_route))

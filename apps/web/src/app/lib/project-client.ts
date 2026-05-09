@@ -27,7 +27,6 @@ export interface ProjectView {
 }
 
 export interface ConnectProjectRepositoryInput {
-  owning_account_id: string;
   repository: string;
   select_as_active: boolean;
 }
@@ -37,7 +36,6 @@ export interface ConnectProjectRepositoryResult {
 }
 
 export interface CreateProjectInput {
-  owning_account_id: string;
   repository: string;
   designated_host: string;
   select_as_active: boolean;
@@ -47,9 +45,7 @@ export interface CreateProjectResult {
   project: ProjectView;
 }
 
-export interface ListVisibleProjectsInput {
-  owning_account_id: string;
-}
+export type ListVisibleProjectsInput = Record<string, never>;
 
 export interface ProjectCollectionView {
   owning_account_id: string;
@@ -57,6 +53,7 @@ export interface ProjectCollectionView {
 }
 
 export type ProjectFailureCode =
+  | "auth_required"
   | "duplicate_repository"
   | "no_access"
   | "validation_failed"
@@ -150,7 +147,7 @@ export function createProject(
 }
 
 export function listVisibleProjects(
-  input: ListVisibleProjectsInput,
+  input: ListVisibleProjectsInput = {},
 ): Promise<ProjectCollectionView> {
   return postJson<ProjectCollectionView>("/projects/list", input);
 }

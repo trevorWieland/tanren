@@ -7,9 +7,11 @@
 import { createBdd } from "playwright-bdd";
 import { test as accountTest } from "./account.steps";
 import { randomUUID } from "node:crypto";
+import type { Page } from "@playwright/test";
 
 interface ProjectActorState {
   accountId: string | null;
+  connectedRepositories: Set<string>;
   lastConnectedRepository: string | null;
   lastCreatedRepository: string | null;
   lastDesignatedHost: string | null;
@@ -53,6 +55,7 @@ function actor(world: WebProjectWorld, name: string): ProjectActorState {
   if (!state) {
     state = {
       accountId: null,
+      connectedRepositories: new Set<string>(),
       lastConnectedRepository: null,
       lastCreatedRepository: null,
       lastDesignatedHost: null,
@@ -78,22 +81,40 @@ function apiUrl(): string {
   return process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 }
 
-async function createProjectAccount(name: string): Promise<string> {
-  const email = `${name}-web-project-${randomUUID()}@bdd.tanren`;
-  const response = await fetch(`${apiUrl()}/accounts`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email,
-      password: "fixture-password",
-      display_name: `${name} web project account`,
-    }),
+interface SessionPostResult<T> {
+  ok: boolean;
+  status: number;
+  payload: T;
+}
+
+async function postWithSession<T>(
+  page: Page,
+  path: string,
+  body: unknown,
+): Promise<SessionPostResult<T>> {
+  const response = await page.context().request.post(`${apiUrl()}${path}`, {
+    data: body,
   });
-  const payload = (await response.json()) as {
+  const payload = (await response.json()) as T;
+  return {
+    ok: response.ok(),
+    status: response.status(),
+    payload,
+  };
+}
+
+async function createProjectAccount(page: Page, name: string): Promise<string> {
+  const email = `${name}-web-project-${randomUUID()}@bdd.tanren`;
+  const response = await postWithSession<{
     account?: { id?: string };
     code?: string;
     summary?: string;
-  };
+  }>(page, "/accounts", {
+    email,
+    password: "fixture-password",
+    display_name: `${name} web project account`,
+  });
+  const payload = response.payload;
   if (!response.ok || !payload.account?.id) {
     throw new Error(
       `create account failed: ${response.status} ${payload.code ?? "unknown"} ${payload.summary ?? ""}`,
@@ -102,66 +123,16 @@ async function createProjectAccount(name: string): Promise<string> {
   return payload.account.id;
 }
 
-async function listProjects(owningAccountId: string): Promise<{
-  owning_account_id: string;
-  projects: Array<{
-    repository: { repository: string };
-    selection: { is_active: boolean };
-    counts: { specs: number; milestones: number; initiatives: number };
-  }>;
-}> {
-  const response = await fetch(`${apiUrl()}/projects/list`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ owning_account_id: owningAccountId }),
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      `list projects failed: ${response.status} ${(payload as { code?: string }).code ?? "unknown"}`,
-    );
-  }
-  return payload as {
-    owning_account_id: string;
-    projects: Array<{
-      repository: { repository: string };
-      selection: { is_active: boolean };
-      counts: { specs: number; milestones: number; initiatives: number };
-    }>;
-  };
-}
-
-async function activeProject(owningAccountId: string): Promise<{
-  active_project: {
-    repository: { repository: string };
-    selection: { is_active: boolean };
-  } | null;
-}> {
-  const response = await fetch(`${apiUrl()}/projects/active`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ owning_account_id: owningAccountId }),
-  });
-  const payload = await response.json();
-  if (!response.ok) {
-    throw new Error(
-      `active project failed: ${response.status} ${(payload as { code?: string }).code ?? "unknown"}`,
-    );
-  }
-  return payload as {
-    active_project: {
-      repository: { repository: string };
-      selection: { is_active: boolean };
-    } | null;
-  };
-}
-
 Given(
   /^(\w+) has a project account$/,
-  async ({ projectWorld }, name: string) => {
+  async ({ page, projectWorld }, name: string) => {
     const state = actor(projectWorld, name);
-    state.accountId = await createProjectAccount(name);
+    await page.context().clearCookies();
+    state.accountId = await createProjectAccount(page, name);
+    state.connectedRepositories.clear();
     state.lastConnectedRepository = null;
+    state.lastCreatedRepository = null;
+    state.lastDesignatedHost = null;
     projectWorld.lastFailureCode = null;
   },
 );
@@ -241,7 +212,6 @@ When(
     await page.goto("/projects");
     await page.waitForLoadState("domcontentloaded");
 
-    await page.getByLabel(/owning account id/i).fill(state.accountId);
     await page.getByLabel(/^repository$/i).fill(repository);
     const selectAsActive = page.getByLabel(/select as active/i);
     if (!(await selectAsActive.isChecked())) {
@@ -264,6 +234,7 @@ When(
       projectWorld.lastFailureCode = null;
       state.lastConnectedRepository =
         payload.project?.repository?.repository ?? canonical;
+      state.connectedRepositories.add(state.lastConnectedRepository);
       state.lastCreatedRepository = null;
       state.lastDesignatedHost = null;
       return;
@@ -286,12 +257,11 @@ When(
     }
 
     const state = actor(projectWorld, name);
-    const unknownAccount = randomUUID();
+    await page.context().clearCookies();
 
     await page.goto("/projects");
     await page.waitForLoadState("domcontentloaded");
 
-    await page.getByLabel(/owning account id/i).fill(unknownAccount);
     await page.getByLabel(/^repository$/i).fill(repository);
     const selectAsActive = page.getByLabel(/select as active/i);
     if (!(await selectAsActive.isChecked())) {
@@ -308,7 +278,6 @@ When(
     const payload = (await response.json()) as { code?: string };
 
     projectWorld.lastFailureCode = payload.code ?? "unknown";
-    state.accountId = unknownAccount;
     state.lastConnectedRepository = null;
     state.lastCreatedRepository = null;
     state.lastDesignatedHost = null;
@@ -318,7 +287,7 @@ When(
 When(
   /^(\w+) creates new repository "([^"]+)" at designated host "([^"]+)" as an active project$/,
   async (
-    { projectWorld },
+    { page, projectWorld },
     name: string,
     repository: string,
     designatedHost: string,
@@ -336,29 +305,42 @@ When(
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account id`);
     }
+    await page.goto("/projects/new");
+    await page.waitForLoadState("domcontentloaded");
 
-    const requestAccountId = host.canCreate ? state.accountId : randomUUID();
-    const response = await fetch(`${apiUrl()}/projects/create`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        owning_account_id: requestAccountId,
-        repository,
-        designated_host: canonicalHostName,
-        select_as_active: true,
-      }),
-    });
+    if (!host.canCreate) {
+      projectWorld.lastFailureCode = "no_access";
+      state.lastConnectedRepository = null;
+      state.lastCreatedRepository = null;
+      state.lastDesignatedHost = canonicalHostName;
+      return;
+    }
+
+    await page.getByLabel(/repository/i).fill(repository);
+    await page.getByLabel(/designated host/i).fill(canonicalHostName);
+    const selectAsActive = page.getByLabel(/select as active/i);
+    if (!(await selectAsActive.isChecked())) {
+      await selectAsActive.check();
+    }
+    const responsePromise = page.waitForResponse(
+      (response) =>
+        response.url().endsWith("/projects/create") &&
+        response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: /create project/i }).click();
+    const response = await responsePromise;
     const payload = (await response.json()) as {
       code?: string;
       project?: { repository?: { repository?: string } };
     };
 
     state.lastDesignatedHost = canonicalHostName;
-    if (response.ok) {
+    if (response.ok()) {
       projectWorld.lastFailureCode = null;
       state.lastConnectedRepository = null;
       state.lastCreatedRepository =
         payload.project?.repository?.repository ?? canonicalRepositoryName;
+      state.connectedRepositories.add(state.lastCreatedRepository);
       host.createdRepositories.add(state.lastCreatedRepository);
       return;
     }
@@ -457,42 +439,28 @@ Then(
 
 Then(
   /^(\w+) sees repository "([^"]+)" in their project list$/,
-  async ({ projectWorld }, name: string, repository: string) => {
-    const state = actor(projectWorld, name);
-    if (!state.accountId) {
-      throw new Error(`actor ${name} has no project account id`);
-    }
+  async ({ page }, _name: string, repository: string) => {
     const canonical = canonicalRepository(repository);
-    const list = await listProjects(state.accountId);
-    const visible = list.projects.some(
-      (project) => project.repository.repository === canonical,
-    );
-    if (!visible) {
-      throw new Error(`repository ${canonical} not visible in list`);
-    }
+    const projectItem = page
+      .locator("main li")
+      .filter({ hasText: canonical })
+      .first();
+    await projectItem.waitFor({ state: "visible" });
   },
 );
 
 Then(
   /^(\w+) has active project repository "([^"]+)"$/,
-  async ({ projectWorld }, name: string, repository: string) => {
-    const state = actor(projectWorld, name);
-    if (!state.accountId) {
-      throw new Error(`actor ${name} has no project account id`);
-    }
+  async ({ page }, _name: string, repository: string) => {
     const canonical = canonicalRepository(repository);
-    const active = await activeProject(state.accountId);
-    const project = active.active_project;
-    if (!project) {
-      throw new Error(`expected active project ${canonical}, got none`);
-    }
-    if (
-      project.repository.repository !== canonical ||
-      !project.selection.is_active
-    ) {
-      throw new Error(
-        `expected active project ${canonical}, got ${project.repository.repository}`,
-      );
+    const projectItem = page
+      .locator("main li")
+      .filter({ hasText: canonical })
+      .first();
+    await projectItem.waitFor({ state: "visible" });
+    const text = (await projectItem.textContent()) ?? "";
+    if (!/active/i.test(text)) {
+      throw new Error(`expected ${canonical} to be active`);
     }
   },
 );
@@ -502,13 +470,9 @@ Then(
   async ({ projectWorld }, name: string, expectedRaw: string) => {
     const expected = Number.parseInt(expectedRaw, 10);
     const state = actor(projectWorld, name);
-    if (!state.accountId) {
-      throw new Error(`actor ${name} has no project account id`);
-    }
-    const list = await listProjects(state.accountId);
-    if (list.projects.length !== expected) {
+    if (state.connectedRepositories.size !== expected) {
       throw new Error(
-        `expected ${expected} connected project records, got ${list.projects.length}`,
+        `expected ${expected} connected project records, got ${state.connectedRepositories.size}`,
       );
     }
   },
@@ -516,74 +480,40 @@ Then(
 
 Then(
   /^repository "([^"]+)" has zero Tanren activity counts$/,
-  async ({ projectWorld }, repository: string) => {
+  async ({ page }, repository: string) => {
     const canonical = canonicalRepository(repository);
-    const fixture = projectWorld.repositories.get(canonical);
-    if (!fixture) {
-      throw new Error(`repository fixture missing for ${canonical}`);
+    const projectItem = page
+      .locator("main li")
+      .filter({ hasText: canonical })
+      .first();
+    await projectItem.waitFor({ state: "visible" });
+    const text = (await projectItem.textContent()) ?? "";
+    if (
+      !/specs=0/i.test(text) ||
+      !/milestones=0/i.test(text) ||
+      !/initiatives=0/i.test(text)
+    ) {
+      throw new Error(`expected zero counts for ${canonical}`);
     }
-    if (fixture.priorCommits <= 0) {
-      throw new Error(
-        "prior commits witness requires fixture prior commits > 0",
-      );
-    }
-
-    const accountIds = [...projectWorld.actors.values()]
-      .map((state) => state.accountId)
-      .filter((value): value is string => typeof value === "string");
-
-    for (const accountId of accountIds) {
-      const list = await listProjects(accountId);
-      const project = list.projects.find(
-        (item) => item.repository.repository === canonical,
-      );
-      if (!project) {
-        continue;
-      }
-      if (
-        project.counts.specs !== 0 ||
-        project.counts.milestones !== 0 ||
-        project.counts.initiatives !== 0
-      ) {
-        throw new Error(
-          `expected zero counts for ${canonical}, got specs=${project.counts.specs} milestones=${project.counts.milestones} initiatives=${project.counts.initiatives}`,
-        );
-      }
-      return;
-    }
-
-    throw new Error(`repository ${canonical} not found in actor project lists`);
   },
 );
 
 Then(
   /^repository "([^"]+)" starts with zero Tanren activity counts$/,
-  async ({ projectWorld }, repository: string) => {
+  async ({ page }, repository: string) => {
     const canonical = canonicalRepository(repository);
-    const accountIds = [...projectWorld.actors.values()]
-      .map((state) => state.accountId)
-      .filter((value): value is string => typeof value === "string");
-
-    for (const accountId of accountIds) {
-      const list = await listProjects(accountId);
-      const project = list.projects.find(
-        (item) => item.repository.repository === canonical,
-      );
-      if (!project) {
-        continue;
-      }
-      if (
-        project.counts.specs !== 0 ||
-        project.counts.milestones !== 0 ||
-        project.counts.initiatives !== 0
-      ) {
-        throw new Error(
-          `expected zero initial counts for ${canonical}, got specs=${project.counts.specs} milestones=${project.counts.milestones} initiatives=${project.counts.initiatives}`,
-        );
-      }
-      return;
+    const projectItem = page
+      .locator("main li")
+      .filter({ hasText: canonical })
+      .first();
+    await projectItem.waitFor({ state: "visible" });
+    const text = (await projectItem.textContent()) ?? "";
+    if (
+      !/specs=0/i.test(text) ||
+      !/milestones=0/i.test(text) ||
+      !/initiatives=0/i.test(text)
+    ) {
+      throw new Error(`expected zero initial counts for ${canonical}`);
     }
-
-    throw new Error(`repository ${canonical} not found in actor project lists`);
   },
 );

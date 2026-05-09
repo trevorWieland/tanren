@@ -19,12 +19,9 @@ export default meta;
 
 type Story = StoryObj<typeof meta>;
 
-const accountId = "00000000-0000-7000-8000-0000000000b2";
-
 export const Default: Story = {
   play: async ({ canvasElement }) => {
     const c = within(canvasElement);
-    await expect(c.getByLabelText(/owning account id/i)).toBeVisible();
     await expect(c.getByLabelText(/repository/i)).toBeVisible();
     await expect(c.getByLabelText(/designated host/i)).toBeVisible();
     await expect(c.getByLabelText(/select as active project/i)).toBeChecked();
@@ -43,7 +40,6 @@ export const Pending: Story = {
         /* never resolves */
       })) as typeof fetch;
     try {
-      await userEvent.type(c.getByLabelText(/owning account id/i), accountId);
       await userEvent.type(c.getByLabelText(/repository/i), "acme/new-project");
       await userEvent.type(
         c.getByLabelText(/designated host/i),
@@ -67,7 +63,7 @@ export const ValidationFailure: Story = {
     await userEvent.click(c.getByRole("button", { name: /create project/i }));
     const alert = await c.findByRole("alert");
     await expect(alert).toBeVisible();
-    await expect(c.getByLabelText(/owning account id/i)).toHaveAttribute(
+    await expect(c.getByLabelText(/repository/i)).toHaveAttribute(
       "aria-invalid",
       "true",
     );
@@ -87,7 +83,6 @@ export const RequestFailure: Story = {
         { status: 502, headers: { "content-type": "application/json" } },
       )) as typeof fetch;
     try {
-      await userEvent.type(c.getByLabelText(/owning account id/i), accountId);
       await userEvent.type(c.getByLabelText(/repository/i), "acme/new-project");
       await userEvent.type(
         c.getByLabelText(/designated host/i),
@@ -112,7 +107,7 @@ export const Success: Story = {
         JSON.stringify({
           project: {
             id: "00000000-0000-7000-8000-0000000000e2",
-            owning_account_id: accountId,
+            owning_account_id: "00000000-0000-7000-8000-0000000000b2",
             repository: { repository: "acme/new-project" },
             selection: {
               is_active: true,
@@ -125,7 +120,6 @@ export const Success: Story = {
         { status: 201, headers: { "content-type": "application/json" } },
       )) as typeof fetch;
     try {
-      await userEvent.type(c.getByLabelText(/owning account id/i), accountId);
       await userEvent.type(c.getByLabelText(/repository/i), "acme/new-project");
       await userEvent.type(
         c.getByLabelText(/designated host/i),

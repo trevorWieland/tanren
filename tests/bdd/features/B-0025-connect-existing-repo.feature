@@ -26,7 +26,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: API rejects connecting a repository without access
       Given repository fixture "ApiTeam/Private" has fingerprint "repo-fp::apiteam/private" and 5 prior commits
       When outsider tries to connect existing repository "ApiTeam/Private" without an account
-      Then the project request fails with code "no_access"
+      Then the project request fails with code "auth_required"
 
     @falsification @api
     Scenario: API rejects duplicate repository connection and keeps one record
@@ -64,7 +64,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: Web rejects connecting a repository without access
       Given repository fixture "WebTeam/Private" has fingerprint "repo-fp::webteam/private" and 5 prior commits
       When outsider tries to connect existing repository "WebTeam/Private" without an account
-      Then the project request fails with code "no_access"
+      Then the project request fails with code "auth_required"
 
     @falsification @web
     Scenario: Web rejects duplicate repository connection and keeps one record

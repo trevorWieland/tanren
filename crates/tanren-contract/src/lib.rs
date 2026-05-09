@@ -13,10 +13,12 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use project::{
-    ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
-    ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
-    ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
-    ProjectRepositoryView, ProjectSelectionView, ProjectView,
+    ActiveProjectCookieRequest, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,
+    ConnectProjectRepositoryResponse, CreateProjectCookieRequest, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest,
+    ProjectCollectionView, ProjectCountsView, ProjectFailureReason, ProjectRepositoryView,
+    ProjectSelectionView, ProjectView,
 };
 
 use serde::{Deserialize, Serialize};

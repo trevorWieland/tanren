@@ -24,11 +24,13 @@ use async_trait::async_trait;
 use tanren_contract::{
     AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
     ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
-    SignUpRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
+    SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
+use super::HarnessError;
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
@@ -41,6 +43,7 @@ use super::{
 #[derive(Debug)]
 pub struct WebHarness {
     inner: InProcessHarness,
+    session_account_id: Option<AccountId>,
 }
 
 impl WebHarness {
@@ -53,7 +56,30 @@ impl WebHarness {
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
             inner: InProcessHarness::new(HarnessKind::Web).await?,
+            session_account_id: None,
         })
+    }
+
+    fn session_account_id(&self) -> HarnessResult<AccountId> {
+        self.session_account_id.ok_or_else(|| {
+            HarnessError::Project(
+                ProjectFailureReason::AuthRequired,
+                ProjectFailureReason::AuthRequired.code().to_owned(),
+            )
+        })
+    }
+
+    fn guard_legacy_scope(
+        owning_account_id: AccountId,
+        session_account_id: AccountId,
+    ) -> HarnessResult<()> {
+        if owning_account_id != session_account_id {
+            return Err(HarnessError::Project(
+                ProjectFailureReason::NoAccess,
+                ProjectFailureReason::NoAccess.code().to_owned(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -64,18 +90,24 @@ impl AccountHarness for WebHarness {
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
-        self.inner.sign_up(req).await
+        let session = self.inner.sign_up(req).await?;
+        self.session_account_id = Some(session.account_id);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
-        self.inner.sign_in(req).await
+        let session = self.inner.sign_in(req).await?;
+        self.session_account_id = Some(session.account_id);
+        Ok(session)
     }
 
     async fn accept_invitation(
         &mut self,
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
-        self.inner.accept_invitation(req).await
+        let acceptance = self.inner.accept_invitation(req).await?;
+        self.session_account_id = Some(acceptance.session.account_id);
+        Ok(acceptance)
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
@@ -93,27 +125,56 @@ impl ProjectHarness for WebHarness {
         &mut self,
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
-        self.inner.connect_project_repository(req).await
+        let session_account_id = self.session_account_id()?;
+        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        self.inner
+            .connect_project_repository(ConnectProjectRepositoryRequest {
+                owning_account_id: session_account_id,
+                repository: req.repository,
+                select_as_active: req.select_as_active,
+            })
+            .await
     }
 
     async fn list_visible_projects(
         &mut self,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
-        self.inner.list_visible_projects(req).await
+        let session_account_id = self.session_account_id()?;
+        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        self.inner
+            .list_visible_projects(ListVisibleProjectsRequest {
+                owning_account_id: session_account_id,
+            })
+            .await
     }
 
     async fn create_project(
         &mut self,
         req: CreateProjectRequest,
     ) -> HarnessResult<CreateProjectResponse> {
-        self.inner.create_project(req).await
+        let session_account_id = self.session_account_id()?;
+        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        self.inner
+            .create_project(CreateProjectRequest {
+                owning_account_id: session_account_id,
+                repository: req.repository,
+                designated_host: req.designated_host,
+                select_as_active: req.select_as_active,
+            })
+            .await
     }
 
     async fn active_project(
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView> {
-        self.inner.active_project(req).await
+        let session_account_id = self.session_account_id()?;
+        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        self.inner
+            .active_project(ActiveProjectRequest {
+                owning_account_id: session_account_id,
+            })
+            .await
     }
 }

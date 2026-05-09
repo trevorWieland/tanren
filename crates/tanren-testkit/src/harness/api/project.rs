@@ -112,6 +112,7 @@ impl ProjectHarness for ApiHarness {
 
 pub(crate) fn project_code_to_reason(code: &str) -> Option<ProjectFailureReason> {
     Some(match code {
+        "auth_required" => ProjectFailureReason::AuthRequired,
         "duplicate_repository" => ProjectFailureReason::DuplicateRepository,
         "no_access" => ProjectFailureReason::NoAccess,
         "validation_failed" => ProjectFailureReason::ValidationFailed,

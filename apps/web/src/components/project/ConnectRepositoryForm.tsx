@@ -12,12 +12,9 @@ import {
 } from "@/app/lib/project-client";
 import * as m from "@/i18n/paraglide/messages";
 
-const UUID_PATTERN =
-  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const REPOSITORY_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+$/;
 
 const ConnectRepositoryInput = v.object({
-  owning_account_id: v.pipe(v.string(), v.trim(), v.regex(UUID_PATTERN)),
   repository: v.pipe(
     v.string(),
     v.trim(),
@@ -41,12 +38,10 @@ export function ConnectRepositoryForm({
   onSuccess,
 }: ConnectRepositoryFormProps): ReactNode {
   const baseId = useId();
-  const accountId = `${baseId}-owning-account-id`;
   const repositoryId = `${baseId}-repository`;
   const selectAsActiveId = `${baseId}-select-as-active`;
   const errorId = `${baseId}-error`;
 
-  const [owningAccountId, setOwningAccountId] = useState("");
   const [repository, setRepository] = useState("");
   const [selectAsActive, setSelectAsActive] = useState(true);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
@@ -56,7 +51,6 @@ export function ConnectRepositoryForm({
     event.preventDefault();
     setErrorMessage(null);
     const parsed = v.safeParse(ConnectRepositoryInput, {
-      owning_account_id: owningAccountId,
       repository,
       select_as_active: selectAsActive,
     });
@@ -90,24 +84,6 @@ export function ConnectRepositoryForm({
       aria-label={m.projects_connect_formLabel()}
       className="flex w-full max-w-md flex-col gap-4"
     >
-      <div className="flex flex-col gap-1">
-        <label htmlFor={accountId} className="text-sm font-medium">
-          {m.projects_owningAccountId()}
-        </label>
-        <input
-          id={accountId}
-          name="owning_account_id"
-          type="text"
-          value={owningAccountId}
-          onChange={(event) => {
-            setOwningAccountId(event.target.value);
-          }}
-          aria-describedby={errorActive ? errorId : undefined}
-          aria-invalid={errorActive ? true : undefined}
-          className={inputClass}
-          placeholder={m.projects_owningAccountIdPlaceholder()}
-        />
-      </div>
       <div className="flex flex-col gap-1">
         <label htmlFor={repositoryId} className="text-sm font-medium">
           {m.projects_repository()}

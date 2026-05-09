@@ -20,6 +20,21 @@ pub struct ConnectProjectRepositoryRequest {
     pub select_as_active: bool,
 }
 
+/// Cookie-scoped API/web request for connecting an existing repository.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ConnectProjectRepositoryCookieRequest {
+    /// Legacy compatibility shim for pre-session-scoped callers. Not part
+    /// of the `OpenAPI` request schema.
+    #[serde(default)]
+    #[serde(rename = "owning_account_id")]
+    #[schema(ignore)]
+    pub legacy_owning_account_id: Option<AccountId>,
+    /// Canonical repository identity (`owner/name`).
+    pub repository: RepositoryRef,
+    /// Whether the newly connected project should be active immediately.
+    pub select_as_active: bool,
+}
+
 /// Successful repository-connection response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConnectProjectRepositoryResponse {
@@ -32,6 +47,23 @@ pub struct ConnectProjectRepositoryResponse {
 pub struct CreateProjectRequest {
     /// Account that owns the project.
     pub owning_account_id: AccountId,
+    /// Canonical repository identity (`owner/name`) to create.
+    pub repository: RepositoryRef,
+    /// Designated host where the repository should be created.
+    pub designated_host: String,
+    /// Whether the newly created project should be active immediately.
+    pub select_as_active: bool,
+}
+
+/// Cookie-scoped API/web request for creating a project.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CreateProjectCookieRequest {
+    /// Legacy compatibility shim for pre-session-scoped callers. Not part
+    /// of the `OpenAPI` request schema.
+    #[serde(default)]
+    #[serde(rename = "owning_account_id")]
+    #[schema(ignore)]
+    pub legacy_owning_account_id: Option<AccountId>,
     /// Canonical repository identity (`owner/name`) to create.
     pub repository: RepositoryRef,
     /// Designated host where the repository should be created.
@@ -63,12 +95,21 @@ pub struct ListVisibleProjectsRequest {
     pub owning_account_id: AccountId,
 }
 
+/// Cookie-scoped API/web request for listing projects visible to the
+/// authenticated session account.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+pub struct ListVisibleProjectsCookieRequest {}
+
 /// Query request for reading active-project metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ActiveProjectRequest {
     /// Account whose active-project metadata should be returned.
     pub owning_account_id: AccountId,
 }
+
+/// Cookie-scoped API/web request for active-project metadata.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+pub struct ActiveProjectCookieRequest {}
 
 /// Active-project projection for an account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -128,6 +169,8 @@ pub struct ProjectCountsView {
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum ProjectFailureReason {
+    /// The request requires authentication and no valid session was present.
+    AuthRequired,
     /// A project already exists for this repository in the owning account.
     DuplicateRepository,
     /// The actor does not have access to the requested account or repository.
@@ -143,6 +186,7 @@ impl ProjectFailureReason {
     #[must_use]
     pub const fn code(self) -> &'static str {
         match self {
+            Self::AuthRequired => "auth_required",
             Self::DuplicateRepository => "duplicate_repository",
             Self::NoAccess => "no_access",
             Self::ValidationFailed => "validation_failed",
@@ -154,6 +198,7 @@ impl ProjectFailureReason {
     #[must_use]
     pub const fn summary(self) -> &'static str {
         match self {
+            Self::AuthRequired => "Authentication is required or the session is missing/expired.",
             Self::DuplicateRepository => {
                 "A project for the supplied repository already exists in this account."
             }
@@ -171,6 +216,7 @@ impl ProjectFailureReason {
     #[must_use]
     pub const fn http_status(self) -> u16 {
         match self {
+            Self::AuthRequired => 401,
             Self::DuplicateRepository => 409,
             Self::NoAccess => 403,
             Self::ValidationFailed => 400,
