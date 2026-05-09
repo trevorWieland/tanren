@@ -1,6 +1,17 @@
 import type { Page, Response } from "@playwright/test";
 
 import {
+  assertOrganizationPermission,
+  decodeOrganizationApiResponse,
+  isCheckOrganizationPermissionResponse,
+  isCreateOrganizationResponse,
+  isListOrganizationsResponse,
+  type CheckOrganizationPermissionResponse,
+  type CreateOrganizationResponse,
+  type ListOrganizationsResponse,
+  type OrganizationApiResponse,
+} from "@/lib/organization-api";
+import {
   ORGANIZATION_API_ROUTES,
   ORGANIZATION_WEB_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
@@ -12,18 +23,7 @@ import {
 } from "@/lib/organization-routes";
 
 import { waitForHydration } from "./api-client";
-import {
-  assertOrganizationPermission,
-  isCheckOrganizationPermissionResponse,
-  isCreateOrganizationResponse,
-  isListOrganizationsResponse,
-  isOrganizationErrorResponse,
-  type CheckOrganizationPermissionResponse,
-  type CreateOrganizationResponse,
-  type ListOrganizationsResponse,
-  type OrganizationErrorResponse,
-  type OrganizationSnapshot,
-} from "./organization-world";
+import { type OrganizationSnapshot } from "./organization-world";
 
 export interface WireOutcome {
   status: "idle" | "pending" | "success" | "failure";
@@ -31,25 +31,7 @@ export interface WireOutcome {
   failureDetail?: string;
 }
 
-export interface DecodedWireSuccess<TBody> {
-  ok: true;
-  status: number;
-  text: string;
-  json: unknown;
-  body: TBody;
-}
-
-export interface DecodedWireFailure {
-  ok: false;
-  status: number;
-  text: string;
-  json: unknown;
-  error: OrganizationErrorResponse;
-}
-
-export type DecodedWireResponse<TBody> =
-  | DecodedWireSuccess<TBody>
-  | DecodedWireFailure;
+export type DecodedWireResponse<TBody> = OrganizationApiResponse<TBody>;
 
 export interface CreateOrganizationOperation {
   outcome: WireOutcome;
@@ -180,6 +162,8 @@ export async function readOrganizationSnapshot(
     name: organizationName,
     grantedPermissions,
     initialProjectCount,
+    proofLink: null,
+    sourceLink: null,
   };
 }
 
@@ -211,10 +195,12 @@ export async function createOrganizationViaWire(
     isCreateOrganizationResponse,
     "create organization",
   );
-  const snapshot =
-    outcome.status === "success" && decodedResponse.ok
-      ? await readOrganizationSnapshot(page, organizationName)
-      : undefined;
+  const snapshot = await readCreateSnapshotFromContract(
+    page,
+    organizationName,
+    decodedResponse,
+    outcome.status,
+  );
 
   if (snapshot) {
     return {
@@ -302,75 +288,52 @@ export async function decodeWireResponse<TBody>(
   operation: string,
 ): Promise<DecodedWireResponse<TBody>> {
   const text = await response.text();
-  const json = tryParseJson(text);
-
-  if (response.ok() && isSuccessBody(json)) {
-    return {
-      ok: true,
+  const parsed = parseJson(text);
+  return decodeOrganizationApiResponse(
+    {
+      ok: response.ok(),
       status: response.status(),
       text,
-      json,
-      body: json,
-    };
-  }
-
-  const fallback = fallbackErrorResponse(response.status(), operation, text);
-  if (isOrganizationErrorResponse(json)) {
-    return {
-      ok: false,
-      status: response.status(),
-      text,
-      json,
-      error: {
-        code: json.code,
-        summary:
-          typeof json.summary === "string" ? json.summary : fallback.summary,
-      },
-    };
-  }
-
-  return {
-    ok: false,
-    status: response.status(),
-    text,
-    json,
-    error: fallback,
-  };
+      json: parsed.json,
+      hasValidJson: parsed.hasValidJson,
+      transportFailure: false,
+    },
+    isSuccessBody,
+    operation,
+  );
 }
 
-function tryParseJson(text: string): unknown {
+function parseJson(text: string): { hasValidJson: boolean; json: unknown } {
   if (text.trim() === "") {
-    return null;
+    return { hasValidJson: true, json: null };
   }
 
   try {
-    return JSON.parse(text) as unknown;
+    return { hasValidJson: true, json: JSON.parse(text) as unknown };
   } catch {
-    return null;
+    return { hasValidJson: false, json: null };
   }
 }
 
-function fallbackErrorResponse(
-  status: number,
-  operation: string,
-  text: string,
-): OrganizationErrorResponse {
-  if (status === 401) {
-    return { code: "auth_required", summary: "authentication required" };
-  }
-  if (status === 403) {
-    return { code: "permission_denied", summary: "permission denied" };
-  }
-  if (status === 400) {
-    return {
-      code: "validation_failed",
-      summary: text || `${operation} invalid`,
-    };
+async function readCreateSnapshotFromContract(
+  page: Page,
+  organizationName: string,
+  decodedResponse: DecodedWireResponse<CreateOrganizationResponse>,
+  outcomeStatus: WireOutcome["status"],
+): Promise<OrganizationSnapshot | undefined> {
+  if (outcomeStatus !== "success" || !decodedResponse.ok) {
+    return undefined;
   }
 
+  const rowSnapshot = await readOrganizationSnapshot(page, organizationName);
   return {
-    code: "unknown",
-    summary: text || `${operation} failed with HTTP ${status}`,
+    ...rowSnapshot,
+    id: decodedResponse.body.organization.id,
+    name: decodedResponse.body.organization.name,
+    grantedPermissions: decodedResponse.body.granted_permissions,
+    initialProjectCount: decodedResponse.body.initial_project_count,
+    proofLink: decodedResponse.body.proof_link,
+    sourceLink: decodedResponse.body.source_link,
   };
 }
 

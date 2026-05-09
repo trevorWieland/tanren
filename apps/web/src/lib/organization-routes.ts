@@ -1,13 +1,12 @@
+import {
+  ORGANIZATION_API_ROUTES,
+  type OrganizationAdminPermission,
+} from "@/lib/organization-api";
+
 export const ORGANIZATION_WEB_ROUTE = "/organizations" as const;
 
-export const ORGANIZATION_API_ROUTES = {
-  create: "/organizations",
-  list: "/organizations",
-  checkPermission: "/organizations/permissions/check",
-  testHookEvents: "/test-hooks/events",
-} as const;
-
-export type OrganizationAdminPermission = string;
+export { ORGANIZATION_API_ROUTES };
+export type { OrganizationAdminPermission };
 
 export const ORGANIZATION_WIRE_TEST_IDS = {
   page: "org-wire-page",

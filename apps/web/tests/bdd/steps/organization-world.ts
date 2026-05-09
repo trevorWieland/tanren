@@ -1,4 +1,11 @@
-import { type OrganizationAdminPermission } from "@/lib/organization-routes";
+import {
+  type CheckOrganizationPermissionResponse,
+  type CreateOrganizationResponse,
+  type ListOrganizationsResponse,
+  type OrganizationAdminPermission,
+  type OrganizationProofLink,
+  type OrganizationSourceLink,
+} from "@/lib/organization-api";
 
 export interface ActorState {
   email?: string;
@@ -12,35 +19,8 @@ export interface OrganizationSnapshot {
   name: string;
   grantedPermissions: OrganizationAdminPermission[];
   initialProjectCount: number | null;
-}
-
-export interface OrganizationViewResponse {
-  id: string;
-  name: string;
-}
-
-export interface CreateOrganizationResponse {
-  organization: OrganizationViewResponse;
-  granted_permissions: OrganizationAdminPermission[];
-  initial_project_count: number;
-  proof_link: { behavior_id: string };
-  source_link: { event_family: string; event_kind: string };
-}
-
-export interface ListOrganizationsResponse {
-  organizations: OrganizationViewResponse[];
-}
-
-export interface CheckOrganizationPermissionResponse {
-  account_id: string;
-  org_id: string;
-  permission: OrganizationAdminPermission;
-  allowed: boolean;
-}
-
-export interface OrganizationErrorResponse {
-  code: string;
-  summary: string;
+  proofLink: OrganizationProofLink | null;
+  sourceLink: OrganizationSourceLink | null;
 }
 
 export interface OrganizationWorldState {
@@ -58,122 +38,6 @@ export interface OrganizationWorld {
 
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
-}
-
-function hasOnlyStringKeys(value: unknown, keys: readonly string[]): boolean {
-  if (!isObjectRecord(value)) {
-    return false;
-  }
-  return keys.every((key) => typeof value[key] === "string");
-}
-
-export function isOrganizationPermission(
-  value: unknown,
-): value is OrganizationAdminPermission {
-  return typeof value === "string" && value.trim() !== "";
-}
-
-export function assertOrganizationPermission(
-  value: string,
-): OrganizationAdminPermission {
-  if (isOrganizationPermission(value)) {
-    return value;
-  }
-  throw new Error(`unsupported organization permission '${value}' in scenario`);
-}
-
-export function isOrganizationErrorResponse(
-  value: unknown,
-): value is OrganizationErrorResponse {
-  if (!isObjectRecord(value)) {
-    return false;
-  }
-
-  if (typeof value["code"] !== "string") {
-    return false;
-  }
-
-  if (value["summary"] !== undefined && typeof value["summary"] !== "string") {
-    return false;
-  }
-
-  return true;
-}
-
-export function isOrganizationViewResponse(
-  value: unknown,
-): value is OrganizationViewResponse {
-  return hasOnlyStringKeys(value, ["id", "name"]);
-}
-
-export function isCreateOrganizationResponse(
-  value: unknown,
-): value is CreateOrganizationResponse {
-  if (!isObjectRecord(value)) {
-    return false;
-  }
-
-  if (!isOrganizationViewResponse(value["organization"])) {
-    return false;
-  }
-
-  const permissions = value["granted_permissions"];
-  if (!Array.isArray(permissions)) {
-    return false;
-  }
-
-  if (
-    !permissions.every((permission) => isOrganizationPermission(permission))
-  ) {
-    return false;
-  }
-
-  if (typeof value["initial_project_count"] !== "number") {
-    return false;
-  }
-
-  const proofLink = value["proof_link"];
-  if (!hasOnlyStringKeys(proofLink, ["behavior_id"])) {
-    return false;
-  }
-
-  const sourceLink = value["source_link"];
-  return hasOnlyStringKeys(sourceLink, ["event_family", "event_kind"]);
-}
-
-export function isListOrganizationsResponse(
-  value: unknown,
-): value is ListOrganizationsResponse {
-  if (!isObjectRecord(value)) {
-    return false;
-  }
-
-  const organizations = value["organizations"];
-  if (!Array.isArray(organizations)) {
-    return false;
-  }
-
-  return organizations.every((organization) =>
-    isOrganizationViewResponse(organization),
-  );
-}
-
-export function isCheckOrganizationPermissionResponse(
-  value: unknown,
-): value is CheckOrganizationPermissionResponse {
-  if (!isObjectRecord(value)) {
-    return false;
-  }
-
-  if (!hasOnlyStringKeys(value, ["account_id", "org_id", "permission"])) {
-    return false;
-  }
-
-  if (!isOrganizationPermission(value["permission"])) {
-    return false;
-  }
-
-  return typeof value["allowed"] === "boolean";
 }
 
 export function requireOrganizationWorld(world: unknown): OrganizationWorld {

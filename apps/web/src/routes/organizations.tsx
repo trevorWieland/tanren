@@ -4,9 +4,17 @@ import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
-  ORGANIZATION_API_ROUTES,
-  ORGANIZATION_WIRE_TEST_IDS,
+  checkOrganizationPermissionApi,
+  createOrganizationApi,
+  isOrganizationPermission,
+  listOrganizationsApi,
+  useOrganizationOperationState,
   type OrganizationAdminPermission,
+  type OrganizationProofLink,
+  type OrganizationSourceLink,
+} from "@/lib/organization-api";
+import {
+  ORGANIZATION_WIRE_TEST_IDS,
   organizationIdTestId,
   organizationInitialProjectsTestId,
   organizationPermissionsTestId,
@@ -14,93 +22,36 @@ import {
   normalizeOrganizationName,
 } from "@/lib/organization-routes";
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 const ORGANIZATION_PERMISSION_CACHE_KEY = "tanren.organization.permissions";
-
-interface WireResponse {
-  ok: boolean;
-  status: number;
-  text: string;
-  json: unknown;
-}
 
 interface OrganizationRecord {
   id: string;
   name: string;
-  grantedPermissions: string[];
+  grantedPermissions: OrganizationAdminPermission[];
   initialProjectCount: number | null;
-}
-
-interface OperationState {
-  status: "idle" | "pending" | "success" | "failure";
-  failureCode: string | null;
-  detail: string | null;
-}
-
-function failureCode(response: WireResponse): string {
-  const body = response.json as { code?: unknown } | null;
-  if (body && typeof body.code === "string") {
-    return body.code;
-  }
-  if (response.status === 401) return "auth_required";
-  if (response.status === 403) return "permission_denied";
-  return "unknown";
-}
-
-function failureDetail(response: WireResponse): string {
-  return `status=${response.status} code=${failureCode(response)} body=${response.text}`;
-}
-
-async function callApi(
-  method: "GET" | "POST",
-  path: string,
-  payload?: unknown,
-): Promise<WireResponse> {
-  const headers: Record<string, string> = {};
-  const request: RequestInit = {
-    method,
-    headers,
-    credentials: "include",
-  };
-  if (payload !== undefined) {
-    headers["content-type"] = "application/json";
-    request.body = JSON.stringify(payload);
-  }
-
-  const response = await fetch(`${API_URL}${path}`, request);
-
-  const text = await response.text();
-  let json: unknown = null;
-  try {
-    json = JSON.parse(text);
-  } catch {
-    json = null;
-  }
-
-  return {
-    ok: response.ok,
-    status: response.status,
-    text,
-    json,
-  };
+  proofLink: OrganizationProofLink | null;
+  sourceLink: OrganizationSourceLink | null;
 }
 
 export default function OrganizationsRoute(): ReactNode {
   const [createName, setCreateName] = useState("");
   const [permissionOrgId, setPermissionOrgId] = useState("");
-  const [operationSequence, setOperationSequence] = useState(0);
-  const [permission, setPermission] = useState<OrganizationAdminPermission>("");
+  const [permission, setPermission] = useState<
+    OrganizationAdminPermission | ""
+  >("");
   const [permissionOptions, setPermissionOptions] = useState<
     OrganizationAdminPermission[]
   >([]);
   const [organizationsByName, setOrganizationsByName] = useState<
     Record<string, OrganizationRecord>
   >({});
-  const [operation, setOperation] = useState<OperationState>({
-    status: "idle",
-    failureCode: null,
-    detail: null,
-  });
+  const {
+    operation,
+    operationSequence,
+    beginOperation,
+    succeedOperation,
+    failOperation,
+  } = useOrganizationOperationState();
 
   const organizations = useMemo(
     () =>
@@ -109,6 +60,7 @@ export default function OrganizationsRoute(): ReactNode {
       ),
     [organizationsByName],
   );
+
   useEffect(() => {
     const cached = window.localStorage.getItem(
       ORGANIZATION_PERMISSION_CACHE_KEY,
@@ -122,7 +74,8 @@ export default function OrganizationsRoute(): ReactNode {
         return;
       }
       const options = parsed.filter(
-        (entry): entry is string => typeof entry === "string",
+        (entry): entry is OrganizationAdminPermission =>
+          isOrganizationPermission(entry),
       );
       if (options.length > 0) {
         setPermissionOptions(options);
@@ -133,78 +86,61 @@ export default function OrganizationsRoute(): ReactNode {
     }
   }, []);
 
-  function beginOperation(): void {
-    setOperationSequence((previous) => previous + 1);
-    setOperation({ status: "pending", failureCode: null, detail: null });
-  }
-
   async function createOrganization(): Promise<void> {
     beginOperation();
-    const response = await callApi("POST", ORGANIZATION_API_ROUTES.create, {
+
+    const response = await createOrganizationApi({
       name: createName,
     });
 
     if (!response.ok) {
-      setOperation({
-        status: "failure",
-        failureCode: failureCode(response),
-        detail: failureDetail(response),
-      });
+      failOperation(response);
       return;
     }
 
-    const body = response.json as {
-      organization: { id: string; name: string };
-      granted_permissions: string[];
-      initial_project_count: number;
-      proof_link: { behavior_id: string };
-      source_link: { event_family: string; event_kind: string };
-    };
-    const normalized = normalizeOrganizationName(body.organization.name);
+    const normalized = normalizeOrganizationName(
+      response.body.organization.name,
+    );
 
     setOrganizationsByName((previous) => ({
       ...previous,
       [normalized]: {
-        id: body.organization.id,
-        name: body.organization.name,
-        grantedPermissions: body.granted_permissions,
-        initialProjectCount: body.initial_project_count,
+        id: response.body.organization.id,
+        name: response.body.organization.name,
+        grantedPermissions: response.body.granted_permissions,
+        initialProjectCount: response.body.initial_project_count,
+        proofLink: response.body.proof_link,
+        sourceLink: response.body.source_link,
       },
     }));
-    if (body.granted_permissions.length > 0) {
-      setPermissionOptions(body.granted_permissions);
+
+    if (response.body.granted_permissions.length > 0) {
+      setPermissionOptions(response.body.granted_permissions);
       window.localStorage.setItem(
         ORGANIZATION_PERMISSION_CACHE_KEY,
-        JSON.stringify(body.granted_permissions),
+        JSON.stringify(response.body.granted_permissions),
       );
       setPermission(
-        (previous) => previous || body.granted_permissions[0] || "",
+        (previous) => previous || response.body.granted_permissions[0] || "",
       );
     }
-    setPermissionOrgId(body.organization.id);
-    setOperation({ status: "success", failureCode: null, detail: null });
+
+    setPermissionOrgId(response.body.organization.id);
+    succeedOperation();
   }
 
   async function listOrganizations(): Promise<void> {
     beginOperation();
-    const response = await callApi("GET", ORGANIZATION_API_ROUTES.list);
 
+    const response = await listOrganizationsApi();
     if (!response.ok) {
-      setOperation({
-        status: "failure",
-        failureCode: failureCode(response),
-        detail: failureDetail(response),
-      });
+      failOperation(response);
       return;
     }
 
-    const body = response.json as {
-      organizations: Array<{ id: string; name: string }>;
-    };
-
     setOrganizationsByName((previous) => {
       const next = { ...previous };
-      for (const organization of body.organizations) {
+      for (const organization of response.body.organizations) {
         const key = normalizeOrganizationName(organization.name);
         const prior = previous[key];
         next[key] = {
@@ -212,35 +148,44 @@ export default function OrganizationsRoute(): ReactNode {
           name: organization.name,
           grantedPermissions: prior?.grantedPermissions ?? [],
           initialProjectCount: prior?.initialProjectCount ?? null,
+          proofLink: prior?.proofLink ?? null,
+          sourceLink: prior?.sourceLink ?? null,
         };
       }
       return next;
     });
 
-    setOperation({ status: "success", failureCode: null, detail: null });
+    succeedOperation();
   }
 
   async function checkPermission(): Promise<void> {
     beginOperation();
-    const response = await callApi(
-      "POST",
-      ORGANIZATION_API_ROUTES.checkPermission,
-      {
-        org_id: permissionOrgId,
-        permission,
-      },
-    );
-
-    if (!response.ok) {
-      setOperation({
-        status: "failure",
-        failureCode: failureCode(response),
-        detail: failureDetail(response),
+    if (!isOrganizationPermission(permission)) {
+      failOperation({
+        ok: false,
+        status: 400,
+        text: "permission is required",
+        json: null,
+        error: {
+          code: "validation_failed",
+          summary: "permission is required",
+        },
+        transportFallback: false,
       });
       return;
     }
 
-    setOperation({ status: "success", failureCode: null, detail: null });
+    const response = await checkOrganizationPermissionApi({
+      org_id: permissionOrgId,
+      permission,
+    });
+
+    if (!response.ok) {
+      failOperation(response);
+      return;
+    }
+
+    succeedOperation();
   }
 
   return (
@@ -311,9 +256,10 @@ export default function OrganizationsRoute(): ReactNode {
           className="mb-3 w-full rounded border border-[--color-border] px-3 py-2"
           data-testid={ORGANIZATION_WIRE_TEST_IDS.permissionSelect}
           id="org-permission-select"
-          onChange={(event) =>
-            setPermission(event.target.value as OrganizationAdminPermission)
-          }
+          onChange={(event) => {
+            const value = event.target.value;
+            setPermission(isOrganizationPermission(value) ? value : "");
+          }}
           value={permission}
         >
           {permissionOptions.map((candidate) => (
@@ -384,6 +330,17 @@ export default function OrganizationsRoute(): ReactNode {
               >
                 {organization.grantedPermissions.join(",")}
               </div>
+              {organization.proofLink ? (
+                <div className="text-xs text-[--color-fg-muted]">
+                  proof: {organization.proofLink.behavior_id}
+                </div>
+              ) : null}
+              {organization.sourceLink ? (
+                <div className="text-xs text-[--color-fg-muted]">
+                  source: {organization.sourceLink.event_family}/
+                  {organization.sourceLink.event_kind}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>

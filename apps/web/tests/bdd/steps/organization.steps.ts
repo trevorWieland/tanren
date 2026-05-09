@@ -126,6 +126,8 @@ When(
         name: organization.name,
         grantedPermissions: prior?.grantedPermissions ?? [],
         initialProjectCount: prior?.initialProjectCount ?? null,
+        proofLink: prior?.proofLink ?? null,
+        sourceLink: prior?.sourceLink ?? null,
       });
     }
 
