@@ -8,6 +8,7 @@ import {
   AccountRequestError,
   describeFailure,
   isInterfaceContractDriftFailure,
+  myAccountCapabilities,
   myPermissions,
   permissionScopes,
   type AccountFailure,
@@ -207,6 +208,13 @@ function cursorOrNone(cursor: null | string | undefined): string {
   return cursor;
 }
 
+function unknownFailure(cause: unknown): AccountFailure {
+  return {
+    code: "internal_error",
+    summary: cause instanceof Error ? cause.message : String(cause),
+  };
+}
+
 export default function MyPermissionsPage(): ReactNode {
   const [pages, setPages] = useState<MyPermissionsResponse[]>([]);
   const [failure, setFailure] = useState<AccountFailure | null>(null);
@@ -224,11 +232,23 @@ export default function MyPermissionsPage(): ReactNode {
 
   useEffect(() => {
     let cancelled = false;
-    myPermissions()
+    myAccountCapabilities()
       .then((response) => {
-        if (!cancelled) {
-          setPages([response]);
+        if (cancelled) {
+          return;
         }
+        if (!response.can_view_my_permissions) {
+          setFailure({
+            code: "permission_denied",
+            summary: "",
+          });
+          return;
+        }
+        return myPermissions().then((permissionsResponse) => {
+          if (!cancelled) {
+            setPages([permissionsResponse]);
+          }
+        });
       })
       .catch((cause: unknown) => {
         if (cancelled) {
@@ -238,10 +258,7 @@ export default function MyPermissionsPage(): ReactNode {
           setFailure(cause.failure);
           return;
         }
-        setFailure({
-          code: "internal_error",
-          summary: cause instanceof Error ? cause.message : String(cause),
-        });
+        setFailure(unknownFailure(cause));
       })
       .finally(() => {
         if (!cancelled) {
@@ -269,10 +286,7 @@ export default function MyPermissionsPage(): ReactNode {
           setLoadMoreFailure(cause.failure);
           return;
         }
-        setLoadMoreFailure({
-          code: "internal_error",
-          summary: cause instanceof Error ? cause.message : String(cause),
-        });
+        setLoadMoreFailure(unknownFailure(cause));
       })
       .finally(() => {
         setLoadingMore(false);
