@@ -4193,6 +4193,7 @@ dependencies = [
  "serde_json",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-policy",
  "tanren-store",
  "thiserror 2.0.18",
 ]
@@ -4383,6 +4384,8 @@ name = "tanren-policy"
 version = "0.0.0"
 dependencies = [
  "serde",
+ "tanren-contract",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
 ]
 

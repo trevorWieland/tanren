@@ -6,16 +6,18 @@
 //! they do not import domain, store, or runtime crates directly.
 
 pub mod account;
+pub mod deployment_posture;
 pub mod events;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+pub use tanren_store::{AccountStore, DeploymentPostureStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -198,6 +200,51 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Return every supported deployment posture with capability
+    /// availability explanations.
+    #[must_use]
+    pub fn list_supported_deployment_postures(
+        &self,
+    ) -> Vec<deployment_posture::SupportedDeploymentPosture> {
+        deployment_posture::list_supported_deployment_postures()
+    }
+
+    /// Set or update a deployment posture for a scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`deployment_posture::SetDeploymentPostureError::Contract`]
+    /// for unsupported posture values and permission denies;
+    /// [`deployment_posture::SetDeploymentPostureError::Store`] for
+    /// unexpected persistence failures.
+    pub async fn set_deployment_posture<S>(
+        &self,
+        store: &S,
+        actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> Result<SetDeploymentPostureResponse, deployment_posture::SetDeploymentPostureError>
+    where
+        S: DeploymentPostureStore + AccountStore + ?Sized,
+    {
+        deployment_posture::set_deployment_posture(store, &self.clock, actor, request).await
+    }
+
+    /// Read the currently recorded deployment posture for a scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError`] if the persistence query fails.
+    pub async fn deployment_posture<S>(
+        &self,
+        store: &S,
+        scope: DeploymentPostureScope,
+    ) -> Result<Option<SetDeploymentPostureResponse>, StoreError>
+    where
+        S: DeploymentPostureStore + ?Sized,
+    {
+        deployment_posture::deployment_posture(store, scope).await
     }
 }
 

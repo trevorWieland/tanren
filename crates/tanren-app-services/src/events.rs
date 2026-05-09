@@ -9,7 +9,7 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{AccountFailureReason, DeploymentPosture, DeploymentPostureScope};
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
@@ -134,6 +134,39 @@ pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json
     serde_json::json!({
         "family": EVENT_FAMILY,
         "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+/// Tag on the JSON envelope that disambiguates deployment-posture
+/// events from account-flow events.
+pub const DEPLOYMENT_POSTURE_EVENT_FAMILY: &str = "deployment_posture";
+/// Stable wire `kind` string for posture-change events.
+pub const DEPLOYMENT_POSTURE_CHANGED_KIND: &str = "changed";
+
+/// A deployment-posture value changed.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DeploymentPostureChanged {
+    /// Scope where the posture is now in effect.
+    pub scope: DeploymentPostureScope,
+    /// Persisted posture.
+    pub posture: DeploymentPosture,
+    /// Account that performed the change.
+    pub changed_by: AccountId,
+    /// Wall-clock instant when the change was recorded.
+    pub changed_at: DateTime<Utc>,
+}
+
+/// Encode a typed deployment-posture event as the JSON envelope
+/// persisted in the event log.
+#[must_use]
+pub fn deployment_posture_envelope<T: Serialize>(
+    kind: &'static str,
+    payload: &T,
+) -> serde_json::Value {
+    serde_json::json!({
+        "family": DEPLOYMENT_POSTURE_EVENT_FAMILY,
+        "kind": kind,
         "payload": payload,
     })
 }

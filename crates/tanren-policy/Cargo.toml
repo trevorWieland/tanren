@@ -13,4 +13,6 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
+tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
