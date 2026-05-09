@@ -7,7 +7,7 @@ personas: [solo-builder, team-builder, observer, operator]
 interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
+verification_status: asserted
 supersedes: []
 ---
 
@@ -35,6 +35,7 @@ without fully signing out.
 - Switching is equally easy on a phone as on a laptop.
 - The state of the previously active account is preserved so that returning
   to it resumes without re-authentication.
+- Selecting an account that is not currently signed in is rejected.
 
 ## Out of scope
 

@@ -46,7 +46,7 @@
   "failure_invitation_not_found": "This invitation link is not recognized.",
   "failure_invitation_already_consumed": "This invitation has already been accepted.",
   "failure_invitation_expired": "This invitation has expired.",
-  "failure_target_account_not_signed_in": "That account is not signed in for this session.",
+  "failure_target_account_not_signed_in": "That account is not signed in for this window session.",
   "failure_unavailable": "Tanren is temporarily unavailable. Please try again shortly.",
   "failure_internal_error": "Something went wrong. Please try again.",
   "failure_fallback": "Request failed."

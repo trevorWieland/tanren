@@ -3,7 +3,7 @@ schema: tanren.subsystem_architecture.v0
 subsystem: interfaces
 status: accepted
 owner_command: architect-system
-updated_at: 2026-04-29
+updated_at: 2026-05-09
 ---
 
 # Interfaces Architecture
@@ -424,6 +424,23 @@ API and web responses receive `Cookie`; CLI/MCP/TUI receive `Bearer`.
 The discriminator is part of the contract because a generated client
 must know which transport it is using to know whether to attach
 credentials from a cookie jar or from request state.
+
+### Active-account switching and window scope
+
+The API surface exposes active-account switching through
+`GET /accounts/active` and `POST /accounts/active/switch`. The response
+shape is `SignedInAccountView[]` with a single `is_active=true` entry
+for the caller's current window scope.
+
+For cookie-backed web and API traffic, callers may include
+`x-tanren-window-id` so concurrent windows keep independent active
+account state. Missing or blank window IDs fall back to a default window
+scope; non-UTF8 or overlong values fail with `validation_failed`.
+
+Switch requests are constrained to the caller's signed-in account set.
+Requests that target an account outside that set fail with
+`target_account_not_signed_in` (HTTP 403). This applies consistently
+across web, API, CLI, MCP, and TUI surfaces.
 
 ### Error taxonomy extension
 

@@ -3,7 +3,7 @@ schema: tanren.subsystem_architecture.v0
 subsystem: behavior-proof
 status: accepted
 owner_command: architect-system
-updated_at: 2026-05-02
+updated_at: 2026-05-09
 ---
 
 # Behavior Proof Architecture
@@ -324,6 +324,21 @@ asserted" lane.
 - The validator already enforces that
   `expected_evidence.interfaces` equals the behavior's
   `interfaces:`; this convention rides on top.
+
+### B-0046 witness shape (cross-interface reference)
+
+`B-0046-switch-active-account.feature` is the reference shape for
+cross-interface session-scope behavior. It demonstrates:
+
+- per-interface positive switching (`@web`, `@api`, `@mcp`, `@cli`, `@tui`);
+- per-interface positive two-window independence checks;
+- per-interface falsification for unsigned-target rejection
+  (`target_account_not_signed_in`);
+- per-interface falsification that a switch in one window does not leak into
+  another window.
+
+The feature intentionally avoids skipped or ignored scenarios; all witnesses
+remain executable under the closed tag allowlist in this document.
 
 ### Validator wiring
 

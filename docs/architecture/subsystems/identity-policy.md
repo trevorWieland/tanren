@@ -3,7 +3,7 @@ schema: tanren.subsystem_architecture.v0
 subsystem: identity-policy
 status: accepted
 owner_command: architect-system
-updated_at: 2026-04-29
+updated_at: 2026-05-09
 ---
 
 # Identity And Policy Architecture
@@ -244,6 +244,21 @@ policy constraints.
 Credential values and secrets are owned by the configuration and secrets
 subsystem. Identity and policy own the actor relationship, status, permission
 binding, and audit semantics.
+
+### Active account session policy
+
+A session may contain credentials for multiple signed-in accounts, but each
+window-scoped actor context has exactly one active account at a time.
+Identity-policy evaluation treats the active account as part of scope
+resolution for every protected read and command.
+
+Switching the active account is allowed only when the target account is
+already present in the caller's signed-in session set. Attempts to switch to
+an unsigned target are denied with
+`target_account_not_signed_in` and must not mutate the active scope.
+
+Window-scoped active-account state is independent: switching in one window or
+session key must not leak into another window's actor context.
 
 ## Worker-Scoped Access
 
