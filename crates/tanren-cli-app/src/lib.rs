@@ -19,11 +19,16 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use secrecy::SecretString;
+use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_contract::{
+    AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Email, InstallationId, InvitationToken, ProjectId};
+use uuid::Uuid;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +68,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Deployment posture flow: list supported values, read current selection, update selection.
+    Posture {
+        #[command(subcommand)]
+        action: PostureAction,
     },
 }
 
@@ -112,6 +122,49 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ScopeKindArg {
+    Account,
+    Project,
+    Installation,
+}
+
+#[derive(Debug, Subcommand)]
+enum PostureAction {
+    /// List supported deployment postures with capability summaries.
+    List,
+    /// Read current deployment posture for a scope.
+    Get {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Scope kind.
+        #[arg(long)]
+        scope_kind: ScopeKindArg,
+        /// Scope identifier UUID.
+        #[arg(long)]
+        scope_id: String,
+    },
+    /// Set deployment posture for a scope.
+    Set {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Authenticated actor account id UUID.
+        #[arg(long)]
+        actor_account_id: String,
+        /// Scope kind.
+        #[arg(long)]
+        scope_kind: ScopeKindArg,
+        /// Scope identifier UUID.
+        #[arg(long)]
+        scope_id: String,
+        /// Posture value (`hosted`, `self_hosted`, `local_only`).
+        #[arg(long)]
+        posture: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +175,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Posture { action }) => dispatch_posture(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -172,6 +226,14 @@ fn dispatch_account(action: AccountAction) -> Result<()> {
         .build()
         .context("build tokio runtime")?;
     runtime.block_on(run_account(action))
+}
+
+fn dispatch_posture(action: PostureAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(run_posture(action))
 }
 
 async fn run_account(action: AccountAction) -> Result<()> {
@@ -271,6 +333,81 @@ async fn run_account(action: AccountAction) -> Result<()> {
     Ok(())
 }
 
+async fn run_posture(action: PostureAction) -> Result<()> {
+    let handlers = Handlers::new();
+    match action {
+        PostureAction::List => {
+            let payload = serde_json::json!({
+                "supported": handlers.list_supported_deployment_postures(),
+            });
+            write_json_line(&payload)?;
+        }
+        PostureAction::Get {
+            database_url,
+            scope_kind,
+            scope_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let scope = parse_scope(scope_kind, &scope_id)?;
+            let current = handlers
+                .deployment_posture(&store, scope)
+                .await
+                .context("read deployment posture")?;
+            let payload = serde_json::json!({ "current": current });
+            write_json_line(&payload)?;
+        }
+        PostureAction::Set {
+            database_url,
+            actor_account_id,
+            scope_kind,
+            scope_id,
+            posture,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let scope = parse_scope(scope_kind, &scope_id)?;
+            let actor = parse_account_id(&actor_account_id)?;
+            let response = handlers
+                .set_deployment_posture(
+                    &store,
+                    actor,
+                    SetDeploymentPostureRequest { scope, posture },
+                )
+                .await
+                .map_err(posture_error)?;
+            let payload = serde_json::json!({ "current": response });
+            write_json_line(&payload)?;
+        }
+    }
+    Ok(())
+}
+
+fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureScope> {
+    let parsed_uuid = Uuid::parse_str(scope_id)
+        .with_context(|| format!("parse --scope-id `{scope_id}` as UUID"))?;
+    let scope = match kind {
+        ScopeKindArg::Account => DeploymentPostureScope::Account {
+            account_id: AccountId::from(parsed_uuid),
+        },
+        ScopeKindArg::Project => DeploymentPostureScope::Project {
+            project_id: ProjectId::from(parsed_uuid),
+        },
+        ScopeKindArg::Installation => DeploymentPostureScope::Installation {
+            installation_id: InstallationId::from(parsed_uuid),
+        },
+    };
+    Ok(scope)
+}
+
+fn parse_account_id(raw: &str) -> Result<AccountId> {
+    let parsed_uuid = Uuid::parse_str(raw)
+        .with_context(|| format!("parse --actor-account-id `{raw}` as UUID"))?;
+    Ok(AccountId::from(parsed_uuid))
+}
+
 fn account_error(err: AppServiceError) -> anyhow::Error {
     match err {
         AppServiceError::Account(reason) => {
@@ -284,6 +421,26 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
         }
         _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }
+}
+
+fn posture_error(err: SetDeploymentPostureError) -> anyhow::Error {
+    match err {
+        SetDeploymentPostureError::Contract { failure } => {
+            anyhow::anyhow!("error: {} — {}", failure.reason.code(), failure.detail)
+        }
+        SetDeploymentPostureError::Store { source } => {
+            anyhow::anyhow!("error: internal_error — {source}")
+        }
+        _ => anyhow::anyhow!("error: internal_error — unknown posture failure"),
+    }
+}
+
+fn write_json_line(value: &serde_json::Value) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let encoded = serde_json::to_string(value).context("encode JSON output")?;
+    writeln!(handle, "{encoded}").context("write JSON output to stdout")?;
+    Ok(())
 }
 
 fn session_path() -> PathBuf {

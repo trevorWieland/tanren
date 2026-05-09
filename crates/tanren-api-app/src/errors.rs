@@ -13,6 +13,7 @@ use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
+use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_contract::AccountFailureReason;
 
 /// Shared `{code, summary}` failure body.
@@ -65,6 +66,44 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
                 "code": "internal_error",
                 "summary": "Tanren encountered an internal error.",
             })),
+        )
+            .into_response(),
+    }
+}
+
+/// Map deployment-posture app-service failures to the shared
+/// `{code, summary}` body.
+pub(crate) fn map_posture_error(err: SetDeploymentPostureError) -> Response {
+    match err {
+        SetDeploymentPostureError::Contract { failure } => {
+            let status = StatusCode::from_u16(failure.reason.http_status())
+                .unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+            (
+                status,
+                Json(AccountFailureBody {
+                    code: failure.reason.code().to_owned(),
+                    summary: failure.detail,
+                }),
+            )
+                .into_response()
+        }
+        SetDeploymentPostureError::Store { source } => {
+            tracing::error!(target: "tanren_api", error = %source, "store error");
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(AccountFailureBody {
+                    code: "internal_error".to_owned(),
+                    summary: "Tanren encountered an internal error.".to_owned(),
+                }),
+            )
+                .into_response()
+        }
+        _ => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(AccountFailureBody {
+                code: "internal_error".to_owned(),
+                summary: "Tanren encountered an internal error.".to_owned(),
+            }),
         )
             .into_response(),
     }

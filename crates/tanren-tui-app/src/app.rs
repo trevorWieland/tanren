@@ -15,12 +15,14 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_identity_policy::AccountId;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_posture,
+    parse_sign_in, parse_sign_up, posture_fields, posture_outcome, render_error,
+    render_posture_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
 };
 use crate::{FormState, MenuChoice};
 
@@ -32,6 +34,7 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    Posture(FormState),
     Outcome(OutcomeView),
 }
 
@@ -47,6 +50,7 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    active_account: Option<AccountId>,
     screen: Screen,
 }
 
@@ -71,6 +75,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            active_account: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -103,7 +108,7 @@ impl App {
         let effect = match &mut self.screen {
             Screen::Menu { selected } => {
                 let mut next: Option<Screen> = None;
-                let exit = handle_menu_key(selected, key, &mut next);
+                let exit = handle_menu_key(selected, key, &mut next, self.active_account);
                 if exit {
                     Effect::Exit
                 } else if let Some(screen) = next {
@@ -132,6 +137,10 @@ impl App {
             },
             Screen::AcceptInvitation(state) => match handle_form_key(state, key) {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
+                None => Effect::None,
+            },
+            Screen::Posture(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::Posture),
                 None => Effect::None,
             },
         };
@@ -169,92 +178,122 @@ impl App {
             }
             return;
         };
-        let handlers = &self.handlers;
         match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
+            FormKind::SignUp => self.submit_sign_up(store.as_ref()),
+            FormKind::SignIn => self.submit_sign_in(store.as_ref()),
+            FormKind::AcceptInvitation => self.submit_accept_invitation(store.as_ref()),
+            FormKind::Posture => self.submit_posture(store.as_ref()),
+        }
+    }
+
+    fn submit_sign_up(&mut self, store: &Store) {
+        let request = match &self.screen {
+            Screen::SignUp(state) => match parse_sign_up(state) {
+                Ok(request) => request,
+                Err(message) => {
+                    if let Screen::SignUp(state) = &mut self.screen {
+                        state.error = Some(message);
                     }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+                    return;
+                }
+            },
+            _ => return,
+        };
+        match self.runtime.block_on(self.handlers.sign_up(store, request)) {
+            Ok(response) => {
+                self.active_account = Some(response.account.id);
+                self.screen = Screen::Outcome(sign_up_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::SignUp(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
+        }
+    }
+
+    fn submit_sign_in(&mut self, store: &Store) {
+        let request = match &self.screen {
+            Screen::SignIn(state) => match parse_sign_in(state) {
+                Ok(request) => request,
+                Err(message) => {
+                    if let Screen::SignIn(state) = &mut self.screen {
+                        state.error = Some(message);
                     }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+                    return;
+                }
+            },
+            _ => return,
+        };
+        match self.runtime.block_on(self.handlers.sign_in(store, request)) {
+            Ok(response) => {
+                self.active_account = Some(response.account.id);
+                self.screen = Screen::Outcome(sign_in_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::SignIn(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
                 }
             }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
+        }
+    }
+
+    fn submit_accept_invitation(&mut self, store: &Store) {
+        let request = match &self.screen {
+            Screen::AcceptInvitation(state) => match parse_accept_invitation(state) {
+                Ok(request) => request,
+                Err(message) => {
+                    if let Screen::AcceptInvitation(state) = &mut self.screen {
+                        state.error = Some(message);
                     }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+                    return;
+                }
+            },
+            _ => return,
+        };
+        match self
+            .runtime
+            .block_on(self.handlers.accept_invitation(store, request))
+        {
+            Ok(response) => {
+                self.active_account = Some(response.account.id);
+                self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::AcceptInvitation(state) = &mut self.screen {
+                    state.error = Some(render_error(reason));
+                }
+            }
+        }
+    }
+
+    fn submit_posture(&mut self, store: &Store) {
+        let (actor, request) = match &self.screen {
+            Screen::Posture(state) => match parse_posture(state) {
+                Ok(parsed) => parsed,
+                Err(message) => {
+                    if let Screen::Posture(state) = &mut self.screen {
+                        state.error = Some(message);
                     }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
+                    return;
+                }
+            },
+            _ => return,
+        };
+        match self
+            .runtime
+            .block_on(self.handlers.set_deployment_posture(store, actor, request))
+        {
+            Ok(current) => {
+                self.active_account = Some(actor);
+                let supported = self.handlers.list_supported_deployment_postures();
+                // Reuse the mutation response as the authoritative current
+                // posture to avoid an immediate extra read round-trip.
+                self.screen = Screen::Outcome(posture_outcome(Some(current), &supported));
+            }
+            Err(reason) => {
+                if let Screen::Posture(state) = &mut self.screen {
+                    state.error = Some(render_posture_error(reason));
                 }
             }
         }
@@ -262,7 +301,10 @@ impl App {
 
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
+            Screen::SignUp(s)
+            | Screen::SignIn(s)
+            | Screen::AcceptInvitation(s)
+            | Screen::Posture(s) => Some(s),
             _ => None,
         }
     }
@@ -276,6 +318,9 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::Posture(state) => {
+                draw::draw_form(frame, area, "Deployment posture", state);
+            }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
@@ -286,6 +331,7 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    Posture,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -302,7 +348,12 @@ enum Effect {
     Form(FormAction, FormKind),
 }
 
-fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
+fn handle_menu_key(
+    selected: &mut usize,
+    key: KeyEvent,
+    next: &mut Option<Screen>,
+    active_account: Option<AccountId>,
+) -> bool {
     match key.code {
         KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
         KeyCode::Up => {
@@ -322,6 +373,9 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::DeploymentPosture => {
+                    Screen::Posture(FormState::new(posture_fields(active_account)))
                 }
             });
         }

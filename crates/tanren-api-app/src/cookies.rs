@@ -44,6 +44,14 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
     Ok(())
 }
 
+/// Read the authenticated account id from the cookie-backed session.
+pub(crate) async fn session_account_id(session: &Session) -> Result<Option<AccountId>> {
+    session
+        .get::<AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")
+}
+
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships
 /// `SqliteStore` and `PostgresStore`; we dispatch on the URL scheme so
 /// the same `serve` entry point covers both backends.

@@ -27,6 +27,51 @@ export interface AccountView {
   org: string | null;
 }
 
+export type DeploymentPosture = "hosted" | "self_hosted" | "local_only";
+
+export type DeploymentPostureCapability =
+  | "managed_control_plane"
+  | "provider_integrations"
+  | "remote_runtime_dispatch"
+  | "local_runtime_dispatch";
+
+export interface DeploymentPostureCapabilitySummary {
+  available: DeploymentPostureCapability[];
+  unavailable: DeploymentPostureCapability[];
+}
+
+export type DeploymentPostureScope =
+  | { scope: "account"; account_id: string }
+  | { scope: "project"; project_id: string }
+  | { scope: "installation"; installation_id: string };
+
+export interface SupportedDeploymentPosture {
+  posture: DeploymentPosture;
+  capability_summary: DeploymentPostureCapabilitySummary;
+}
+
+export interface SetDeploymentPostureResponse {
+  scope: DeploymentPostureScope;
+  posture: DeploymentPosture;
+  capability_summary: DeploymentPostureCapabilitySummary;
+}
+
+export interface SetDeploymentPostureRequest {
+  scope: DeploymentPostureScope;
+  posture: string;
+}
+
+export interface DeploymentPostureListResponse {
+  supported: SupportedDeploymentPosture[];
+}
+
+export interface DeploymentPostureGetResponse {
+  current: SetDeploymentPostureResponse | null;
+}
+
+let deploymentPostureListCache: Promise<DeploymentPostureListResponse> | null =
+  null;
+
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
  * sign-up/sign-in/accept-invitation. The body carries metadata only —
@@ -64,6 +109,9 @@ export type AccountFailureCode =
   | "invitation_not_found"
   | "invitation_already_consumed"
   | "invitation_expired"
+  | "unsupported_posture"
+  | "permission_denied"
+  | "scope_not_found"
   | "validation_failed"
   | "unavailable"
   | "internal_error";
@@ -106,17 +154,24 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function requestJson<T>(
+  method: "GET" | "POST",
+  path: string,
+  body?: unknown,
+): Promise<T> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
+    const request: RequestInit = {
+      method,
       // Cookie transport: send/receive HTTP-only session cookie on every
       // request. Replaces localStorage token storage (M2).
       credentials: "include",
-    });
+    };
+    if (body !== undefined) {
+      request.headers = { "content-type": "application/json" };
+      request.body = JSON.stringify(body);
+    }
+    response = await fetch(`${API_URL}${path}`, request);
   } catch (cause: unknown) {
     throw new AccountRequestError({
       code: "unavailable",
@@ -143,6 +198,14 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function postJson<T>(path: string, body: unknown): Promise<T> {
+  return requestJson<T>("POST", path, body);
+}
+
+async function getJson<T>(path: string): Promise<T> {
+  return requestJson<T>("GET", path);
+}
+
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
   return postJson<SignUpResult>("/accounts", input);
 }
@@ -161,6 +224,34 @@ export function acceptInvitation(
     password: input.password,
     display_name: input.display_name,
   });
+}
+
+export function listDeploymentPostures(): Promise<DeploymentPostureListResponse> {
+  return getJson<DeploymentPostureListResponse>("/deployment-postures");
+}
+
+export function listDeploymentPosturesCached(): Promise<DeploymentPostureListResponse> {
+  if (deploymentPostureListCache === null) {
+    deploymentPostureListCache = listDeploymentPostures();
+  }
+  return deploymentPostureListCache;
+}
+
+export function getDeploymentPosture(
+  scopeKind: "account" | "project" | "installation",
+  scopeId: string,
+): Promise<DeploymentPostureGetResponse> {
+  const path = `/deployment-postures/${encodeURIComponent(scopeKind)}/${encodeURIComponent(scopeId)}`;
+  return getJson<DeploymentPostureGetResponse>(path);
+}
+
+export function setDeploymentPosture(
+  request: SetDeploymentPostureRequest,
+): Promise<SetDeploymentPostureResponse> {
+  return postJson<SetDeploymentPostureResponse>(
+    "/deployment-postures",
+    request,
+  );
 }
 
 /**

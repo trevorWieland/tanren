@@ -4,11 +4,16 @@
 
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
-use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+use tanren_app_services::deployment_posture::{
+    SetDeploymentPostureError, SupportedDeploymentPosture,
 };
-use tanren_identity_policy::{Email, InvitationToken, ValidationError};
+use tanren_contract::{
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
+};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, ValidationError};
+use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -72,6 +77,21 @@ pub(crate) fn accept_invitation_fields() -> Vec<FormField> {
     ]
 }
 
+pub(crate) fn posture_fields(active_account: Option<AccountId>) -> Vec<FormField> {
+    vec![
+        FormField {
+            label: "Account ID",
+            secret: false,
+            value: active_account.map_or_else(String::new, |id| id.to_string()),
+        },
+        FormField {
+            label: "Posture",
+            secret: false,
+            value: "hosted".to_owned(),
+        },
+    ]
+}
+
 pub(crate) fn sign_up_outcome(response: &SignUpResponse) -> OutcomeView {
     OutcomeView {
         title: "Account created",
@@ -103,6 +123,45 @@ pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> 
     }
 }
 
+pub(crate) fn posture_outcome(
+    current: Option<SetDeploymentPostureResponse>,
+    supported: &[SupportedDeploymentPosture],
+) -> OutcomeView {
+    let mut lines = Vec::new();
+    lines.push("supported postures:".to_owned());
+    for entry in supported {
+        lines.push(format!(
+            "- {} | available: {} | unavailable: {}",
+            entry.posture.as_wire_value(),
+            format_caps(&entry.capability_summary.available),
+            format_caps(&entry.capability_summary.unavailable),
+        ));
+    }
+    if let Some(current) = current {
+        lines.push(String::new());
+        lines.push(format!("current scope: {}", describe_scope(current.scope)));
+        lines.push(format!(
+            "current posture: {}",
+            current.posture.as_wire_value()
+        ));
+        lines.push(format!(
+            "available: {}",
+            format_caps(&current.capability_summary.available)
+        ));
+        lines.push(format!(
+            "unavailable: {}",
+            format_caps(&current.capability_summary.unavailable)
+        ));
+    } else {
+        lines.push(String::new());
+        lines.push("current posture: not set".to_owned());
+    }
+    OutcomeView {
+        title: "Deployment posture",
+        lines,
+    }
+}
+
 pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
     format!("{}: {}", reason.code(), reason.summary())
 }
@@ -113,6 +172,16 @@ pub(crate) fn render_error(err: AppServiceError) -> String {
         AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
         AppServiceError::Store(err) => format!("internal_error: {err}"),
         _ => "internal_error: unknown app-service failure".to_owned(),
+    }
+}
+
+pub(crate) fn render_posture_error(err: SetDeploymentPostureError) -> String {
+    match err {
+        SetDeploymentPostureError::Contract { failure } => {
+            format!("{}: {}", failure.reason.code(), failure.detail)
+        }
+        SetDeploymentPostureError::Store { source } => format!("internal_error: {source}"),
+        _ => "internal_error: unknown posture failure".to_owned(),
     }
 }
 
@@ -156,4 +225,51 @@ pub(crate) fn parse_accept_invitation(
         password,
         display_name,
     })
+}
+
+pub(crate) fn parse_posture(
+    state: &FormState,
+) -> Result<(AccountId, SetDeploymentPostureRequest), String> {
+    let account_raw = state.value(0);
+    let parsed_uuid = Uuid::parse_str(account_raw)
+        .map_err(|e| format!("validation_failed: invalid account id: {e}"))?;
+    let account_id = AccountId::from(parsed_uuid);
+    let request = SetDeploymentPostureRequest {
+        scope: tanren_contract::DeploymentPostureScope::Account { account_id },
+        posture: state.value(1).to_owned(),
+    };
+    Ok((account_id, request))
+}
+
+fn format_caps(caps: &[tanren_contract::DeploymentPostureCapability]) -> String {
+    if caps.is_empty() {
+        return "none".to_owned();
+    }
+    let values: Vec<&str> = caps.iter().copied().map(capability_name).collect();
+    values.join(", ")
+}
+
+const fn capability_name(cap: tanren_contract::DeploymentPostureCapability) -> &'static str {
+    match cap {
+        tanren_contract::DeploymentPostureCapability::ManagedControlPlane => {
+            "managed_control_plane"
+        }
+        tanren_contract::DeploymentPostureCapability::ProviderIntegrations => {
+            "provider_integrations"
+        }
+        tanren_contract::DeploymentPostureCapability::RemoteRuntimeDispatch => {
+            "remote_runtime_dispatch"
+        }
+        tanren_contract::DeploymentPostureCapability::LocalRuntimeDispatch => {
+            "local_runtime_dispatch"
+        }
+    }
+}
+
+const fn describe_scope(scope: tanren_contract::DeploymentPostureScope) -> &'static str {
+    match scope {
+        tanren_contract::DeploymentPostureScope::Account { .. } => "account",
+        tanren_contract::DeploymentPostureScope::Project { .. } => "project",
+        tanren_contract::DeploymentPostureScope::Installation { .. } => "installation",
+    }
 }
