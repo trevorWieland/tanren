@@ -1,5 +1,6 @@
 //! Install manifest entry metadata.
 
+use std::fmt;
 use std::path::{Component, Path};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -10,6 +11,7 @@ use crate::install::InstallProfile;
 use crate::install::error::InstallError;
 
 const NIBBLES: &[u8; 16] = b"0123456789abcdef";
+const SHA256_HEX_LENGTH: usize = 64;
 
 /// Install manifest schema version.
 pub const INSTALL_MANIFEST_VERSION: u32 = 1;
@@ -111,11 +113,63 @@ pub struct InstallAssetProjection {
     pub preservation: PreservationPolicy,
 }
 
+/// Strict lowercase SHA-256 digest encoded as 64 hex characters.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Sha256Hex(String);
+
+impl Sha256Hex {
+    /// Validate and construct a SHA-256 hex digest.
+    pub fn parse(value: &str) -> Result<Self, String> {
+        if value.len() != SHA256_HEX_LENGTH
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err(format!(
+                "content hash must be exactly {SHA256_HEX_LENGTH} lowercase hex characters"
+            ));
+        }
+
+        Ok(Self(value.to_owned()))
+    }
+
+    /// Borrow the validated digest string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl fmt::Display for Sha256Hex {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.as_str())
+    }
+}
+
+impl Serialize for Sha256Hex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Sha256Hex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Sha256Hex::parse(&raw).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Manifest row written/checked by future install workflows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestEntry {
     pub path: RepoRelativePath,
-    pub content_hash: String,
+    pub content_hash: Sha256Hex,
     pub asset_class: AssetClass,
     pub integration: Option<InstallIntegration>,
     pub preservation: PreservationPolicy,
@@ -164,12 +218,12 @@ pub fn build_manifest_entries(assets: &[InstallAssetProjection]) -> Vec<Manifest
 
 /// Hash bytes as lowercase SHA-256 hex.
 #[must_use]
-pub fn sha256_hex(bytes: &[u8]) -> String {
+pub fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
     let digest = Sha256::digest(bytes);
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
         hex.push(char::from(NIBBLES[(byte >> 4) as usize]));
         hex.push(char::from(NIBBLES[(byte & 0x0f) as usize]));
     }
-    hex
+    Sha256Hex(hex)
 }

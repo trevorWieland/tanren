@@ -202,5 +202,5 @@ pub fn read_workspace_catalog_file(
 #[must_use]
 #[cfg(feature = "test-hooks")]
 pub fn sha256_hex_string(bytes: &[u8]) -> String {
-    manifest::sha256_hex(bytes)
+    manifest::sha256_hex(bytes).to_string()
 }

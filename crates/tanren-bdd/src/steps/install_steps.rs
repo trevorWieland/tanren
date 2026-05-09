@@ -61,6 +61,14 @@ fn given_previous_manifest_tampered_with_raw_generated_path(
     ctx.inject_manifest_raw_generated_entry_path(raw_path.as_ref())
 }
 
+#[given(expr = "previous install manifest is tampered with an invalid content hash entry")]
+fn given_previous_manifest_tampered_with_invalid_content_hash(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.inject_manifest_invalid_content_hash_entry()
+}
+
 #[given(expr = "repository file {string} is deleted from the repository fixture")]
 fn given_repository_file_deleted(world: &mut TanrenWorld, path: String) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;

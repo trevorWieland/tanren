@@ -131,6 +131,17 @@ Feature: Bootstrap Tanren assets into an existing repository
       And repository file "README.md" preserves its baseline content
 
     @falsification @cli
+    Scenario: Reject reinstall when manifest is tampered with malformed content hash
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given previous install manifest is tampered with an invalid content hash entry
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And no files are written in the repository fixture
+
+    @falsification @cli
     Scenario: Reinstall preserves stale generated file when content drifted after manifest hash
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"

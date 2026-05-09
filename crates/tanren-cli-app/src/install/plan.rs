@@ -11,7 +11,8 @@ use crate::install::catalog::{
 use crate::install::error::InstallError;
 use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallAssetProjection, InstallManifest,
-    ManifestEntry, PreservationPolicy, RepoRelativePath, build_manifest_entries, sha256_hex,
+    ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries,
+    sha256_hex,
 };
 use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallIntegration, InstallProfile};
@@ -438,7 +439,7 @@ fn build_removals(
     })
 }
 
-fn hash_current_file(path: &Path) -> Result<String, InstallError> {
+fn hash_current_file(path: &Path) -> Result<Sha256Hex, InstallError> {
     let current = fs::read(path).map_err(|err| InstallError::ReadFailure {
         path: path.display().to_string(),
         message: err.to_string(),

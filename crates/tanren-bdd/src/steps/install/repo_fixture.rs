@@ -96,6 +96,37 @@ impl InstallContext {
         manifest_helpers::tamper_manifest_with_raw_generated_entry(&self.repository_root, raw_path)
     }
 
+    pub(crate) fn inject_manifest_invalid_content_hash_entry(&mut self) -> InstallStepResult<()> {
+        const TAMPERED_STALE_PATH: &str = ".codex/skills/invalid-hash-command.md";
+        const INVALID_HASH: &str = "not-a-sha256-hash";
+
+        let manifest_path = self.repository_path(".tanren/install-manifest.toml")?;
+        let mut manifest =
+            fs::read_to_string(&manifest_path).map_err(|source| InstallStepError::ReadFile {
+                path: manifest_path.clone(),
+                action: "read install manifest",
+                source,
+            })?;
+        let path_line = format!("path = \"{TAMPERED_STALE_PATH}\"");
+        if manifest.contains(&path_line) {
+            return Err(InstallStepError::StaleManifestPathAlreadyPresent {
+                path: TAMPERED_STALE_PATH.to_owned(),
+            });
+        }
+        manifest.push_str(
+            format!(
+                "\n[[entries]]\npath = \"{TAMPERED_STALE_PATH}\"\ncontent_hash = \"{INVALID_HASH}\"\nasset_class = \"methodology-command\"\nintegration = \"codex\"\npreservation = \"replace-generated\"\n"
+            )
+            .as_str(),
+        );
+        fs::write(&manifest_path, manifest).map_err(|source| InstallStepError::WriteFile {
+            path: manifest_path,
+            action: "write install manifest with invalid hash entry",
+            source,
+        })?;
+        Ok(())
+    }
+
     pub(crate) fn delete_fixture_file(
         &mut self,
         relative_path: &RepositoryRelativePath,
