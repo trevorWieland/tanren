@@ -1484,6 +1484,7 @@
         },
         {
           "kind": "bdd",
+          "id": "B-0070-bdd-positive-falsification",
           "behavior_id": "B-0070",
           "interfaces": [
             "cli"
@@ -1492,6 +1493,7 @@
             "positive",
             "falsification"
           ],
+          "witness_command": "just tests",
           "description": "Positive: install with explicit selection of one or more agent integrations; verify only the selected integrations receive their assets; verify standards required by the profile are still installed. Falsification: an unselected integration's assets are not written. Falsification: invalid integration name is rejected with a clear error."
         }
       ],

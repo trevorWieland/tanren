@@ -1,6 +1,6 @@
 //! Shared install-step assertions that do not need scenario-local state.
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path};
 
@@ -30,6 +30,57 @@ pub(crate) fn assert_rust_cargo_default_assets_installed(repository_root: &Path)
             repository_root,
             &format!("profiles/rust-cargo/{standard_file}"),
         );
+    }
+}
+
+pub(crate) fn assert_rust_cargo_standards_installed(repository_root: &Path) {
+    let standards_files = list_relative_files_under_workspace("profiles/rust-cargo");
+    assert!(
+        !standards_files.is_empty(),
+        "expected rust-cargo profile catalog to have at least one file"
+    );
+    for standard_file in standards_files {
+        assert_file_exists(
+            repository_root,
+            &format!("profiles/rust-cargo/{standard_file}"),
+        );
+    }
+}
+
+pub(crate) fn assert_selected_integration_command_assets(
+    repository_root: &Path,
+    selected_integrations: &[String],
+) {
+    let mut selected = BTreeSet::new();
+    for integration in selected_integrations {
+        let normalized = normalize_integration_name(integration.as_str());
+        assert!(
+            normalized.is_some(),
+            "unsupported integration in BDD assertion: {integration}"
+        );
+        if let Some(normalized) = normalized {
+            selected.insert(normalized);
+        }
+    }
+
+    let command_files = list_relative_files_under_workspace("commands/project");
+    assert!(
+        !command_files.is_empty(),
+        "expected workspace command catalog to have at least one file"
+    );
+
+    for command_file in &command_files {
+        for (integration, destination) in [
+            ("claude", format!(".claude/commands/{command_file}")),
+            ("codex", format!(".codex/skills/{command_file}")),
+            ("open-code", format!(".opencode/commands/{command_file}")),
+        ] {
+            if selected.contains(integration) {
+                assert_file_exists(repository_root, &destination);
+            } else {
+                assert_file_absent(repository_root, &destination);
+            }
+        }
     }
 }
 
@@ -95,6 +146,24 @@ fn assert_file_exists(repository_root: &Path, relative_path: &str) {
         "expected repository file to exist: {}",
         absolute.display()
     );
+}
+
+fn assert_file_absent(repository_root: &Path, relative_path: &str) {
+    let absolute = repository_root.join(relative_path);
+    assert!(
+        !absolute.exists(),
+        "expected repository file to be absent: {}",
+        absolute.display()
+    );
+}
+
+fn normalize_integration_name(raw: &str) -> Option<&'static str> {
+    match raw {
+        "claude" => Some("claude"),
+        "codex" => Some("codex"),
+        "opencode" | "open-code" => Some("open-code"),
+        _ => None,
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

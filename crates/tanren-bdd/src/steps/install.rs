@@ -141,6 +141,15 @@ impl InstallContext {
         );
     }
 
+    pub(crate) fn assert_stderr_contains(&self, expected: &str) {
+        let run = self.require_last_run();
+        assert!(
+            run.stderr.contains(expected),
+            "expected stderr to contain `{expected}`; got:\n{}",
+            run.stderr,
+        );
+    }
+
     fn write_fixture_file(&mut self, relative_path: &RepositoryRelativePath, content: String) {
         let absolute = self.repository_path(relative_path.as_str());
         if let Some(parent) = absolute.parent() {
@@ -216,6 +225,23 @@ impl InstallContext {
 
     fn assert_rust_cargo_default_assets_installed(&self) {
         install_helpers::assert_rust_cargo_default_assets_installed(&self.repository_root);
+    }
+
+    pub(crate) fn assert_rust_cargo_standards_installed(&self) {
+        install_helpers::assert_rust_cargo_standards_installed(&self.repository_root);
+    }
+
+    pub(crate) fn assert_selected_integration_command_assets(&self, integrations: &str) {
+        let selected = integrations
+            .split(',')
+            .map(str::trim)
+            .filter(|integration| !integration.is_empty())
+            .map(ToOwned::to_owned)
+            .collect::<Vec<_>>();
+        install_helpers::assert_selected_integration_command_assets(
+            &self.repository_root,
+            &selected,
+        );
     }
 
     fn assert_manifest_rust_cargo_defaults(&self) {
