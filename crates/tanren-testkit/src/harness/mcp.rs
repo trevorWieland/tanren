@@ -138,39 +138,6 @@ impl McpHarness {
         }
         Ok(payload)
     }
-
-    fn ensure_setting_scope(
-        &self,
-        requested_account_id: tanren_identity_policy::AccountId,
-    ) -> HarnessResult<()> {
-        let authenticated = self.authenticated_account_id.ok_or_else(|| {
-            HarnessError::Transport("no authenticated account in mcp harness".to_owned())
-        })?;
-        if authenticated == requested_account_id {
-            return Ok(());
-        }
-        Err(HarnessError::FailureCode(
-            "setting_not_found".to_owned(),
-            "The requested user setting does not exist or is not accessible.".to_owned(),
-        ))
-    }
-
-    fn ensure_credential_scope(
-        &self,
-        requested_account_id: tanren_identity_policy::AccountId,
-    ) -> HarnessResult<()> {
-        let authenticated = self.authenticated_account_id.ok_or_else(|| {
-            HarnessError::Transport("no authenticated account in mcp harness".to_owned())
-        })?;
-        if authenticated == requested_account_id {
-            return Ok(());
-        }
-        Err(HarnessError::FailureCode(
-            "item_not_found".to_owned(),
-            "The requested user credential metadata does not exist or is not accessible."
-                .to_owned(),
-        ))
-    }
 }
 
 impl Drop for McpHarness {
@@ -260,7 +227,6 @@ impl AccountHarness for McpHarness {
         &mut self,
         requested_account_id: tanren_identity_policy::AccountId,
     ) -> HarnessResult<ListUserSettingsResponse> {
-        self.ensure_setting_scope(requested_account_id)?;
         let body = serde_json::json!({
             "account_id": requested_account_id.to_string(),
         });
@@ -274,7 +240,6 @@ impl AccountHarness for McpHarness {
         requested_account_id: tanren_identity_policy::AccountId,
         request: UpsertUserSettingRequest,
     ) -> HarnessResult<UpsertUserSettingResponse> {
-        self.ensure_setting_scope(requested_account_id)?;
         let body = serde_json::json!({
             "account_id": requested_account_id.to_string(),
             "key": request.key,
@@ -289,7 +254,6 @@ impl AccountHarness for McpHarness {
         &mut self,
         requested_account_id: tanren_identity_policy::AccountId,
     ) -> HarnessResult<ListUserCredentialsResponse> {
-        self.ensure_credential_scope(requested_account_id)?;
         let body = serde_json::json!({
             "account_id": requested_account_id.to_string(),
         });
@@ -303,7 +267,6 @@ impl AccountHarness for McpHarness {
         requested_account_id: tanren_identity_policy::AccountId,
         request: CreateUserCredentialRequest,
     ) -> HarnessResult<CreateUserCredentialResponse> {
-        self.ensure_credential_scope(requested_account_id)?;
         let body = serde_json::json!({
             "account_id": requested_account_id.to_string(),
             "kind": request.kind,
@@ -319,7 +282,6 @@ impl AccountHarness for McpHarness {
         requested_account_id: tanren_identity_policy::AccountId,
         item_id: &str,
     ) -> HarnessResult<RemoveUserCredentialResponse> {
-        self.ensure_credential_scope(requested_account_id)?;
         let body = serde_json::json!({
             "account_id": requested_account_id.to_string(),
             "item_id": item_id,
