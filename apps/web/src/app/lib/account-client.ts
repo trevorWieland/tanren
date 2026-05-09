@@ -1,18 +1,22 @@
 import * as m from "@/i18n/paraglide/messages";
+import * as v from "valibot";
 import type {
   AccountFailureCode,
   AccountId,
   AccountView,
+  Brand,
   ListActiveAccountsResponse,
   OrgId,
   SignedInAccountView,
   SwitchActiveAccountRequest,
   SwitchActiveAccountResponse,
 } from "@/app/lib/generated/account-contract";
+import { asAccountId, asOrgId } from "@/app/lib/generated/account-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const WINDOW_ID_HEADER = "x-tanren-window-id";
 const WINDOW_ID_STORAGE_KEY = "tanren.window_id";
+type WindowContextId = Brand<string, "WindowContextId">;
 
 export interface SignUpInput {
   email: string;
@@ -83,6 +87,124 @@ interface FailureBody {
   summary?: unknown;
 }
 
+const AccountIdSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.uuid(),
+  v.transform((value): AccountId => asAccountId(value)),
+);
+
+const OrgIdSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.uuid(),
+  v.transform((value): OrgId => asOrgId(value)),
+);
+
+const WindowContextIdSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.uuid(),
+  v.transform((value): WindowContextId => value as WindowContextId),
+);
+
+const AccountViewSchema = v.object({
+  id: AccountIdSchema,
+  identifier: v.string(),
+  display_name: v.string(),
+  org: v.nullable(OrgIdSchema),
+});
+
+const SignedInAccountViewSchema = v.object({
+  account: AccountViewSchema,
+  is_active: v.boolean(),
+});
+
+const SessionViewSchema = v.object({
+  account_id: AccountIdSchema,
+  expires_at: v.string(),
+});
+
+const SignUpResultSchema = v.object({
+  account: AccountViewSchema,
+  session: SessionViewSchema,
+});
+
+const SignInResultSchema = v.object({
+  account: AccountViewSchema,
+  session: SessionViewSchema,
+});
+
+const AcceptInvitationResultSchema = v.object({
+  account: AccountViewSchema,
+  session: SessionViewSchema,
+  joined_org: OrgIdSchema,
+});
+
+const ListActiveAccountsResponseSchema = v.object({
+  accounts: v.array(SignedInAccountViewSchema),
+});
+
+const SwitchActiveAccountResponseSchema = v.object({
+  active_account_id: AccountIdSchema,
+  accounts: v.array(SignedInAccountViewSchema),
+});
+
+const FailureBodySchema = v.object({
+  code: v.optional(v.string()),
+  summary: v.optional(v.string()),
+});
+
+type JsonDecoder<T> = (payload: unknown) => T | null;
+
+function decodeWithSchema<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> | null {
+  const parsed = v.safeParse(schema, payload);
+  if (!parsed.success) {
+    return null;
+  }
+  return parsed.output;
+}
+
+function decodeAccountId(payload: unknown): AccountId | null {
+  return decodeWithSchema(AccountIdSchema, payload);
+}
+
+function decodeWindowContextId(payload: unknown): WindowContextId | null {
+  return decodeWithSchema(WindowContextIdSchema, payload);
+}
+
+function decodeFailureBody(payload: unknown): FailureBody | null {
+  return decodeWithSchema(FailureBodySchema, payload);
+}
+
+function decodeSignUpResult(payload: unknown): SignUpResult | null {
+  return decodeWithSchema(SignUpResultSchema, payload);
+}
+
+function decodeSignInResult(payload: unknown): SignInResult | null {
+  return decodeWithSchema(SignInResultSchema, payload);
+}
+
+function decodeAcceptInvitationResult(
+  payload: unknown,
+): AcceptInvitationResult | null {
+  return decodeWithSchema(AcceptInvitationResultSchema, payload);
+}
+
+function decodeListActiveAccountsResult(
+  payload: unknown,
+): ListActiveAccountsResult | null {
+  return decodeWithSchema(ListActiveAccountsResponseSchema, payload);
+}
+
+function decodeSwitchActiveAccountResult(
+  payload: unknown,
+): SwitchActiveAccountResult | null {
+  return decodeWithSchema(SwitchActiveAccountResponseSchema, payload);
+}
+
 /**
  * Map an `AccountFailure` to a localized message via paraglide. Falls back
  * to the API-supplied summary, then to a generic "Request failed" string,
@@ -114,6 +236,7 @@ export class AccountRequestError extends Error {
 async function requestJson<T>(
   path: string,
   method: "GET" | "POST",
+  decode: JsonDecoder<T>,
   body?: unknown,
 ): Promise<T> {
   let response: Response;
@@ -140,30 +263,47 @@ async function requestJson<T>(
   }
 
   if (!response.ok) {
-    let parsed: FailureBody = {};
+    let parsed: FailureBody | null = null;
     try {
-      parsed = (await response.json()) as FailureBody;
+      parsed = decodeFailureBody(await response.json());
     } catch {
-      parsed = {};
+      parsed = null;
     }
     const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
+      typeof parsed?.code === "string" ? parsed.code : "internal_error";
     const summary =
-      typeof parsed.summary === "string"
+      typeof parsed?.summary === "string"
         ? parsed.summary
         : `HTTP ${response.status}`;
     throw new AccountRequestError({ code, summary });
   }
 
-  return (await response.json()) as T;
+  let payload: unknown;
+  try {
+    payload = await response.json();
+  } catch {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: "Invalid response body.",
+    });
+  }
+
+  const decoded = decode(payload);
+  if (decoded === null) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: "Invalid response body.",
+    });
+  }
+  return decoded;
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return requestJson<SignUpResult>("/accounts", "POST", input);
+  return requestJson("/accounts", "POST", decodeSignUpResult, input);
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return requestJson<SignInResult>("/sessions", "POST", input);
+  return requestJson("/sessions", "POST", decodeSignInResult, input);
 }
 
 export function acceptInvitation(
@@ -171,7 +311,7 @@ export function acceptInvitation(
   input: Omit<AcceptInvitationInput, "invitation_token">,
 ): Promise<AcceptInvitationResult> {
   const path = `/invitations/${encodeURIComponent(token)}/accept`;
-  return requestJson<AcceptInvitationResult>(path, "POST", {
+  return requestJson(path, "POST", decodeAcceptInvitationResult, {
     email: input.email,
     password: input.password,
     display_name: input.display_name,
@@ -179,15 +319,16 @@ export function acceptInvitation(
 }
 
 export function listActiveAccounts(): Promise<ListActiveAccountsResult> {
-  return requestJson<ListActiveAccountsResult>("/accounts/active", "GET");
+  return requestJson("/accounts/active", "GET", decodeListActiveAccountsResult);
 }
 
 export function switchActiveAccount(
   input: SwitchActiveAccountInput,
 ): Promise<SwitchActiveAccountResult> {
-  return requestJson<SwitchActiveAccountResult>(
+  return requestJson(
     "/accounts/active/switch",
     "POST",
+    decodeSwitchActiveAccountResult,
     input,
   );
 }
@@ -218,6 +359,10 @@ export async function signOut(): Promise<void> {
   }
 }
 
+export function parseAccountId(value: string): AccountId | null {
+  return decodeAccountId(value);
+}
+
 function windowIdentityHeader(): Record<string, string> {
   const windowId = getWindowId();
   if (windowId === null) {
@@ -226,19 +371,27 @@ function windowIdentityHeader(): Record<string, string> {
   return { [WINDOW_ID_HEADER]: windowId };
 }
 
-function getWindowId(): string | null {
+function getWindowId(): WindowContextId | null {
   if (typeof window === "undefined") {
     return null;
   }
   try {
-    const existing = window.sessionStorage.getItem(WINDOW_ID_STORAGE_KEY);
-    if (existing !== null && existing.trim() !== "") {
-      return existing;
+    const existingRaw = window.sessionStorage.getItem(WINDOW_ID_STORAGE_KEY);
+    if (existingRaw !== null) {
+      const existing = decodeWindowContextId(existingRaw);
+      if (existing !== null) {
+        return existing;
+      }
+      window.sessionStorage.removeItem(WINDOW_ID_STORAGE_KEY);
     }
-    const created =
-      typeof globalThis.crypto?.randomUUID === "function"
-        ? globalThis.crypto.randomUUID()
-        : `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+
+    if (typeof globalThis.crypto?.randomUUID !== "function") {
+      return null;
+    }
+    const created = decodeWindowContextId(globalThis.crypto.randomUUID());
+    if (created === null) {
+      return null;
+    }
     window.sessionStorage.setItem(WINDOW_ID_STORAGE_KEY, created);
     return created;
   } catch {

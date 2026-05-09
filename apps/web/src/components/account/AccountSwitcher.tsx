@@ -7,6 +7,7 @@ import {
   AccountRequestError,
   describeFailure,
   listActiveAccounts,
+  parseAccountId,
   switchActiveAccount,
   type SignedInAccountView,
 } from "@/app/lib/account-client";
@@ -47,8 +48,6 @@ export function AccountSwitcher(): ReactNode {
         if (!cancelled) {
           if (cause instanceof AccountRequestError) {
             setErrorMessage(describeFailure(cause.failure));
-          } else if (cause instanceof Error) {
-            setErrorMessage(cause.message);
           } else {
             setErrorMessage(m.failure_fallback());
           }
@@ -65,8 +64,12 @@ export function AccountSwitcher(): ReactNode {
   }, []);
 
   function onSwitch(event: ChangeEvent<HTMLSelectElement>): void {
-    const targetAccountId = event.target.value;
-    if (targetAccountId === "" || targetAccountId === activeAccountId) {
+    const targetAccountId = parseAccountId(event.target.value);
+    if (targetAccountId === null) {
+      setErrorMessage(m.failure_validation_failed());
+      return;
+    }
+    if (targetAccountId === activeAccountId) {
       return;
     }
 
@@ -74,15 +77,12 @@ export function AccountSwitcher(): ReactNode {
     startTransition(async () => {
       try {
         const response = await switchActiveAccount({
-          target_account_id:
-            targetAccountId as SignedInAccountView["account"]["id"],
+          target_account_id: targetAccountId,
         });
         setAccounts(response.accounts);
       } catch (cause: unknown) {
         if (cause instanceof AccountRequestError) {
           setErrorMessage(describeFailure(cause.failure));
-        } else if (cause instanceof Error) {
-          setErrorMessage(cause.message);
         } else {
           setErrorMessage(m.failure_fallback());
         }
@@ -139,8 +139,6 @@ export function AccountSwitcher(): ReactNode {
               .catch((cause: unknown) => {
                 if (cause instanceof AccountRequestError) {
                   setErrorMessage(describeFailure(cause.failure));
-                } else if (cause instanceof Error) {
-                  setErrorMessage(cause.message);
                 } else {
                   setErrorMessage(m.failure_fallback());
                 }
