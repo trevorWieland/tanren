@@ -6,6 +6,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
+use reqwest::header::HeaderMap;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
@@ -120,15 +121,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /accounts: {e}")))?;
         let status = response.status();
-        let cookies_set = response
-            .headers()
-            .get_all(reqwest::header::SET_COOKIE)
-            .iter()
-            .any(|v| {
-                v.to_str()
-                    .ok()
-                    .is_some_and(|s| s.starts_with("tanren_session="))
-            });
+        let has_cookie = has_session_cookie(response.headers());
         let json: Value = response
             .json()
             .await
@@ -147,7 +140,7 @@ impl AccountHarness for ApiHarness {
             account_id: account.id,
             account,
             expires_at,
-            has_token: cookies_set,
+            has_token: has_cookie || has_session_bearer_token(&json),
         })
     }
 
@@ -162,15 +155,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /sessions: {e}")))?;
         let status = response.status();
-        let cookies_set = response
-            .headers()
-            .get_all(reqwest::header::SET_COOKIE)
-            .iter()
-            .any(|v| {
-                v.to_str()
-                    .ok()
-                    .is_some_and(|s| s.starts_with("tanren_session="))
-            });
+        let has_cookie = has_session_cookie(response.headers());
         let json: Value = response
             .json()
             .await
@@ -189,7 +174,7 @@ impl AccountHarness for ApiHarness {
             account_id: account.id,
             account,
             expires_at,
-            has_token: cookies_set,
+            has_token: has_cookie || has_session_bearer_token(&json),
         })
     }
 
@@ -210,15 +195,7 @@ impl AccountHarness for ApiHarness {
                 HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
             })?;
         let status = response.status();
-        let cookies_set = response
-            .headers()
-            .get_all(reqwest::header::SET_COOKIE)
-            .iter()
-            .any(|v| {
-                v.to_str()
-                    .ok()
-                    .is_some_and(|s| s.starts_with("tanren_session="))
-            });
+        let has_cookie = has_session_cookie(response.headers());
         let json: Value = response
             .json()
             .await
@@ -240,7 +217,7 @@ impl AccountHarness for ApiHarness {
                 account_id: account.id,
                 account,
                 expires_at,
-                has_token: cookies_set,
+                has_token: has_cookie || has_session_bearer_token(&json),
             },
             joined_org,
         })
@@ -348,15 +325,7 @@ impl AccountHarness for ApiHarness {
                     HarnessError::Transport(format!("POST /invitations/{{token}}/accept: {e}"))
                 })?;
                 let status = response.status();
-                let cookies_set = response
-                    .headers()
-                    .get_all(reqwest::header::SET_COOKIE)
-                    .iter()
-                    .any(|v| {
-                        v.to_str()
-                            .ok()
-                            .is_some_and(|s| s.starts_with("tanren_session="))
-                    });
+                let has_cookie = has_session_cookie(response.headers());
                 let json: Value = response
                     .json()
                     .await
@@ -380,7 +349,7 @@ impl AccountHarness for ApiHarness {
                         account_id: account.id,
                         account,
                         expires_at,
-                        has_token: cookies_set,
+                        has_token: has_cookie || has_session_bearer_token(&json),
                     },
                     joined_org,
                 })
@@ -473,6 +442,27 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
+}
+
+fn has_session_cookie(headers: &HeaderMap) -> bool {
+    headers
+        .get_all(reqwest::header::SET_COOKIE)
+        .iter()
+        .filter_map(|value| value.to_str().ok())
+        .any(|cookie| {
+            cookie
+                .split(';')
+                .next()
+                .and_then(|pair| pair.split_once('='))
+                .is_some_and(|(name, value)| name.trim() == "tanren_session" && !value.is_empty())
+        })
+}
+
+fn has_session_bearer_token(json: &Value) -> bool {
+    json.get("session")
+        .and_then(|session| session.get("token"))
+        .and_then(Value::as_str)
+        .is_some_and(|token| !token.trim().is_empty())
 }
 
 fn scope_path(scope: DeploymentPostureScope) -> (&'static str, String) {

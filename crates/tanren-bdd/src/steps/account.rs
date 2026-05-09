@@ -8,7 +8,7 @@
 //! `xtask check-bdd-wire-coverage` mechanically rejects any future
 //! step that bypasses this seam.
 
-use std::time::Duration;
+use std::cell::RefCell;
 
 use chrono::{Duration as ChronoDuration, Utc};
 use cucumber::{given, then, when};
@@ -19,6 +19,7 @@ use tanren_testkit::{
     ConcurrentAcceptanceTally, HarnessInvitation, HarnessOutcome, record_failure,
 };
 
+use super::{poll_until, retry_on_transport};
 use crate::TanrenWorld;
 
 #[given(expr = "a clean Tanren environment")]
@@ -79,14 +80,14 @@ async fn when_sign_up(world: &mut TanrenWorld, actor: String, email: String, pas
 #[when(expr = "{word} signs in with email {string} and password {string}")]
 async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, password: String) {
     let ctx = world.ensure_account_ctx().await;
-    let parsed_email = Email::parse(&email).expect("scenario emails must parse");
-    let result = ctx
-        .harness
-        .sign_in(SignInRequest {
+    let result = retry_on_transport!({
+        let parsed_email = Email::parse(&email).expect("scenario emails must parse");
+        let request = SignInRequest {
             email: parsed_email,
             password: SecretString::from(password.clone()),
-        })
-        .await;
+        };
+        ctx.harness.sign_in(request)
+    });
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.identifier = Some(email);
     entry.password = Some(SecretString::from(password));
@@ -133,19 +134,20 @@ async fn when_accept_invitation(
 ) {
     let ctx = world.ensure_account_ctx().await;
     let display_name = format!("{actor} via {token}");
-    let invitation_token =
-        InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
     let email_raw = format!("{actor}-{token}@invitation.tanren");
-    let parsed_email = Email::parse(&email_raw).expect("synthesised invitation email must parse");
-    let result = ctx
-        .harness
-        .accept_invitation(AcceptInvitationRequest {
+    let result = retry_on_transport!({
+        let invitation_token =
+            InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
+        let parsed_email =
+            Email::parse(&email_raw).expect("synthesised invitation email must parse");
+        let request = AcceptInvitationRequest {
             invitation_token,
             email: parsed_email,
             password: SecretString::from(password.clone()),
             display_name: display_name.clone(),
-        })
-        .await;
+        };
+        ctx.harness.accept_invitation(request)
+    });
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.password = Some(SecretString::from(password));
     let outcome = match result {
@@ -238,16 +240,11 @@ async fn then_session_token(world: &mut TanrenWorld, actor: String) {
         .get(&actor)
         .expect("actor must have an outcome recorded");
     let received = entry
-        .sign_up
+        .accept_invitation
         .as_ref()
-        .map(|s| s.has_token)
-        .or_else(|| entry.sign_in.as_ref().map(|s| s.has_token))
-        .or_else(|| {
-            entry
-                .accept_invitation
-                .as_ref()
-                .map(|a| a.session.has_token)
-        })
+        .map(|acceptance| acceptance.session.has_token)
+        .or_else(|| entry.sign_in.as_ref().map(|session| session.has_token))
+        .or_else(|| entry.sign_up.as_ref().map(|session| session.has_token))
         .unwrap_or(false);
     assert!(received, "expected a session token for {actor}");
 }
@@ -331,9 +328,8 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
 #[then(expr = "a {string} event is recorded")]
 async fn then_event_recorded(world: &mut TanrenWorld, kind: String) {
     let ctx = world.ensure_account_ctx().await;
-    // Some surfaces propagate events asynchronously; poll briefly.
-    let mut attempts = 0;
-    loop {
+    let observed_kinds = RefCell::new(Vec::<String>::new());
+    let found = poll_until(|| async {
         let recent = ctx
             .harness
             .recent_events(20)
@@ -348,16 +344,16 @@ async fn then_event_recorded(world: &mut TanrenWorld, kind: String) {
                     .map(str::to_owned)
             })
             .collect();
-        if kinds.iter().any(|k| k == &kind) {
-            return;
-        }
-        attempts += 1;
-        assert!(
-            attempts < 5,
-            "expected a '{kind}' event in the recent log; got {kinds:?}"
-        );
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+        let matched = kinds.iter().any(|k| k == &kind);
+        *observed_kinds.borrow_mut() = kinds;
+        matched
+    })
+    .await;
+    assert!(
+        found,
+        "expected a '{kind}' event in the recent log; got {:?}",
+        observed_kinds.into_inner()
+    );
 }
 
 async fn do_sign_up(
@@ -368,15 +364,15 @@ async fn do_sign_up(
     display_name: String,
 ) {
     let ctx = world.ensure_account_ctx().await;
-    let parsed_email = Email::parse(&email).expect("scenario emails must parse");
-    let result = ctx
-        .harness
-        .sign_up(SignUpRequest {
+    let result = retry_on_transport!({
+        let parsed_email = Email::parse(&email).expect("scenario emails must parse");
+        let request = SignUpRequest {
             email: parsed_email,
             password: SecretString::from(password.clone()),
-            display_name,
-        })
-        .await;
+            display_name: display_name.clone(),
+        };
+        ctx.harness.sign_up(request)
+    });
     let entry = ctx.actors.entry(actor.clone()).or_default();
     entry.identifier = Some(email);
     entry.password = Some(SecretString::from(password));

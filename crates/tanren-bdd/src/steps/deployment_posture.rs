@@ -3,8 +3,6 @@
 //! Every step routes through the active [`AccountHarness`](tanren_testkit::AccountHarness)
 //! implementation selected by scenario tag (`@api`, `@cli`, `@mcp`, `@tui`, `@web`).
 
-use std::time::Duration;
-
 use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
@@ -14,6 +12,7 @@ use tanren_contract::{
 use tanren_identity_policy::{Email, ProjectId};
 use tanren_testkit::{HarnessKind, HarnessOutcome, record_failure};
 
+use super::{poll_until, retry_on_transport};
 use crate::TanrenWorld;
 
 #[given(expr = "an {word} account actor with posture permission")]
@@ -174,14 +173,13 @@ async fn then_event_attribution(world: &mut TanrenWorld, posture: String) {
     let actor_id = account_id_for(world, "actor").await.to_string();
     let expected_posture = posture;
     let ctx = world.ensure_account_ctx().await;
-    let mut attempts = 0;
-    loop {
+    let found = poll_until(|| async {
         let events = ctx
             .harness
             .recent_events(40)
             .await
             .expect("recent_events should succeed under BDD");
-        let found = events.iter().any(|event| {
+        events.iter().any(|event| {
             let family = event
                 .payload
                 .get("family")
@@ -209,14 +207,10 @@ async fn then_event_attribution(world: &mut TanrenWorld, posture: String) {
                 && kind == "changed"
                 && changed_by == actor_id
                 && posture == expected_posture
-        });
-        if found {
-            return;
-        }
-        attempts += 1;
-        assert!(attempts < 6, "expected attributed deployment posture event");
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+        })
+    })
+    .await;
+    assert!(found, "expected attributed deployment posture event");
 }
 
 #[then(
@@ -329,15 +323,15 @@ async fn sign_up_actor(
     display_name: &str,
 ) {
     let ctx = world.ensure_account_ctx().await;
-    let parsed_email = Email::parse(email).expect("scenario email must parse");
-    let result = ctx
-        .harness
-        .sign_up(SignUpRequest {
+    let result = retry_on_transport!({
+        let parsed_email = Email::parse(email).expect("scenario email must parse");
+        let request = SignUpRequest {
             email: parsed_email,
             password: SecretString::from(password.to_owned()),
             display_name: display_name.to_owned(),
-        })
-        .await;
+        };
+        ctx.harness.sign_up(request)
+    });
     let entry = ctx.actors.entry(actor_label.to_owned()).or_default();
     entry.identifier = Some(email.to_owned());
     entry.password = Some(SecretString::from(password.to_owned()));
@@ -403,16 +397,16 @@ async fn ensure_signed_in_actor(
         (email, password, account_id)
     };
 
-    let parsed_email = Email::parse(&email).expect("recorded actor email should parse");
     let ctx = world.ensure_account_ctx().await;
-    let session = ctx
-        .harness
-        .sign_in(SignInRequest {
+    let session_result = retry_on_transport!({
+        let parsed_email = Email::parse(&email).expect("recorded actor email should parse");
+        let request = SignInRequest {
             email: parsed_email,
-            password: SecretString::from(password),
-        })
-        .await
-        .expect("actor sign-in must succeed before posture mutation");
+            password: SecretString::from(password.clone()),
+        };
+        ctx.harness.sign_in(request)
+    });
+    let session = session_result.expect("actor sign-in must succeed before posture mutation");
     let entry = ctx
         .actors
         .get_mut(actor_label)
