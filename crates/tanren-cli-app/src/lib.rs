@@ -22,7 +22,7 @@ use std::str::FromStr;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, Store};
+use tanren_app_services::{AppServiceError, Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, ListActiveAccountsRequest, SignInRequest, SignUpRequest,
     SwitchActiveAccountRequest,
@@ -196,7 +196,8 @@ fn dispatch_account(action: AccountAction) -> Result<()> {
 }
 
 async fn run_account(action: AccountAction) -> Result<()> {
-    let handlers = Handlers::new();
+    let clock = Clock::default();
+    let handlers = Handlers::with_clock(clock.clone());
     match action {
         AccountAction::Create {
             database_url,
@@ -221,12 +222,14 @@ async fn run_account(action: AccountAction) -> Result<()> {
             password,
         } => run_account_sign_in(&handlers, &database_url, &identifier, password).await?,
         AccountAction::ListActive { database_url } => {
-            run_account_list_active(&handlers, &database_url).await?;
+            run_account_list_active(&handlers, &clock, &database_url).await?;
         }
         AccountAction::SwitchActive {
             database_url,
             target_account_id,
-        } => run_account_switch_active(&handlers, &database_url, &target_account_id).await?,
+        } => {
+            run_account_switch_active(&handlers, &clock, &database_url, &target_account_id).await?;
+        }
     }
     Ok(())
 }
@@ -327,11 +330,15 @@ async fn run_account_sign_in(
     Ok(())
 }
 
-async fn run_account_list_active(handlers: &Handlers, database_url: &str) -> Result<()> {
+async fn run_account_list_active(
+    handlers: &Handlers,
+    clock: &Clock,
+    database_url: &str,
+) -> Result<()> {
     let store = Store::connect(database_url)
         .await
         .context("connect to store")?;
-    let context = active_context_from_session()?;
+    let context = active_context_from_session(&store, clock).await?;
     let response = handlers
         .list_active_accounts(&store, &context, ListActiveAccountsRequest::default())
         .await
@@ -345,13 +352,14 @@ async fn run_account_list_active(handlers: &Handlers, database_url: &str) -> Res
 
 async fn run_account_switch_active(
     handlers: &Handlers,
+    clock: &Clock,
     database_url: &str,
     target_account_id: &str,
 ) -> Result<()> {
     let store = Store::connect(database_url)
         .await
         .context("connect to store")?;
-    let context = active_context_from_session()?;
+    let context = active_context_from_session(&store, clock).await?;
     let target_account_id = AccountId::from(
         Uuid::from_str(target_account_id).context("parse --target-account-id as uuid")?,
     );

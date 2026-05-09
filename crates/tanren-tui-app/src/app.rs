@@ -9,7 +9,7 @@ use anyhow::{Context, Result};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{ListActiveAccountsRequest, SignedInAccountView, SwitchActiveAccountRequest};
 use tokio::runtime::Runtime;
 
@@ -54,6 +54,7 @@ pub(crate) struct OutcomeView {
 #[derive(Debug)]
 pub(crate) struct App {
     runtime: Runtime,
+    clock: Clock,
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
@@ -62,6 +63,7 @@ pub(crate) struct App {
 
 impl App {
     pub(crate) fn new() -> Result<Self> {
+        let clock = Clock::default();
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
@@ -78,7 +80,8 @@ impl App {
         };
         Ok(Self {
             runtime,
-            handlers: Handlers::new(),
+            handlers: Handlers::with_clock(clock.clone()),
+            clock,
             store,
             store_error,
             screen: Screen::Menu { selected: 0 },
@@ -204,7 +207,10 @@ impl App {
             });
             return;
         };
-        let context = match active_context_from_session() {
+        let context = match self
+            .runtime
+            .block_on(active_context_from_session(store.as_ref(), &self.clock))
+        {
             Ok(context) => context,
             Err(err) => {
                 self.screen = Screen::Outcome(OutcomeView {
@@ -243,7 +249,10 @@ impl App {
             });
             return;
         };
-        let context = match active_context_from_session() {
+        let context = match self
+            .runtime
+            .block_on(active_context_from_session(store.as_ref(), &self.clock))
+        {
             Ok(context) => context,
             Err(err) => {
                 self.screen = Screen::Outcome(OutcomeView {
@@ -303,7 +312,10 @@ impl App {
             return;
         };
 
-        let context = match active_context_from_session() {
+        let context = match self
+            .runtime
+            .block_on(active_context_from_session(store.as_ref(), &self.clock))
+        {
             Ok(context) => context,
             Err(err) => {
                 if let Screen::SwitchActive { error, .. } = &mut self.screen {

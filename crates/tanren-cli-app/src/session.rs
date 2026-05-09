@@ -1,12 +1,14 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashSet};
 use std::env;
+use std::error::Error as StdError;
 use std::fs;
 use std::path::PathBuf;
 
 use anyhow::{Context, Result};
+use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::{ActiveAccountContext, ActiveAccountContextError};
-use tanren_identity_policy::AccountId;
+use tanren_app_services::{AccountStore, ActiveAccountContext, ActiveAccountContextError, Clock};
+use tanren_identity_policy::{AccountId, SessionToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 const WINDOW_ID_ENV: &str = "TANREN_WINDOW_ID";
@@ -35,27 +37,93 @@ impl Default for CliSessionFile {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct SignedInSession {
     account_id: AccountId,
-    token: String,
+    token: SessionToken,
 }
 
-pub(crate) fn active_context_from_session() -> Result<ActiveAccountContext> {
-    let session = read_session_file()?;
+pub(crate) async fn active_context_from_session<S>(
+    store: &S,
+    clock: &Clock,
+) -> Result<ActiveAccountContext>
+where
+    S: AccountStore + ?Sized,
+{
+    let mut session = read_session_file()?;
+    let mut signed_in = Vec::with_capacity(session.signed_in.len());
+    let mut seen_account_ids = HashSet::new();
+    let now = clock.now();
+    let mut mutated = false;
+
+    for entry in &session.signed_in {
+        match store.validate_session_token(&entry.token, now).await {
+            Ok(account) => {
+                if account.id != entry.account_id {
+                    mutated = true;
+                }
+                if seen_account_ids.insert(account.id) {
+                    signed_in.push(SignedInSession {
+                        account_id: account.id,
+                        token: entry.token.clone(),
+                    });
+                } else {
+                    mutated = true;
+                }
+            }
+            Err(err) => {
+                if StdError::source(&err).is_some() {
+                    return Err(anyhow::anyhow!("error: internal_error — {err}"));
+                }
+                mutated = true;
+            }
+        }
+    }
+
+    if session.signed_in.len() != signed_in.len() {
+        mutated = true;
+    }
+    session.signed_in = signed_in;
+
+    let before_window_count = session.active_account_by_window.len();
+    session
+        .active_account_by_window
+        .retain(|_, id| seen_account_ids.contains(id));
+    if before_window_count != session.active_account_by_window.len() {
+        mutated = true;
+    }
+
     if session.signed_in.is_empty() {
+        if !session.active_account_by_window.is_empty() {
+            session.active_account_by_window.clear();
+            mutated = true;
+        }
+        if mutated {
+            write_session_file(&session)?;
+        }
         return Err(anyhow::anyhow!(
             "error: invalid_credential — no signed-in accounts are available in the CLI session file"
         ));
     }
+
     let signed_in_account_ids = session
         .signed_in
         .iter()
         .map(|entry| entry.account_id)
         .collect::<Vec<_>>();
+    let key = window_key();
     let active_account_id = session
         .active_account_by_window
-        .get(&window_key())
+        .get(&key)
         .copied()
         .filter(|id| signed_in_account_ids.contains(id))
         .unwrap_or(signed_in_account_ids[0]);
+    if session.active_account_by_window.get(&key).copied() != Some(active_account_id) {
+        session
+            .active_account_by_window
+            .insert(key, active_account_id);
+        mutated = true;
+    }
+    if mutated {
+        write_session_file(&session)?;
+    }
     ActiveAccountContext::from_account_ids(active_account_id, signed_in_account_ids)
         .map_err(|err| map_active_account_context_error(&err))
 }
@@ -67,11 +135,11 @@ pub(crate) fn persist_session(account_id: AccountId, token: &str) -> Result<()> 
         .iter_mut()
         .find(|entry| entry.account_id == account_id)
     {
-        token.clone_into(&mut existing.token);
+        existing.token = SessionToken::from_secret(SecretString::from(token.to_owned()));
     } else {
         session.signed_in.push(SignedInSession {
             account_id,
-            token: token.to_owned(),
+            token: SessionToken::from_secret(SecretString::from(token.to_owned())),
         });
     }
     session

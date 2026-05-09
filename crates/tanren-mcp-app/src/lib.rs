@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use tanren_app_services::{ActiveAccountContextError, AppServiceError, Handlers, Store};
+use tanren_app_services::{ActiveAccountContextError, AppServiceError, Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, ListActiveAccountsRequest, SignInRequest,
     SignUpRequest, SwitchActiveAccountRequest,
@@ -40,7 +40,7 @@ use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 
-use crate::active_account::ActiveAccountSessionState;
+use crate::active_account::{ActiveAccountSessionError, ActiveAccountSessionState};
 use crate::auth::{API_KEY_ENV, AuthConfig, require_api_key};
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
@@ -72,6 +72,7 @@ impl Config {
 /// `docs/architecture/subsystems/interfaces.md`.
 #[derive(Clone)]
 pub(crate) struct TanrenMcp {
+    clock: Clock,
     handlers: Handlers,
     store: Arc<Store>,
     active_accounts: Arc<ActiveAccountSessionState>,
@@ -88,8 +89,9 @@ impl std::fmt::Debug for TanrenMcp {
 
 #[rmcp::tool_router]
 impl TanrenMcp {
-    fn new(handlers: Handlers, store: Arc<Store>) -> Self {
+    fn new(clock: Clock, handlers: Handlers, store: Arc<Store>) -> Self {
         Self {
+            clock,
             handlers,
             store,
             active_accounts: Arc::new(ActiveAccountSessionState::default()),
@@ -109,7 +111,8 @@ impl TanrenMcp {
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_up(self.store.as_ref(), request).await {
             Ok(response) => {
-                self.active_accounts.note_signed_in(response.account.id);
+                self.active_accounts
+                    .note_signed_in(response.account.id, response.session.token.clone());
                 Ok(success(&response))
             }
             Err(err) => Ok(map_failure(err)),
@@ -128,7 +131,8 @@ impl TanrenMcp {
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_in(self.store.as_ref(), request).await {
             Ok(response) => {
-                self.active_accounts.note_signed_in(response.account.id);
+                self.active_accounts
+                    .note_signed_in(response.account.id, response.session.token.clone());
                 Ok(success(&response))
             }
             Err(err) => Ok(map_failure(err)),
@@ -153,7 +157,8 @@ impl TanrenMcp {
             .await
         {
             Ok(response) => {
-                self.active_accounts.note_signed_in(response.account.id);
+                self.active_accounts
+                    .note_signed_in(response.account.id, response.session.token.clone());
                 Ok(success(&response))
             }
             Err(err) => Ok(map_failure(err)),
@@ -167,10 +172,19 @@ impl TanrenMcp {
         description = "List signed-in accounts for this MCP session and identify the active account. Failure code: invalid_credential when no signed-in account is present in this session."
     )]
     async fn account_list_active(&self) -> Result<CallToolResult, McpError> {
-        let context = match self.active_accounts.context() {
+        let context = match self
+            .active_accounts
+            .context(self.store.as_ref(), &self.clock)
+            .await
+        {
             Ok(Some(context)) => context,
             Ok(None) => return Ok(missing_session_failure()),
-            Err(err) => return Ok(active_context_failure(&err)),
+            Err(ActiveAccountSessionError::Validation(err)) => {
+                return Ok(active_context_failure(&err));
+            }
+            Err(ActiveAccountSessionError::Store(err)) => {
+                return Ok(active_context_store_failure(&err));
+            }
         };
         match self
             .handlers
@@ -196,10 +210,19 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<SwitchActiveAccountRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let context = match self.active_accounts.context() {
+        let context = match self
+            .active_accounts
+            .context(self.store.as_ref(), &self.clock)
+            .await
+        {
             Ok(Some(context)) => context,
             Ok(None) => return Ok(missing_session_failure()),
-            Err(err) => return Ok(active_context_failure(&err)),
+            Err(ActiveAccountSessionError::Validation(err)) => {
+                return Ok(active_context_failure(&err));
+            }
+            Err(ActiveAccountSessionError::Store(err)) => {
+                return Ok(active_context_store_failure(&err));
+            }
         };
         match self
             .handlers
@@ -287,6 +310,15 @@ fn active_context_failure(err: &ActiveAccountContextError) -> CallToolResult {
     CallToolResult::error(vec![Content::text(body.to_string())])
 }
 
+fn active_context_store_failure(err: &str) -> CallToolResult {
+    let body = json!({
+        "code": "internal_error",
+        "summary": format!("Tanren encountered an internal error: {err}"),
+    });
+    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
+    CallToolResult::error(vec![Content::text(text)])
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
@@ -305,6 +337,7 @@ async fn health() -> Json<HealthResponse> {
 
 fn build_router(
     auth_config: Arc<AuthConfig>,
+    clock: Clock,
     handlers: Handlers,
     store: Arc<Store>,
     cancellation: CancellationToken,
@@ -312,7 +345,13 @@ fn build_router(
     let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
         StreamableHttpService::new(
-            move || Ok(TanrenMcp::new(handlers.clone(), store.clone())),
+            move || {
+                Ok(TanrenMcp::new(
+                    clock.clone(),
+                    handlers.clone(),
+                    store.clone(),
+                ))
+            },
             Arc::new(LocalSessionManager::default()),
             config,
         );
@@ -379,7 +418,14 @@ pub fn build_router_with_store(
         bootstrap_key: Some(api_key),
     });
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, Handlers::new(), store, cancellation.clone());
+    let clock = Clock::default();
+    let router = build_router(
+        auth_config,
+        clock.clone(),
+        Handlers::with_clock(clock),
+        store,
+        cancellation.clone(),
+    );
     (router, cancellation)
 }
 
@@ -409,10 +455,11 @@ pub async fn serve(_config: Config) -> Result<()> {
             .await
             .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
     );
-    let handlers = Handlers::new();
+    let clock = Clock::default();
+    let handlers = Handlers::with_clock(clock.clone());
 
     let cancellation = CancellationToken::new();
-    let router = build_router(auth_config, handlers, store, cancellation.clone());
+    let router = build_router(auth_config, clock, handlers, store, cancellation.clone());
 
     let listener = TcpListener::bind(&bind)
         .await
