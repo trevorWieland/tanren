@@ -32,6 +32,8 @@ interface TanrenBddState {
   preExistingEnvLocal: string | null;
 }
 
+const TEST_HOOKS_MODE_ENV = "TANREN_BDD_TEST_HOOKS_MODE";
+
 async function waitForHealth(url: string, timeoutMs: number): Promise<void> {
   const start = Date.now();
   while (Date.now() - start < timeoutMs) {
@@ -137,6 +139,7 @@ export default async function globalSetup(): Promise<void> {
       tmpRoot: "",
       preExistingEnvLocal,
     };
+    process.env[TEST_HOOKS_MODE_ENV] = "external";
     return;
   }
 
@@ -203,6 +206,7 @@ export default async function globalSetup(): Promise<void> {
   await waitForHealth(`${apiUrl}/health`, 180_000);
 
   process.env["NEXT_PUBLIC_API_URL"] = apiUrl;
+  process.env[TEST_HOOKS_MODE_ENV] = "spawned";
   writeFileSync(envLocalPath, `NEXT_PUBLIC_API_URL=${apiUrl}\n`);
 
   globalThis.__tanrenBddState = {

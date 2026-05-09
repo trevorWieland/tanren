@@ -1,6 +1,7 @@
 import { createBdd } from "playwright-bdd";
 
 import { test, type ActorState, type WebWorld } from "./account.steps";
+import { resolveAccountIdByEmail } from "../support/test-hooks";
 
 const { When, Then } = createBdd(test);
 
@@ -8,10 +9,6 @@ const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 
 interface CapabilityMemo {
   canViewMyPermissions: boolean | null;
-}
-
-interface AccountResolveResponse {
-  account_id: string;
 }
 
 const capabilityMemos = new WeakMap<WebWorld, CapabilityMemo>();
@@ -116,22 +113,9 @@ When(
     if (!target.email) {
       throw new Error(`target actor ${targetName} has no recorded email`);
     }
-    const resolveResponse = await fetch(
-      `${API_URL}/test-hooks/accounts/resolve`,
-      {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ account_email: target.email }),
-      },
-    );
-    if (!resolveResponse.ok) {
-      throw new Error(
-        `resolve account failed: ${resolveResponse.status} ${await resolveResponse.text()}`,
-      );
-    }
-    const resolved = (await resolveResponse.json()) as AccountResolveResponse;
+    const resolvedAccountId = await resolveAccountIdByEmail(target.email);
     const response = await page.request.get(
-      `${API_URL}/me/capabilities?account_id=${encodeURIComponent(resolved.account_id)}`,
+      `${API_URL}/me/capabilities?account_id=${encodeURIComponent(resolvedAccountId)}`,
       {
         headers: {
           cookie: await cookieHeader(page),

@@ -1,6 +1,12 @@
 import { createBdd } from "playwright-bdd";
 
 import { test, type ActorState, type WebWorld } from "./account.steps";
+import {
+  assertNoPermissionMutationEvents,
+  resolveAccountIdByEmail,
+  seedActorPermissionFixtures,
+  snapshotPermissionEventsCheckpoint,
+} from "../support/test-hooks";
 
 const { Given, When, Then } = createBdd(test);
 
@@ -13,15 +19,6 @@ const ROLE_TEMPLATE_NAME = "release_manager";
 
 interface PermissionsMemo {
   eventIdsBefore?: Set<string>;
-}
-
-interface SeedActorPermissionFixturesBody {
-  account_email: string;
-  organization_policy_reason: string;
-}
-
-interface PermissionEventsCheckpointResponse {
-  event_ids: string[];
 }
 
 const permissionsMemos = new WeakMap<WebWorld, PermissionsMemo>();
@@ -43,50 +40,6 @@ function permissionsMemo(world: WebWorld): PermissionsMemo {
   const next: PermissionsMemo = {};
   permissionsMemos.set(world, next);
   return next;
-}
-
-async function postJson<T>(path: string, body: unknown): Promise<T> {
-  const response = await fetch(`${API_URL}${path}`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
-  });
-  if (!response.ok) {
-    throw new Error(
-      `POST ${path} failed: ${response.status} ${await response.text()}`,
-    );
-  }
-  const text = await response.text();
-  if (text === "") {
-    return undefined as T;
-  }
-  return JSON.parse(text) as T;
-}
-
-async function seedActorPermissionFixtures(
-  payload: SeedActorPermissionFixturesBody,
-): Promise<void> {
-  await postJson("/test-hooks/permissions/fixtures/actor", payload);
-}
-
-async function snapshotPermissionEventsCheckpoint(): Promise<Set<string>> {
-  const body = await postJson<PermissionEventsCheckpointResponse>(
-    "/test-hooks/permissions/checkpoints/events",
-    { limit: 200 },
-  );
-  return new Set(body.event_ids);
-}
-
-async function assertNoPermissionMutationEvents(
-  eventIdsBefore: Set<string>,
-): Promise<void> {
-  await postJson(
-    "/test-hooks/permissions/assertions/no-request-or-grant-events",
-    {
-      event_ids_before: [...eventIdsBefore],
-      limit: 200,
-    },
-  );
 }
 
 async function signInActor(
@@ -148,12 +101,9 @@ When(
     if (!target.email) {
       throw new Error(`target actor ${targetName} has no recorded email`);
     }
-    const resolved = await postJson<{ account_id: string }>(
-      "/test-hooks/accounts/resolve",
-      { account_email: target.email },
-    );
+    const resolvedAccountId = await resolveAccountIdByEmail(target.email);
     const response = await page.request.get(
-      `${API_URL}/accounts/${resolved.account_id}/permissions`,
+      `${API_URL}/accounts/${resolvedAccountId}/permissions`,
       {
         headers: {
           cookie: await page
