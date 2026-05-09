@@ -167,7 +167,7 @@ pub fn build_install_plan(
         &manifest_entries,
         &previous_entries_by_path,
     )?;
-    let removals = build_removals(
+    let stale_removal_plan = build_removals(
         &repository_root,
         &desired_generated_paths,
         &generated_destination_roots,
@@ -176,7 +176,9 @@ pub fn build_install_plan(
         &manifest_absolute_path,
     )?;
     let mut preserved = collect_preserved_paths(&writes);
+    preserved.extend(stale_removal_plan.preserved_paths);
     preserved.sort();
+    preserved.dedup();
 
     let manifest = InstallManifest::from_entries(
         profile,
@@ -189,7 +191,7 @@ pub fn build_install_plan(
             .into_iter()
             .filter_map(PlannedAssetAction::into_write)
             .collect(),
-        removals,
+        removals: stale_removal_plan.removals,
         preserved,
         manifest_path,
         manifest_absolute_path,
@@ -334,11 +336,7 @@ fn plan_asset_write(
         }));
     }
 
-    let current = fs::read(&absolute_path).map_err(|err| InstallError::ReadFailure {
-        path: absolute_path.display().to_string(),
-        message: err.to_string(),
-    })?;
-    let current_hash = sha256_hex(&current);
+    let current_hash = hash_current_file(&absolute_path)?;
 
     if current_hash == manifest_entry.content_hash {
         return Ok(PlannedAssetAction::Unchanged);
@@ -368,6 +366,12 @@ fn collect_preserved_paths(actions: &[PlannedAssetAction]) -> Vec<RepoRelativePa
     preserved
 }
 
+#[derive(Debug, Clone)]
+struct StaleRemovalPlan {
+    removals: Vec<PlannedRemoval>,
+    preserved_paths: Vec<RepoRelativePath>,
+}
+
 fn build_removals(
     repository_root: &Path,
     desired_generated_paths: &BTreeSet<&str>,
@@ -375,12 +379,16 @@ fn build_removals(
     trusted_generated_asset_registry: &BTreeSet<RepoRelativePath>,
     previous_manifest: Option<&InstallManifest>,
     manifest_absolute_path: &Path,
-) -> Result<Vec<PlannedRemoval>, InstallError> {
+) -> Result<StaleRemovalPlan, InstallError> {
     let Some(manifest) = previous_manifest else {
-        return Ok(Vec::new());
+        return Ok(StaleRemovalPlan {
+            removals: Vec::new(),
+            preserved_paths: Vec::new(),
+        });
     };
 
     let mut removals = Vec::with_capacity(manifest.entries.len());
+    let mut preserved_paths = Vec::new();
     for entry in &manifest.entries {
         let path = entry.path.as_str();
         if desired_generated_paths.contains(path)
@@ -397,6 +405,11 @@ fn build_removals(
 
         let absolute = resolve_repo_path(repository_root, &entry.path)?;
         if absolute.exists() {
+            let current_hash = hash_current_file(&absolute)?;
+            if current_hash != entry.content_hash {
+                preserved_paths.push(entry.path.clone());
+                continue;
+            }
             removals.push(PlannedRemoval {
                 path: entry.path.clone(),
                 absolute_path: absolute,
@@ -405,8 +418,21 @@ fn build_removals(
     }
 
     removals.sort_by(|left, right| left.path.as_str().cmp(right.path.as_str()));
+    preserved_paths.sort();
+    preserved_paths.dedup();
     ensure_removals_unique(&removals, manifest_absolute_path)?;
-    Ok(removals)
+    Ok(StaleRemovalPlan {
+        removals,
+        preserved_paths,
+    })
+}
+
+fn hash_current_file(path: &Path) -> Result<String, InstallError> {
+    let current = fs::read(path).map_err(|err| InstallError::ReadFailure {
+        path: path.display().to_string(),
+        message: err.to_string(),
+    })?;
+    Ok(sha256_hex(&current))
 }
 
 fn ensure_removals_unique(

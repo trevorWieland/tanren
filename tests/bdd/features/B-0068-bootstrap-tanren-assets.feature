@@ -65,3 +65,16 @@ Feature: Bootstrap Tanren assets into an existing repository
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
       And repository file "README.md" preserves its baseline content
+
+    @falsification @cli
+    Scenario: Reinstall preserves stale generated file when content drifted after manifest hash
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given repository file ".codex/skills/retired-command.md" contains "stale generated command from old manifest"
+      And previous install manifest tracks stale generated file ".codex/skills/retired-command.md"
+      And repository file ".codex/skills/retired-command.md" contains "team-edited stale generated command"
+      And repository file ".codex/skills/retired-command.md" baseline is recorded
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      And repository file ".codex/skills/retired-command.md" preserves its baseline content

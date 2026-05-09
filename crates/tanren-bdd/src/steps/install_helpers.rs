@@ -4,7 +4,11 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 use super::install::InstallStepError;
+
+const NIBBLES: &[u8; 16] = b"0123456789abcdef";
 
 pub(crate) fn assert_rust_cargo_default_assets_installed(
     repository_root: &Path,
@@ -162,9 +166,21 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<(), InstallStepError>
 pub(crate) fn append_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &RepositoryRelativePath,
+    content_hash: String,
 ) {
-    let entry = GeneratedManifestEntry::stale_methodology_command(relative_path.clone());
+    let entry =
+        GeneratedManifestEntry::stale_methodology_command(relative_path.clone(), content_hash);
     manifest.push_str(&entry.to_manifest_block());
+}
+
+pub(crate) fn sha256_hex(bytes: &[u8]) -> String {
+    let digest = Sha256::digest(bytes);
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        hex.push(char::from(NIBBLES[(byte >> 4) as usize]));
+        hex.push(char::from(NIBBLES[(byte & 0x0f) as usize]));
+    }
+    hex
 }
 
 fn assert_file_exists(repository_root: &Path, relative_path: &str) -> Result<(), InstallStepError> {
@@ -195,17 +211,17 @@ fn normalize_integration_name(raw: &str) -> Option<&'static str> {
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct GeneratedManifestEntry {
     path: RepositoryRelativePath,
-    content_hash: &'static str,
+    content_hash: String,
     asset_class: &'static str,
     integration: &'static str,
     preservation: &'static str,
 }
 
 impl GeneratedManifestEntry {
-    fn stale_methodology_command(path: RepositoryRelativePath) -> Self {
+    fn stale_methodology_command(path: RepositoryRelativePath, content_hash: String) -> Self {
         Self {
             path,
-            content_hash: "stale-generated-entry",
+            content_hash,
             asset_class: "methodology-command",
             integration: "codex",
             preservation: "replace-generated",

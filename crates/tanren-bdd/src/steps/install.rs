@@ -322,7 +322,17 @@ impl InstallContext {
                 path: relative_path.as_str().to_owned(),
             });
         }
-        install_helpers::append_stale_generated_manifest_entry(&mut manifest, relative_path);
+        let stale_path = self.repository_path(relative_path.as_str())?;
+        let stale_bytes = fs::read(&stale_path).map_err(|source| InstallStepError::ReadFile {
+            path: stale_path,
+            action: "read stale generated file for manifest hash",
+            source,
+        })?;
+        install_helpers::append_stale_generated_manifest_entry(
+            &mut manifest,
+            relative_path,
+            install_helpers::sha256_hex(&stale_bytes),
+        );
         fs::write(&manifest_path, manifest).map_err(|source| InstallStepError::WriteFile {
             path: manifest_path,
             action: "write install manifest with stale entry",
