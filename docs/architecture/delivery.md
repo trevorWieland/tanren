@@ -365,6 +365,13 @@ Current behavior:
 - Tanren-owned generated command assets use `replace-generated` semantics.
 - Standards profile assets use `preserve-user-edits` semantics; reinstall
   restores missing tracked standards files and keeps user-edited content.
+- Reinstall cleanup removes stale Tanren-generated command assets that were
+  tracked in the prior install manifest but are no longer selected by the
+  active integration set.
+- Install preview for this command surface is defined in
+  [Install Preview](#install-preview). Preview describes the same manifest
+  ownership and stale-generated cleanup decisions before apply; R-0023 does
+  not add separate install-only preview flags.
 
 This command slice is intentionally limited to install materialization. For
 this node, `tanren-cli install` only writes install assets and updates install

@@ -13,18 +13,18 @@ adopting repository.
 Use `tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`
 to materialize command assets in a target repository.
 
-Detailed install lifecycle, supported integration matrix, manifest ownership,
-reinstall/cleanup semantics, preview behavior, upgrade flow, and uninstall
-contracts are defined in `docs/architecture/delivery.md`.
+Lifecycle and ownership rules are canonical in
+[`docs/architecture/delivery.md`](../docs/architecture/delivery.md). This
+directory does not redefine install/preview/upgrade/uninstall semantics.
 
 Reference sections:
 
-- `Generated Repository Assets`
-- `Current Local Install Command Surface (R-0023)`
-- `Install Preview`
-- `Upgrades And Migrations`
-- `Stack Uninstall`
-- `Repo Uninstall`
+- [Generated Repository Assets](../docs/architecture/delivery.md#generated-repository-assets)
+- [Current Local Install Command Surface (R-0023)](../docs/architecture/delivery.md#current-local-install-command-surface-r-0023)
+- [Install Preview](../docs/architecture/delivery.md#install-preview)
+- [Upgrades And Migrations](../docs/architecture/delivery.md#upgrades-and-migrations)
+- [Stack Uninstall](../docs/architecture/delivery.md#stack-uninstall)
+- [Repo Uninstall](../docs/architecture/delivery.md#repo-uninstall)
 
 > **Note (rewrite reset):** the `spec/` directory and the
 > `assess-implementation` command have been removed during the architecture
