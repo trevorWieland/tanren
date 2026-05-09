@@ -10,6 +10,7 @@
     "i18n:compile": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations",
     "lint": "oxlint .",
     "typecheck": "tsgo --noEmit",
+    "contract:generate": "cargo run -q -p tanren-xtask -- generate-web-contracts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run --project=unit --passWithNoTests",

@@ -258,6 +258,20 @@ pub enum AccountFailureReason {
 }
 
 impl AccountFailureReason {
+    /// Closed set of account-failure variants.
+    #[must_use]
+    pub const fn all() -> &'static [Self] {
+        &[
+            Self::DuplicateIdentifier,
+            Self::InvalidCredential,
+            Self::ValidationFailed,
+            Self::InvitationNotFound,
+            Self::InvitationExpired,
+            Self::InvitationAlreadyConsumed,
+            Self::TargetAccountNotSignedIn,
+        ]
+    }
+
     /// Stable wire `code` for this failure.
     #[must_use]
     pub const fn code(self) -> &'static str {

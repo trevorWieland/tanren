@@ -10,6 +10,7 @@ mod check_profiles;
 mod check_secrets;
 mod check_test_hooks;
 mod check_tracing_init;
+mod generate_web_contracts;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -123,6 +124,11 @@ enum Command {
     /// `profiles/rust-cargo/architecture/openapi-generation.md`.
     #[command(name = "check-openapi-handcraft")]
     OpenapiHandcraft(RootArg),
+    /// Emit web TypeScript account contract types from canonical Rust
+    /// contract sources. Keeps the web client aligned with
+    /// `tanren-contract` without hand-maintained duplicated unions.
+    #[command(name = "generate-web-contracts")]
+    GenerateWebContracts(RootArg),
 }
 
 fn main() -> Result<()> {
@@ -140,6 +146,7 @@ fn main() -> Result<()> {
         Command::Profiles(r) => check_profiles::run(&r.resolve()?),
         Command::OrphanTraits(r) => check_orphan_traits::run(&r.resolve()?),
         Command::OpenapiHandcraft(r) => check_openapi_handcraft::run(&r.resolve()?),
+        Command::GenerateWebContracts(r) => generate_web_contracts::run(&r.resolve()?),
     }
 }
 

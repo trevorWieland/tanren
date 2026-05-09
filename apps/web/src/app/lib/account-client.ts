@@ -1,4 +1,14 @@
 import * as m from "@/i18n/paraglide/messages";
+import type {
+  AccountFailureCode,
+  AccountId,
+  AccountView,
+  ListActiveAccountsResponse,
+  OrgId,
+  SignedInAccountView,
+  SwitchActiveAccountRequest,
+  SwitchActiveAccountResponse,
+} from "@/app/lib/generated/account-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const WINDOW_ID_HEADER = "x-tanren-window-id";
@@ -22,17 +32,7 @@ export interface AcceptInvitationInput {
   display_name: string;
 }
 
-export interface AccountView {
-  id: string;
-  identifier: string;
-  display_name: string;
-  org: string | null;
-}
-
-export interface SignedInAccountView {
-  account: AccountView;
-  is_active: boolean;
-}
+export type { AccountFailureCode, AccountView, SignedInAccountView };
 
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
@@ -40,7 +40,7 @@ export interface SignedInAccountView {
  * the session token itself is never readable from JavaScript.
  */
 export interface SessionView {
-  account_id: string;
+  account_id: AccountId;
   expires_at: string;
 }
 
@@ -57,40 +57,24 @@ export interface SignInResult {
 export interface AcceptInvitationResult {
   account: AccountView;
   session: SessionView;
-  joined_org: string;
+  joined_org: OrgId;
 }
 
-export interface ListActiveAccountsResult {
-  accounts: SignedInAccountView[];
-}
-
-export interface SwitchActiveAccountInput {
-  target_account_id: string;
-}
-
-export interface SwitchActiveAccountResult {
-  active_account_id: string;
-  accounts: SignedInAccountView[];
-}
+export type ListActiveAccountsResult = ListActiveAccountsResponse;
+export type SwitchActiveAccountInput = SwitchActiveAccountRequest;
+export type SwitchActiveAccountResult = SwitchActiveAccountResponse;
 
 /**
- * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
- * Kept in lock-step with the Rust enum so BDD web steps can match on the
- * same taxonomy regardless of transport.
+ * Network/runtime-only extensions layered on top of canonical
+ * `AccountFailureCode` from the generated contract.
  */
-export type AccountFailureCode =
-  | "duplicate_identifier"
-  | "invalid_credential"
-  | "invitation_not_found"
-  | "invitation_already_consumed"
-  | "invitation_expired"
-  | "validation_failed"
-  | "target_account_not_signed_in"
+export type AccountRequestFailureCode =
+  | AccountFailureCode
   | "unavailable"
   | "internal_error";
 
 export interface AccountFailure {
-  code: AccountFailureCode | string;
+  code: AccountRequestFailureCode | string;
   summary: string;
 }
 

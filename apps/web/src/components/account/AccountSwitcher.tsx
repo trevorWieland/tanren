@@ -74,7 +74,8 @@ export function AccountSwitcher(): ReactNode {
     startTransition(async () => {
       try {
         const response = await switchActiveAccount({
-          target_account_id: targetAccountId,
+          target_account_id:
+            targetAccountId as SignedInAccountView["account"]["id"],
         });
         setAccounts(response.accounts);
       } catch (cause: unknown) {
