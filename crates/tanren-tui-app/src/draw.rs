@@ -60,7 +60,7 @@ pub(crate) fn draw_form(
         .split(inner);
 
     for (idx, field) in state.fields.iter().enumerate() {
-        let focused = idx == state.focus;
+        let focused = idx == state.focus && !field.read_only;
         let marker = if focused { ">" } else { " " };
         let display = if field.secret {
             "*".repeat(field.value.chars().count())
@@ -70,11 +70,18 @@ pub(crate) fn draw_form(
         let cursor = if focused { "_" } else { "" };
         let style = if focused {
             Style::default().add_modifier(Modifier::BOLD)
+        } else if field.read_only {
+            Style::default().add_modifier(Modifier::DIM)
         } else {
             Style::default()
         };
+        let label = if field.read_only {
+            format!("{} (read-only)", field.label)
+        } else {
+            field.label.to_owned()
+        };
         let line = Line::from(Span::styled(
-            format!("{marker} {}: {display}{cursor}", field.label),
+            format!("{marker} {label}: {display}{cursor}"),
             style,
         ));
         frame.render_widget(Paragraph::new(line), chunks[idx]);

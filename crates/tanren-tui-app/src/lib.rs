@@ -124,14 +124,19 @@ pub(crate) struct FormState {
 pub(crate) struct FormField {
     pub(crate) label: &'static str,
     pub(crate) secret: bool,
+    pub(crate) read_only: bool,
     pub(crate) value: String,
 }
 
 impl FormState {
     pub(crate) fn new(fields: Vec<FormField>) -> Self {
+        let focus = fields
+            .iter()
+            .position(|field| !field.read_only)
+            .unwrap_or(0);
         Self {
             fields,
-            focus: 0,
+            focus,
             error: None,
         }
     }
@@ -141,21 +146,34 @@ impl FormState {
             return;
         }
         let len = self.fields.len();
-        self.focus = if forward {
-            (self.focus + 1) % len
-        } else {
-            (self.focus + len - 1) % len
-        };
+        let mut next = self.focus;
+        for _ in 0..len {
+            next = if forward {
+                (next + 1) % len
+            } else {
+                (next + len - 1) % len
+            };
+            if !self.fields[next].read_only {
+                self.focus = next;
+                return;
+            }
+        }
     }
 
     pub(crate) fn push_char(&mut self, c: char) {
         if let Some(field) = self.fields.get_mut(self.focus) {
+            if field.read_only {
+                return;
+            }
             field.value.push(c);
         }
     }
 
     pub(crate) fn pop_char(&mut self) {
         if let Some(field) = self.fields.get_mut(self.focus) {
+            if field.read_only {
+                return;
+            }
             field.value.pop();
         }
     }

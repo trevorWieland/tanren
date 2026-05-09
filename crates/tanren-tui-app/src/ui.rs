@@ -12,7 +12,6 @@ use tanren_contract::{
     SignUpRequest, SignUpResponse, SupportedDeploymentPosture,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, ValidationError};
-use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -21,16 +20,19 @@ pub(crate) fn sign_up_fields() -> Vec<FormField> {
         FormField {
             label: "Email",
             secret: false,
+            read_only: false,
             value: String::new(),
         },
         FormField {
             label: "Password",
             secret: true,
+            read_only: false,
             value: String::new(),
         },
         FormField {
             label: "Display name",
             secret: false,
+            read_only: false,
             value: String::new(),
         },
     ]
@@ -41,11 +43,13 @@ pub(crate) fn sign_in_fields() -> Vec<FormField> {
         FormField {
             label: "Email",
             secret: false,
+            read_only: false,
             value: String::new(),
         },
         FormField {
             label: "Password",
             secret: true,
+            read_only: false,
             value: String::new(),
         },
     ]
@@ -56,21 +60,25 @@ pub(crate) fn accept_invitation_fields() -> Vec<FormField> {
         FormField {
             label: "Invitation token",
             secret: false,
+            read_only: false,
             value: String::new(),
         },
         FormField {
             label: "Email",
             secret: false,
+            read_only: false,
             value: String::new(),
         },
         FormField {
             label: "Password",
             secret: true,
+            read_only: false,
             value: String::new(),
         },
         FormField {
             label: "Display name",
             secret: false,
+            read_only: false,
             value: String::new(),
         },
     ]
@@ -79,13 +87,15 @@ pub(crate) fn accept_invitation_fields() -> Vec<FormField> {
 pub(crate) fn posture_fields(active_account: Option<AccountId>) -> Vec<FormField> {
     vec![
         FormField {
-            label: "Account ID",
+            label: "Account target",
             secret: false,
+            read_only: true,
             value: active_account.map_or_else(String::new, |id| id.to_string()),
         },
         FormField {
             label: "Posture",
             secret: false,
+            read_only: false,
             value: "hosted".to_owned(),
         },
     ]
@@ -228,18 +238,17 @@ pub(crate) fn parse_accept_invitation(
 
 pub(crate) fn parse_posture(
     state: &FormState,
-) -> Result<(AccountId, SetDeploymentPostureRequest), String> {
-    let account_raw = state.value(0);
-    let parsed_uuid = Uuid::parse_str(account_raw)
-        .map_err(|e| format!("validation_failed: invalid account id: {e}"))?;
-    let account_id = AccountId::from(parsed_uuid);
+    active_account: AccountId,
+) -> Result<SetDeploymentPostureRequest, String> {
     let request = SetDeploymentPostureRequest {
-        scope: tanren_contract::DeploymentPostureScope::Account { account_id },
+        scope: tanren_contract::DeploymentPostureScope::Account {
+            account_id: active_account,
+        },
         posture: DeploymentPosture::from_wire_value(state.value(1)).ok_or_else(|| {
             "unsupported_posture: supported values are hosted, self_hosted, local_only".to_owned()
         })?,
     };
-    Ok((account_id, request))
+    Ok(request)
 }
 
 fn format_caps(caps: &[DeploymentPostureCapability]) -> String {

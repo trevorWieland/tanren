@@ -27,6 +27,8 @@ use crate::ui::{
 use crate::{FormState, MenuChoice};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
+const ACTIVE_ACCOUNT_REQUIRED: &str =
+    "permission_denied: sign up, sign in, or accept invitation before setting deployment posture";
 
 #[derive(Debug)]
 pub(crate) enum Screen {
@@ -268,8 +270,14 @@ impl App {
     }
 
     fn submit_posture(&mut self, store: &Store) {
-        let (actor, request) = match &self.screen {
-            Screen::Posture(state) => match parse_posture(state) {
+        let Some(active_account) = self.active_account else {
+            if let Screen::Posture(state) = &mut self.screen {
+                state.error = Some(ACTIVE_ACCOUNT_REQUIRED.to_owned());
+            }
+            return;
+        };
+        let request = match &self.screen {
+            Screen::Posture(state) => match parse_posture(state, active_account) {
                 Ok(parsed) => parsed,
                 Err(message) => {
                     if let Screen::Posture(state) = &mut self.screen {
@@ -280,12 +288,12 @@ impl App {
             },
             _ => return,
         };
-        match self
-            .runtime
-            .block_on(self.handlers.set_deployment_posture(store, actor, request))
-        {
+        match self.runtime.block_on(self.handlers.set_deployment_posture(
+            store,
+            active_account,
+            request,
+        )) {
             Ok(current) => {
-                self.active_account = Some(actor);
                 let supported = self.handlers.list_supported_deployment_postures();
                 // Reuse the mutation response as the authoritative current
                 // posture to avoid an immediate extra read round-trip.
@@ -375,7 +383,17 @@ fn handle_menu_key(
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
                 }
                 MenuChoice::DeploymentPosture => {
-                    Screen::Posture(FormState::new(posture_fields(active_account)))
+                    if active_account.is_none() {
+                        Screen::Outcome(OutcomeView {
+                            title: "Authentication required",
+                            lines: vec![
+                                "Sign up, sign in, or accept an invitation before opening deployment posture."
+                                    .to_owned(),
+                            ],
+                        })
+                    } else {
+                        Screen::Posture(FormState::new(posture_fields(active_account)))
+                    }
                 }
             });
         }

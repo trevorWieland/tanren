@@ -25,8 +25,8 @@ use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessPostureView,
-    HarnessResult, HarnessSession, HarnessSupportedPosture,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -34,6 +34,7 @@ use super::{
 #[derive(Debug)]
 pub struct TuiHarness {
     inner: InProcessHarness,
+    active_account: Option<AccountId>,
 }
 
 impl TuiHarness {
@@ -46,6 +47,7 @@ impl TuiHarness {
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
             inner: InProcessHarness::new(HarnessKind::Tui).await?,
+            active_account: None,
         })
     }
 }
@@ -57,18 +59,24 @@ impl AccountHarness for TuiHarness {
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
-        self.inner.sign_up(req).await
+        let session = self.inner.sign_up(req).await?;
+        self.active_account = Some(session.account_id);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
-        self.inner.sign_in(req).await
+        let session = self.inner.sign_in(req).await?;
+        self.active_account = Some(session.account_id);
+        Ok(session)
     }
 
     async fn accept_invitation(
         &mut self,
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
-        self.inner.accept_invitation(req).await
+        let accepted = self.inner.accept_invitation(req).await?;
+        self.active_account = Some(accepted.session.account_id);
+        Ok(accepted)
     }
 
     async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
@@ -77,10 +85,38 @@ impl AccountHarness for TuiHarness {
 
     async fn set_deployment_posture(
         &mut self,
-        actor: AccountId,
+        _actor: AccountId,
         request: SetDeploymentPostureRequest,
     ) -> HarnessResult<HarnessPostureView> {
-        self.inner.set_deployment_posture(actor, request).await
+        let active_account = self.active_account.ok_or(HarnessError::FailureCode {
+            code: "permission_denied".to_owned(),
+            summary: "sign up, sign in, or accept invitation before setting deployment posture"
+                .to_owned(),
+        })?;
+
+        let DeploymentPostureScope::Account { account_id } = request.scope else {
+            return Err(HarnessError::FailureCode {
+                code: "permission_denied".to_owned(),
+                summary: "tui posture changes are restricted to the active account scope"
+                    .to_owned(),
+            });
+        };
+        if account_id != active_account {
+            return Err(HarnessError::FailureCode {
+                code: "permission_denied".to_owned(),
+                summary: "tui posture changes must target the active account scope".to_owned(),
+            });
+        }
+
+        let scoped_request = SetDeploymentPostureRequest {
+            scope: DeploymentPostureScope::Account {
+                account_id: active_account,
+            },
+            posture: request.posture,
+        };
+        self.inner
+            .set_deployment_posture(active_account, scoped_request)
+            .await
     }
 
     async fn get_deployment_posture(
