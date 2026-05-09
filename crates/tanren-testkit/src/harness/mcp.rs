@@ -15,15 +15,17 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, MyPermissionsResponse, SignInRequest, SignUpRequest,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPermissionGrantFixture, HarnessPermissionsView, HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -185,6 +187,24 @@ impl AccountHarness for McpHarness {
         })
     }
 
+    async fn my_permissions(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        let body = serde_json::json!({
+            "account_id": session_account_id,
+            "target_account_id": requested_account_id,
+        });
+        let payload = self.call_tool("account.my_permissions", body).await?;
+        let response: MyPermissionsResponse = serde_json::from_value(payload.clone())
+            .map_err(|e| HarnessError::Transport(format!("decode my_permissions: {e}")))?;
+        Ok(HarnessPermissionsView {
+            response,
+            rendered: serde_json::to_string(&payload).unwrap_or_default(),
+        })
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
@@ -195,6 +215,13 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
+    }
+
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()> {
+        seed_permission_fixture(self.store.as_ref(), fixture).await
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
@@ -246,6 +273,45 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
     } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+        HarnessError::FailureCode { code, summary }
     }
+}
+
+async fn seed_permission_fixture(
+    store: &Store,
+    fixture: HarnessPermissionGrantFixture,
+) -> HarnessResult<()> {
+    use chrono::Utc;
+    use tanren_store::{NewPermissionConstraint, NewPermissionGrant, PermissionGrantScope};
+
+    let scope = match fixture.scope {
+        super::HarnessPermissionScope::Organization(org_id) => {
+            PermissionGrantScope::Organization(org_id)
+        }
+        super::HarnessPermissionScope::Project(project_id) => {
+            PermissionGrantScope::Project(project_id)
+        }
+    };
+    let grant = store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id: fixture.account_id,
+            scope,
+            permission: fixture.permission,
+            grant_source: fixture.grant_source,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|e| HarnessError::Transport(format!("seed_permission_grant: {e}")))?;
+    if let Some(constraint) = fixture.policy_constraint {
+        store
+            .seed_permission_constraint(NewPermissionConstraint {
+                grant_id: grant.id,
+                reason: constraint.reason,
+                source: constraint.source,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_permission_constraint: {e}")))?;
+    }
+    Ok(())
 }

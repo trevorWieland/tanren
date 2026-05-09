@@ -8,13 +8,19 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_app_services::{Clock, Handlers, MyPermissionsContext, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, MyPermissionsRequest, SignInRequest, SignUpRequest,
+};
 use tanren_identity_policy::Argon2idVerifier;
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{
+    AccountStore, EventEnvelope, NewInvitation, NewPermissionConstraint, NewPermissionGrant,
+    PermissionGrantScope,
+};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsView, HarnessResult,
     HarnessSession,
 };
 
@@ -124,6 +130,28 @@ impl AccountHarness for InProcessHarness {
         }
     }
 
+    async fn my_permissions(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        let context = MyPermissionsContext {
+            session_account_id,
+            requested_account_id: requested_account_id.unwrap_or(session_account_id),
+        };
+        match self
+            .handlers
+            .my_permissions(&self.store, context, MyPermissionsRequest)
+            .await
+        {
+            Ok(response) => Ok(HarnessPermissionsView {
+                rendered: serde_json::to_string(&response).unwrap_or_default(),
+                response,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
@@ -133,6 +161,43 @@ impl AccountHarness for InProcessHarness {
             })
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
+        Ok(())
+    }
+
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()> {
+        let scope = match fixture.scope {
+            HarnessPermissionScope::Organization(org_id) => {
+                PermissionGrantScope::Organization(org_id)
+            }
+            HarnessPermissionScope::Project(project_id) => {
+                PermissionGrantScope::Project(project_id)
+            }
+        };
+        let grant = self
+            .store
+            .seed_permission_grant(NewPermissionGrant {
+                account_id: fixture.account_id,
+                scope,
+                permission: fixture.permission,
+                grant_source: fixture.grant_source,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_permission_grant: {e}")))?;
+        if let Some(constraint) = fixture.policy_constraint {
+            self.store
+                .seed_permission_constraint(NewPermissionConstraint {
+                    grant_id: grant.id,
+                    reason: constraint.reason,
+                    source: constraint.source,
+                    created_at: Utc::now(),
+                })
+                .await
+                .map_err(|e| HarnessError::Transport(format!("seed_permission_constraint: {e}")))?;
+        }
         Ok(())
     }
 
@@ -150,6 +215,10 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
+        AppServiceError::Permissions(reason) => HarnessError::FailureCode {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        },
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
     }

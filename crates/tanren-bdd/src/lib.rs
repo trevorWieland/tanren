@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    HarnessPermissionsView, InProcessHarness, McpHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -66,6 +66,12 @@ pub struct AccountContext {
     pub actors: HashMap<String, ActorState>,
     /// The most recent action's outcome.
     pub last_outcome: Option<HarnessOutcome>,
+    /// The most recent self-permissions query result.
+    pub last_permissions: Option<HarnessPermissionsView>,
+    /// The most recent self-permissions query failure code.
+    pub last_permissions_failure_code: Option<String>,
+    /// Event ids captured before the most recent self-permissions query.
+    pub event_ids_before_permissions_query: Option<HashSet<String>>,
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
@@ -81,7 +87,11 @@ impl std::fmt::Debug for AccountContext {
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
             )
-            .finish()
+            .field(
+                "last_permissions_failure_code",
+                &self.last_permissions_failure_code,
+            )
+            .finish_non_exhaustive()
     }
 }
 
@@ -118,6 +128,9 @@ impl AccountContext {
             harness,
             actors: HashMap::new(),
             last_outcome: None,
+            last_permissions: None,
+            last_permissions_failure_code: None,
+            event_ids_before_permissions_query: None,
             invitations: HashSet::new(),
         }
     }
@@ -129,6 +142,7 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
         HarnessOutcome::Failure(_) => "Failure",
+        HarnessOutcome::FailureCode(_) => "FailureCode",
         HarnessOutcome::Other(_) => "Other",
     }
 }

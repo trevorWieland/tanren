@@ -21,8 +21,8 @@ use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind,
+    HarnessPermissionGrantFixture, HarnessPermissionsView, HarnessResult, HarnessSession,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -67,8 +67,25 @@ impl AccountHarness for TuiHarness {
         self.inner.accept_invitation(req).await
     }
 
+    async fn my_permissions(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        self.inner
+            .my_permissions(session_account_id, requested_account_id)
+            .await
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.inner.seed_invitation(fixture).await
+    }
+
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()> {
+        self.inner.seed_permission_grant(fixture).await
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

@@ -25,8 +25,14 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
+    PolicyConstraintReason, PolicyConstraintSource, ProjectId, RoleTemplateName,
+};
+use tanren_store::{
+    AccountStore, NewInvitation, NewPermissionConstraint, NewPermissionGrant, PermissionGrantScope,
+    Store,
+};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -64,10 +70,199 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+/// Request body for `POST /test-hooks/permission-grants`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedPermissionGrantBody {
+    #[serde(default)]
+    pub account_id: Option<Uuid>,
+    #[serde(default)]
+    pub account_email: Option<String>,
+    pub scope_kind: String,
+    pub scope_id: Uuid,
+    pub permission: String,
+    pub grant_source_kind: String,
+    #[serde(default)]
+    pub role_template_name: Option<String>,
+    #[serde(default)]
+    pub policy_constraint: Option<SeedPolicyConstraintBody>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedPolicyConstraintBody {
+    pub reason: String,
+    pub source: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ResolveAccountBody {
+    pub account_email: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ResolveAccountResponse {
+    pub account_id: Uuid,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct RecentEventsBody {
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct RecentEventView {
+    pub id: Uuid,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct RecentEventsResponse {
+    pub events: Vec<RecentEventView>,
+}
+
+pub(crate) async fn seed_permission_grant_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedPermissionGrantBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let account_id = if let Some(id) = body.account_id {
+        AccountId::from(id)
+    } else if let Some(email_raw) = body.account_email {
+        let email = tanren_identity_policy::Email::parse(&email_raw)
+            .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+        let account = AccountStore::find_account_by_email(store.as_ref(), &email)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+            .ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("no account found for email '{email_raw}'"),
+                )
+            })?;
+        account.id
+    } else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "either account_id or account_email is required".to_owned(),
+        ));
+    };
+    let scope = match body.scope_kind.as_str() {
+        "organization" => PermissionGrantScope::Organization(OrgId::from(body.scope_id)),
+        "project" => PermissionGrantScope::Project(ProjectId::from(body.scope_id)),
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("unsupported scope_kind '{other}'"),
+            ));
+        }
+    };
+    let grant_source = match body.grant_source_kind.as_str() {
+        "direct" => PermissionGrantSource::Direct,
+        "role_template" => {
+            let role_template = body.role_template_name.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "role_template_name is required for role_template grants".to_owned(),
+                )
+            })?;
+            PermissionGrantSource::RoleTemplate {
+                role_template: RoleTemplateName::new(role_template),
+            }
+        }
+        other => {
+            return Err((
+                StatusCode::BAD_REQUEST,
+                format!("unsupported grant_source_kind '{other}'"),
+            ));
+        }
+    };
+
+    let grant = store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id,
+            scope,
+            permission: PermissionName::new(body.permission),
+            grant_source,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    if let Some(constraint) = body.policy_constraint {
+        let source = match constraint.source.as_str() {
+            "organization_policy" => PolicyConstraintSource::OrganizationPolicy,
+            "project_policy" => PolicyConstraintSource::ProjectPolicy,
+            other => {
+                return Err((
+                    StatusCode::BAD_REQUEST,
+                    format!("unsupported policy constraint source '{other}'"),
+                ));
+            }
+        };
+        store
+            .seed_permission_constraint(NewPermissionConstraint {
+                grant_id: grant.id,
+                reason: PolicyConstraintReason::new(constraint.reason),
+                source,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    }
+
+    Ok(StatusCode::CREATED)
+}
+
+pub(crate) async fn resolve_account_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<ResolveAccountBody>,
+) -> Result<Json<ResolveAccountResponse>, (StatusCode, String)> {
+    let email = tanren_identity_policy::Email::parse(&body.account_email)
+        .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
+    let account = AccountStore::find_account_by_email(store.as_ref(), &email)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("no account found for email '{}'", body.account_email),
+            )
+        })?;
+    Ok(Json(ResolveAccountResponse {
+        account_id: account.id.as_uuid(),
+    }))
+}
+
+pub(crate) async fn recent_events_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<RecentEventsBody>,
+) -> Result<Json<RecentEventsResponse>, (StatusCode, String)> {
+    let limit = body.limit.unwrap_or(200);
+    let events = AccountStore::recent_events(store.as_ref(), limit)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .into_iter()
+        .map(|event| RecentEventView {
+            id: event.id,
+            kind: event
+                .payload
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        })
+        .collect();
+    Ok(Json(RecentEventsResponse { events }))
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route("/test-hooks/accounts/resolve", post(resolve_account_route))
+        .route("/test-hooks/events/recent", post(recent_events_route))
+        .route(
+            "/test-hooks/permission-grants",
+            post(seed_permission_grant_route),
+        )
         .with_state(store)
 }

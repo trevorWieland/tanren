@@ -1,41 +1,35 @@
 //! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
 //! drives it via `reqwest::Client` with `cookie_store(true)`.
-//!
-//! The harness owns the `SQLite` database (a per-scenario file under
-//! the OS temp directory). The same database is shared between (a)
-//! the `Arc<Store>` injected into the api app for account-flow data
-//! and (b) the tower-sessions sqlite-backed cookie store. Reading
-//! recent events for the `Then a "..." event is recorded` step
-//! goes through the harness's own `Store` handle (the api app's
-//! `Arc<Store>` is a clone of the same `Store`).
-
-use std::path::PathBuf;
-use std::sync::Arc;
 
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
 use serde_json::Value;
+use std::path::PathBuf;
+use std::sync::Arc;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, MyPermissionsResponse,
+    SignInRequest, SignUpRequest,
 };
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_store::{
+    AccountStore, EventEnvelope, NewInvitation, NewPermissionConstraint, NewPermissionGrant,
+    PermissionGrantScope,
+};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsView, HarnessResult,
     HarnessSession,
 };
 
-/// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
-    /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
 }
 
@@ -49,15 +43,6 @@ impl std::fmt::Debug for ApiHarness {
 }
 
 impl ApiHarness {
-    /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file. Returns a harness ready to
-    /// drive sign-up / sign-in / accept-invitation calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -114,8 +99,6 @@ impl Drop for ApiHarness {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-        // Best-effort cleanup of the per-scenario DB file. Errors are
-        // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
     }
 }
@@ -263,6 +246,43 @@ impl AccountHarness for ApiHarness {
         })
     }
 
+    async fn my_permissions(
+        &mut self,
+        _session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        let url = match requested_account_id {
+            None => format!("{}/me/permissions", self.base_url),
+            Some(target_account_id) => {
+                format!("{}/accounts/{target_account_id}/permissions", self.base_url)
+            }
+        };
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET permissions: {e}")))?;
+        let status = response.status();
+        // Decode once and derive both structured and rendered views from the same bytes.
+        let body = response
+            .bytes()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("read permissions body: {e}")))?;
+        if !status.is_success() {
+            let json: Value = serde_json::from_slice(body.as_ref()).map_err(|e| {
+                HarnessError::Transport(format!("decode permissions failure body: {e}"))
+            })?;
+            return Err(failure_from_body(&json));
+        }
+        let permissions: MyPermissionsResponse = serde_json::from_slice(body.as_ref())
+            .map_err(|e| HarnessError::Transport(format!("decode my_permissions response: {e}")))?;
+        Ok(HarnessPermissionsView {
+            response: permissions,
+            rendered: String::from_utf8_lossy(body.as_ref()).to_string(),
+        })
+    }
+
     async fn accept_invitations_concurrent(
         &mut self,
         requests: Vec<AcceptInvitationRequest>,
@@ -365,6 +385,43 @@ impl AccountHarness for ApiHarness {
         Ok(())
     }
 
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()> {
+        let scope = match fixture.scope {
+            HarnessPermissionScope::Organization(org_id) => {
+                PermissionGrantScope::Organization(org_id)
+            }
+            HarnessPermissionScope::Project(project_id) => {
+                PermissionGrantScope::Project(project_id)
+            }
+        };
+        let grant = self
+            .store
+            .seed_permission_grant(NewPermissionGrant {
+                account_id: fixture.account_id,
+                scope,
+                permission: fixture.permission,
+                grant_source: fixture.grant_source,
+                created_at: chrono::Utc::now(),
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_permission_grant: {e}")))?;
+        if let Some(constraint) = fixture.policy_constraint {
+            self.store
+                .seed_permission_constraint(NewPermissionConstraint {
+                    grant_id: grant.id,
+                    reason: constraint.reason,
+                    source: constraint.source,
+                    created_at: chrono::Utc::now(),
+                })
+                .await
+                .map_err(|e| HarnessError::Transport(format!("seed_permission_constraint: {e}")))?;
+        }
+        Ok(())
+    }
+
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
@@ -426,7 +483,7 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
     } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+        HarnessError::FailureCode { code, summary }
     }
 }
 

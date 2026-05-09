@@ -1,5 +1,7 @@
-//! Step-definition modules. R-0001 ships only `account` (the account
-//! flow that proves B-0043). Future R-* slices add their own modules
-//! here and the macros register globally.
+//! Step-definition modules.
+//!
+//! `account` proves B-0043 account flows and `permissions` proves B-0039
+//! self-permission introspection across interfaces.
 
 pub mod account;
+pub mod permissions;

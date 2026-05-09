@@ -57,9 +57,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, MyPermissionsResponse,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
+    PolicyConstraintReason, PolicyConstraintSource, ProjectId,
+};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -154,6 +158,10 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A taxonomy failure with a non-account `code` (for example
+    /// `permission_denied` from self-permission introspection).
+    #[error("{code}: {summary}")]
+    FailureCode { code: String, summary: String },
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +174,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::FailureCode { code, .. } => code.clone(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -185,6 +194,48 @@ pub struct HarnessInvitation {
     pub inviting_org: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Scope for a seeded permission grant fixture.
+#[derive(Debug, Clone, Copy)]
+pub enum HarnessPermissionScope {
+    /// Organization-level grant.
+    Organization(OrgId),
+    /// Project-level grant.
+    Project(ProjectId),
+}
+
+/// Optional policy-constraint fixture attached to a grant.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionConstraintFixture {
+    /// Human-readable reason surfaced by the self-permissions view.
+    pub reason: PolicyConstraintReason,
+    /// Policy scope that produced the constraint.
+    pub source: PolicyConstraintSource,
+}
+
+/// Seed specification for one permission grant fixture.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionGrantFixture {
+    /// Account receiving the permission.
+    pub account_id: AccountId,
+    /// Scope where the grant applies.
+    pub scope: HarnessPermissionScope,
+    /// Canonical permission identifier.
+    pub permission: PermissionName,
+    /// Grant source metadata (direct vs role template).
+    pub grant_source: PermissionGrantSource,
+    /// Optional policy constraint to attach to this grant.
+    pub policy_constraint: Option<HarnessPermissionConstraintFixture>,
+}
+
+/// Wire/output projection of a self-permission query.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionsView {
+    /// Structured response from the surface.
+    pub response: MyPermissionsResponse,
+    /// Surface-native textual rendering captured from the same call.
+    pub rendered: String,
 }
 
 /// Per-interface seam used by the BDD step-definition crate. Every
@@ -211,6 +262,15 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance>;
 
+    /// Read effective permissions for the signed-in actor. Implementations
+    /// must enforce self-scope semantics when `requested_account_id`
+    /// differs from `session_account_id`.
+    async fn my_permissions(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView>;
+
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race
     /// scenario to prove `consume_invitation`'s atomicity. The default
@@ -235,6 +295,13 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
+
+    /// Seed one permission grant (and optional constraint) into the
+    /// harness backing store for BDD fixtures.
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()>;
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
@@ -280,6 +347,8 @@ pub enum HarnessOutcome {
     AcceptedInvitation(HarnessAcceptance),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
+    /// Non-account taxonomy failure with a stable wire `code`.
+    FailureCode(String),
     /// Non-taxonomy infrastructure failure.
     Other(String),
 }
@@ -292,6 +361,7 @@ impl HarnessOutcome {
     pub fn failure_code(&self) -> Option<String> {
         match self {
             Self::Failure(reason) => Some(reason.code().to_owned()),
+            Self::FailureCode(code) => Some(code.clone()),
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
@@ -309,6 +379,7 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::FailureCode { code, .. } => HarnessOutcome::FailureCode(code),
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -348,6 +419,9 @@ impl ConcurrentAcceptanceTally {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
                 let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::FailureCode { code, .. }) => {
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
             Err(HarnessError::Transport(msg)) => self.other.push(msg),
