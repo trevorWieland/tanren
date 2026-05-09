@@ -7,13 +7,16 @@
 
 pub mod account;
 pub mod events;
+pub mod permissions;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    MyPermissionsRequest, MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
+use tanren_identity_policy::AccountId;
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
@@ -199,6 +202,81 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Read-only self-permission query. Resolves identity from the
+    /// authenticated session/account context and returns the caller's
+    /// effective permissions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Permissions`] when the requested
+    /// account does not match the authenticated account context.
+    /// Returns [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn my_permissions<S>(
+        &self,
+        store: &S,
+        context: MyPermissionsContext,
+        _request: MyPermissionsRequest,
+    ) -> Result<MyPermissionsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        permissions::my_permissions(store, context).await
+    }
+}
+
+/// Session/account context for the self-permission query.
+///
+/// The app-service handler resolves the actor from this context and
+/// enforces self-scope (`requested_account_id == session_account_id`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsContext {
+    /// Account id bound to the authenticated session.
+    pub session_account_id: AccountId,
+    /// Account id the caller is trying to introspect.
+    pub requested_account_id: AccountId,
+}
+
+impl MyPermissionsContext {
+    /// Construct a context for the common self-scoped path where the
+    /// target account is the authenticated account.
+    #[must_use]
+    pub const fn self_scoped(account_id: AccountId) -> Self {
+        Self {
+            session_account_id: account_id,
+            requested_account_id: account_id,
+        }
+    }
+}
+
+/// Closed taxonomy of self-permission query failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum PermissionsFailureReason {
+    /// The caller attempted to introspect another account's permissions.
+    PermissionDenied,
+}
+
+impl PermissionsFailureReason {
+    /// Stable wire `code` for this failure.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => "permission_denied",
+        }
+    }
+
+    /// Human-readable wire `summary` for this failure.
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => {
+                "You can only view permissions for the authenticated account."
+            }
+        }
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +293,7 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A self-permission query failed taxonomy checks.
+    #[error("permissions: {}", .0.code())]
+    Permissions(PermissionsFailureReason),
 }
