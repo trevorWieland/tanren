@@ -10,6 +10,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
+use tanren_app_services::{ACTIVE_ACCOUNT_REGISTRY_LIMIT, ACTIVE_ACCOUNT_WINDOW_REGISTRY_LIMIT};
 use tanren_identity_policy::AccountId;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
@@ -25,8 +26,6 @@ const SESSION_KEY_EXPIRES: &str = "expires_at";
 const SESSION_KEY_SIGNED_IN_ACCOUNT_IDS: &str = "signed_in_account_ids";
 const SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW: &str = "active_account_by_window";
 const SESSION_DEFAULT_WINDOW_KEY: &str = "_default";
-const SESSION_SIGNED_IN_ACCOUNT_LIMIT: usize = 16;
-const SESSION_WINDOW_MAP_LIMIT: usize = 16;
 
 /// `(account_id, expires_at)` projection of a freshly minted session.
 /// All three account-flow handlers pass this into
@@ -191,8 +190,8 @@ fn sanitize_signed_in_account_ids(ids: Vec<AccountId>) -> Vec<AccountId> {
             deduped.push(account_id);
         }
     }
-    if deduped.len() > SESSION_SIGNED_IN_ACCOUNT_LIMIT {
-        let drop_count = deduped.len() - SESSION_SIGNED_IN_ACCOUNT_LIMIT;
+    if deduped.len() > ACTIVE_ACCOUNT_REGISTRY_LIMIT {
+        let drop_count = deduped.len() - ACTIVE_ACCOUNT_REGISTRY_LIMIT;
         deduped.drain(0..drop_count);
     }
     deduped
@@ -208,7 +207,7 @@ fn sanitize_active_by_window_map(
 }
 
 fn trim_active_by_window_map(active_by_window: &mut BTreeMap<String, AccountId>) {
-    while active_by_window.len() > SESSION_WINDOW_MAP_LIMIT {
+    while active_by_window.len() > ACTIVE_ACCOUNT_WINDOW_REGISTRY_LIMIT {
         if let Some(oldest_key) = active_by_window.keys().next().cloned() {
             active_by_window.remove(&oldest_key);
         } else {

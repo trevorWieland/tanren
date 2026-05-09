@@ -7,7 +7,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tanren_app_services::ActiveAccountContext;
+use tanren_app_services::{ActiveAccountContext, ActiveAccountContextError};
 use tanren_identity_policy::AccountId;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
@@ -78,10 +78,8 @@ pub(crate) fn active_context_from_session() -> Result<ActiveAccountContext> {
         .copied()
         .filter(|id| signed_in_account_ids.contains(id))
         .unwrap_or(signed_in_account_ids[0]);
-    Ok(ActiveAccountContext::from_account_ids(
-        active_account_id,
-        signed_in_account_ids,
-    ))
+    ActiveAccountContext::from_account_ids(active_account_id, signed_in_account_ids)
+        .map_err(|err| map_active_account_context_error(&err))
 }
 
 pub(crate) fn set_active_account(account_id: AccountId) -> Result<()> {
@@ -156,4 +154,8 @@ fn write_session_file(session: &TuiSessionFile) -> Result<()> {
     let body = serde_json::to_string_pretty(session).context("encode session file JSON")?;
     fs::write(&path, body).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
+}
+
+fn map_active_account_context_error(err: &ActiveAccountContextError) -> anyhow::Error {
+    anyhow::anyhow!("validation_failed: {err}")
 }

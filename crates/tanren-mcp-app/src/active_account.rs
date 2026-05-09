@@ -6,7 +6,7 @@
 
 use std::sync::Mutex;
 
-use tanren_app_services::ActiveAccountContext;
+use tanren_app_services::{ActiveAccountContext, ActiveAccountContextError};
 use tanren_identity_policy::AccountId;
 
 #[derive(Debug, Default)]
@@ -32,22 +32,25 @@ impl ActiveAccountSessionState {
         state.active_account_id = Some(account_id);
     }
 
-    pub(crate) fn context(&self) -> Option<ActiveAccountContext> {
+    pub(crate) fn context(
+        &self,
+    ) -> Result<Option<ActiveAccountContext>, ActiveAccountContextError> {
         let state = self
             .inner
             .lock()
             .expect("active-account session mutex poisoned");
         if state.signed_in_account_ids.is_empty() {
-            return None;
+            return Ok(None);
         }
         let active_account_id = state
             .active_account_id
             .filter(|id| state.signed_in_account_ids.contains(id))
             .unwrap_or(state.signed_in_account_ids[0]);
-        Some(ActiveAccountContext::from_account_ids(
+        ActiveAccountContext::from_account_ids(
             active_account_id,
             state.signed_in_account_ids.clone(),
-        ))
+        )
+        .map(Some)
     }
 
     pub(crate) fn set_active(&self, active_account_id: AccountId) {

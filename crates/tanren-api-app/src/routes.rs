@@ -6,7 +6,7 @@ use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::{ActiveAccountContext, Handlers};
+use tanren_app_services::{ActiveAccountContext, ActiveAccountContextError, Handlers};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, ListActiveAccountsRequest,
     ListActiveAccountsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
@@ -303,10 +303,13 @@ pub(crate) async fn list_active_accounts_route(
         Err(err) => return session_read_error(&err),
     };
 
-    let context = ActiveAccountContext::from_account_ids(
+    let context = match ActiveAccountContext::from_account_ids(
         session_context.active_account_id,
         session_context.signed_in_account_ids,
-    );
+    ) {
+        Ok(context) => context,
+        Err(err) => return active_account_context_validation_error(&err),
+    };
 
     match state
         .handlers
@@ -350,10 +353,13 @@ pub(crate) async fn switch_active_account_route(
         Err(err) => return session_read_error(&err),
     };
 
-    let context = ActiveAccountContext::from_account_ids(
+    let context = match ActiveAccountContext::from_account_ids(
         session_context.active_account_id,
         session_context.signed_in_account_ids,
-    );
+    ) {
+        Ok(context) => context,
+        Err(err) => return active_account_context_validation_error(&err),
+    };
 
     match state
         .handlers
@@ -429,6 +435,17 @@ fn window_id_validation_error(summary: &str) -> Response {
         Json(AccountFailureBody {
             code: AccountFailureReason::ValidationFailed.code().to_owned(),
             summary: summary.to_owned(),
+        }),
+    )
+        .into_response()
+}
+
+fn active_account_context_validation_error(err: &ActiveAccountContextError) -> Response {
+    (
+        StatusCode::BAD_REQUEST,
+        Json(AccountFailureBody {
+            code: AccountFailureReason::ValidationFailed.code().to_owned(),
+            summary: err.to_string(),
         }),
     )
         .into_response()

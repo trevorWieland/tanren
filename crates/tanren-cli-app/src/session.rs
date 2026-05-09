@@ -5,7 +5,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
-use tanren_app_services::ActiveAccountContext;
+use tanren_app_services::{ActiveAccountContext, ActiveAccountContextError};
 use tanren_identity_policy::AccountId;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
@@ -56,10 +56,8 @@ pub(crate) fn active_context_from_session() -> Result<ActiveAccountContext> {
         .copied()
         .filter(|id| signed_in_account_ids.contains(id))
         .unwrap_or(signed_in_account_ids[0]);
-    Ok(ActiveAccountContext::from_account_ids(
-        active_account_id,
-        signed_in_account_ids,
-    ))
+    ActiveAccountContext::from_account_ids(active_account_id, signed_in_account_ids)
+        .map_err(|err| map_active_account_context_error(&err))
 }
 
 pub(crate) fn persist_session(account_id: AccountId, token: &str) -> Result<()> {
@@ -158,4 +156,8 @@ fn session_path() -> PathBuf {
             PathBuf::from,
         );
     base.join("tanren").join("session")
+}
+
+fn map_active_account_context_error(err: &ActiveAccountContextError) -> anyhow::Error {
+    anyhow::anyhow!("error: validation_failed — {err}")
 }

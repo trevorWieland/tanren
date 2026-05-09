@@ -8,7 +8,9 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tanren_app_services::{ActiveAccountContext, Clock, Handlers, Store};
+use tanren_app_services::{
+    ActiveAccountContext, ActiveAccountContextError, Clock, Handlers, Store,
+};
 use tanren_contract::{
     AcceptInvitationRequest, ListActiveAccountsRequest, SignInRequest, SignUpRequest,
     SignedInAccountView, SwitchActiveAccountRequest,
@@ -107,10 +109,11 @@ impl InProcessHarness {
                 "no signed-in account in harness session".to_owned(),
             ));
         };
-        Ok(ActiveAccountContext::from_account_ids(
+        ActiveAccountContext::from_account_ids(
             active_account_id,
             self.signed_in_account_ids.clone(),
-        ))
+        )
+        .map_err(|err| translate_active_account_context_error(&err))
     }
 
     fn write_active_account_for_window(&mut self, window_id: Option<&str>, account_id: AccountId) {
@@ -272,11 +275,18 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
     match err {
         AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
         AppServiceError::InvalidInput(msg) => {
-            HarnessError::Transport(format!("invalid_input: {msg}"))
+            HarnessError::Account(tanren_contract::AccountFailureReason::ValidationFailed, msg)
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
     }
+}
+
+fn translate_active_account_context_error(err: &ActiveAccountContextError) -> HarnessError {
+    HarnessError::Account(
+        tanren_contract::AccountFailureReason::ValidationFailed,
+        err.to_string(),
+    )
 }
 
 fn normalize_window_id(window_id: Option<&str>) -> &str {

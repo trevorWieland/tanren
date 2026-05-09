@@ -16,14 +16,17 @@ use tanren_contract::{
     ListActiveAccountsRequest, ListActiveAccountsResponse, SignInRequest, SignInResponse,
     SignUpRequest, SignUpResponse, SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
-use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
 use thiserror::Error;
 
-pub use crate::active_account::ActiveAccountContext;
+pub use crate::active_account::{
+    ACTIVE_ACCOUNT_REGISTRY_LIMIT, ACTIVE_ACCOUNT_WINDOW_REGISTRY_LIMIT, ActiveAccountContext,
+    ActiveAccountContextError,
+};
 
 /// Stable response shape for the cross-interface health/liveness query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -209,9 +212,9 @@ impl Handlers {
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::InvalidInput`] when the active account
-    /// is not present in the signed-in set; [`AppServiceError::Store`]
-    /// for unexpected database failures.
+    /// Returns [`AppServiceError::InvalidInput`] when a signed-in account id
+    /// cannot be loaded from store; [`AppServiceError::Store`] for unexpected
+    /// database failures.
     pub async fn list_active_accounts<S>(
         &self,
         store: &S,
@@ -243,21 +246,6 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         active_account::switch_active_account(store, &self.clock, context, request).await
-    }
-}
-
-impl ActiveAccountContext {
-    /// Construct a caller-bound active-account context from validated
-    /// sessions.
-    #[must_use]
-    pub fn from_account_ids(
-        active_account_id: AccountId,
-        signed_in_account_ids: Vec<AccountId>,
-    ) -> Self {
-        Self {
-            active_account_id,
-            signed_in_account_ids,
-        }
     }
 }
 

@@ -12,6 +12,7 @@ use tanren_contract::{
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountRecord, AccountStore};
+use thiserror::Error;
 
 use crate::events::{
     AccountEventKind, ActiveAccountSwitchRejected, ActiveAccountSwitched, envelope,
@@ -25,9 +26,88 @@ use crate::{AppServiceError, Clock};
 #[derive(Debug, Clone)]
 pub struct ActiveAccountContext {
     /// Account currently active in this caller context.
-    pub active_account_id: AccountId,
+    active_account_id: AccountId,
     /// Signed-in accounts available for switching in this context.
-    pub signed_in_account_ids: Vec<AccountId>,
+    signed_in_account_ids: Vec<AccountId>,
+}
+
+/// Shared maximum number of signed-in accounts allowed in one active-account
+/// registry context.
+pub const ACTIVE_ACCOUNT_REGISTRY_LIMIT: usize = 16;
+
+/// Shared maximum number of active-account window entries maintained by
+/// interface adapters.
+pub const ACTIVE_ACCOUNT_WINDOW_REGISTRY_LIMIT: usize = 16;
+
+/// Validation failures from [`ActiveAccountContext`] construction.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+pub enum ActiveAccountContextError {
+    /// The caller has no signed-in account ids.
+    #[error("signed-in account set must not be empty")]
+    EmptySignedInSet,
+    /// The active account is not present in the signed-in set.
+    #[error("active account is not present in signed-in set")]
+    ActiveAccountNotSignedIn,
+    /// The signed-in set contains duplicate account ids.
+    #[error("signed-in account set contains duplicate account id: {account_id}")]
+    DuplicateSignedInAccountId { account_id: AccountId },
+    /// The signed-in set exceeds the shared bounded account limit.
+    #[error("signed-in account set exceeds limit ({limit}); actual size: {actual}")]
+    SignedInAccountRegistryLimitExceeded { limit: usize, actual: usize },
+}
+
+impl ActiveAccountContext {
+    /// Fallible smart constructor for active-account caller context.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ActiveAccountContextError`] when the signed-in set is empty,
+    /// contains duplicates, does not include the active account, or exceeds the
+    /// shared registry limit.
+    pub fn from_account_ids(
+        active_account_id: AccountId,
+        signed_in_account_ids: Vec<AccountId>,
+    ) -> Result<Self, ActiveAccountContextError> {
+        if signed_in_account_ids.is_empty() {
+            return Err(ActiveAccountContextError::EmptySignedInSet);
+        }
+        if signed_in_account_ids.len() > ACTIVE_ACCOUNT_REGISTRY_LIMIT {
+            return Err(
+                ActiveAccountContextError::SignedInAccountRegistryLimitExceeded {
+                    limit: ACTIVE_ACCOUNT_REGISTRY_LIMIT,
+                    actual: signed_in_account_ids.len(),
+                },
+            );
+        }
+
+        let mut seen = HashSet::with_capacity(signed_in_account_ids.len());
+        for account_id in &signed_in_account_ids {
+            if !seen.insert(*account_id) {
+                return Err(ActiveAccountContextError::DuplicateSignedInAccountId {
+                    account_id: *account_id,
+                });
+            }
+        }
+
+        if !seen.contains(&active_account_id) {
+            return Err(ActiveAccountContextError::ActiveAccountNotSignedIn);
+        }
+
+        Ok(Self {
+            active_account_id,
+            signed_in_account_ids,
+        })
+    }
+
+    #[must_use]
+    pub fn active_account_id(&self) -> AccountId {
+        self.active_account_id
+    }
+
+    #[must_use]
+    pub fn signed_in_account_ids(&self) -> &[AccountId] {
+        &self.signed_in_account_ids
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -37,17 +117,11 @@ struct ActiveAccountVisibility {
 }
 
 impl ActiveAccountVisibility {
-    fn from_context(context: &ActiveAccountContext) -> Result<Self, AppServiceError> {
-        let signed_in_ids = dedupe_preserving_order(&context.signed_in_account_ids);
-        if !signed_in_ids.contains(&context.active_account_id) {
-            return Err(AppServiceError::InvalidInput(
-                "active account is not present in signed-in set".to_owned(),
-            ));
+    fn from_context(context: &ActiveAccountContext) -> Self {
+        Self {
+            active_account_id: context.active_account_id(),
+            signed_in_account_ids: context.signed_in_account_ids().to_vec(),
         }
-        Ok(Self {
-            active_account_id: context.active_account_id,
-            signed_in_account_ids: signed_in_ids,
-        })
     }
 
     fn can_view_switch_target(&self, target_account_id: AccountId) -> bool {
@@ -79,7 +153,7 @@ pub(crate) async fn list_active_accounts<S>(
 where
     S: AccountStore + ?Sized,
 {
-    let visibility = ActiveAccountVisibility::from_context(context)?;
+    let visibility = ActiveAccountVisibility::from_context(context);
     let accounts = load_signed_in_accounts(store, visibility.signed_in_account_ids()).await?;
     Ok(ListActiveAccountsResponse {
         accounts: ActiveAccountVisibility::signed_in_views(accounts, visibility.active_account_id),
@@ -95,7 +169,7 @@ pub(crate) async fn switch_active_account<S>(
 where
     S: AccountStore + ?Sized,
 {
-    let visibility = ActiveAccountVisibility::from_context(context)?;
+    let visibility = ActiveAccountVisibility::from_context(context);
     let now = clock.now();
 
     if !visibility.can_view_switch_target(request.target_account_id) {
@@ -108,7 +182,7 @@ where
     let accounts = load_signed_in_accounts(store, visibility.signed_in_account_ids()).await?;
     emit_switched(
         store,
-        context.active_account_id,
+        context.active_account_id(),
         request.target_account_id,
         now,
     )
@@ -147,17 +221,6 @@ fn redact_for_active_account_switcher(record: &AccountRecord) -> ActiveAccountVi
         display_name: record.display_name.clone(),
         org: record.org_id,
     }
-}
-
-fn dedupe_preserving_order(ids: &[AccountId]) -> Vec<AccountId> {
-    let mut seen = HashSet::new();
-    let mut out = Vec::with_capacity(ids.len());
-    for account_id in ids {
-        if seen.insert(*account_id) {
-            out.push(*account_id);
-        }
-    }
-    out
 }
 
 async fn emit_switched<S>(

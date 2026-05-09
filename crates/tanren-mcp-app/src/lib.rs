@@ -30,7 +30,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use std::env;
 use std::sync::Arc;
-use tanren_app_services::{AppServiceError, Handlers, Store};
+use tanren_app_services::{ActiveAccountContextError, AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, ListActiveAccountsRequest, SignInRequest,
     SignUpRequest, SwitchActiveAccountRequest,
@@ -167,8 +167,10 @@ impl TanrenMcp {
         description = "List signed-in accounts for this MCP session and identify the active account. Failure code: invalid_credential when no signed-in account is present in this session."
     )]
     async fn account_list_active(&self) -> Result<CallToolResult, McpError> {
-        let Some(context) = self.active_accounts.context() else {
-            return Ok(missing_session_failure());
+        let context = match self.active_accounts.context() {
+            Ok(Some(context)) => context,
+            Ok(None) => return Ok(missing_session_failure()),
+            Err(err) => return Ok(active_context_failure(&err)),
         };
         match self
             .handlers
@@ -194,8 +196,10 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<SwitchActiveAccountRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(context) = self.active_accounts.context() else {
-            return Ok(missing_session_failure());
+        let context = match self.active_accounts.context() {
+            Ok(Some(context)) => context,
+            Ok(None) => return Ok(missing_session_failure()),
+            Err(err) => return Ok(active_context_failure(&err)),
         };
         match self
             .handlers
@@ -273,6 +277,14 @@ fn missing_session_failure() -> CallToolResult {
     map_failure(AppServiceError::Account(
         AccountFailureReason::InvalidCredential,
     ))
+}
+
+fn active_context_failure(err: &ActiveAccountContextError) -> CallToolResult {
+    let body = json!({
+        "code": AccountFailureReason::ValidationFailed.code(),
+        "summary": err.to_string(),
+    });
+    CallToolResult::error(vec![Content::text(body.to_string())])
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
