@@ -20,6 +20,7 @@
 
 mod app;
 mod draw;
+mod session;
 mod ui;
 
 use std::io::{Stdout, stdout};
@@ -92,16 +93,26 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    ListActiveAccounts,
+    SwitchActiveAccount,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 5] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::ListActiveAccounts,
+        Self::SwitchActiveAccount,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::ListActiveAccounts => "List signed-in accounts",
+            Self::SwitchActiveAccount => "Switch active account",
         }
     }
 }

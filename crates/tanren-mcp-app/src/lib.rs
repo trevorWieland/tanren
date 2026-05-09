@@ -10,13 +10,13 @@
 //! The MCP surface continues to return bearer-mode `SessionView`
 //! responses — there is no cookie jar between the rmcp client and server.
 
+mod active_account;
+mod auth;
+
 use anyhow::{Context, Result};
 use axum::Json;
 use axum::Router;
-use axum::extract::Request;
-use axum::http::{HeaderMap, StatusCode, header};
-use axum::middleware::{self, Next};
-use axum::response::{IntoResponse, Response};
+use axum::middleware;
 use axum::routing::get;
 use rmcp::ErrorData as McpError;
 use rmcp::ServerHandler;
@@ -31,15 +31,20 @@ use serde_json::json;
 use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountFailureReason, ListActiveAccountsRequest, SignInRequest,
+    SignUpRequest, SwitchActiveAccountRequest,
+};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 
+use crate::active_account::ActiveAccountSessionState;
+use crate::auth::{API_KEY_ENV, AuthConfig, require_api_key};
+
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
-const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 /// Comma-separated extra hostnames / `host:port` authorities to add to
 /// rmcp's `allowed_hosts` Host-header allowlist.
@@ -69,6 +74,7 @@ impl Config {
 pub(crate) struct TanrenMcp {
     handlers: Handlers,
     store: Arc<Store>,
+    active_accounts: Arc<ActiveAccountSessionState>,
     /// Cached tool router built from the `#[rmcp::tool]` methods on this
     /// type. Read by the macro-generated `ServerHandler` impl below.
     tool_router: ToolRouter<Self>,
@@ -86,6 +92,7 @@ impl TanrenMcp {
         Self {
             handlers,
             store,
+            active_accounts: Arc::new(ActiveAccountSessionState::default()),
             tool_router: Self::tool_router(),
         }
     }
@@ -101,7 +108,10 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignUpRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_up(self.store.as_ref(), request).await {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => {
+                self.active_accounts.note_signed_in(response.account.id);
+                Ok(success(&response))
+            }
             Err(err) => Ok(map_failure(err)),
         }
     }
@@ -117,7 +127,10 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignInRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_in(self.store.as_ref(), request).await {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => {
+                self.active_accounts.note_signed_in(response.account.id);
+                Ok(success(&response))
+            }
             Err(err) => Ok(map_failure(err)),
         }
     }
@@ -139,7 +152,60 @@ impl TanrenMcp {
             .accept_invitation(self.store.as_ref(), request)
             .await
         {
+            Ok(response) => {
+                self.active_accounts.note_signed_in(response.account.id);
+                Ok(success(&response))
+            }
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Active-account listing tool. Uses the MCP session's signed-in set
+    /// and active account context.
+    #[rmcp::tool(
+        name = "account.list_active",
+        description = "List signed-in accounts for this MCP session and identify the active account. Failure code: invalid_credential when no signed-in account is present in this session."
+    )]
+    async fn account_list_active(&self) -> Result<CallToolResult, McpError> {
+        let Some(context) = self.active_accounts.context() else {
+            return Ok(missing_session_failure());
+        };
+        match self
+            .handlers
+            .list_active_accounts(
+                self.store.as_ref(),
+                &context,
+                ListActiveAccountsRequest::default(),
+            )
+            .await
+        {
             Ok(response) => Ok(success(&response)),
+            Err(err) => Ok(map_failure(err)),
+        }
+    }
+
+    /// Active-account switch tool. The target must already be in the
+    /// MCP session's signed-in set.
+    #[rmcp::tool(
+        name = "account.switch_active",
+        description = "Switch the active account for this MCP session. Failure codes: invalid_credential when no signed-in account is present; target_account_not_signed_in when the target is outside the signed-in set."
+    )]
+    async fn account_switch_active(
+        &self,
+        Parameters(request): Parameters<SwitchActiveAccountRequest>,
+    ) -> Result<CallToolResult, McpError> {
+        let Some(context) = self.active_accounts.context() else {
+            return Ok(missing_session_failure());
+        };
+        match self
+            .handlers
+            .switch_active_account(self.store.as_ref(), &context, request)
+            .await
+        {
+            Ok(response) => {
+                self.active_accounts.set_active(response.active_account_id);
+                Ok(success(&response))
+            }
             Err(err) => Ok(map_failure(err)),
         }
     }
@@ -203,6 +269,12 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     CallToolResult::error(vec![Content::text(text)])
 }
 
+fn missing_session_failure() -> CallToolResult {
+    map_failure(AppServiceError::Account(
+        AccountFailureReason::InvalidCredential,
+    ))
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 struct HealthResponse {
     status: String,
@@ -217,108 +289,6 @@ async fn health() -> Json<HealthResponse> {
         version: report.version.to_owned(),
         contract_version: report.contract_version.value(),
     })
-}
-
-/// Shared error response shape per
-/// `docs/architecture/subsystems/interfaces.md` "Error Taxonomy".
-fn error_body(code: &str, summary: &str) -> serde_json::Value {
-    json!({
-        "code": code,
-        "summary": summary,
-    })
-}
-
-#[derive(Debug, Clone)]
-struct AuthConfig {
-    /// Bootstrap API key. F-0002 sources this from `TANREN_MCP_API_KEY`;
-    /// R-0008 will route through the real credential store. Wrapped in
-    /// `SecretString` so accidental `Debug` / `Serialize` calls do not
-    /// leak the credential.
-    bootstrap_key: Option<secrecy::SecretString>,
-}
-
-impl AuthConfig {
-    fn from_env() -> Self {
-        let bootstrap_key = env::var(API_KEY_ENV)
-            .ok()
-            .filter(|s| !s.is_empty())
-            .map(secrecy::SecretString::from);
-        Self { bootstrap_key }
-    }
-
-    fn extract_credential(headers: &HeaderMap) -> Option<&str> {
-        if let Some(value) = headers
-            .get(header::AUTHORIZATION)
-            .and_then(|v| v.to_str().ok())
-            && let Some(token) = value
-                .strip_prefix("Bearer ")
-                .or_else(|| value.strip_prefix("bearer "))
-        {
-            return Some(token.trim());
-        }
-        if let Some(value) = headers.get("x-api-key").and_then(|v| v.to_str().ok()) {
-            return Some(value.trim());
-        }
-        None
-    }
-}
-
-async fn require_api_key(
-    axum::extract::State(config): axum::extract::State<Arc<AuthConfig>>,
-    request: Request,
-    next: Next,
-) -> Response {
-    // Operator-config check first: an unconfigured server is in an
-    // outage state, not an auth-failure state.
-    let Some(expected) = config
-        .bootstrap_key
-        .as_ref()
-        .map(secrecy::ExposeSecret::expose_secret)
-    else {
-        return (
-            StatusCode::SERVICE_UNAVAILABLE,
-            Json(error_body(
-                "unavailable",
-                "MCP credential store is not configured. Set TANREN_MCP_API_KEY (bootstrap key) until R-0008 lands the real store.",
-            )),
-        )
-            .into_response();
-    };
-
-    let Some(presented) = AuthConfig::extract_credential(request.headers()) else {
-        return (
-            StatusCode::UNAUTHORIZED,
-            Json(error_body(
-                "auth_required",
-                "Missing Authorization: Bearer <api-key> or X-API-Key header.",
-            )),
-        )
-            .into_response();
-    };
-
-    if !constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
-        return (
-            StatusCode::FORBIDDEN,
-            Json(error_body(
-                "permission_denied",
-                "Presented credential is not authorized for this MCP service.",
-            )),
-        )
-            .into_response();
-    }
-
-    next.run(request).await
-}
-
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
-    let mut diff: u8 = 0;
-    for (x, y) in a.iter().zip(b.iter()) {
-        diff |= x ^ y;
-    }
-    diff == 0
 }
 
 fn build_router(

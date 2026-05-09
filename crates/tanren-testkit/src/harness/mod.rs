@@ -58,6 +58,7 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    SignedInAccountView,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -235,6 +236,17 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
+
+    /// List signed-in accounts and active selection for the current
+    /// harness session/window context.
+    async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>>;
+
+    /// Switch the active account for the current harness session/window
+    /// context and return the updated signed-in account list.
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>>;
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;

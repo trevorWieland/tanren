@@ -15,7 +15,11 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, SignedInAccountView,
+    SwitchActiveAccountRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -195,6 +199,25 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
+    }
+
+    async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
+        let payload = self
+            .call_tool("account.list_active", serde_json::json!({}))
+            .await?;
+        serde_json::from_value(payload["accounts"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let body = serde_json::to_value(SwitchActiveAccountRequest { target_account_id })
+            .map_err(|e| HarnessError::Transport(format!("encode switch request: {e}")))?;
+        let payload = self.call_tool("account.switch_active", body).await?;
+        serde_json::from_value(payload["accounts"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

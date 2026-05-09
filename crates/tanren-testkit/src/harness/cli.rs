@@ -16,7 +16,9 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, SignedInAccountView,
+};
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
@@ -34,6 +36,8 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    session_file: PathBuf,
+    window_id: String,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -67,19 +71,41 @@ impl CliHarness {
         let store = Arc::new(store);
 
         let binary = locate_workspace_binary("tanren-cli")?;
+        let session_file = db_path.with_extension("session.json");
+        let window_id = "bdd-cli-window".to_owned();
 
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            session_file,
+            window_id,
         })
+    }
+
+    async fn run_cli<'a>(&self, args: impl IntoIterator<Item = &'a str>) -> HarnessResult<Vec<u8>> {
+        let output = Command::new(&self.binary)
+            .args(args)
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .env("TANREN_WINDOW_ID", &self.window_id)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        Ok(output.stdout)
     }
 }
 
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_file);
     }
 }
 
@@ -90,8 +116,8 @@ impl AccountHarness for CliHarness {
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
-        let output = Command::new(&self.binary)
-            .args([
+        let output = self
+            .run_cli([
                 "account",
                 "create",
                 "--database-url",
@@ -103,16 +129,8 @@ impl AccountHarness for CliHarness {
                 "--display-name",
                 &req.display_name,
             ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
-        if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
+            .await?;
+        let stdout = String::from_utf8_lossy(&output);
         parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
             HarnessSession {
                 account_id: account.id,
@@ -124,8 +142,8 @@ impl AccountHarness for CliHarness {
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
-        let output = Command::new(&self.binary)
-            .args([
+        let output = self
+            .run_cli([
                 "account",
                 "sign-in",
                 "--database-url",
@@ -135,16 +153,8 @@ impl AccountHarness for CliHarness {
                 "--password",
                 req.password.expose_secret(),
             ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
-        if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
+            .await?;
+        let stdout = String::from_utf8_lossy(&output);
         parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
             account_id: account.id,
             account,
@@ -157,8 +167,8 @@ impl AccountHarness for CliHarness {
         &mut self,
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
-        let output = Command::new(&self.binary)
-            .args([
+        let output = self
+            .run_cli([
                 "account",
                 "create",
                 "--database-url",
@@ -172,16 +182,8 @@ impl AccountHarness for CliHarness {
                 "--invitation",
                 req.invitation_token.as_str(),
             ])
-            .stdin(Stdio::null())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .output()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
-        if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
-        }
-        let stdout = String::from_utf8_lossy(&output.stdout);
+            .await?;
+        let stdout = String::from_utf8_lossy(&output);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
         let joined_org = parse_joined_org(&stdout)?;
         // The CLI binary returns the AccountView reconstituted from
@@ -203,6 +205,31 @@ impl AccountHarness for CliHarness {
         })
     }
 
+    async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
+        let output = self
+            .run_cli(["account", "list-active", "--database-url", &self.db_url])
+            .await?;
+        decode_active_accounts(&output)
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let target = target_account_id.to_string();
+        let output = self
+            .run_cli([
+                "account",
+                "switch-active",
+                "--database-url",
+                &self.db_url,
+                "--target-account-id",
+                &target,
+            ])
+            .await?;
+        decode_active_accounts(&output)
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
@@ -220,6 +247,26 @@ impl AccountHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+}
+
+fn decode_active_accounts(stdout: &[u8]) -> HarnessResult<Vec<SignedInAccountView>> {
+    let raw = String::from_utf8_lossy(stdout);
+    let json_line = raw
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .ok_or_else(|| {
+            HarnessError::Transport(format!(
+                "decode cli active-account payload: no JSON object in stdout: {raw}"
+            ))
+        })?;
+    let payload: serde_json::Value = serde_json::from_str(json_line).map_err(|e| {
+        HarnessError::Transport(format!(
+            "decode cli active-account payload: {e}; stdout={raw}"
+        ))
+    })?;
+    serde_json::from_value(payload["accounts"].clone())
+        .map_err(|e| HarnessError::Transport(format!("decode cli signed-in accounts: {e}")))
 }
 
 /// Locate a workspace binary by name. The BDD runner is at

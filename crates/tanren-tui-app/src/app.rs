@@ -1,9 +1,4 @@
 //! TUI screen state machine and submit dispatch.
-//!
-//! Split out of `lib.rs` so the tui-app crate stays under the workspace
-//! 500-line line-budget. Keeps the screen enum, the `App` struct, and
-//! the form/menu key handlers together; rendering still lives in
-//! `draw.rs`, form factories + outcome adapters in `ui.rs`.
 
 use std::env;
 use std::io::Stdout;
@@ -15,23 +10,38 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::{ListActiveAccountsRequest, SignedInAccountView, SwitchActiveAccountRequest};
 use tokio::runtime::Runtime;
 
 use crate::draw;
+use crate::session::{active_context_from_session, set_active_account};
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, active_accounts_outcome, render_error, sign_in_fields,
+    sign_up_fields, switch_active_outcome,
 };
 use crate::{FormState, MenuChoice};
+mod input;
+mod submit;
+use self::input::{
+    Effect, FormAction, FormKind, handle_form_key, handle_menu_key, handle_switch_active_key,
+    is_press,
+};
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
 #[derive(Debug)]
 pub(crate) enum Screen {
-    Menu { selected: usize },
+    Menu {
+        selected: usize,
+    },
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    SwitchActive {
+        accounts: Vec<SignedInAccountView>,
+        selected: usize,
+        error: Option<String>,
+    },
     Outcome(OutcomeView),
 }
 
@@ -102,16 +112,21 @@ impl App {
         }
         let effect = match &mut self.screen {
             Screen::Menu { selected } => {
-                let mut next: Option<Screen> = None;
-                let exit = handle_menu_key(selected, key, &mut next);
+                let mut choice: Option<MenuChoice> = None;
+                let exit = handle_menu_key(selected, key, &mut choice);
                 if exit {
                     Effect::Exit
-                } else if let Some(screen) = next {
-                    Effect::ReplaceScreen(screen)
+                } else if let Some(choice) = choice {
+                    Effect::Menu(choice)
                 } else {
                     Effect::None
                 }
             }
+            Screen::SwitchActive {
+                accounts,
+                selected,
+                error,
+            } => handle_switch_active_key(accounts, selected, error, key),
             Screen::Outcome(_) => {
                 if matches!(
                     key.code,
@@ -142,6 +157,10 @@ impl App {
                 self.screen = screen;
                 false
             }
+            Effect::Menu(choice) => {
+                self.select_menu_choice(choice);
+                false
+            }
             Effect::Form(action, kind) => {
                 self.dispatch_form_action(action, kind);
                 false
@@ -154,116 +173,175 @@ impl App {
             FormAction::Cancel => {
                 self.screen = Screen::Menu { selected: 0 };
             }
-            FormAction::Submit => self.submit(kind),
+            FormAction::Submit => match kind {
+                FormKind::SwitchActive => self.submit_switch_active(),
+                _ => self.submit(kind),
+            },
+        }
+    }
+
+    fn select_menu_choice(&mut self, choice: MenuChoice) {
+        match choice {
+            MenuChoice::SignUp => self.screen = Screen::SignUp(FormState::new(sign_up_fields())),
+            MenuChoice::SignIn => self.screen = Screen::SignIn(FormState::new(sign_in_fields())),
+            MenuChoice::AcceptInvitation => {
+                self.screen = Screen::AcceptInvitation(FormState::new(accept_invitation_fields()));
+            }
+            MenuChoice::ListActiveAccounts => self.list_active_accounts(),
+            MenuChoice::SwitchActiveAccount => self.open_switch_active_screen(),
+        }
+    }
+
+    fn list_active_accounts(&mut self) {
+        let Some(store) = self.store.clone() else {
+            self.screen = Screen::Outcome(OutcomeView {
+                title: "List signed-in accounts failed",
+                lines: vec![
+                    self.store_error
+                        .clone()
+                        .unwrap_or_else(|| "store unavailable".to_owned()),
+                ],
+            });
+            return;
+        };
+        let context = match active_context_from_session() {
+            Ok(context) => context,
+            Err(err) => {
+                self.screen = Screen::Outcome(OutcomeView {
+                    title: "List signed-in accounts failed",
+                    lines: vec![format!("validation_failed: {err}")],
+                });
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.list_active_accounts(
+            store.as_ref(),
+            &context,
+            ListActiveAccountsRequest::default(),
+        )) {
+            Ok(response) => {
+                self.screen = Screen::Outcome(active_accounts_outcome(&response.accounts));
+            }
+            Err(reason) => {
+                self.screen = Screen::Outcome(OutcomeView {
+                    title: "List signed-in accounts failed",
+                    lines: vec![render_error(reason)],
+                });
+            }
+        }
+    }
+
+    fn open_switch_active_screen(&mut self) {
+        let Some(store) = self.store.clone() else {
+            self.screen = Screen::Outcome(OutcomeView {
+                title: "Switch active account failed",
+                lines: vec![
+                    self.store_error
+                        .clone()
+                        .unwrap_or_else(|| "store unavailable".to_owned()),
+                ],
+            });
+            return;
+        };
+        let context = match active_context_from_session() {
+            Ok(context) => context,
+            Err(err) => {
+                self.screen = Screen::Outcome(OutcomeView {
+                    title: "Switch active account failed",
+                    lines: vec![format!("validation_failed: {err}")],
+                });
+                return;
+            }
+        };
+        match self.runtime.block_on(self.handlers.list_active_accounts(
+            store.as_ref(),
+            &context,
+            ListActiveAccountsRequest::default(),
+        )) {
+            Ok(response) => {
+                let selected = response
+                    .accounts
+                    .iter()
+                    .position(|entry| entry.is_active)
+                    .unwrap_or(0);
+                self.screen = Screen::SwitchActive {
+                    accounts: response.accounts,
+                    selected,
+                    error: None,
+                };
+            }
+            Err(reason) => {
+                self.screen = Screen::Outcome(OutcomeView {
+                    title: "Switch active account failed",
+                    lines: vec![render_error(reason)],
+                });
+            }
+        }
+    }
+
+    fn submit_switch_active(&mut self) {
+        let target_account_id = match &self.screen {
+            Screen::SwitchActive {
+                accounts, selected, ..
+            } => {
+                let Some(entry) = accounts.get(*selected) else {
+                    return;
+                };
+                entry.account.id
+            }
+            _ => return,
+        };
+
+        let Some(store) = self.store.clone() else {
+            if let Screen::SwitchActive { error, .. } = &mut self.screen {
+                *error = Some(
+                    self.store_error
+                        .clone()
+                        .unwrap_or_else(|| "store unavailable".to_owned()),
+                );
+            }
+            return;
+        };
+
+        let context = match active_context_from_session() {
+            Ok(context) => context,
+            Err(err) => {
+                if let Screen::SwitchActive { error, .. } = &mut self.screen {
+                    *error = Some(format!("validation_failed: {err}"));
+                }
+                return;
+            }
+        };
+
+        let result = self.runtime.block_on(self.handlers.switch_active_account(
+            store.as_ref(),
+            &context,
+            SwitchActiveAccountRequest { target_account_id },
+        ));
+        match result {
+            Ok(response) => {
+                if let Err(err) = set_active_account(response.active_account_id) {
+                    if let Screen::SwitchActive { error, .. } = &mut self.screen {
+                        *error = Some(format!("internal_error: {err}"));
+                    }
+                    return;
+                }
+                self.screen = Screen::Outcome(switch_active_outcome(&response));
+            }
+            Err(reason) => {
+                if let Screen::SwitchActive { error, .. } = &mut self.screen {
+                    *error = Some(render_error(reason));
+                }
+            }
         }
     }
 
     fn submit(&mut self, kind: FormKind) {
-        let Some(store) = self.store.clone() else {
-            let message = self
-                .store_error
-                .clone()
-                .unwrap_or_else(|| "store unavailable".to_owned());
-            if let Some(state) = self.active_form_mut() {
-                state.error = Some(message);
-            }
-            return;
-        };
-        let handlers = &self.handlers;
         match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn active_form_mut(&mut self) -> Option<&mut FormState> {
-        match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
-            _ => None,
+            FormKind::SignUp => self.submit_sign_up(),
+            FormKind::SignIn => self.submit_sign_in(),
+            FormKind::AcceptInvitation => self.submit_accept_invitation(),
+            FormKind::SwitchActive => self.submit_switch_active(),
         }
     }
 
@@ -276,85 +354,12 @@ impl App {
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
             }
+            Screen::SwitchActive {
+                accounts,
+                selected,
+                error,
+            } => draw::draw_switch_active(frame, area, accounts, *selected, error.as_deref()),
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
     }
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FormKind {
-    SignUp,
-    SignIn,
-    AcceptInvitation,
-}
-
-#[derive(Debug, Clone, Copy)]
-enum FormAction {
-    Submit,
-    Cancel,
-}
-
-#[derive(Debug)]
-enum Effect {
-    None,
-    Exit,
-    ReplaceScreen(Screen),
-    Form(FormAction, FormKind),
-}
-
-fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen>) -> bool {
-    match key.code {
-        KeyCode::Char('q' | 'Q') | KeyCode::Esc => return true,
-        KeyCode::Up => {
-            if *selected == 0 {
-                *selected = MenuChoice::ALL.len() - 1;
-            } else {
-                *selected -= 1;
-            }
-        }
-        KeyCode::Down | KeyCode::Tab => {
-            *selected = (*selected + 1) % MenuChoice::ALL.len();
-        }
-        KeyCode::Enter => {
-            let choice = MenuChoice::ALL[*selected];
-            *next = Some(match choice {
-                MenuChoice::SignUp => Screen::SignUp(FormState::new(sign_up_fields())),
-                MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
-                MenuChoice::AcceptInvitation => {
-                    Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
-                }
-            });
-        }
-        _ => {}
-    }
-    false
-}
-
-fn handle_form_key(state: &mut FormState, key: KeyEvent) -> Option<FormAction> {
-    match key.code {
-        KeyCode::Esc => Some(FormAction::Cancel),
-        KeyCode::Enter => Some(FormAction::Submit),
-        KeyCode::Tab | KeyCode::Down => {
-            state.cycle_focus(true);
-            None
-        }
-        KeyCode::BackTab | KeyCode::Up => {
-            state.cycle_focus(false);
-            None
-        }
-        KeyCode::Backspace => {
-            state.pop_char();
-            None
-        }
-        KeyCode::Char(c) => {
-            state.push_char(c);
-            None
-        }
-        _ => None,
-    }
-}
-
-fn is_press(key: &KeyEvent) -> bool {
-    use crossterm::event::KeyEventKind;
-    matches!(key.kind, KeyEventKind::Press | KeyEventKind::Repeat)
 }

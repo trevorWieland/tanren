@@ -5,6 +5,7 @@ use ratatui::layout::{Alignment, Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Paragraph, Wrap};
+use tanren_contract::SignedInAccountView;
 
 use crate::{FormState, MenuChoice, OutcomeView};
 
@@ -102,4 +103,54 @@ pub(crate) fn draw_outcome(frame: &mut ratatui::Frame<'_>, area: Rect, view: &Ou
     lines.push(Line::from(""));
     lines.push(Line::from("Enter/Esc back to menu   q quit-to-menu"));
     frame.render_widget(Paragraph::new(lines).block(block), area);
+}
+
+pub(crate) fn draw_switch_active(
+    frame: &mut ratatui::Frame<'_>,
+    area: Rect,
+    accounts: &[SignedInAccountView],
+    selected: usize,
+    error: Option<&str>,
+) {
+    let mut lines = vec![
+        Line::from("Switch active account"),
+        Line::from(""),
+        Line::from("Choose an account:"),
+        Line::from(""),
+    ];
+    for (idx, entry) in accounts.iter().enumerate() {
+        let marker = if idx == selected { "> " } else { "  " };
+        let active = if entry.is_active { "*" } else { "-" };
+        let style = if idx == selected {
+            Style::default().add_modifier(Modifier::REVERSED)
+        } else {
+            Style::default()
+        };
+        lines.push(Line::from(Span::styled(
+            format!(
+                "{marker}{active} {} ({})",
+                entry.account.display_name, entry.account.identifier
+            ),
+            style,
+        )));
+    }
+    lines.push(Line::from(""));
+    lines.push(Line::from("↑/↓ select   Enter switch   Esc back"));
+    if let Some(message) = error {
+        lines.push(Line::from(""));
+        lines.push(Line::from(Span::styled(
+            message.to_owned(),
+            Style::default().add_modifier(Modifier::BOLD),
+        )));
+    }
+    let block = Block::default()
+        .borders(Borders::ALL)
+        .title(" switch active account ");
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(block)
+            .alignment(Alignment::Left)
+            .wrap(Wrap { trim: true }),
+        area,
+    );
 }

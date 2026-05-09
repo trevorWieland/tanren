@@ -16,7 +16,8 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest, SignedInAccountView};
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
@@ -71,7 +72,39 @@ impl AccountHarness for TuiHarness {
         self.inner.seed_invitation(fixture).await
     }
 
+    async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
+        let accounts = self.inner.list_active_accounts().await?;
+        assert_compact_assumptions(&accounts)?;
+        Ok(accounts)
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let accounts = self.inner.switch_active_account(target_account_id).await?;
+        assert_compact_assumptions(&accounts)?;
+        Ok(accounts)
+    }
+
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
     }
+}
+
+fn assert_compact_assumptions(accounts: &[SignedInAccountView]) -> HarnessResult<()> {
+    // Compact/phone-equivalent interaction assumes a short single-column
+    // list and a single active selection.
+    if accounts.len() > 9 {
+        return Err(super::HarnessError::Transport(
+            "tui compact switcher exceeded 9 visible accounts".to_owned(),
+        ));
+    }
+    let active_count = accounts.iter().filter(|entry| entry.is_active).count();
+    if active_count != 1 {
+        return Err(super::HarnessError::Transport(format!(
+            "tui compact switcher expected exactly one active account, got {active_count}"
+        )));
+    }
+    Ok(())
 }

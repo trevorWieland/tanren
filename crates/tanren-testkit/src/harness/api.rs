@@ -19,7 +19,9 @@ use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    SignedInAccountView, SwitchActiveAccountRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -363,6 +365,50 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("seed_invitation: {e}")))?;
         Ok(())
+    }
+
+    async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
+        let url = format!("{}/accounts/active", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET /accounts/active: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json["accounts"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let url = format!("{}/accounts/active/switch", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&SwitchActiveAccountRequest { target_account_id })
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /accounts/active/switch: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        serde_json::from_value(json["accounts"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

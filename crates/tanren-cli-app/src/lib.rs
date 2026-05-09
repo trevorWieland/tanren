@@ -12,20 +12,25 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod session;
+
 use std::env;
-use std::fs;
 use std::io::Write;
-use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_contract::{
+    AcceptInvitationRequest, ListActiveAccountsRequest, SignInRequest, SignUpRequest,
+    SwitchActiveAccountRequest,
+};
+use tanren_identity_policy::{AccountId, Email, InvitationToken};
+use uuid::Uuid;
 
-const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
+use crate::session::{active_context_from_session, persist_session, set_active_account};
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
 /// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
@@ -110,6 +115,22 @@ enum AccountAction {
         #[arg(long)]
         password: String,
     },
+    /// List signed-in accounts and show which one is currently active
+    /// for this CLI window context.
+    ListActive {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+    },
+    /// Switch the active account for this CLI window context.
+    SwitchActive {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Account id that should become active.
+        #[arg(long)]
+        target_account_id: String,
+    },
 }
 
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
@@ -184,79 +205,59 @@ async fn run_account(action: AccountAction) -> Result<()> {
             display_name,
             invitation,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            match invitation {
-                None => {
-                    let response = handlers
-                        .sign_up(
-                            &store,
-                            SignUpRequest {
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
-                }
-                Some(token) => {
-                    let invitation_token = InvitationToken::parse(&token)
-                        .context("parse --invitation as invitation token")?;
-                    let response = handlers
-                        .accept_invitation(
-                            &store,
-                            AcceptInvitationRequest {
-                                invitation_token,
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
-                }
-            }
+            run_account_create(
+                &handlers,
+                &database_url,
+                &identifier,
+                password,
+                display_name,
+                invitation,
+            )
+            .await?;
         }
         AccountAction::SignIn {
             database_url,
             identifier,
             password,
-        } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
+        } => run_account_sign_in(&handlers, &database_url, &identifier, password).await?,
+        AccountAction::ListActive { database_url } => {
+            run_account_list_active(&handlers, &database_url).await?;
+        }
+        AccountAction::SwitchActive {
+            database_url,
+            target_account_id,
+        } => run_account_switch_active(&handlers, &database_url, &target_account_id).await?,
+    }
+    Ok(())
+}
+
+async fn run_account_create(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: String,
+    display_name: String,
+    invitation: Option<String>,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let email = Email::parse(identifier).context("parse --identifier as email")?;
+    let password = SecretString::from(password);
+    match invitation {
+        None => {
             let response = handlers
-                .sign_in(&store, SignInRequest { email, password })
+                .sign_up(
+                    &store,
+                    SignUpRequest {
+                        email,
+                        password,
+                        display_name,
+                    },
+                )
                 .await
                 .map_err(account_error)?;
-            persist_session(response.session.token.expose_secret())?;
+            persist_session(response.account.id, response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             writeln!(
@@ -265,9 +266,109 @@ async fn run_account(action: AccountAction) -> Result<()> {
                 id = response.account.id,
                 token = response.session.token.expose_secret(),
             )
-            .context("write sign-in result")?;
+            .context("write sign-up result")?;
+        }
+        Some(token) => {
+            let invitation_token =
+                InvitationToken::parse(&token).context("parse --invitation as invitation token")?;
+            let response = handlers
+                .accept_invitation(
+                    &store,
+                    AcceptInvitationRequest {
+                        invitation_token,
+                        email,
+                        password,
+                        display_name,
+                    },
+                )
+                .await
+                .map_err(account_error)?;
+            persist_session(response.account.id, response.session.token.expose_secret())?;
+            let stdout = std::io::stdout();
+            let mut handle = stdout.lock();
+            writeln!(
+                handle,
+                "account_id={id} session={token} joined_org={org}",
+                id = response.account.id,
+                token = response.session.token.expose_secret(),
+                org = response.joined_org,
+            )
+            .context("write invitation-acceptance result")?;
         }
     }
+    Ok(())
+}
+
+async fn run_account_sign_in(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: String,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let email = Email::parse(identifier).context("parse --identifier as email")?;
+    let password = SecretString::from(password);
+    let response = handlers
+        .sign_in(&store, SignInRequest { email, password })
+        .await
+        .map_err(account_error)?;
+    persist_session(response.account.id, response.session.token.expose_secret())?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(
+        handle,
+        "account_id={id} session={token}",
+        id = response.account.id,
+        token = response.session.token.expose_secret(),
+    )
+    .context("write sign-in result")?;
+    Ok(())
+}
+
+async fn run_account_list_active(handlers: &Handlers, database_url: &str) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let context = active_context_from_session()?;
+    let response = handlers
+        .list_active_accounts(&store, &context, ListActiveAccountsRequest::default())
+        .await
+        .map_err(account_error)?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let body = serde_json::to_string(&response).context("serialize active-account list result")?;
+    writeln!(handle, "{body}").context("write active-account list result")?;
+    Ok(())
+}
+
+async fn run_account_switch_active(
+    handlers: &Handlers,
+    database_url: &str,
+    target_account_id: &str,
+) -> Result<()> {
+    let store = Store::connect(database_url)
+        .await
+        .context("connect to store")?;
+    let context = active_context_from_session()?;
+    let target_account_id = AccountId::from(
+        Uuid::from_str(target_account_id).context("parse --target-account-id as uuid")?,
+    );
+    let response = handlers
+        .switch_active_account(
+            &store,
+            &context,
+            SwitchActiveAccountRequest { target_account_id },
+        )
+        .await
+        .map_err(account_error)?;
+    set_active_account(response.active_account_id)?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let body =
+        serde_json::to_string(&response).context("serialize active-account switch result")?;
+    writeln!(handle, "{body}").context("write active-account switch result")?;
     Ok(())
 }
 
@@ -284,35 +385,4 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
         }
         _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }
-}
-
-fn session_path() -> PathBuf {
-    if let Ok(explicit) = env::var(SESSION_FILE_ENV) {
-        if !explicit.is_empty() {
-            return PathBuf::from(explicit);
-        }
-    }
-    let base = env::var("XDG_STATE_HOME")
-        .ok()
-        .filter(|s| !s.is_empty())
-        .map_or_else(
-            || {
-                env::var("HOME").ok().map_or_else(
-                    || PathBuf::from("."),
-                    |home| PathBuf::from(home).join(".local/state"),
-                )
-            },
-            PathBuf::from,
-        );
-    base.join("tanren").join("session")
-}
-
-fn persist_session(token: &str) -> Result<()> {
-    let path = session_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create session dir {}", parent.display()))?;
-    }
-    fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
-    Ok(())
 }

@@ -8,8 +8,12 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
-use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_app_services::{ActiveAccountContext, Clock, Handlers, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, ListActiveAccountsRequest, SignInRequest, SignUpRequest,
+    SignedInAccountView, SwitchActiveAccountRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
@@ -26,6 +30,8 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    signed_in_account_ids: Vec<AccountId>,
+    active_account_id: Option<AccountId>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -63,6 +69,8 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            signed_in_account_ids: Vec::new(),
+            active_account_id: None,
         })
     }
 
@@ -74,6 +82,30 @@ impl InProcessHarness {
     pub fn store(&self) -> &Store {
         &self.store
     }
+
+    fn note_signed_in(&mut self, account_id: AccountId) {
+        if !self.signed_in_account_ids.contains(&account_id) {
+            self.signed_in_account_ids.push(account_id);
+        }
+        self.active_account_id = Some(account_id);
+    }
+
+    fn active_context(&self) -> HarnessResult<ActiveAccountContext> {
+        let Some(active_account_id) = self
+            .active_account_id
+            .filter(|id| self.signed_in_account_ids.contains(id))
+            .or_else(|| self.signed_in_account_ids.first().copied())
+        else {
+            return Err(HarnessError::Account(
+                tanren_contract::AccountFailureReason::InvalidCredential,
+                "no signed-in account in harness session".to_owned(),
+            ));
+        };
+        Ok(ActiveAccountContext::from_account_ids(
+            active_account_id,
+            self.signed_in_account_ids.clone(),
+        ))
+    }
 }
 
 #[async_trait]
@@ -84,24 +116,30 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.note_signed_in(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.note_signed_in(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -111,15 +149,52 @@ impl AccountHarness for InProcessHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         match self.handlers.accept_invitation(&self.store, req).await {
-            Ok(response) => Ok(HarnessAcceptance {
-                session: HarnessSession {
-                    account: response.account.clone(),
-                    account_id: response.account.id,
-                    expires_at: response.session.expires_at,
-                    has_token: !response.session.token.expose_secret().is_empty(),
-                },
-                joined_org: response.joined_org,
-            }),
+            Ok(response) => {
+                self.note_signed_in(response.account.id);
+                Ok(HarnessAcceptance {
+                    session: HarnessSession {
+                        account: response.account.clone(),
+                        account_id: response.account.id,
+                        expires_at: response.session.expires_at,
+                        has_token: !response.session.token.expose_secret().is_empty(),
+                    },
+                    joined_org: response.joined_org,
+                })
+            }
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
+        let context = self.active_context()?;
+        match self
+            .handlers
+            .list_active_accounts(&self.store, &context, ListActiveAccountsRequest::default())
+            .await
+        {
+            Ok(response) => Ok(response.accounts),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let context = self.active_context()?;
+        match self
+            .handlers
+            .switch_active_account(
+                &self.store,
+                &context,
+                SwitchActiveAccountRequest { target_account_id },
+            )
+            .await
+        {
+            Ok(response) => {
+                self.active_account_id = Some(response.active_account_id);
+                Ok(response.accounts)
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }

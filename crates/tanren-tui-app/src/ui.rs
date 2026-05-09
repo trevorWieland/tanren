@@ -6,7 +6,8 @@ use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    SignInResponse, SignUpRequest, SignUpResponse, SignedInAccountView,
+    SwitchActiveAccountResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, ValidationError};
 
@@ -100,6 +101,38 @@ pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> 
             format!("joined org: {}", response.joined_org),
             format!("session token: {}", response.session.token.expose_secret()),
         ],
+    }
+}
+
+pub(crate) fn active_accounts_outcome(accounts: &[SignedInAccountView]) -> OutcomeView {
+    let mut lines = Vec::with_capacity(accounts.len() + 1);
+    lines.push(format!("signed-in accounts: {}", accounts.len()));
+    for entry in accounts {
+        let marker = if entry.is_active { "*" } else { "-" };
+        lines.push(format!(
+            "{marker} {} ({})",
+            entry.account.id, entry.account.identifier
+        ));
+    }
+    OutcomeView {
+        title: "Signed-in accounts",
+        lines,
+    }
+}
+
+pub(crate) fn switch_active_outcome(response: &SwitchActiveAccountResponse) -> OutcomeView {
+    let mut lines = Vec::with_capacity(response.accounts.len() + 1);
+    lines.push(format!("active_account_id: {}", response.active_account_id));
+    for entry in &response.accounts {
+        let marker = if entry.is_active { "*" } else { "-" };
+        lines.push(format!(
+            "{marker} {} ({})",
+            entry.account.id, entry.account.identifier
+        ));
+    }
+    OutcomeView {
+        title: "Active account switched",
+        lines,
     }
 }
 
