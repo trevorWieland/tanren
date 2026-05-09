@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
+use tanren_cli_app::install::InstallError;
 use tanren_testkit::{HarnessError, HarnessKind};
 
 #[derive(Debug, Error)]
@@ -18,6 +19,11 @@ pub(crate) enum InstallStepError {
     },
     #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
     RunInstallCommand { source: HarnessError },
+    #[error("failed to {action} for install plan/apply scenario: {source}")]
+    InstallPlanOperation {
+        action: &'static str,
+        source: InstallError,
+    },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
     #[error("install command must run before no-write assertion")]
@@ -44,6 +50,41 @@ pub(crate) enum InstallStepError {
     ValidationFailureMissing { stderr: String },
     #[error("expected repository fixture to remain unchanged after command")]
     RepositorySnapshotMismatch,
+    #[error("expected install plan/apply failure, but apply succeeded")]
+    PreparedPlanApplyUnexpectedSuccess,
+    #[error("expected a prepared install plan before apply")]
+    MissingPreparedInstallPlan,
+    #[error("expected prepared install plan apply to fail, but no apply error was recorded")]
+    PreparedPlanApplyDidNotFail,
+    #[error(
+        "expected unsafe repository path exactly `{expected}` from prepared plan apply; got `{actual}`"
+    )]
+    UnsafeRepositoryPathMismatch { expected: String, actual: String },
+    #[error(
+        "expected unsafe repository path starting with `{expected_prefix}` from prepared plan apply; got `{actual}`"
+    )]
+    UnsafeRepositoryPathPrefixMismatch {
+        expected_prefix: String,
+        actual: String,
+    },
+    #[error(
+        "expected unsafe repository path failure from prepared plan apply; got `{actual_error}`"
+    )]
+    PreparedPlanExpectedUnsafeRepositoryPath { actual_error: String },
+    #[error("expected prepared plan apply failure message to contain `{expected}`; got `{actual}`")]
+    PreparedPlanFailureMessageMissing { expected: String, actual: String },
+    #[error(
+        "expected prepared install plan to include a path starting with `{expected_prefix}` in {action}"
+    )]
+    PlannedPathPrefixMissing {
+        expected_prefix: String,
+        action: &'static str,
+    },
+    #[error("expected prepared install plan to include path `{expected}` in {action}")]
+    PlannedPathMissing {
+        expected: String,
+        action: &'static str,
+    },
     #[error("expected stale path to be absent before manifest injection: {path}")]
     StaleManifestPathAlreadyPresent { path: String },
     #[error("expected repository file content to equal baseline for `{path}`")]

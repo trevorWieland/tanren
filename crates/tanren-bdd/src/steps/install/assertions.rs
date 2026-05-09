@@ -1,5 +1,7 @@
 use std::fs;
 
+use tanren_cli_app::install::InstallError;
+
 use crate::steps::install::context::InstallCommandOutcome;
 
 use super::context::InstallContext;
@@ -198,6 +200,60 @@ impl InstallContext {
 
     pub(crate) fn assert_manifest_rust_cargo_defaults(&self) -> InstallStepResult<()> {
         manifest_helpers::assert_manifest_rust_cargo_defaults(&self.repository_root)
+    }
+
+    pub(crate) fn assert_prepared_plan_error_path_exact(
+        &self,
+        expected: &str,
+    ) -> InstallStepResult<()> {
+        let (actual, _) = self.require_last_unsafe_repository_path()?;
+        if actual != expected {
+            return Err(InstallStepError::UnsafeRepositoryPathMismatch {
+                expected: expected.to_owned(),
+                actual: actual.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_prepared_plan_error_path_prefix(
+        &self,
+        expected_prefix: &str,
+    ) -> InstallStepResult<()> {
+        let (actual, _) = self.require_last_unsafe_repository_path()?;
+        if !actual.starts_with(expected_prefix) {
+            return Err(InstallStepError::UnsafeRepositoryPathPrefixMismatch {
+                expected_prefix: expected_prefix.to_owned(),
+                actual: actual.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_prepared_plan_error_message_contains(
+        &self,
+        expected: &str,
+    ) -> InstallStepResult<()> {
+        let (_, message) = self.require_last_unsafe_repository_path()?;
+        if !message.contains(expected) {
+            return Err(InstallStepError::PreparedPlanFailureMessageMissing {
+                expected: expected.to_owned(),
+                actual: message.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    fn require_last_unsafe_repository_path(&self) -> InstallStepResult<(&str, &str)> {
+        let err = self.require_last_plan_apply_error()?;
+        match err {
+            InstallError::UnsafeRepositoryPath { path, message } => {
+                Ok((path.as_str(), message.as_str()))
+            }
+            other => Err(InstallStepError::PreparedPlanExpectedUnsafeRepositoryPath {
+                actual_error: other.to_string(),
+            }),
+        }
     }
 }
 

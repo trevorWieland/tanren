@@ -1,8 +1,14 @@
 use std::fs;
 use std::io;
+use std::path::Path;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+
+use tanren_cli_app::install::{
+    InstallProfile, parse_integration_selection, plan::build_install_plan,
+    writer::apply_install_plan,
+};
 
 use super::context::InstallContext;
 use super::manifest_helpers;
@@ -115,13 +121,114 @@ impl InstallContext {
         link_path: &RepositoryRelativePath,
         target_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
+        self.replace_fixture_path_with_symlink(link_path, target_path, SymlinkKind::Directory)
+    }
+
+    pub(crate) fn replace_fixture_path_with_file_symlink(
+        &mut self,
+        link_path: &RepositoryRelativePath,
+        target_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        self.replace_fixture_path_with_symlink(link_path, target_path, SymlinkKind::File)
+    }
+
+    pub(crate) fn prepare_install_plan(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        let profile: InstallProfile =
+            profile
+                .parse()
+                .map_err(|source| InstallStepError::InstallPlanOperation {
+                    action: "parse install profile for plan",
+                    source,
+                })?;
+        let integrations = parse_integration_selection(integrations).map_err(|source| {
+            InstallStepError::InstallPlanOperation {
+                action: "parse integration selection for plan",
+                source,
+            }
+        })?;
+        let plan = build_install_plan(&self.repository_root, profile, &integrations).map_err(
+            |source| InstallStepError::InstallPlanOperation {
+                action: "build install plan",
+                source,
+            },
+        )?;
+        self.pending_plan = Some(plan);
+        self.last_plan_apply_error = None;
+        Ok(())
+    }
+
+    pub(crate) fn assert_planned_writes_include_path_prefix(
+        &self,
+        expected_prefix: &str,
+    ) -> InstallStepResult<()> {
+        let plan = self
+            .pending_plan
+            .as_ref()
+            .ok_or(InstallStepError::MissingPreparedInstallPlan)?;
+        if plan
+            .writes()
+            .iter()
+            .any(|write| write.path().as_str().starts_with(expected_prefix))
+        {
+            return Ok(());
+        }
+        Err(InstallStepError::PlannedPathPrefixMissing {
+            expected_prefix: expected_prefix.to_owned(),
+            action: "planned writes",
+        })
+    }
+
+    pub(crate) fn assert_planned_removals_include_path(
+        &self,
+        expected: &str,
+    ) -> InstallStepResult<()> {
+        let plan = self
+            .pending_plan
+            .as_ref()
+            .ok_or(InstallStepError::MissingPreparedInstallPlan)?;
+        if plan
+            .removals()
+            .iter()
+            .any(|removal| removal.path().as_str() == expected)
+        {
+            return Ok(());
+        }
+        Err(InstallStepError::PlannedPathMissing {
+            expected: expected.to_owned(),
+            action: "planned removals",
+        })
+    }
+
+    pub(crate) fn apply_prepared_install_plan_expect_failure(&mut self) -> InstallStepResult<()> {
+        let plan = self
+            .pending_plan
+            .as_ref()
+            .ok_or(InstallStepError::MissingPreparedInstallPlan)?;
+        match apply_install_plan(plan) {
+            Ok(_) => {
+                self.last_plan_apply_error = None;
+                Err(InstallStepError::PreparedPlanApplyUnexpectedSuccess)
+            }
+            Err(err) => {
+                self.last_plan_apply_error = Some(err);
+                Ok(())
+            }
+        }
+    }
+
+    fn replace_fixture_path_with_symlink(
+        &mut self,
+        link_path: &RepositoryRelativePath,
+        target_path: &RepositoryRelativePath,
+        kind: SymlinkKind,
+    ) -> InstallStepResult<()> {
         let link_absolute = self.repository_path(link_path.as_str())?;
         let target_absolute = self.repository_path(target_path.as_str())?;
-        fs::create_dir_all(&target_absolute).map_err(|source| InstallStepError::Io {
-            path: target_absolute.clone(),
-            action: "create symlink target directory in repository fixture",
-            source,
-        })?;
+        ensure_symlink_target_exists(&target_absolute, kind)?;
         if let Some(parent) = link_absolute.parent() {
             fs::create_dir_all(parent).map_err(|source| InstallStepError::Io {
                 path: parent.to_path_buf(),
@@ -129,32 +236,8 @@ impl InstallContext {
                 source,
             })?;
         }
-        match fs::symlink_metadata(&link_absolute) {
-            Ok(metadata) => {
-                if metadata.is_dir() {
-                    fs::remove_dir_all(&link_absolute).map_err(|source| InstallStepError::Io {
-                        path: link_absolute.clone(),
-                        action: "remove existing repository fixture directory before symlink swap",
-                        source,
-                    })?;
-                } else {
-                    fs::remove_file(&link_absolute).map_err(|source| InstallStepError::Io {
-                        path: link_absolute.clone(),
-                        action: "remove existing repository fixture file before symlink swap",
-                        source,
-                    })?;
-                }
-            }
-            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
-            Err(source) => {
-                return Err(InstallStepError::Io {
-                    path: link_absolute,
-                    action: "inspect repository fixture path before symlink swap",
-                    source,
-                });
-            }
-        }
-        create_directory_symlink(&target_absolute, &link_absolute).map_err(|source| {
+        remove_existing_path_if_present(&link_absolute)?;
+        create_symlink(kind, &target_absolute, &link_absolute).map_err(|source| {
             InstallStepError::Io {
                 path: link_absolute,
                 action: "create repository fixture symlink",
@@ -163,6 +246,12 @@ impl InstallContext {
         })?;
         Ok(())
     }
+}
+
+#[derive(Clone, Copy)]
+enum SymlinkKind {
+    Directory,
+    File,
 }
 
 impl Drop for InstallContext {
@@ -191,14 +280,74 @@ pub(super) fn scenario_repository_root() -> PathBuf {
 }
 
 #[cfg(unix)]
-fn create_directory_symlink(target: &std::path::Path, link: &std::path::Path) -> io::Result<()> {
+fn create_symlink(kind: SymlinkKind, target: &Path, link: &Path) -> io::Result<()> {
+    let _ = kind;
     std::os::unix::fs::symlink(target, link)
 }
 
 #[cfg(windows)]
-fn create_directory_symlink(target: &std::path::Path, link: &std::path::Path) -> io::Result<()> {
-    std::os::windows::fs::symlink_dir(target, link)
+fn create_symlink(kind: SymlinkKind, target: &Path, link: &Path) -> io::Result<()> {
+    match kind {
+        SymlinkKind::Directory => std::os::windows::fs::symlink_dir(target, link),
+        SymlinkKind::File => std::os::windows::fs::symlink_file(target, link),
+    }
 }
 
 #[cfg(not(any(unix, windows)))]
 compile_error!("install BDD symlink fixture steps require unix or windows support");
+
+fn ensure_symlink_target_exists(target: &Path, kind: SymlinkKind) -> InstallStepResult<()> {
+    match kind {
+        SymlinkKind::Directory => {
+            fs::create_dir_all(target).map_err(|source| InstallStepError::Io {
+                path: target.to_path_buf(),
+                action: "create symlink target directory in repository fixture",
+                source,
+            })?;
+        }
+        SymlinkKind::File => {
+            if let Some(parent) = target.parent() {
+                fs::create_dir_all(parent).map_err(|source| InstallStepError::Io {
+                    path: parent.to_path_buf(),
+                    action: "create symlink target parent directory in repository fixture",
+                    source,
+                })?;
+            }
+            if !target.exists() {
+                fs::write(target, "").map_err(|source| InstallStepError::Io {
+                    path: target.to_path_buf(),
+                    action: "create symlink target file in repository fixture",
+                    source,
+                })?;
+            }
+        }
+    }
+    Ok(())
+}
+
+fn remove_existing_path_if_present(path: &Path) -> InstallStepResult<()> {
+    match fs::symlink_metadata(path) {
+        Ok(metadata) => {
+            if metadata.is_dir() {
+                fs::remove_dir_all(path).map_err(|source| InstallStepError::Io {
+                    path: path.to_path_buf(),
+                    action: "remove existing repository fixture directory before symlink swap",
+                    source,
+                })?;
+            } else {
+                fs::remove_file(path).map_err(|source| InstallStepError::Io {
+                    path: path.to_path_buf(),
+                    action: "remove existing repository fixture file before symlink swap",
+                    source,
+                })?;
+            }
+            Ok(())
+        }
+        Err(source) if source.kind() == io::ErrorKind::NotFound => Ok(()),
+        Err(source) => Err(InstallStepError::Io {
+            path: path.to_path_buf(),
+            action: "inspect repository fixture path before symlink swap",
+            source,
+        }),
+    }
+}

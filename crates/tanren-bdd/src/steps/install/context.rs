@@ -3,6 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
+use tanren_cli_app::install::{InstallError, InstallPlan};
 use tanren_testkit::{CliCommandOutcome, execute_tanren_cli};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
@@ -18,6 +19,8 @@ pub(crate) struct InstallContext {
     pub(super) baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
     pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
+    pub(super) pending_plan: Option<InstallPlan>,
+    pub(super) last_plan_apply_error: Option<InstallError>,
 }
 
 impl InstallContext {
@@ -34,6 +37,8 @@ impl InstallContext {
             baselines: BTreeMap::new(),
             snapshot_before_last_run: None,
             last_run: None,
+            pending_plan: None,
+            last_plan_apply_error: None,
         })
     }
 
@@ -59,6 +64,8 @@ impl InstallContext {
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
         self.snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
+        self.pending_plan = None;
+        self.last_plan_apply_error = None;
         Ok(())
     }
 
@@ -66,6 +73,12 @@ impl InstallContext {
         self.last_run
             .as_ref()
             .ok_or(InstallStepError::InstallCommandNotExecuted)
+    }
+
+    pub(super) fn require_last_plan_apply_error(&self) -> InstallStepResult<&InstallError> {
+        self.last_plan_apply_error
+            .as_ref()
+            .ok_or(InstallStepError::PreparedPlanApplyDidNotFail)
     }
 
     pub(super) fn repository_path(&self, relative_path: &str) -> InstallStepResult<PathBuf> {
