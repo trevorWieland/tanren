@@ -6,6 +6,7 @@ import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
+import openapiTS, { astToString } from "openapi-typescript";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const WEB_ROOT = resolve(__dirname, "..");
@@ -49,62 +50,6 @@ function responseRefName(ref) {
 
 function isObject(value) {
   return typeof value === "object" && value !== null;
-}
-
-function renderTypeExpr(schema) {
-  if (!isObject(schema)) {
-    return "unknown";
-  }
-  if (Array.isArray(schema.type)) {
-    return schema.type
-      .map((entry) => renderTypeExpr({ ...schema, type: entry }))
-      .join(" | ");
-  }
-  if (schema.$ref) {
-    return refName(schema.$ref);
-  }
-  if (Array.isArray(schema.oneOf)) {
-    return schema.oneOf.map((entry) => renderTypeExpr(entry)).join(" | ");
-  }
-  if (Array.isArray(schema.anyOf)) {
-    return schema.anyOf.map((entry) => renderTypeExpr(entry)).join(" | ");
-  }
-  if (Array.isArray(schema.allOf)) {
-    return schema.allOf.map((entry) => renderTypeExpr(entry)).join(" & ");
-  }
-  if (Array.isArray(schema.enum)) {
-    return schema.enum.map((entry) => JSON.stringify(entry)).join(" | ");
-  }
-  if (schema.type === "null") {
-    return "null";
-  }
-  if (schema.type === "string") {
-    return "string";
-  }
-  if (schema.type === "integer" || schema.type === "number") {
-    return "number";
-  }
-  if (schema.type === "boolean") {
-    return "boolean";
-  }
-  if (schema.type === "array") {
-    return `${renderTypeExpr(schema.items)}[]`;
-  }
-  if (schema.type === "object") {
-    const properties = isObject(schema.properties) ? schema.properties : {};
-    const required = new Set(
-      Array.isArray(schema.required) ? schema.required : [],
-    );
-    const lines = Object.entries(properties).map(([name, propertySchema]) => {
-      const optional = required.has(name) ? "" : "?";
-      return `  ${name}${optional}: ${renderTypeExpr(propertySchema)};`;
-    });
-    if (lines.length === 0) {
-      return "Record<string, never>";
-    }
-    return `{\n${lines.join("\n")}\n}`;
-  }
-  return "unknown";
 }
 
 function collectSchemaReferences(schema, refs) {
@@ -259,28 +204,6 @@ function resolveRenderOrder(schemas, rootSchemas) {
   return [...rootSchemas, ...dependencies];
 }
 
-function renderNamedSchema(name, schema) {
-  if (!isObject(schema)) {
-    return `export type ${name} = unknown;`;
-  }
-  if (schema.type === "object" && !Array.isArray(schema.oneOf)) {
-    const properties = isObject(schema.properties) ? schema.properties : {};
-    const required = new Set(
-      Array.isArray(schema.required) ? schema.required : [],
-    );
-    const lines = Object.entries(properties).map(
-      ([propertyName, propertySchema]) => {
-        const optional = required.has(propertyName) ? "" : "?";
-        const typeExpr = renderTypeExpr(propertySchema);
-        return `  ${propertyName}${optional}: ${typeExpr};`;
-      },
-    );
-    const body = lines.length > 0 ? lines.join("\n") : "  // Empty schema.";
-    return `export interface ${name} {\n${body}\n}`;
-  }
-  return `export type ${name} = ${renderTypeExpr(schema)};`;
-}
-
 function loadOpenApi() {
   const tempDir = mkdtempSync(join(tmpdir(), "tanren-openapi-"));
   const tempOpenApiPath = resolve(tempDir, "openapi.json");
@@ -310,21 +233,56 @@ function formatTypescript(source) {
   });
 }
 
-function generateFile(openapi) {
+async function renderOpenApiTypes(openapi) {
+  const ast = await openapiTS(openapi);
+  return astToString(ast);
+}
+
+function resolveContractSchemaOrder(openapi) {
   const schemas = openapi?.components?.schemas;
   if (!isObject(schemas)) {
     throw new Error("OpenAPI document is missing components.schemas");
   }
 
   const rootSchemas = collectEndpointRootSchemas(openapi);
-  const renderOrder = resolveRenderOrder(schemas, rootSchemas);
-  const rendered = renderOrder.map((name) => {
+  const aliasOrder = resolveRenderOrder(schemas, rootSchemas);
+  for (const name of aliasOrder) {
     const schema = schemas[name];
     if (!isObject(schema)) {
       throw new Error(`OpenAPI document is missing schema: ${name}`);
     }
-    return renderNamedSchema(name, schema);
-  });
+  }
+  return aliasOrder;
+}
+
+function buildSchemaOnlyOpenApi(openapi, schemaNames) {
+  const schemas = openapi?.components?.schemas;
+  if (!isObject(schemas)) {
+    throw new Error("OpenAPI document is missing components.schemas");
+  }
+  const selectedSchemas = Object.fromEntries(
+    schemaNames.map((name) => [name, schemas[name]]),
+  );
+  return {
+    openapi: openapi.openapi,
+    info: openapi.info,
+    jsonSchemaDialect: openapi.jsonSchemaDialect,
+    paths: {},
+    components: {
+      schemas: selectedSchemas,
+    },
+  };
+}
+
+function generateFile(openapi, renderedOpenApiTypes, aliasOrder) {
+  const schemas = openapi?.components?.schemas;
+  if (!isObject(schemas)) {
+    throw new Error("OpenAPI document is missing components.schemas");
+  }
+  const aliases = aliasOrder.map(
+    (name) =>
+      `export type ${name} = components["schemas"][${JSON.stringify(name)}];`,
+  );
 
   const interfaceErrorCodeSchema = schemas.InterfaceErrorCode;
   if (
@@ -340,10 +298,13 @@ function generateFile(openapi) {
   return [
     "// Generated from Tanren's utoipa OpenAPI contract via:",
     "//   cargo run -q -p tanren-xtask -- export-openapi --out <path>",
-    "// and apps/web/scripts/generate-interface-contracts.mjs",
+    "// and openapi-typescript via apps/web/scripts/generate-interface-contracts.mjs",
     "// Do not hand-edit this file.",
     "",
-    ...rendered,
+    renderedOpenApiTypes.trimEnd(),
+    "",
+    "// Re-export only interface-contract schemas reachable from /me endpoints.",
+    ...aliases,
     "",
     `export const INTERFACE_ERROR_CODES = [${codes.join(", ")}] as const;`,
     "",
@@ -356,9 +317,14 @@ function generateFile(openapi) {
   ].join("\n");
 }
 
-function main() {
+async function main() {
   const openapi = loadOpenApi();
-  const nextContent = formatTypescript(generateFile(openapi));
+  const aliasOrder = resolveContractSchemaOrder(openapi);
+  const schemaOnlyOpenApi = buildSchemaOnlyOpenApi(openapi, aliasOrder);
+  const renderedOpenApiTypes = await renderOpenApiTypes(schemaOnlyOpenApi);
+  const nextContent = formatTypescript(
+    generateFile(openapi, renderedOpenApiTypes, aliasOrder),
+  );
   const currentContent = readFileSync(OUTPUT_PATH, "utf8");
   if (CHECK_MODE) {
     if (currentContent !== nextContent) {
@@ -374,7 +340,7 @@ function main() {
 }
 
 try {
-  main();
+  await main();
 } catch (error) {
   console.error(error instanceof Error ? error.message : String(error));
   process.exit(1);
