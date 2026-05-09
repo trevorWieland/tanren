@@ -20,13 +20,11 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
+    CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
+    ListOrganizationsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{
-    Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
-};
+use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
@@ -89,17 +87,6 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub(crate) struct CreateOrganizationBody {
-    pub name: OrganizationName,
-}
-
-#[derive(Debug, Deserialize, utoipa::ToSchema)]
-pub(crate) struct CheckOrganizationPermissionBody {
-    pub org_id: OrgId,
-    pub permission: OrganizationPermission,
-}
-
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -127,8 +114,8 @@ pub(crate) struct CheckOrganizationPermissionBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
-        CreateOrganizationBody,
-        CheckOrganizationPermissionBody,
+        CreateOrganizationApiRequest,
+        CheckOrganizationPermissionApiRequest,
         CreateOrganizationResponse,
         ListOrganizationsResponse,
         CheckOrganizationPermissionResponse,
@@ -312,18 +299,19 @@ pub(crate) async fn accept_invitation_route(
 #[utoipa::path(
     post,
     path = "/organizations",
-    request_body = CreateOrganizationBody,
+    request_body = CreateOrganizationApiRequest,
     responses(
         (status = 201, body = CreateOrganizationResponse, description = "Organization created"),
         (status = 400, body = AccountFailureBody, description = "validation_failed"),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 409, body = AccountFailureBody, description = "idempotency_conflict"),
     ),
     tag = "organizations",
 )]
 pub(crate) async fn create_organization_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(body): ValidatedJson<CreateOrganizationBody>,
+    ValidatedJson(body): ValidatedJson<CreateOrganizationApiRequest>,
 ) -> Response {
     let span = organization_route_span("create_organization", None);
     let _span_guard = span.enter();
@@ -339,6 +327,7 @@ pub(crate) async fn create_organization_route(
         session_token: auth.1,
         account_id: auth.0,
         name: body.name,
+        idempotency_key: body.idempotency_key,
     };
     match state
         .handlers
@@ -406,7 +395,7 @@ pub(crate) async fn list_organizations_route(
 #[utoipa::path(
     post,
     path = "/organizations/permissions/check",
-    request_body = CheckOrganizationPermissionBody,
+    request_body = CheckOrganizationPermissionApiRequest,
     responses(
         (status = 200, body = CheckOrganizationPermissionResponse, description = "Permission present"),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
@@ -417,7 +406,7 @@ pub(crate) async fn list_organizations_route(
 pub(crate) async fn check_organization_permission_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(body): ValidatedJson<CheckOrganizationPermissionBody>,
+    ValidatedJson(body): ValidatedJson<CheckOrganizationPermissionApiRequest>,
 ) -> Response {
     let span = organization_route_span("check_organization_permission", Some(body.org_id));
     let _span_guard = span.enter();

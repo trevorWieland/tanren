@@ -318,17 +318,51 @@ Then(
 
 Then(
   /^organization "([^"]+)" has zero initial projects$/,
-  async ({ world }, organizationName: string) => {
-    // Web does not yet expose a projects surface. This assertion proves
-    // the organization exists on the authenticated wire path and defers
-    // explicit project-count rendering checks to the Rust harness.
+  async ({ page, world }, organizationName: string) => {
     const state = orgState(world);
-    const exists = state.organizationsByName.has(
-      normalizeOrganizationName(organizationName),
-    );
-    if (!exists) {
+    const normalized = normalizeOrganizationName(organizationName);
+    const org = state.organizationsByName.get(normalized);
+    if (!org) {
       throw new Error(
         `organization ${organizationName} must exist before zero-project assertion`,
+      );
+    }
+
+    const raw = await page
+      .context()
+      .request.get(`${API_URL}/test-hooks/events?limit=200`);
+    if (!raw.ok()) {
+      throw new Error(
+        `failed to read test-hook events: status=${raw.status()} body=${await raw.text()}`,
+      );
+    }
+    const events = (await raw.json()) as Array<{ payload?: unknown }>;
+
+    const created = [...events]
+      .reverse()
+      .map((event) => event.payload as Record<string, unknown> | undefined)
+      .find((payload) => {
+        if (!payload) return false;
+        if (payload["kind"] !== "organization_created") return false;
+        const eventPayload = payload["payload"] as
+          | Record<string, unknown>
+          | undefined;
+        if (!eventPayload) return false;
+        return eventPayload["name"] === organizationName;
+      });
+    if (!created) {
+      throw new Error(
+        `missing organization_created event for ${organizationName} in test-hook stream`,
+      );
+    }
+
+    const eventPayload = created["payload"] as
+      | Record<string, unknown>
+      | undefined;
+    const initialProjectCount = eventPayload?.["initial_project_count"];
+    if (typeof initialProjectCount !== "number" || initialProjectCount !== 0) {
+      throw new Error(
+        `expected initial_project_count=0 for ${organizationName}, got ${String(initialProjectCount)}`,
       );
     }
   },

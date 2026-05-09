@@ -27,6 +27,7 @@ where
 
     let name = tanren_identity_policy::OrganizationName::parse(request.name.as_str())
         .map_err(|err| AppServiceError::InvalidInput(err.to_string()))?;
+    let idempotency_key = normalize_idempotency_key(request.idempotency_key)?;
     let output = store
         .create_organization_atomic(CreateOrganizationAtomicRequest {
             organization_id: OrgId::fresh(),
@@ -34,6 +35,7 @@ where
             creator_account_id: request.account_id,
             creator_membership_id: tanren_identity_policy::MembershipId::fresh(),
             now,
+            idempotency_key,
             events_builder: build_create_organization_events_builder(),
         })
         .await
@@ -171,6 +173,24 @@ fn map_create_organization_error(err: CreateOrganizationError) -> AppServiceErro
         CreateOrganizationError::DuplicateName => {
             AppServiceError::InvalidInput("organization name already exists".to_owned())
         }
+        CreateOrganizationError::IdempotencyConflict => {
+            AppServiceError::InvalidInput("idempotency_conflict".to_owned())
+        }
         CreateOrganizationError::Store(err) => AppServiceError::Store(err),
+    }
+}
+
+fn normalize_idempotency_key(raw: Option<String>) -> Result<Option<String>, AppServiceError> {
+    match raw {
+        None => Ok(None),
+        Some(key) => {
+            let trimmed = key.trim();
+            if trimmed.is_empty() {
+                return Err(AppServiceError::InvalidInput(
+                    "idempotency key must not be empty".to_owned(),
+                ));
+            }
+            Ok(Some(trimmed.to_owned()))
+        }
     }
 }

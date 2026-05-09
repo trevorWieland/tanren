@@ -183,6 +183,8 @@ pub struct CreateOrganizationAtomicRequest {
     pub creator_membership_id: MembershipId,
     /// Wall-clock time for all row writes and success events.
     pub now: DateTime<Utc>,
+    /// Stable client idempotency key for replay-safe create semantics.
+    pub idempotency_key: Option<String>,
     /// Event payload builder invoked inside the transaction.
     pub events_builder: CreateOrganizationEventsBuilder,
 }
@@ -195,6 +197,10 @@ impl std::fmt::Debug for CreateOrganizationAtomicRequest {
             .field("creator_account_id", &self.creator_account_id)
             .field("creator_membership_id", &self.creator_membership_id)
             .field("now", &self.now)
+            .field(
+                "idempotency_key",
+                &self.idempotency_key.as_deref().unwrap_or("<none>"),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -216,6 +222,10 @@ pub enum CreateOrganizationError {
     /// Organization name already exists (normalized uniqueness key).
     #[error("duplicate organization name")]
     DuplicateName,
+    /// The supplied idempotency key was reused with a conflicting
+    /// request fingerprint.
+    #[error("idempotency conflict")]
+    IdempotencyConflict,
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),

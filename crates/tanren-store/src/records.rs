@@ -136,6 +136,39 @@ impl TryFrom<entity::organizations::Model> for OrganizationRecord {
     }
 }
 
+/// Persisted organization-create idempotency record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationCreateIdempotencyRecord {
+    /// Account that issued the create request.
+    pub account_id: AccountId,
+    /// Stable idempotency key scoped to the account.
+    pub key: String,
+    /// Organization created by the idempotent request.
+    pub organization_id: OrgId,
+    /// Normalized organization name fingerprint for replay conflict checks.
+    pub organization_name: OrganizationName,
+    /// Wall-clock time the idempotency record was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::organization_create_idempotency::Model>
+    for OrganizationCreateIdempotencyRecord
+{
+    type Error = StoreError;
+
+    fn try_from(
+        model: entity::organization_create_idempotency::Model,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            account_id: AccountId::new(model.account_id),
+            key: model.key,
+            organization_id: OrgId::new(model.organization_id),
+            organization_name: parse_db_organization_name(&model.organization_name)?,
+            created_at: model.created_at,
+        })
+    }
+}
+
 /// Persisted organization-level permission grant row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationPermissionGrantRecord {

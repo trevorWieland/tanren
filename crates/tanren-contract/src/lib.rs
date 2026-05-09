@@ -13,9 +13,10 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use organization::{
-    CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
-    CreateOrganizationRequest, CreateOrganizationResponse, ListOrganizationsRequest,
-    ListOrganizationsResponse, OrganizationView,
+    CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionRequest,
+    CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationRequest,
+    CreateOrganizationResponse, ListOrganizationsRequest, ListOrganizationsResponse,
+    OrganizationView,
 };
 
 use serde::{Deserialize, Serialize};

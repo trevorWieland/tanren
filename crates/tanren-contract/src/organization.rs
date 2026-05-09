@@ -21,6 +21,9 @@ pub struct CreateOrganizationRequest {
     /// Candidate organization name. Validated + normalized by
     /// `OrganizationName` during deserialization.
     pub name: OrganizationName,
+    /// Stable client idempotency key. Replays with the same actor and
+    /// key return the same semantic result.
+    pub idempotency_key: Option<String>,
 }
 
 /// Create-organization response.
@@ -55,6 +58,26 @@ pub struct CheckOrganizationPermissionRequest {
     pub session_token: SessionToken,
     /// Account being checked.
     pub account_id: AccountId,
+    /// Organization in which permission is checked.
+    pub org_id: OrgId,
+    /// Permission being checked.
+    pub permission: OrganizationPermission,
+}
+
+/// API body for create-organization routes.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CreateOrganizationApiRequest {
+    /// Candidate organization name. Validated + normalized by
+    /// `OrganizationName` during deserialization.
+    pub name: OrganizationName,
+    /// Stable client idempotency key. Replays with the same actor and
+    /// key return the same semantic result.
+    pub idempotency_key: Option<String>,
+}
+
+/// API body for check-organization-permission routes.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct CheckOrganizationPermissionApiRequest {
     /// Organization in which permission is checked.
     pub org_id: OrgId,
     /// Permission being checked.

@@ -18,7 +18,8 @@ mod traits;
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
-    OrganizationPermissionGrantRecord, OrganizationRecord, SessionRecord,
+    OrganizationCreateIdempotencyRecord, OrganizationPermissionGrantRecord, OrganizationRecord,
+    SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,

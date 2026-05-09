@@ -43,11 +43,24 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     match err {
         AppServiceError::Account(reason) => map_account_failure(reason),
-        AppServiceError::InvalidInput(message) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"code": "validation_failed", "summary": message})),
-        )
-            .into_response(),
+        AppServiceError::InvalidInput(message) => {
+            if message == "idempotency_conflict" {
+                return (
+                    StatusCode::CONFLICT,
+                    Json(AccountFailureBody {
+                        code: "idempotency_conflict".to_owned(),
+                        summary: "The supplied idempotency key conflicts with a prior request."
+                            .to_owned(),
+                    }),
+                )
+                    .into_response();
+            }
+            (
+                StatusCode::BAD_REQUEST,
+                Json(json!({"code": "validation_failed", "summary": message})),
+            )
+                .into_response()
+        }
         AppServiceError::Store(err) => {
             tracing::error!(target: "tanren_api", error = %err, "store error");
             (

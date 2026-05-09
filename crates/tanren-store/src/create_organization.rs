@@ -28,11 +28,54 @@ pub(crate) async fn run(
     conn: &DatabaseConnection,
     request: CreateOrganizationAtomicRequest,
 ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError> {
-    conn.transaction::<_, CreateOrganizationAtomicOutput, CreateOrganizationError>(|txn| {
-        Box::pin(async move { run_in_txn(txn, request).await })
-    })
-    .await
-    .map_err(map_transaction_error)
+    let replay_account_id = request.creator_account_id;
+    let replay_name = request.name.clone();
+    let replay_key = request.idempotency_key.clone();
+    if let Some(key) = replay_key.as_deref() {
+        if let Some(replayed) =
+            find_idempotent_replay_for_key(conn, replay_account_id, key, &replay_name).await?
+        {
+            return Ok(replayed);
+        }
+    }
+
+    let result = conn
+        .transaction::<_, CreateOrganizationAtomicOutput, CreateOrganizationError>(|txn| {
+            Box::pin(async move { run_in_txn(txn, request).await })
+        })
+        .await
+        .map_err(map_transaction_error);
+
+    match result {
+        Ok(output) => Ok(output),
+        Err(CreateOrganizationError::DuplicateName) if replay_key.is_some() => {
+            match find_idempotent_replay_for_key(
+                conn,
+                replay_account_id,
+                replay_key.as_deref().unwrap_or_default(),
+                &replay_name,
+            )
+            .await?
+            {
+                Some(replayed) => Ok(replayed),
+                None => Err(CreateOrganizationError::DuplicateName),
+            }
+        }
+        Err(CreateOrganizationError::IdempotencyConflict) if replay_key.is_some() => {
+            match find_idempotent_replay_for_key(
+                conn,
+                replay_account_id,
+                replay_key.as_deref().unwrap_or_default(),
+                &replay_name,
+            )
+            .await?
+            {
+                Some(replayed) => Ok(replayed),
+                None => Err(CreateOrganizationError::IdempotencyConflict),
+            }
+        }
+        Err(err) => Err(err),
+    }
 }
 
 async fn run_in_txn(
@@ -45,8 +88,14 @@ async fn run_in_txn(
         creator_account_id,
         creator_membership_id,
         now,
+        idempotency_key,
         events_builder,
     } = request;
+
+    if let Some(key) = idempotency_key.as_deref() {
+        insert_idempotency_claim_in_txn(txn, creator_account_id, key, organization_id, &name, now)
+            .await?;
+    }
 
     let organization =
         insert_organization_in_txn(txn, organization_id, &name, creator_account_id, now).await?;
@@ -80,6 +129,45 @@ async fn run_in_txn(
     })
 }
 
+async fn find_idempotent_replay_for_key(
+    conn: &DatabaseConnection,
+    account_id: AccountId,
+    idempotency_key: &str,
+    expected_name: &tanren_identity_policy::OrganizationName,
+) -> Result<Option<CreateOrganizationAtomicOutput>, CreateOrganizationError> {
+    let row = entity::organization_create_idempotency::Entity::find_by_id((
+        account_id.as_uuid(),
+        idempotency_key.to_owned(),
+    ))
+    .one(conn)
+    .await
+    .map_err(StoreError::from)?;
+    let Some(row) = row else {
+        return Ok(None);
+    };
+
+    if row.organization_name != expected_name.as_str() {
+        return Err(CreateOrganizationError::IdempotencyConflict);
+    }
+
+    let organization_row = entity::organizations::Entity::find_by_id(row.organization_id)
+        .one(conn)
+        .await
+        .map_err(StoreError::from)?
+        .ok_or_else(|| {
+            CreateOrganizationError::Store(StoreError::Database(sea_orm::DbErr::Custom(
+                "idempotency record references missing organization".to_owned(),
+            )))
+        })?;
+    let organization =
+        OrganizationRecord::try_from(organization_row).map_err(CreateOrganizationError::Store)?;
+    Ok(Some(CreateOrganizationAtomicOutput {
+        organization,
+        granted_permissions: ORGANIZATION_ADMIN_PERMISSIONS.to_vec(),
+        initial_project_count: 0,
+    }))
+}
+
 async fn insert_organization_in_txn(
     txn: &DatabaseTransaction,
     organization_id: OrgId,
@@ -106,6 +194,33 @@ async fn insert_organization_in_txn(
     };
 
     OrganizationRecord::try_from(inserted).map_err(CreateOrganizationError::Store)
+}
+
+async fn insert_idempotency_claim_in_txn(
+    txn: &DatabaseTransaction,
+    account_id: AccountId,
+    idempotency_key: &str,
+    organization_id: OrgId,
+    organization_name: &tanren_identity_policy::OrganizationName,
+    now: chrono::DateTime<chrono::Utc>,
+) -> Result<(), CreateOrganizationError> {
+    let model = entity::organization_create_idempotency::ActiveModel {
+        account_id: Set(account_id.as_uuid()),
+        key: Set(idempotency_key.to_owned()),
+        organization_id: Set(organization_id.as_uuid()),
+        organization_name: Set(organization_name.as_str().to_owned()),
+        created_at: Set(now),
+    };
+    match model.insert(txn).await {
+        Ok(_) => Ok(()),
+        Err(err) => {
+            let lower = err.to_string().to_ascii_lowercase();
+            if lower.contains("unique") || lower.contains("duplicate") {
+                return Err(CreateOrganizationError::IdempotencyConflict);
+            }
+            Err(StoreError::from(err).into())
+        }
+    }
 }
 
 async fn insert_creator_membership_in_txn(

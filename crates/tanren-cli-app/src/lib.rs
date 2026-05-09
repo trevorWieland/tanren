@@ -296,6 +296,11 @@ pub(crate) fn account_error(err: AppServiceError) -> anyhow::Error {
             anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
         }
         AppServiceError::InvalidInput(message) => {
+            if message == "idempotency_conflict" {
+                return anyhow::anyhow!(
+                    "error: idempotency_conflict — The supplied idempotency key conflicts with a prior request."
+                );
+            }
             anyhow::anyhow!("error: validation_failed — {message}")
         }
         AppServiceError::Store(err) => {
