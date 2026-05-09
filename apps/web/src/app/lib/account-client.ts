@@ -10,7 +10,6 @@ import type {
 import { isInterfaceErrorCode } from "@/app/lib/generated-interface-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
-const MY_PERMISSIONS_LIMIT = 100;
 
 export interface SignUpInput {
   email: string;
@@ -289,14 +288,15 @@ export function myPermissions(
   query: MyPermissionsQuery = {},
 ): Promise<MyPermissionsResponse> {
   const params = new URLSearchParams();
-  params.set("limit", String(query.limit ?? MY_PERMISSIONS_LIMIT));
+  if (query.limit !== undefined) {
+    params.set("limit", String(query.limit));
+  }
   if (query.cursor && query.cursor.trim() !== "") {
     params.set("cursor", query.cursor);
   }
-  return requestJson<MyPermissionsResponse>(
-    `/me/permissions?${params.toString()}`,
-    "GET",
-  );
+  const search = params.toString();
+  const path = search === "" ? "/me/permissions" : `/me/permissions?${search}`;
+  return requestJson<MyPermissionsResponse>(path, "GET");
 }
 
 export function myAccountCapabilities(): Promise<MyAccountCapabilitiesResponse> {
