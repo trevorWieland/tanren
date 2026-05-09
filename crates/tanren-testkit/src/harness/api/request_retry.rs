@@ -30,7 +30,13 @@ pub(super) async fn send_json<T: serde::Serialize + ?Sized>(
     body: &T,
     operation: &str,
 ) -> HarnessResult<Response> {
-    execute_with_retry(operation, || client.request(method.clone(), url).json(body)).await
+    let response = client
+        .request(method, url)
+        .json(body)
+        .send()
+        .await
+        .map_err(|error| HarnessError::Transport(format!("{operation}: {error}")))?;
+    Ok(response)
 }
 
 async fn execute_with_retry<F>(operation: &str, mut build_request: F) -> HarnessResult<Response>
