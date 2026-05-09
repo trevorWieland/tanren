@@ -1,30 +1,23 @@
 import { createBdd, test as base } from "playwright-bdd";
-import {
-  parseRoleFailure,
-  type ApplyRoleRequest,
-  type ApplyRoleResponse,
-  type CreateRoleRequest,
-  type CreateRoleResponse,
-  type DeleteRoleRequest,
-  type DeleteRoleResponse,
-  type EditRoleRequest,
-  type EditRoleResponse,
-  type PermissionCheckRequest,
-  type PermissionCheckResponse,
-  type PermissionScope,
-  type PrincipalRef,
-  type RoleScope,
-  type ScopedRole,
+
+import type {
+  PermissionScope,
+  RoleFailureCode,
+  RoleScope,
 } from "../../../src/app/lib/generated/role-contract";
+
+interface PrincipalAccount {
+  accountId: string;
+  email: string;
+  password: string;
+}
 
 interface RoleWorld {
   scope: RoleScope | undefined;
-  activeRole: ScopedRole | undefined;
-  activeRolePermissions: string[] | undefined;
-  principals: Map<string, string>;
-  operatorAccountId: string | undefined;
-  operatorSessionCookie: string | undefined;
-  operatorCsrfToken: string | undefined;
+  activeRoleId: string | undefined;
+  activeRoleName: string | undefined;
+  principals: Map<string, PrincipalAccount>;
+  operator: PrincipalAccount | undefined;
   lastPermissionCheck: boolean | undefined;
   lastErrorCode: string | undefined;
 }
@@ -35,12 +28,10 @@ export const test: RoleTest = base.extend<{ world: RoleWorld }>({
   world: async ({ browserName: _browserName }, use) => {
     await use({
       scope: undefined,
-      activeRole: undefined,
-      activeRolePermissions: undefined,
+      activeRoleId: undefined,
+      activeRoleName: undefined,
       principals: new Map(),
-      operatorAccountId: undefined,
-      operatorSessionCookie: undefined,
-      operatorCsrfToken: undefined,
+      operator: undefined,
       lastPermissionCheck: undefined,
       lastErrorCode: undefined,
     });
@@ -56,53 +47,57 @@ const DENY_PROBE_PERMISSIONS = [
   "project.audit",
 ] as const;
 
-Given("a clean role-template environment", async ({ world }) => {
+Given("a clean role-template environment", async ({ page, world }) => {
   world.scope = undefined;
-  world.activeRole = undefined;
-  world.activeRolePermissions = undefined;
+  world.activeRoleId = undefined;
+  world.activeRoleName = undefined;
   world.principals.clear();
-  world.operatorAccountId = undefined;
-  world.operatorSessionCookie = undefined;
-  world.operatorCsrfToken = undefined;
+  world.operator = undefined;
   world.lastPermissionCheck = undefined;
   world.lastErrorCode = undefined;
-  await signUpRoleOperator(world);
+  await page.context().clearCookies();
+
+  const operator = await signUpActorViaUi(page, {
+    email: `role-operator-${crypto.randomUUID()}@tanren.test`,
+    password: "role-operator-password",
+    displayName: "Role Operator",
+  });
+  world.operator = operator;
 });
 
-Given("an organization role scope", async ({ world }) => {
+Given("an organization role scope", async ({ page, world }) => {
   const scope: RoleScope = {
     scope: "organization",
     org_id: crypto.randomUUID(),
   };
   world.scope = scope;
-  await seedRoleAdminGrants(world, scope);
+  await seedRoleAdminGrants(requiredOperator(world).accountId, scope);
+  await openRoleWorkbench(page);
 });
 
 When(
   "the operator creates role template {string} with permissions {string}",
-  async ({ world }, name: string, permissions: string) => {
-    const request: CreateRoleRequest = {
-      scope: roleScope(world),
-      name,
-      permissions: parsePermissionsCsv(permissions),
-    };
-    const response = await postJson<CreateRoleResponse>(
-      world,
-      "/roles",
-      request,
-    );
-    if (!response.ok) {
-      throw new Error(
-        `create role failed (${response.code}): ${response.summary}`,
-      );
+  async ({ page, world }, name: string, permissions: string) => {
+    const scope = roleScope(world);
+    const createCard = roleCard(page, "Create role");
+
+    await setScope(createCard, "scope_", scope);
+    await createCard.locator('[name="name"]').fill(name);
+    await createCard.locator('[name="permissions"]').fill(permissions);
+
+    await submitRoleCard(page, createCard, {
+      path: "/roles",
+      label: "create role",
+    });
+
+    const summary = await readOperationSummary(page, "Create role");
+    const roleId = summaryLine(summary, "role");
+    if (roleId.length === 0) {
+      throw new Error("create role summary should include role id");
     }
-    world.activeRole = {
-      role_id: response.json.role.id,
-      scope: response.json.role.scope,
-    };
-    world.activeRolePermissions = normalizePermissions(
-      response.json.role.permissions,
-    );
+
+    world.activeRoleId = roleId;
+    world.activeRoleName = name;
     world.lastPermissionCheck = undefined;
     world.lastErrorCode = undefined;
   },
@@ -110,100 +105,78 @@ When(
 
 When(
   "the operator edits the active role template to name {string} and permissions {string}",
-  async ({ world }, name: string, permissions: string) => {
-    const activeRole = requiredActiveRole(world);
-    const request: EditRoleRequest = {
-      role: activeRole,
-      name,
-      permissions: parsePermissionsCsv(permissions),
-    };
-    const response = await postJson<EditRoleResponse>(
-      world,
-      "/roles/edit",
-      request,
-    );
-    if (!response.ok) {
-      throw new Error(
-        `edit role failed (${response.code}): ${response.summary}`,
-      );
+  async ({ page, world }, name: string, permissions: string) => {
+    const scope = roleScope(world);
+    const editCard = roleCard(page, "Edit role");
+
+    await editCard
+      .locator('[name="role_id"]')
+      .fill(requiredActiveRoleId(world));
+    await setScope(editCard, "scope_", scope);
+    await editCard.locator('[name="name"]').fill(name);
+    await editCard.locator('[name="permissions"]').fill(permissions);
+
+    await submitRoleCard(page, editCard, {
+      path: "/roles/edit",
+      label: "edit role",
+    });
+
+    const summary = await readOperationSummary(page, "Edit role");
+    const roleId = summaryLine(summary, "role");
+    if (roleId.length > 0) {
+      world.activeRoleId = roleId;
     }
-    world.activeRole = {
-      role_id: response.json.role.id,
-      scope: response.json.role.scope,
-    };
-    world.activeRolePermissions = normalizePermissions(
-      response.json.role.permissions,
-    );
+    world.activeRoleName = name;
     world.lastPermissionCheck = undefined;
     world.lastErrorCode = undefined;
   },
 );
 
-When("the operator deletes the active role template", async ({ world }) => {
-  const activeRole = requiredActiveRole(world);
-  const request: DeleteRoleRequest = { role: activeRole };
-  const response = await postJson<DeleteRoleResponse>(
-    world,
-    "/roles/delete",
-    request,
-  );
-  if (!response.ok) {
-    throw new Error(
-      `delete role failed (${response.code}): ${response.summary}`,
-    );
-  }
-  if (response.json.role.role_id !== activeRole.role_id) {
-    throw new Error("delete response role_id mismatch");
-  }
-  world.lastPermissionCheck = undefined;
-  world.lastErrorCode = undefined;
-});
+When(
+  "the operator deletes the active role template",
+  async ({ page, world }) => {
+    const scope = roleScope(world);
+    const deleteCard = roleCard(page, "Delete role");
+
+    await deleteCard
+      .locator('[name="role_id"]')
+      .fill(requiredActiveRoleId(world));
+    await setScope(deleteCard, "scope_", scope);
+
+    await submitRoleCard(page, deleteCard, {
+      path: "/roles/delete",
+      label: "delete role",
+    });
+
+    world.lastPermissionCheck = undefined;
+    world.lastErrorCode = undefined;
+  },
+);
 
 When(
   "the operator applies the role template to account principal {word}",
-  async ({ world }, alias: string) => {
-    const activeRole = requiredActiveRole(world);
-    const principal: PrincipalRef = {
-      principal: "account",
-      account_id: accountId(world, alias),
-    };
-    const request: ApplyRoleRequest = {
-      role: activeRole,
-      principal,
-      grant_scope: permissionScopeFromRoleScope(roleScope(world)),
-    };
-    const response = await postJson<ApplyRoleResponse>(
-      world,
-      "/roles/apply",
-      request,
+  async ({ page, world }, alias: string) => {
+    const scope = roleScope(world);
+    const principal = await ensureScenarioPrincipalAccount(page, world, alias);
+    const applyCard = roleCard(page, "Apply role");
+
+    await applyCard
+      .locator('[name="role_id"]')
+      .fill(requiredActiveRoleId(world));
+    await setScope(applyCard, "role_scope_", scope);
+    await applyCard.locator('[name="principal_kind"]').selectOption("account");
+    await applyCard.locator('[name="principal_id"]').fill(principal.accountId);
+    await setPermissionScope(
+      applyCard,
+      "grant_scope_",
+      permissionScopeFromRoleScope(scope),
     );
-    if (!response.ok) {
-      throw new Error(
-        `apply role failed (${response.code}): ${response.summary}`,
-      );
-    }
-    if (response.json.grants.length === 0) {
-      throw new Error("apply role should create at least one grant");
-    }
-    for (const grant of response.json.grants) {
-      if (grant.principal.principal !== "account") {
-        throw new Error("grant principal kind mismatch");
-      }
-      if (grant.principal.account_id !== principal.account_id) {
-        throw new Error("grant principal account mismatch");
-      }
-      if (
-        !permissionScopeEquals(
-          grant.scope,
-          permissionScopeFromRoleScope(roleScope(world)),
-        )
-      ) {
-        throw new Error("grant scope mismatch");
-      }
-      if (grant.source_role_id !== activeRole.role_id) {
-        throw new Error("grant source role mismatch");
-      }
-    }
+
+    await submitRoleCard(page, applyCard, {
+      path: "/roles/apply",
+      label: "apply role",
+    });
+
     world.lastPermissionCheck = undefined;
     world.lastErrorCode = undefined;
   },
@@ -211,105 +184,97 @@ When(
 
 When(
   "the operator checks permission {string} for account principal {word}",
-  async ({ world }, permission: string, alias: string) => {
-    const request: PermissionCheckRequest = {
-      principal: {
-        principal: "account",
-        account_id: accountId(world, alias),
-      },
+  async ({ page, world }, permission: string, alias: string) => {
+    const principal = await ensureScenarioPrincipalAccount(page, world, alias);
+    const result = await runPermissionCheck(page, {
+      principalKind: "account",
+      principalId: principal.accountId,
       permission,
       scope: permissionScopeFromRoleScope(roleScope(world)),
-    };
-    const response = await postJson<PermissionCheckResponse>(
-      world,
-      "/permissions/check",
-      request,
-    );
-    if (!response.ok) {
+    });
+    if (!result.ok) {
       throw new Error(
-        `permission check failed (${response.code}): ${response.summary}`,
+        `permission check failed (${result.code}): expected successful response`,
       );
     }
-    world.lastPermissionCheck = response.json.allowed;
+    world.lastPermissionCheck = result.allowed;
     world.lastErrorCode = undefined;
   },
 );
 
 When(
   "the operator checks permission {string} for the role template principal",
-  async ({ world }, permission: string) => {
-    const activeRole = requiredActiveRole(world);
-    const request: PermissionCheckRequest = {
-      principal: {
-        principal: "role",
-        role_id: activeRole.role_id,
-      },
+  async ({ page, world }, permission: string) => {
+    const result = await runPermissionCheck(page, {
+      principalKind: "role",
+      principalId: requiredActiveRoleId(world),
       permission,
       scope: permissionScopeFromRoleScope(roleScope(world)),
-    };
-    const response = await postJson<PermissionCheckResponse>(
-      world,
-      "/permissions/check",
-      request,
-    );
-    if (response.ok) {
-      world.lastPermissionCheck = response.json.allowed;
+    });
+
+    if (result.ok) {
+      world.lastPermissionCheck = result.allowed;
       world.lastErrorCode = "unexpected_success";
       return;
     }
+
     world.lastPermissionCheck = undefined;
-    world.lastErrorCode = response.code;
+    world.lastErrorCode = result.code;
   },
 );
 
 Then(
   "the active role template has permissions {string}",
-  async ({ world }, permissions: string) => {
+  async ({ page, world }, permissions: string) => {
+    const roleId = requiredActiveRoleId(world);
     const expected = parsePermissionsCsv(permissions);
-    const actual = world.activeRolePermissions;
-    if (!actual) {
-      throw new Error("active role template should exist");
-    }
+    const actual = await readRoleTemplatePermissions(page, roleId);
     assertPermissionSetEqual(actual, expected);
   },
 );
 
-Then("the active role template no longer exists", async ({ world }) => {
-  const activeRole = requiredActiveRole(world);
-  const request: ApplyRoleRequest = {
-    role: activeRole,
-    principal: {
-      principal: "account",
-      account_id: accountId(world, "deleted_role_probe"),
-    },
-    grant_scope: permissionScopeFromRoleScope(roleScope(world)),
-  };
-  const response = await postJson<ApplyRoleResponse>(
-    world,
-    "/roles/apply",
-    request,
+Then("the active role template no longer exists", async ({ page, world }) => {
+  const roleId = requiredActiveRoleId(world);
+  const roleTemplates = await readRoleTemplateLines(page);
+  const hasDeletedRole = roleTemplates.some((line) =>
+    line.includes(`(${roleId})`),
   );
-  if (response.ok) {
+  if (hasDeletedRole) {
+    throw new Error("deleted role should not appear in the role read model");
+  }
+
+  const probePrincipal = await ensureScenarioPrincipalAccount(
+    page,
+    world,
+    "deleted_role_probe",
+  );
+  const result = await runApplyRole(page, {
+    roleId,
+    roleScope: roleScope(world),
+    principalAccountId: probePrincipal.accountId,
+    grantScope: permissionScopeFromRoleScope(roleScope(world)),
+  });
+  if (result.ok) {
     throw new Error("expected deleted role apply to fail with not_found");
   }
-  if (response.code !== "not_found") {
+  if (result.code !== "not_found") {
     throw new Error(
-      `expected deleted role apply to fail with not_found, got ${response.code}`,
+      `expected deleted role apply to fail with not_found, got ${result.code}`,
     );
   }
 });
 
 Then(
   "account principal {word} has direct grants {string}",
-  async ({ world }, alias: string, permissions: string) => {
-    await assertDirectGrantPermissions(world, alias, permissions);
+  async ({ page, world }, alias: string, permissions: string) => {
+    await assertDirectGrantPermissions(page, world, alias, permissions);
   },
 );
 
 Then(
   "account principal {word} retains direct grants {string}",
-  async ({ world }, alias: string, permissions: string) => {
-    await assertDirectGrantPermissions(world, alias, permissions);
+  async ({ page, world }, alias: string, permissions: string) => {
+    await assertDirectGrantPermissions(page, world, alias, permissions);
   },
 );
 
@@ -357,31 +322,27 @@ function roleScope(world: RoleWorld): RoleScope {
 }
 
 function permissionScopeFromRoleScope(scope: RoleScope): PermissionScope {
-  switch (scope.scope) {
-    case "account":
-      return { scope: "account", account_id: scope.account_id };
-    case "organization":
-      return { scope: "organization", org_id: scope.org_id };
-    case "project":
-      return { scope: "project", project_id: scope.project_id };
+  if (scope.scope === "organization") {
+    return { scope: "organization", org_id: scope.org_id };
   }
+  if (scope.scope === "project") {
+    return { scope: "project", project_id: scope.project_id };
+  }
+  return { scope: "account", account_id: scope.account_id };
 }
 
-function accountId(world: RoleWorld, alias: string): string {
-  const existing = world.principals.get(alias);
-  if (existing) {
-    return existing;
-  }
-  const created = crypto.randomUUID();
-  world.principals.set(alias, created);
-  return created;
-}
-
-function requiredActiveRole(world: RoleWorld): ScopedRole {
-  if (!world.activeRole) {
+function requiredActiveRoleId(world: RoleWorld): string {
+  if (world.activeRoleId === undefined) {
     throw new Error("active role template must be created first");
   }
-  return world.activeRole;
+  return world.activeRoleId;
+}
+
+function requiredOperator(world: RoleWorld): PrincipalAccount {
+  if (world.operator === undefined) {
+    throw new Error("operator account is missing");
+  }
+  return world.operator;
 }
 
 function parsePermissionsCsv(raw: string): string[] {
@@ -409,76 +370,51 @@ function assertPermissionSetEqual(actual: string[], expected: string[]): void {
   }
 }
 
-function permissionScopeEquals(
-  a: PermissionScope,
-  b: PermissionScope,
-): boolean {
-  if (a.scope !== b.scope) return false;
-  if (a.scope === "account" && b.scope === "account") {
-    return a.account_id === b.account_id;
-  }
-  if (a.scope === "organization" && b.scope === "organization") {
-    return a.org_id === b.org_id;
-  }
-  if (a.scope === "project" && b.scope === "project") {
-    return a.project_id === b.project_id;
-  }
-  return false;
-}
-
 async function assertDirectGrantPermissions(
+  page: import("@playwright/test").Page,
   world: RoleWorld,
   alias: string,
   permissionsCsv: string,
 ): Promise<void> {
   const expected = parsePermissionsCsv(permissionsCsv);
-  const principal = {
-    principal: "account" as const,
-    account_id: accountId(world, alias),
-  };
+  const principal = await ensureScenarioPrincipalAccount(page, world, alias);
   const scope = permissionScopeFromRoleScope(roleScope(world));
+
   for (const permission of expected) {
-    const request: PermissionCheckRequest = {
-      principal,
+    const result = await runPermissionCheck(page, {
+      principalKind: "account",
+      principalId: principal.accountId,
       permission,
       scope,
-    };
-    const result = await postJson<PermissionCheckResponse>(
-      world,
-      "/permissions/check",
-      request,
-    );
+    });
     if (!result.ok) {
       throw new Error(
         `permission check failed (${result.code}) for ${alias}:${permission}`,
       );
     }
-    if (!result.json.allowed) {
+    if (!result.allowed) {
       throw new Error(
         `expected ${alias} to have permission ${permission}, but it was denied`,
       );
     }
   }
+
   for (const probe of DENY_PROBE_PERMISSIONS) {
     if (expected.includes(probe)) {
       continue;
     }
-    const request: PermissionCheckRequest = {
-      principal,
+    const result = await runPermissionCheck(page, {
+      principalKind: "account",
+      principalId: principal.accountId,
       permission: probe,
       scope,
-    };
-    const result = await postJson<PermissionCheckResponse>(
-      world,
-      "/permissions/check",
-      request,
-    );
+    });
     if (!result.ok) {
       throw new Error(
         `permission check failed (${result.code}) for ${alias}:${probe}`,
       );
     }
-    if (result.json.allowed) {
+    if (result.allowed) {
       throw new Error(
         `expected ${alias} to be denied for non-granted permission ${probe}`,
       );
@@ -486,56 +422,104 @@ async function assertDirectGrantPermissions(
   }
 }
 
-interface SignUpCookieResponse {
-  account: { id: string };
-  csrf_token: string;
+async function ensureScenarioPrincipalAccount(
+  page: import("@playwright/test").Page,
+  world: RoleWorld,
+  alias: string,
+): Promise<PrincipalAccount> {
+  const existing = world.principals.get(alias);
+  if (existing !== undefined) {
+    return existing;
+  }
+
+  const email = `${alias}-${crypto.randomUUID()}@tanren.test`;
+  const password = `${alias}-password`;
+  const principal = await signUpActorViaUi(page, {
+    email,
+    password,
+    displayName: `Principal ${alias}`,
+  });
+
+  world.principals.set(alias, principal);
+
+  const operator = requiredOperator(world);
+  await signInActorViaUi(page, {
+    email: operator.email,
+    password: operator.password,
+  });
+  await openRoleWorkbench(page);
+
+  return principal;
 }
 
-async function signUpRoleOperator(world: RoleWorld): Promise<void> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
-  const response = await fetch(`${apiUrl}/accounts`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({
-      email: `role-operator-${crypto.randomUUID()}@tanren.test`,
-      password: "role-operator-password",
-      display_name: "Role Operator",
-    }),
-  });
-  const payload = (await response.json()) as unknown;
-  if (!response.ok) {
-    throw new Error(
-      `role operator sign-up failed: ${response.status} ${JSON.stringify(payload)}`,
-    );
+async function signUpActorViaUi(
+  page: import("@playwright/test").Page,
+  input: { email: string; password: string; displayName: string },
+): Promise<PrincipalAccount> {
+  await page.context().clearCookies();
+  await page.goto("/sign-up");
+  await waitForHydration(page);
+
+  await page.getByLabel(/email/i).fill(input.email);
+  await page.getByLabel(/password/i).fill(input.password);
+  await page.getByLabel(/display name/i).fill(input.displayName);
+
+  const accountResponsePromise = waitForApiResponse(page, "/accounts");
+  await page.getByRole("button", { name: /create account/i }).click();
+
+  const accountResponse = await accountResponsePromise;
+  const payload = (await accountResponse.json()) as {
+    account?: { id?: string };
+  };
+  const accountId = payload.account?.id;
+  if (typeof accountId !== "string" || accountId.length === 0) {
+    throw new Error("sign-up response should include account id");
   }
-  const typed = payload as Partial<SignUpCookieResponse>;
-  if (typed.account?.id === undefined || typed.csrf_token === undefined) {
-    throw new Error(
-      "role operator sign-up response missing account or csrf token",
-    );
-  }
-  const sessionCookie = response.headers.get("set-cookie");
-  if (sessionCookie === null) {
-    throw new Error("role operator sign-up response missing session cookie");
-  }
-  world.operatorAccountId = typed.account.id;
-  world.operatorCsrfToken = typed.csrf_token;
-  world.operatorSessionCookie = extractCookieValue(sessionCookie);
+
+  await page.waitForURL("/");
+
+  return {
+    accountId,
+    email: input.email,
+    password: input.password,
+  };
+}
+
+async function signInActorViaUi(
+  page: import("@playwright/test").Page,
+  input: { email: string; password: string },
+): Promise<void> {
+  await page.context().clearCookies();
+  await page.goto("/sign-in");
+  await waitForHydration(page);
+
+  await page.getByLabel(/email/i).fill(input.email);
+  await page.getByLabel(/password/i).fill(input.password);
+
+  const signInResponsePromise = waitForApiResponse(page, "/sessions");
+  await page.getByRole("button", { name: /^sign in$/i }).click();
+  await signInResponsePromise;
+  await page.waitForURL("/");
+}
+
+async function openRoleWorkbench(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  await page.goto("/");
+  await waitForHydration(page);
+  await roleCard(page, "Create role").waitFor({ state: "visible" });
 }
 
 async function seedRoleAdminGrants(
-  world: RoleWorld,
+  actorAccountId: string,
   scope: RoleScope,
 ): Promise<void> {
-  if (world.operatorAccountId === undefined) {
-    throw new Error("missing operator account id");
-  }
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
   const response = await fetch(`${apiUrl}/test-hooks/role-admin-grants`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
-      actor_account_id: world.operatorAccountId,
+      actor_account_id: actorAccountId,
       scope,
       permissions: ["roles.manage", "roles.read"],
     }),
@@ -547,47 +531,299 @@ async function seedRoleAdminGrants(
   }
 }
 
-function extractCookieValue(setCookie: string): string {
-  const cookie = setCookie.split(";")[0];
-  if (cookie === undefined || cookie.length === 0) {
-    throw new Error("invalid set-cookie header");
-  }
-  return cookie;
+function roleCard(
+  page: import("@playwright/test").Page,
+  title: string,
+): import("@playwright/test").Locator {
+  return page
+    .locator("form")
+    .filter({ has: page.getByRole("heading", { name: title, exact: true }) })
+    .first();
 }
 
-type ApiResult<T> =
-  | { ok: true; json: T }
-  | { ok: false; status: number; code: string; summary: string };
+function roleOperationSection(
+  page: import("@playwright/test").Page,
+): import("@playwright/test").Locator {
+  return page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Role operation result",
+        exact: true,
+      }),
+    })
+    .first();
+}
 
-async function postJson<T>(
-  world: RoleWorld,
-  path: string,
-  body: unknown,
-): Promise<ApiResult<T>> {
-  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (world.operatorSessionCookie !== undefined) {
-    headers["cookie"] = world.operatorSessionCookie;
+function roleReadModelSection(
+  page: import("@playwright/test").Page,
+): import("@playwright/test").Locator {
+  return page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", {
+        name: "Role read model",
+        exact: true,
+      }),
+    })
+    .first();
+}
+
+async function setScope(
+  card: import("@playwright/test").Locator,
+  prefix: string,
+  scope: RoleScope,
+): Promise<void> {
+  const kindField = card.locator(`[name="${prefix}kind"]`);
+  const idField = card.locator(`[name="${prefix}id"]`);
+  if (scope.scope === "organization") {
+    await kindField.selectOption("organization");
+    await idField.fill(scope.org_id);
+    return;
   }
-  if (world.operatorCsrfToken !== undefined) {
-    headers["x-csrf-token"] = world.operatorCsrfToken;
+  if (scope.scope === "project") {
+    await kindField.selectOption("project");
+    await idField.fill(scope.project_id);
+    return;
   }
-  const response = await fetch(`${apiUrl}${path}`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify(body),
+  await kindField.selectOption("account");
+  await idField.fill(scope.account_id);
+}
+
+async function setPermissionScope(
+  card: import("@playwright/test").Locator,
+  prefix: string,
+  scope: PermissionScope,
+): Promise<void> {
+  const kindField = card.locator(`[name="${prefix}kind"]`);
+  const idField = card.locator(`[name="${prefix}id"]`);
+  if (scope.scope === "organization") {
+    await kindField.selectOption("organization");
+    await idField.fill(scope.org_id);
+    return;
+  }
+  if (scope.scope === "project") {
+    await kindField.selectOption("project");
+    await idField.fill(scope.project_id);
+    return;
+  }
+  await kindField.selectOption("account");
+  await idField.fill(scope.account_id);
+}
+
+async function submitRoleCard(
+  page: import("@playwright/test").Page,
+  card: import("@playwright/test").Locator,
+  input: { path: string; label: string },
+): Promise<string> {
+  const responsePromise = waitForApiResponse(page, input.path);
+  await card.getByRole("button", { name: /^run$/i }).click();
+  await responsePromise;
+  return await waitForRoleMessage(page, input.label);
+}
+
+async function runApplyRole(
+  page: import("@playwright/test").Page,
+  input: {
+    roleId: string;
+    roleScope: RoleScope;
+    principalAccountId: string;
+    grantScope: PermissionScope;
+  },
+): Promise<{ ok: true } | { ok: false; code: string }> {
+  const applyCard = roleCard(page, "Apply role");
+  await applyCard.locator('[name="role_id"]').fill(input.roleId);
+  await setScope(applyCard, "role_scope_", input.roleScope);
+  await applyCard.locator('[name="principal_kind"]').selectOption("account");
+  await applyCard
+    .locator('[name="principal_id"]')
+    .fill(input.principalAccountId);
+  await setPermissionScope(applyCard, "grant_scope_", input.grantScope);
+
+  const message = await submitRoleCard(page, applyCard, {
+    path: "/roles/apply",
+    label: "apply role",
   });
-  const payload = (await response.json()) as unknown;
-  if (response.ok) {
-    return { ok: true, json: payload as T };
+  if (message.endsWith(": ok")) {
+    return { ok: true };
   }
-  const failure = parseRoleFailure(payload);
   return {
     ok: false,
-    status: response.status,
-    code: failure.code,
-    summary: failure.summary,
+    code: parseRoleErrorCode(message, "apply role") ?? "transport_error",
   };
+}
+
+async function runPermissionCheck(
+  page: import("@playwright/test").Page,
+  input: {
+    principalKind: "account" | "role";
+    principalId: string;
+    permission: string;
+    scope: PermissionScope;
+  },
+): Promise<{ ok: true; allowed: boolean } | { ok: false; code: string }> {
+  const checkCard = roleCard(page, "Check permission");
+
+  await checkCard
+    .locator('[name="principal_kind"]')
+    .selectOption(input.principalKind);
+  await checkCard.locator('[name="principal_id"]').fill(input.principalId);
+  await checkCard.locator('[name="permission"]').fill(input.permission);
+  await setPermissionScope(checkCard, "scope_", input.scope);
+
+  const message = await submitRoleCard(page, checkCard, {
+    path: "/permissions/check",
+    label: "check permission",
+  });
+
+  if (!message.endsWith(": ok")) {
+    return {
+      ok: false,
+      code:
+        parseRoleErrorCode(message, "check permission") ?? "transport_error",
+    };
+  }
+
+  const summary = await readOperationSummary(page, "Permission check");
+  const allowedLine = summaryLine(summary, "allowed");
+  if (allowedLine !== "true" && allowedLine !== "false") {
+    throw new Error(
+      `permission summary missing allowed flag, got '${allowedLine}'`,
+    );
+  }
+  return { ok: true, allowed: allowedLine === "true" };
+}
+
+async function waitForRoleMessage(
+  page: import("@playwright/test").Page,
+  label: string,
+): Promise<string> {
+  const message = roleOperationSection(page).locator("p").first();
+  const prefix = `${label}:`;
+  for (let attempt = 0; attempt < 80; attempt += 1) {
+    const text = ((await message.textContent()) ?? "").trim();
+    if (text.startsWith(prefix)) {
+      return text;
+    }
+    await page.waitForTimeout(100);
+  }
+  throw new Error(`timed out waiting for role operation message '${prefix}'`);
+}
+
+function parseRoleErrorCode(
+  message: string,
+  label: string,
+): RoleFailureCode | "transport_error" | undefined {
+  const prefix = `${label}:`;
+  if (!message.startsWith(prefix)) {
+    return undefined;
+  }
+  const rest = message.slice(prefix.length).trim();
+  if (rest === "ok") {
+    return undefined;
+  }
+  const firstColon = rest.indexOf(":");
+  if (firstColon <= 0) {
+    return "transport_error";
+  }
+  const code = rest.slice(0, firstColon).trim();
+  return code.length === 0
+    ? "transport_error"
+    : (code as RoleFailureCode | "transport_error");
+}
+
+async function readOperationSummary(
+  page: import("@playwright/test").Page,
+  expectedLabel: string,
+): Promise<{ label: string; lines: string[] }> {
+  const section = roleOperationSection(page);
+  const label = (
+    (await section.locator("p").nth(1).textContent()) ?? ""
+  ).trim();
+  if (label !== expectedLabel) {
+    throw new Error(
+      `expected operation summary '${expectedLabel}', got '${label || "<empty>"}'`,
+    );
+  }
+  const lines = (await section.locator("li").allTextContents()).map((line) =>
+    line.trim(),
+  );
+  return { label, lines };
+}
+
+function summaryLine(summary: { lines: string[] }, prefix: string): string {
+  const line = summary.lines.find((candidate) =>
+    candidate.startsWith(`${prefix}: `),
+  );
+  if (line === undefined) {
+    return "";
+  }
+  return line.slice(prefix.length + 2).trim();
+}
+
+async function readRoleTemplatePermissions(
+  page: import("@playwright/test").Page,
+  roleId: string,
+): Promise<string[]> {
+  const lines = await readRoleTemplateLines(page);
+  const roleLine = lines.find((line) => line.includes(`(${roleId})`));
+  if (roleLine === undefined) {
+    throw new Error(`role ${roleId} was not found in the read model`);
+  }
+
+  const permissionsMarker = " permissions: ";
+  const markerIndex = roleLine.indexOf(permissionsMarker);
+  if (markerIndex === -1) {
+    throw new Error(`role read-model line missing permissions: ${roleLine}`);
+  }
+
+  return parsePermissionsCsv(
+    roleLine.slice(markerIndex + permissionsMarker.length),
+  );
+}
+
+async function readRoleTemplateLines(
+  page: import("@playwright/test").Page,
+): Promise<string[]> {
+  const section = roleReadModelSection(page);
+  const allLines = (await section.locator("li").allTextContents()).map((line) =>
+    line.trim(),
+  );
+  return allLines.filter((line) => line.includes(" permissions: "));
+}
+
+async function waitForApiResponse(
+  page: import("@playwright/test").Page,
+  path: string,
+): Promise<import("@playwright/test").Response> {
+  return await page.waitForResponse((response) => {
+    if (response.request().method() !== "POST") {
+      return false;
+    }
+    try {
+      return new URL(response.url()).pathname === path;
+    } catch {
+      return false;
+    }
+  });
+}
+
+async function waitForHydration(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const root = document as unknown as Record<string, unknown>;
+      const keys = Object.keys(root).filter(
+        (k) =>
+          k.startsWith("__reactContainer") ||
+          k.startsWith("_reactRootContainer"),
+      );
+      if (keys.length > 0) return true;
+      return Array.from(document.querySelectorAll("*")).some((el) =>
+        Object.keys(el).some((k) => k.startsWith("__reactProps$")),
+      );
+    },
+    { timeout: 30_000 },
+  );
 }
