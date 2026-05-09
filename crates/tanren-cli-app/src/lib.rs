@@ -12,6 +12,8 @@
 //! `tanren-app-services` (no cookie jar to use); the cookie envelope
 //! lives only on the api-app surface.
 
+mod organization;
+
 use std::env;
 use std::fs;
 use std::io::Write;
@@ -24,6 +26,8 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
+
+use crate::organization::{OrganizationAction, run_organization};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +67,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Organization flow: create, list, and permission-check.
+    Organization {
+        #[command(subcommand)]
+        action: OrganizationAction,
     },
 }
 
@@ -122,6 +131,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Organization { action }) => dispatch_organization(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -172,6 +182,15 @@ fn dispatch_account(action: AccountAction) -> Result<()> {
         .build()
         .context("build tokio runtime")?;
     runtime.block_on(run_account(action))
+}
+
+fn dispatch_organization(action: OrganizationAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    let handlers = Handlers::new();
+    runtime.block_on(run_organization(action, &handlers))
 }
 
 async fn run_account(action: AccountAction) -> Result<()> {
@@ -271,7 +290,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
     Ok(())
 }
 
-fn account_error(err: AppServiceError) -> anyhow::Error {
+pub(crate) fn account_error(err: AppServiceError) -> anyhow::Error {
     match err {
         AppServiceError::Account(reason) => {
             anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
@@ -286,7 +305,7 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
     }
 }
 
-fn session_path() -> PathBuf {
+pub(crate) fn session_path() -> PathBuf {
     if let Ok(explicit) = env::var(SESSION_FILE_ENV) {
         if !explicit.is_empty() {
             return PathBuf::from(explicit);

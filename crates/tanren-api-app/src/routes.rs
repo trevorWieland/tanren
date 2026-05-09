@@ -11,19 +11,25 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
+use tanren_app_services::{AppServiceError, Handlers};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+    SessionEnvelope, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
+};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::cookies::{SessionRead, SessionWrite, install_cookie_session, read_cookie_session};
+use crate::errors::{
+    AccountFailureBody, ValidatedJson, map_account_failure, map_app_error, session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -83,6 +89,17 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub(crate) struct CreateOrganizationBody {
+    pub name: OrganizationName,
+}
+
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub(crate) struct CheckOrganizationPermissionBody {
+    pub org_id: OrgId,
+    pub permission: OrganizationPermission,
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -97,6 +114,9 @@ pub struct AcceptInvitationBody {
         sign_up_route,
         sign_in_route,
         accept_invitation_route,
+        create_organization_route,
+        list_organizations_route,
+        check_organization_permission_route,
         revoke_route,
     ),
     components(schemas(
@@ -107,12 +127,18 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        CreateOrganizationBody,
+        CheckOrganizationPermissionBody,
+        CreateOrganizationResponse,
+        ListOrganizationsResponse,
+        CheckOrganizationPermissionResponse,
         AccountFailureBody,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "organizations", description = "Organization create/list/permission-check operations."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -159,6 +185,7 @@ pub(crate) async fn sign_up_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                session_token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -198,6 +225,7 @@ pub(crate) async fn sign_in_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                session_token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -265,6 +293,7 @@ pub(crate) async fn accept_invitation_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
+                session_token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -279,6 +308,122 @@ pub(crate) async fn accept_invitation_route(
                 Err(err) => session_install_error(&err),
             }
         }
+        Err(err) => map_app_error(err),
+    }
+}
+
+async fn require_authenticated_session(session: &Session) -> Result<SessionRead, Response> {
+    match read_cookie_session(session).await {
+        Ok(Some(auth)) => Ok(auth),
+        Ok(None) => Err(map_account_failure(AccountFailureReason::AuthRequired)),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "read cookie session");
+            Err(session_install_error(&err))
+        }
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/organizations",
+    request_body = CreateOrganizationBody,
+    responses(
+        (status = 201, body = CreateOrganizationResponse, description = "Organization created"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn create_organization_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(body): ValidatedJson<CreateOrganizationBody>,
+) -> Response {
+    let auth = match require_authenticated_session(&session).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
+    };
+    let request = tanren_contract::CreateOrganizationRequest {
+        session_token: auth.session_token,
+        account_id: auth.account_id,
+        name: body.name,
+    };
+    match state
+        .handlers
+        .create_organization(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+#[utoipa::path(
+    get,
+    path = "/organizations",
+    responses(
+        (status = 200, body = ListOrganizationsResponse, description = "Organization list"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn list_organizations_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let auth = match require_authenticated_session(&session).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
+    };
+    let request = tanren_contract::ListOrganizationsRequest {
+        session_token: auth.session_token,
+        account_id: auth.account_id,
+    };
+    match state
+        .handlers
+        .list_organizations(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+#[utoipa::path(
+    post,
+    path = "/organizations/permissions/check",
+    request_body = CheckOrganizationPermissionBody,
+    responses(
+        (status = 200, body = CheckOrganizationPermissionResponse, description = "Permission present"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+    ),
+    tag = "organizations",
+)]
+pub(crate) async fn check_organization_permission_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(body): ValidatedJson<CheckOrganizationPermissionBody>,
+) -> Response {
+    let auth = match require_authenticated_session(&session).await {
+        Ok(auth) => auth,
+        Err(response) => return response,
+    };
+    let request = tanren_contract::CheckOrganizationPermissionRequest {
+        session_token: auth.session_token,
+        account_id: auth.account_id,
+        org_id: body.org_id,
+        permission: body.permission,
+    };
+    match state
+        .handlers
+        .check_organization_permission(state.store.as_ref(), request)
+        .await
+    {
+        Ok(response) if response.allowed => (StatusCode::OK, Json(response)).into_response(),
+        Ok(_) => map_app_error(AppServiceError::Account(
+            AccountFailureReason::PermissionDenied,
+        )),
         Err(err) => map_app_error(err),
     }
 }
@@ -319,6 +464,9 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
+        .routes(routes!(create_organization_route))
+        .routes(routes!(list_organizations_route))
+        .routes(routes!(check_organization_permission_route))
         .routes(routes!(revoke_route))
         .with_state(state)
 }

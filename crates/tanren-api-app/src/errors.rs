@@ -42,7 +42,7 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
 /// Map an [`AppServiceError`] to the matching HTTP response.
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     match err {
-        AppServiceError::Account(reason) => failure_body(reason),
+        AppServiceError::Account(reason) => map_account_failure(reason),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
             Json(json!({"code": "validation_failed", "summary": message})),
@@ -70,7 +70,7 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
     }
 }
 
-fn failure_body(reason: AccountFailureReason) -> Response {
+pub(crate) fn map_account_failure(reason: AccountFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
