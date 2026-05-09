@@ -423,9 +423,9 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
             (reason.code().to_owned(), reason.summary().to_owned())
         }
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
+        AppServiceError::Store(_) => (
             "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
+            "Tanren encountered an internal error.".to_owned(),
         ),
         _ => (
             "internal_error".to_owned(),

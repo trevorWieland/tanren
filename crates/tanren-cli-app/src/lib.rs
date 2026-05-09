@@ -298,8 +298,8 @@ pub(crate) fn account_error(err: AppServiceError) -> anyhow::Error {
         AppServiceError::InvalidInput(message) => {
             anyhow::anyhow!("error: validation_failed — {message}")
         }
-        AppServiceError::Store(err) => {
-            anyhow::anyhow!("error: internal_error — {err}")
+        AppServiceError::Store(_) => {
+            anyhow::anyhow!("error: internal_error — Tanren encountered an internal error.")
         }
         _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }

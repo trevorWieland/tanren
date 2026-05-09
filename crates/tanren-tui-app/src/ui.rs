@@ -118,7 +118,9 @@ pub(crate) fn render_error(err: AppServiceError) -> String {
             format!("{}: {}", reason.code(), reason.summary())
         }
         AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
-        AppServiceError::Store(err) => format!("internal_error: {err}"),
+        AppServiceError::Store(_) => {
+            "internal_error: Tanren encountered an internal error.".to_owned()
+        }
         _ => "internal_error: unknown app-service failure".to_owned(),
     }
 }
