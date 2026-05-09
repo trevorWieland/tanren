@@ -19,7 +19,7 @@ use tanren_app_services::project::{
     ListVisibleProjectsQuery,
 };
 use tanren_app_services::{Handlers, Store};
-use tanren_provider_integrations::AllowAllSourceControlProvider;
+use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use tokio::runtime::Runtime;
 
 use crate::FormState;
@@ -57,7 +57,7 @@ pub(crate) struct OutcomeView {
 pub(crate) struct App {
     runtime: Runtime,
     handlers: Handlers,
-    source_control: AllowAllSourceControlProvider,
+    source_control: Arc<dyn SourceControlProvider>,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
     screen: Screen,
@@ -82,7 +82,7 @@ impl App {
         Ok(Self {
             runtime,
             handlers: Handlers::new(),
-            source_control: AllowAllSourceControlProvider,
+            source_control: production_source_control_provider(),
             store,
             store_error,
             screen: Screen::Menu { selected: 0 },
@@ -268,7 +268,7 @@ impl App {
             .runtime
             .block_on(self.handlers.connect_project_repository(
                 store,
-                &self.source_control,
+                self.source_control.as_ref(),
                 ConnectExistingRepositoryCommand {
                     actor_account_id,
                     request,
@@ -290,7 +290,7 @@ impl App {
         let actor_account_id = request.owning_account_id;
         match self.runtime.block_on(self.handlers.create_project(
             store,
-            &self.source_control,
+            self.source_control.as_ref(),
             CreateNewProjectCommand {
                 actor_account_id,
                 request,

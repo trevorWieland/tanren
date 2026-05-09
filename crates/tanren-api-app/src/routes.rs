@@ -23,7 +23,7 @@ use tanren_contract::{
     ActiveProjectView, ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,
     ConnectProjectRepositoryResponse, CreateProjectCookieRequest, CreateProjectRequest,
     CreateProjectResponse, ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest,
-    ProjectCollectionView, SessionEnvelope, SignInRequest, SignUpRequest,
+    ProjectCollectionView, ProjectFailureReason, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -277,6 +277,7 @@ pub(crate) async fn accept_invitation_route(
         (status = 400, body = ProjectFailureBody, description = "validation_failed"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
         (status = 409, body = ProjectFailureBody, description = "duplicate_repository"),
+        (status = 503, body = ProjectFailureBody, description = "provider_unavailable"),
         (status = 502, body = ProjectFailureBody, description = "provider_failure"),
     ),
     tag = "projects",
@@ -291,9 +292,7 @@ pub(crate) async fn connect_project_repository_route(
         Err(response) => return response,
     };
     if legacy_scope_mismatch(request.legacy_owning_account_id, actor_account_id) {
-        return map_app_error(AppServiceError::Project(
-            tanren_contract::ProjectFailureReason::NoAccess,
-        ));
+        return map_app_error(AppServiceError::Project(ProjectFailureReason::NoAccess));
     }
     match state
         .handlers
@@ -326,6 +325,7 @@ pub(crate) async fn connect_project_repository_route(
         (status = 400, body = ProjectFailureBody, description = "validation_failed"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
         (status = 409, body = ProjectFailureBody, description = "duplicate_repository"),
+        (status = 503, body = ProjectFailureBody, description = "provider_unavailable"),
         (status = 502, body = ProjectFailureBody, description = "provider_failure"),
     ),
     tag = "projects",
@@ -340,9 +340,7 @@ pub(crate) async fn create_project_route(
         Err(response) => return response,
     };
     if legacy_scope_mismatch(request.legacy_owning_account_id, actor_account_id) {
-        return map_app_error(AppServiceError::Project(
-            tanren_contract::ProjectFailureReason::NoAccess,
-        ));
+        return map_app_error(AppServiceError::Project(ProjectFailureReason::NoAccess));
     }
     match state
         .handlers

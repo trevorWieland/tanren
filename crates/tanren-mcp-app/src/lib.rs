@@ -30,7 +30,9 @@ use tanren_contract::{
     SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
-use tanren_provider_integrations::AllowAllSourceControlProvider;
+#[cfg(any(test, feature = "test-hooks"))]
+use tanren_provider_integrations::fixture_allow_all_source_control_provider;
+use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -72,7 +74,7 @@ impl Config {
 pub(crate) struct TanrenMcp {
     handlers: Handlers,
     store: Arc<Store>,
-    source_control: Arc<AllowAllSourceControlProvider>,
+    source_control: Arc<dyn SourceControlProvider>,
     /// Cached tool router built from the `#[rmcp::tool]` methods on this
     /// type. Read by the macro-generated `ServerHandler` impl below.
     tool_router: ToolRouter<Self>,
@@ -89,7 +91,7 @@ impl TanrenMcp {
     fn new(
         handlers: Handlers,
         store: Arc<Store>,
-        source_control: Arc<AllowAllSourceControlProvider>,
+        source_control: Arc<dyn SourceControlProvider>,
     ) -> Self {
         Self {
             handlers,
@@ -156,7 +158,7 @@ impl TanrenMcp {
     /// Connect an existing repository as a project.
     #[rmcp::tool(
         name = "project.connect_repository",
-        description = "Connect an existing repository as a Tanren project. Failure codes: duplicate_repository, no_access, validation_failed, provider_failure."
+        description = "Connect an existing repository as a Tanren project. Failure codes: duplicate_repository, no_access, validation_failed, provider_unavailable, provider_failure."
     )]
     async fn project_connect_repository(
         &self,
@@ -187,7 +189,7 @@ impl TanrenMcp {
     /// Create a project by creating a repository at a designated host first.
     #[rmcp::tool(
         name = "project.create",
-        description = "Create a repository at a designated host and register it as a Tanren project. Failure codes: duplicate_repository, no_access, validation_failed, provider_failure."
+        description = "Create a repository at a designated host and register it as a Tanren project. Failure codes: duplicate_repository, no_access, validation_failed, provider_unavailable, provider_failure."
     )]
     async fn project_create(
         &self,
@@ -350,7 +352,7 @@ fn build_router(
     auth_state: Arc<AuthState>,
     handlers: Handlers,
     store: Arc<Store>,
-    source_control: Arc<AllowAllSourceControlProvider>,
+    source_control: Arc<dyn SourceControlProvider>,
     cancellation: CancellationToken,
 ) -> Router {
     let config = streamable_http_config(cancellation);
@@ -405,7 +407,7 @@ pub fn build_router_with_store(
         auth_state,
         Handlers::new(),
         store,
-        Arc::new(AllowAllSourceControlProvider),
+        fixture_allow_all_source_control_provider(),
         cancellation.clone(),
     );
     (router, cancellation)
@@ -431,7 +433,7 @@ pub async fn serve(_config: Config) -> Result<()> {
             .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
     );
     let handlers = Handlers::new();
-    let source_control = Arc::new(AllowAllSourceControlProvider);
+    let source_control = production_source_control_provider();
     let auth_state = Arc::new(AuthState {
         config: auth_config,
         store: store.clone(),

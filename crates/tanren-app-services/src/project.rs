@@ -275,6 +275,9 @@ where
 
 fn map_provider_error(err: SourceControlError) -> AppServiceError {
     match err {
+        SourceControlError::ProviderUnavailable => {
+            AppServiceError::Project(ProjectFailureReason::ProviderUnavailable)
+        }
         SourceControlError::ProviderUnreachable
         | SourceControlError::HostUnreachable
         | SourceControlError::OperationFailed => {

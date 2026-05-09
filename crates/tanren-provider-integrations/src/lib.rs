@@ -7,13 +7,14 @@
 //! the slice that first needs each provider family.
 
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
 use tanren_identity_policy::{AccountId, RepositoryRef};
 use thiserror::Error;
 
 #[cfg(any(test, feature = "test-hooks"))]
 use std::collections::HashSet;
 #[cfg(any(test, feature = "test-hooks"))]
-use std::sync::{Arc, Mutex};
+use std::sync::Mutex;
 
 /// Stable identifier for a provider family (`"github"`, `"linear"`, ...).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -54,6 +55,9 @@ pub enum ProviderError {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum SourceControlError {
+    /// No source-control adapter is configured for this environment.
+    #[error("source-control provider unavailable")]
+    ProviderUnavailable,
     /// The provider connection itself is not reachable.
     #[error("source-control provider unreachable")]
     ProviderUnreachable,
@@ -100,8 +104,69 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
     ) -> Result<RepositoryRef, SourceControlError>;
 }
 
-/// Deterministic default provider used by first-party interfaces until
-/// concrete provider integrations land.
+const SOURCE_CONTROL_PROVIDER_FIXTURE_ENV: &str = "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE";
+const SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE: &str = "allow_all";
+
+/// Deterministic source-control provider that always fails closed.
+#[derive(Debug, Clone, Default)]
+pub struct UnavailableSourceControlProvider;
+
+#[async_trait::async_trait]
+impl SourceControlProvider for UnavailableSourceControlProvider {
+    async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
+        Err(SourceControlError::ProviderUnavailable)
+    }
+
+    async fn ensure_host_reachable(&self, _host: &str) -> Result<(), SourceControlError> {
+        Err(SourceControlError::ProviderUnavailable)
+    }
+
+    async fn can_access_repository(
+        &self,
+        _actor_account_id: AccountId,
+        _repository: &RepositoryRef,
+    ) -> Result<bool, SourceControlError> {
+        Err(SourceControlError::ProviderUnavailable)
+    }
+
+    async fn can_create_repository_at_host(
+        &self,
+        _actor_account_id: AccountId,
+        _host: &str,
+    ) -> Result<bool, SourceControlError> {
+        Err(SourceControlError::ProviderUnavailable)
+    }
+
+    async fn create_repository(
+        &self,
+        _actor_account_id: AccountId,
+        _host: &str,
+        _repository: &RepositoryRef,
+    ) -> Result<RepositoryRef, SourceControlError> {
+        Err(SourceControlError::ProviderUnavailable)
+    }
+}
+
+/// Build the production source-control provider wiring.
+///
+/// This slice does not yet ship concrete provider adapters. Production
+/// constructors therefore inject a fail-closed adapter that returns
+/// `SourceControlError::ProviderUnavailable` for every operation unless
+/// an explicit override is requested.
+#[must_use]
+pub fn production_source_control_provider() -> Arc<dyn SourceControlProvider> {
+    if let Ok(raw) = std::env::var(SOURCE_CONTROL_PROVIDER_FIXTURE_ENV) {
+        if raw
+            .trim()
+            .eq_ignore_ascii_case(SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE)
+        {
+            return fixture_allow_all_source_control_provider();
+        }
+    }
+    Arc::new(UnavailableSourceControlProvider)
+}
+
+/// Deterministic allow-all provider used only by test and fixture paths.
 #[derive(Debug, Clone, Default)]
 pub struct AllowAllSourceControlProvider;
 
@@ -145,6 +210,12 @@ impl SourceControlProvider for AllowAllSourceControlProvider {
         }
         Ok(repository.clone())
     }
+}
+
+/// Deterministic allow-all constructor for controlled environments.
+#[must_use]
+pub fn fixture_allow_all_source_control_provider() -> Arc<dyn SourceControlProvider> {
+    Arc::new(AllowAllSourceControlProvider)
 }
 
 /// Configuration for deterministic fixture SCM behavior.

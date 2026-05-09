@@ -20,7 +20,9 @@ use tanren_contract::{
     SignUpRequest,
 };
 use tanren_identity_policy::Argon2idVerifier;
-use tanren_provider_integrations::AllowAllSourceControlProvider;
+use tanren_provider_integrations::{
+    SourceControlProvider, fixture_allow_all_source_control_provider,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
@@ -35,7 +37,7 @@ use super::{
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
-    source_control: AllowAllSourceControlProvider,
+    source_control: Arc<dyn SourceControlProvider>,
     kind: HarnessKind,
 }
 
@@ -73,7 +75,7 @@ impl InProcessHarness {
         Ok(Self {
             store,
             handlers,
-            source_control: AllowAllSourceControlProvider,
+            source_control: fixture_allow_all_source_control_provider(),
             kind,
         })
     }
@@ -165,7 +167,7 @@ impl ProjectHarness for InProcessHarness {
         self.handlers
             .connect_project_repository(
                 &self.store,
-                &self.source_control,
+                self.source_control.as_ref(),
                 ConnectExistingRepositoryCommand {
                     actor_account_id,
                     request: req,
@@ -200,7 +202,7 @@ impl ProjectHarness for InProcessHarness {
         self.handlers
             .create_project(
                 &self.store,
-                &self.source_control,
+                self.source_control.as_ref(),
                 CreateNewProjectCommand {
                     actor_account_id,
                     request: req,

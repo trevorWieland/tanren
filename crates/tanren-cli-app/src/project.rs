@@ -12,7 +12,7 @@ use tanren_contract::{
     ListVisibleProjectsRequest, ProjectView,
 };
 use tanren_identity_policy::{AccountId, RepositoryRef};
-use tanren_provider_integrations::AllowAllSourceControlProvider;
+use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use uuid::Uuid;
 
 /// Project setup and visibility subcommands.
@@ -81,7 +81,7 @@ pub(super) fn dispatch_project(action: ProjectAction) -> Result<()> {
 
 async fn run_project(action: ProjectAction) -> Result<()> {
     let handlers = Handlers::new();
-    let provider = AllowAllSourceControlProvider;
+    let provider = production_source_control_provider();
     match action {
         ProjectAction::ConnectRepository {
             database_url,
@@ -91,7 +91,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         } => {
             run_connect_repository(
                 &handlers,
-                &provider,
+                provider.as_ref(),
                 &database_url,
                 &owning_account_id,
                 &repository,
@@ -108,7 +108,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         } => {
             run_create_project(
                 &handlers,
-                &provider,
+                provider.as_ref(),
                 &database_url,
                 &owning_account_id,
                 &repository,
@@ -131,7 +131,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
 
 async fn run_connect_repository(
     handlers: &Handlers,
-    provider: &AllowAllSourceControlProvider,
+    provider: &dyn SourceControlProvider,
     database_url: &str,
     owning_account_id: &str,
     repository: &str,
@@ -163,7 +163,7 @@ async fn run_connect_repository(
 
 async fn run_create_project(
     handlers: &Handlers,
-    provider: &AllowAllSourceControlProvider,
+    provider: &dyn SourceControlProvider,
     database_url: &str,
     owning_account_id: &str,
     repository: &str,

@@ -15,7 +15,7 @@ workspace = true
 # Enables a test-only `build_app_with_store` constructor used by the BDD
 # wire-harness in `tanren-testkit`. Production binaries do not enable
 # this feature.
-test-hooks = []
+test-hooks = ["tanren-provider-integrations/test-hooks"]
 
 [dependencies]
 anyhow = { workspace = true }

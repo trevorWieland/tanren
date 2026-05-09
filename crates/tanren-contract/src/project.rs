@@ -177,6 +177,8 @@ pub enum ProjectFailureReason {
     NoAccess,
     /// User-supplied input failed contract-level validation.
     ValidationFailed,
+    /// Source-control provider is not configured for this environment.
+    ProviderUnavailable,
     /// Source-control provider connectivity or operation failed.
     ProviderFailure,
 }
@@ -190,6 +192,7 @@ impl ProjectFailureReason {
             Self::DuplicateRepository => "duplicate_repository",
             Self::NoAccess => "no_access",
             Self::ValidationFailed => "validation_failed",
+            Self::ProviderUnavailable => "provider_unavailable",
             Self::ProviderFailure => "provider_failure",
         }
     }
@@ -206,6 +209,9 @@ impl ProjectFailureReason {
             Self::ValidationFailed => {
                 "The submitted input did not satisfy contract-level validation."
             }
+            Self::ProviderUnavailable => {
+                "No source-control provider is configured for this environment."
+            }
             Self::ProviderFailure => {
                 "The source-control provider could not complete the requested operation."
             }
@@ -220,6 +226,7 @@ impl ProjectFailureReason {
             Self::DuplicateRepository => 409,
             Self::NoAccess => 403,
             Self::ValidationFailed => 400,
+            Self::ProviderUnavailable => 503,
             Self::ProviderFailure => 502,
         }
     }

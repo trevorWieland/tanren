@@ -116,6 +116,7 @@ pub(crate) fn project_code_to_reason(code: &str) -> Option<ProjectFailureReason>
         "duplicate_repository" => ProjectFailureReason::DuplicateRepository,
         "no_access" => ProjectFailureReason::NoAccess,
         "validation_failed" => ProjectFailureReason::ValidationFailed,
+        "provider_unavailable" => ProjectFailureReason::ProviderUnavailable,
         "provider_failure" => ProjectFailureReason::ProviderFailure,
         _ => return None,
     })

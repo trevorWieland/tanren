@@ -19,7 +19,7 @@ workspace = true
 # fixtures it cannot reach over the public surface (e.g. invitation
 # rows, which have no inviting handler yet). Production binaries MUST
 # NOT enable this feature.
-test-hooks = ["tanren-store/test-hooks"]
+test-hooks = ["tanren-provider-integrations/test-hooks", "tanren-store/test-hooks"]
 
 [dependencies]
 anyhow = { workspace = true }

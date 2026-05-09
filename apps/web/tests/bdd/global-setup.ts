@@ -184,6 +184,7 @@ export default async function globalSetup(): Promise<void> {
         DATABASE_URL: databaseUrl,
         TANREN_API_BIND: `127.0.0.1:${apiPort}`,
         TANREN_API_CORS_ORIGINS: webOrigin,
+        TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE: "allow_all",
         // Quiet the API's tracing output; uncomment for debugging.
         RUST_LOG: process.env["RUST_LOG"] ?? "warn",
       },

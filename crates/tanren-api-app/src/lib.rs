@@ -54,7 +54,9 @@ use axum::Json;
 use axum::http::{HeaderValue, header};
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
-use tanren_provider_integrations::AllowAllSourceControlProvider;
+#[cfg(any(test, feature = "test-hooks"))]
+use tanren_provider_integrations::fixture_allow_all_source_control_provider;
+use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -141,7 +143,7 @@ fn parse_cors_origins(raw: Option<&str>) -> Result<Vec<HeaderValue>> {
 pub(crate) struct AppState {
     pub(crate) handlers: Handlers,
     pub(crate) store: Arc<Store>,
-    pub(crate) source_control: Arc<AllowAllSourceControlProvider>,
+    pub(crate) source_control: Arc<dyn SourceControlProvider>,
 }
 
 /// Build the axum router and the `OpenAPI` document. Exposed for the BDD
@@ -162,7 +164,7 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
-        source_control: Arc::new(AllowAllSourceControlProvider),
+        source_control: production_source_control_provider(),
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
@@ -243,7 +245,7 @@ pub async fn build_app_with_store(
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
-        source_control: Arc::new(AllowAllSourceControlProvider),
+        source_control: fixture_allow_all_source_control_provider(),
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;

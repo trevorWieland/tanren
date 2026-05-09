@@ -24,6 +24,7 @@ impl ProjectHarness for CliHarness {
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
         let owning_account_id = req.owning_account_id;
         let output = Command::new(&self.binary)
+            .env("TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE", "allow_all")
             .args([
                 "project",
                 "connect-repository",
@@ -86,6 +87,7 @@ impl ProjectHarness for CliHarness {
         }
         let owning_account_id = req.owning_account_id;
         let output = Command::new(&self.binary)
+            .env("TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE", "allow_all")
             .args([
                 "project",
                 "create",
