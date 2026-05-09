@@ -11,6 +11,7 @@
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::http::HeaderValue;
@@ -18,18 +19,23 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
-    SignedInAccountView, SwitchActiveAccountRequest,
+    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, SignedInAccountView,
+    SwitchActiveAccountRequest,
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
+use tokio::net::TcpStream;
 use tokio::task::JoinHandle;
+use tokio::time::sleep;
 
+use super::api_codec::{accept_invitation_body, failure_from_body, sign_in_body, sign_up_body};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
+
+const WINDOW_ID_HEADER: &str = "x-tanren-window-id";
 
 /// `@api` wire harness.
 pub struct ApiHarness {
@@ -95,6 +101,8 @@ impl ApiHarness {
             let _ = axum::serve(listener, app).await;
         });
 
+        wait_for_server_ready(local_addr).await?;
+
         let client = Client::builder()
             .cookie_store(true)
             .timeout(super::HARNESS_DEFAULT_TIMEOUT)
@@ -109,6 +117,25 @@ impl ApiHarness {
             db_path,
         })
     }
+}
+async fn wait_for_server_ready(local_addr: std::net::SocketAddr) -> HarnessResult<()> {
+    let mut last_error: Option<std::io::Error> = None;
+    for _ in 0..100 {
+        match TcpStream::connect(local_addr).await {
+            Ok(stream) => {
+                drop(stream);
+                return Ok(());
+            }
+            Err(err) => {
+                last_error = Some(err);
+                sleep(Duration::from_millis(20)).await;
+            }
+        }
+    }
+    let detail = last_error.map_or_else(|| "unknown error".to_owned(), |err| err.to_string());
+    Err(HarnessError::Transport(format!(
+        "api harness server did not become ready at {local_addr}: {detail}"
+    )))
 }
 
 impl Drop for ApiHarness {
@@ -368,10 +395,51 @@ impl AccountHarness for ApiHarness {
     }
 
     async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
+        self.list_active_accounts_with_window(None).await
+    }
+
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        self.list_active_accounts_with_window(Some(window_id)).await
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        self.switch_active_account_with_window(None, target_account_id)
+            .await
+    }
+
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        self.switch_active_account_with_window(Some(window_id), target_account_id)
+            .await
+    }
+
+    async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
+        AccountStore::recent_events(self.store.as_ref(), limit)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+}
+
+impl ApiHarness {
+    async fn list_active_accounts_with_window(
+        &mut self,
+        window_id: Option<&str>,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
         let url = format!("{}/accounts/active", self.base_url);
-        let response = self
-            .client
-            .get(&url)
+        let mut request = self.client.get(&url);
+        if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
+            request = request.header(WINDOW_ID_HEADER, window_id);
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| HarnessError::Transport(format!("GET /accounts/active: {e}")))?;
@@ -387,15 +455,20 @@ impl AccountHarness for ApiHarness {
             .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
     }
 
-    async fn switch_active_account(
+    async fn switch_active_account_with_window(
         &mut self,
+        window_id: Option<&str>,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
         let url = format!("{}/accounts/active/switch", self.base_url);
-        let response = self
+        let mut request = self
             .client
             .post(&url)
-            .json(&SwitchActiveAccountRequest { target_account_id })
+            .json(&SwitchActiveAccountRequest { target_account_id });
+        if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
+            request = request.header(WINDOW_ID_HEADER, window_id);
+        }
+        let response = request
             .send()
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /accounts/active/switch: {e}")))?;
@@ -409,12 +482,6 @@ impl AccountHarness for ApiHarness {
         }
         serde_json::from_value(json["accounts"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
-    }
-
-    async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
-        AccountStore::recent_events(self.store.as_ref(), limit)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
 }
 
@@ -430,61 +497,4 @@ pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
 
 pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
     format!("sqlite://{}?mode=rwc", path.display())
-}
-
-fn sign_up_body(req: &SignUpRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-fn sign_in_body(req: &SignInRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-    })
-}
-
-fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
-    let code = json
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("transport_error")
-        .to_owned();
-    let summary = json
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown failure")
-        .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
-        HarnessError::Account(reason, summary)
-    } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
-    }
-}
-
-pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
-    Some(match code {
-        "duplicate_identifier" => AccountFailureReason::DuplicateIdentifier,
-        "invalid_credential" => AccountFailureReason::InvalidCredential,
-        "validation_failed" => AccountFailureReason::ValidationFailed,
-        "invitation_not_found" => AccountFailureReason::InvitationNotFound,
-        "invitation_expired" => AccountFailureReason::InvitationExpired,
-        "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
-        "target_account_not_signed_in" => AccountFailureReason::TargetAccountNotSignedIn,
-        _ => return None,
-    })
 }

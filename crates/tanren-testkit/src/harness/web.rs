@@ -82,11 +82,28 @@ impl AccountHarness for WebHarness {
         self.inner.list_active_accounts().await
     }
 
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        self.inner.list_active_accounts_in_window(window_id).await
+    }
+
     async fn switch_active_account(
         &mut self,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
         self.inner.switch_active_account(target_account_id).await
+    }
+
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        self.inner
+            .switch_active_account_in_window(window_id, target_account_id)
+            .await
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

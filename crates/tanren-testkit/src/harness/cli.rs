@@ -24,7 +24,8 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{scenario_db_path, sqlite_url};
+use super::api_codec::code_to_reason;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -85,10 +86,18 @@ impl CliHarness {
     }
 
     async fn run_cli<'a>(&self, args: impl IntoIterator<Item = &'a str>) -> HarnessResult<Vec<u8>> {
+        self.run_cli_in_window(args, &self.window_id).await
+    }
+
+    async fn run_cli_in_window<'a>(
+        &self,
+        args: impl IntoIterator<Item = &'a str>,
+        window_id: &str,
+    ) -> HarnessResult<Vec<u8>> {
         let output = Command::new(&self.binary)
             .args(args)
             .env("TANREN_SESSION_FILE", &self.session_file)
-            .env("TANREN_WINDOW_ID", &self.window_id)
+            .env("TANREN_WINDOW_ID", window_id)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -212,6 +221,19 @@ impl AccountHarness for CliHarness {
         decode_active_accounts(&output)
     }
 
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let output = self
+            .run_cli_in_window(
+                ["account", "list-active", "--database-url", &self.db_url],
+                window_id,
+            )
+            .await?;
+        decode_active_accounts(&output)
+    }
+
     async fn switch_active_account(
         &mut self,
         target_account_id: AccountId,
@@ -226,6 +248,28 @@ impl AccountHarness for CliHarness {
                 "--target-account-id",
                 &target,
             ])
+            .await?;
+        decode_active_accounts(&output)
+    }
+
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let target = target_account_id.to_string();
+        let output = self
+            .run_cli_in_window(
+                [
+                    "account",
+                    "switch-active",
+                    "--database-url",
+                    &self.db_url,
+                    "--target-account-id",
+                    &target,
+                ],
+                window_id,
+            )
             .await?;
         decode_active_accounts(&output)
     }

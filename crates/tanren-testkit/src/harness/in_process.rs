@@ -31,7 +31,7 @@ pub struct InProcessHarness {
     handlers: Handlers,
     kind: HarnessKind,
     signed_in_account_ids: Vec<AccountId>,
-    active_account_id: Option<AccountId>,
+    active_account_by_window: std::collections::HashMap<String, AccountId>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -70,7 +70,7 @@ impl InProcessHarness {
             handlers,
             kind,
             signed_in_account_ids: Vec::new(),
-            active_account_id: None,
+            active_account_by_window: std::collections::HashMap::new(),
         })
     }
 
@@ -87,12 +87,18 @@ impl InProcessHarness {
         if !self.signed_in_account_ids.contains(&account_id) {
             self.signed_in_account_ids.push(account_id);
         }
-        self.active_account_id = Some(account_id);
+        self.active_account_by_window
+            .insert(default_window_key().to_owned(), account_id);
     }
 
-    fn active_context(&self) -> HarnessResult<ActiveAccountContext> {
+    fn active_context_for_window(
+        &self,
+        window_id: Option<&str>,
+    ) -> HarnessResult<ActiveAccountContext> {
         let Some(active_account_id) = self
-            .active_account_id
+            .active_account_by_window
+            .get(normalize_window_id(window_id))
+            .copied()
             .filter(|id| self.signed_in_account_ids.contains(id))
             .or_else(|| self.signed_in_account_ids.first().copied())
         else {
@@ -105,6 +111,11 @@ impl InProcessHarness {
             active_account_id,
             self.signed_in_account_ids.clone(),
         ))
+    }
+
+    fn write_active_account_for_window(&mut self, window_id: Option<&str>, account_id: AccountId) {
+        self.active_account_by_window
+            .insert(normalize_window_id(window_id).to_owned(), account_id);
     }
 }
 
@@ -166,7 +177,7 @@ impl AccountHarness for InProcessHarness {
     }
 
     async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>> {
-        let context = self.active_context()?;
+        let context = self.active_context_for_window(None)?;
         match self
             .handlers
             .list_active_accounts(&self.store, &context, ListActiveAccountsRequest::default())
@@ -181,7 +192,7 @@ impl AccountHarness for InProcessHarness {
         &mut self,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
-        let context = self.active_context()?;
+        let context = self.active_context_for_window(None)?;
         match self
             .handlers
             .switch_active_account(
@@ -192,7 +203,45 @@ impl AccountHarness for InProcessHarness {
             .await
         {
             Ok(response) => {
-                self.active_account_id = Some(response.active_account_id);
+                self.write_active_account_for_window(None, response.active_account_id);
+                Ok(response.accounts)
+            }
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let context = self.active_context_for_window(Some(window_id))?;
+        match self
+            .handlers
+            .list_active_accounts(&self.store, &context, ListActiveAccountsRequest::default())
+            .await
+        {
+            Ok(response) => Ok(response.accounts),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let context = self.active_context_for_window(Some(window_id))?;
+        match self
+            .handlers
+            .switch_active_account(
+                &self.store,
+                &context,
+                SwitchActiveAccountRequest { target_account_id },
+            )
+            .await
+        {
+            Ok(response) => {
+                self.write_active_account_for_window(Some(window_id), response.active_account_id);
                 Ok(response.accounts)
             }
             Err(err) => Err(translate_app_error(err)),
@@ -228,4 +277,15 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
     }
+}
+
+fn normalize_window_id(window_id: Option<&str>) -> &str {
+    match window_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value,
+        None => default_window_key(),
+    }
+}
+
+fn default_window_key() -> &'static str {
+    "_default"
 }

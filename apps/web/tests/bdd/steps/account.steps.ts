@@ -15,6 +15,8 @@
 // - Invitation acceptance positive (`@positive @web`).
 // - Multi-account positive (`@positive @web`).
 // - Expired-invitation falsification (`@falsification @web`).
+// - Active-account switching, window isolation, and unsigned-target
+//   rejection (`B-0046`, `@positive/@falsification @web`).
 //
 // Invitation-related scenarios depend on a fixture-seeding seam: the
 // Playwright runner cannot reach `Store::seed_invitation` directly the
@@ -30,11 +32,19 @@ interface ActorState {
   email?: string;
   password?: string;
   hasSession?: boolean;
-  lastFailureCode?: string;
+  lastFailureCode?: string | undefined;
+  firstAccountId?: string | undefined;
+  secondAccountId?: string | undefined;
 }
+
+type ActiveAccountListing = Array<{
+  is_active: boolean;
+  account: { id: string; org: string | null };
+}>;
 
 interface WebWorld {
   actors: Map<string, ActorState>;
+  windowAccounts: Map<string, ActiveAccountListing>;
 }
 
 // Per-scenario `WebWorld` fixture. playwright-bdd consumes its own `test`
@@ -42,7 +52,7 @@ interface WebWorld {
 // actor-state map through every step without leaning on a global.
 export const test = base.extend<{ world: WebWorld }>({
   world: async ({}, use) => {
-    await use({ actors: new Map() });
+    await use({ actors: new Map(), windowAccounts: new Map() });
   },
 });
 
@@ -63,7 +73,25 @@ Given("a clean Tanren environment", async ({ page, world }) => {
   // isolation in the feature file (`alice-web@example.com` vs
   // `alice-web-dup@example.com`) to keep scenarios disjoint.
   world.actors.clear();
+  world.windowAccounts.clear();
   await page.context().clearCookies();
+  // Playwright's webServer can occasionally boot Next before
+  // globalSetup's dynamic API URL has been materialized into the
+  // frontend bundle env. Keep the @web proof deterministic by
+  // rewriting the default 8080 target onto the actual API URL selected
+  // by globalSetup for this run.
+  const resolvedApiUrl =
+    process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  await page.route(
+    /^https?:\/\/(?:localhost|127\.0\.0\.1):8080\/.*/,
+    async (route) => {
+      const original = new URL(route.request().url());
+      const rewritten = new URL(resolvedApiUrl);
+      rewritten.pathname = original.pathname;
+      rewritten.search = original.search;
+      await route.continue({ url: rewritten.toString() });
+    },
+  );
 });
 
 When(
@@ -198,10 +226,9 @@ Then(
 Then(
   /^the request fails with code "([^"]+)"$/,
   async ({ world }, code: string) => {
-    // Find the most recently active actor — the last one whose
-    // hasSession === false. Falsification scenarios always set it.
+    // Find the most recently observed failure.
     const failing = [...world.actors.values()].find(
-      (a) => a.hasSession === false,
+      (a) => typeof a.lastFailureCode === "string",
     );
     if (!failing) {
       throw new Error("expected at least one actor to have failed");
@@ -329,6 +356,294 @@ Then(
 );
 
 // ============================================================================
+// B-0046: active-account switching (`@web`).
+// ============================================================================
+
+Given(
+  /^(\w+) holds two signed-in accounts via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    const nonce = uniqueSuffix();
+    const firstEmail = `${name}-${surface}-a-${nonce}@example.com`;
+    const secondEmail = `${name}-${surface}-b-${nonce}@example.com`;
+    const firstPassword = "switch-pw-1";
+    const secondPassword = "switch-pw-2";
+    const token = `${name}-${surface}-${nonce}-switch-padpad`;
+
+    await page.context().clearCookies();
+    await page.goto("/");
+    await waitForHydration(page);
+    const first = await signUpViaApi(page, {
+      email: firstEmail,
+      password: firstPassword,
+      display_name: `${name} first`,
+    });
+
+    const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+    await seedInvitation(token, expiresAt, { kind: "valid" });
+
+    const second = await acceptInvitationViaApi(page, token, {
+      email: secondEmail,
+      password: secondPassword,
+      display_name: `${name} second`,
+    });
+
+    await page.goto("/");
+    await waitForHydration(page);
+    await waitForSwitcherReady(page);
+
+    a.email = firstEmail;
+    a.password = firstPassword;
+    a.hasSession = true;
+    a.lastFailureCode = undefined;
+    a.firstAccountId = first.account.id;
+    a.secondAccountId = second.account.id;
+  },
+);
+
+Given(
+  /^(\w+) holds one signed-in account via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    const email = `${name}-${surface}-single-${uniqueSuffix()}@example.com`;
+    const password = "switch-pw-1";
+
+    await page.context().clearCookies();
+    await page.goto("/");
+    await waitForHydration(page);
+    const result = await signUpViaApi(page, {
+      email,
+      password,
+      display_name: `${name} single`,
+    });
+
+    await page.goto("/");
+    await waitForHydration(page);
+    await waitForSwitcherReady(page);
+
+    a.email = email;
+    a.password = password;
+    a.hasSession = true;
+    a.lastFailureCode = undefined;
+    a.firstAccountId = result.account.id;
+    a.secondAccountId = undefined;
+  },
+);
+
+When(
+  /^(\w+) switches the active account to the second account via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    if (!a.secondAccountId) {
+      throw new Error(`actor ${name} has no second account id recorded`);
+    }
+    await waitForSwitcherReady(page);
+    await page.getByRole("combobox").selectOption(a.secondAccountId);
+    await page.waitForFunction((expected) => {
+      const select = document.querySelector("select");
+      return select instanceof HTMLSelectElement && select.value === expected;
+    }, a.secondAccountId);
+    a.lastFailureCode = undefined;
+  },
+);
+
+When(
+  /^(\w+) switches the active account back to the first account via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    if (!a.firstAccountId) {
+      throw new Error(`actor ${name} has no first account id recorded`);
+    }
+    await waitForSwitcherReady(page);
+    await page.getByRole("combobox").selectOption(a.firstAccountId);
+    await page.waitForFunction((expected) => {
+      const select = document.querySelector("select");
+      return select instanceof HTMLSelectElement && select.value === expected;
+    }, a.firstAccountId);
+    a.lastFailureCode = undefined;
+  },
+);
+
+When(
+  /^(\w+) switches the active account to an unsigned account via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    const failure = await switchUnsignedAccountViaFetch(page);
+    a.lastFailureCode = failure;
+  },
+);
+
+When(
+  /^(\w+) switches the active account to the (\w+) account in window "([^"]+)" via the (\w+)$/,
+  async (
+    { page, world },
+    name: string,
+    which: string,
+    windowId: string,
+    surface: string,
+  ) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    const targetId = which === "first" ? a.firstAccountId : a.secondAccountId;
+    if (!targetId) {
+      throw new Error(`actor ${name} has no ${which} account id recorded`);
+    }
+    const listing = await switchActiveAccountViaFetch(page, windowId, targetId);
+    world.windowAccounts.set(windowId, listing);
+  },
+);
+
+Then(
+  /^(\w+) sees the second account as active via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    if (!a.secondAccountId) {
+      throw new Error(`actor ${name} has no second account id recorded`);
+    }
+    await waitForSwitcherReady(page);
+    const activeId = await activeAccountIdFromSwitcher(page);
+    if (activeId !== a.secondAccountId) {
+      throw new Error(
+        `expected second account ${a.secondAccountId} active, got ${activeId}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees personal and organization availability separated by account via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    if (!a.firstAccountId || !a.secondAccountId) {
+      throw new Error(`actor ${name} must have two account ids recorded`);
+    }
+    const listing = await listActiveAccountsViaFetch(page);
+    const first = listing.find(
+      (entry) => entry.account.id === a.firstAccountId,
+    );
+    const second = listing.find(
+      (entry) => entry.account.id === a.secondAccountId,
+    );
+    if (!first || !second) {
+      throw new Error(
+        `expected both accounts to appear in active-account list`,
+      );
+    }
+    if (first.account.org !== null) {
+      throw new Error(`expected first account to be personal/no-org`);
+    }
+    if (second.account.org === null) {
+      throw new Error(`expected second account to be org-backed`);
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees the first account as active without re-authentication via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    if (!a.firstAccountId || !a.secondAccountId) {
+      throw new Error(`actor ${name} must have two account ids recorded`);
+    }
+    await waitForSwitcherReady(page);
+    const activeId = await activeAccountIdFromSwitcher(page);
+    if (activeId !== a.firstAccountId) {
+      throw new Error(
+        `expected first account ${a.firstAccountId} active, got ${activeId}`,
+      );
+    }
+    const optionIds = await switcherAccountIds(page);
+    if (!optionIds.includes(a.secondAccountId)) {
+      throw new Error(`expected second account to remain available`);
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees different active accounts between windows "([^"]+)" and "([^"]+)" via the (\w+)$/,
+  async (
+    { page, world },
+    _name: string,
+    windowA: string,
+    windowB: string,
+    surface: string,
+  ) => {
+    assertWebSurface(surface);
+    const listingA = await listWindowAccounts(page, world, windowA, false);
+    const listingB = await listWindowAccounts(page, world, windowB, false);
+    const activeA = listingA.find((entry) => entry.is_active)?.account.id ?? "";
+    const activeB = listingB.find((entry) => entry.is_active)?.account.id ?? "";
+    if (activeA === "" || activeB === "") {
+      throw new Error(`expected both windows to report an active account`);
+    }
+    if (activeA === activeB) {
+      throw new Error(
+        `expected windows ${windowA} and ${windowB} to differ, both were ${activeA}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees window "([^"]+)" stay on the (\w+) account after window "([^"]+)" switched via the (\w+)$/,
+  async (
+    { page, world },
+    name: string,
+    stableWindow: string,
+    expected: string,
+    changedWindow: string,
+    surface: string,
+  ) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    const expectedId =
+      expected === "first" ? a.firstAccountId : a.secondAccountId;
+    if (!expectedId) {
+      throw new Error(`actor ${name} has no ${expected} account id recorded`);
+    }
+    // Refresh the stable window after the changed-window switch to prove
+    // the other window's action did not leak into this one.
+    const stableListing = await listWindowAccounts(
+      page,
+      world,
+      stableWindow,
+      true,
+    );
+    const changedListing = await listWindowAccounts(
+      page,
+      world,
+      changedWindow,
+      false,
+    );
+    const stableActive =
+      stableListing.find((entry) => entry.is_active)?.account.id ?? "";
+    const changedActive =
+      changedListing.find((entry) => entry.is_active)?.account.id ?? "";
+    if (stableActive === "" || changedActive === "") {
+      throw new Error(`expected both windows to report an active account`);
+    }
+    if (stableActive !== expectedId) {
+      throw new Error(
+        `expected window ${stableWindow} to stay on ${expectedId}, got ${stableActive}`,
+      );
+    }
+    if (stableActive === changedActive) {
+      throw new Error(
+        `expected window ${changedWindow} switch to stay isolated from ${stableWindow}`,
+      );
+    }
+  },
+);
+
+// ============================================================================
 // Helpers
 // ============================================================================
 
@@ -375,22 +690,276 @@ async function classifyFailureFromAlert(
 ): Promise<string> {
   // The Next route announcer also has role=alert; scope to the form's
   // own alert region to avoid the strict-mode locator collision.
-  const text = (
-    await page.locator('form [role="alert"]').first().innerText()
-  ).toLowerCase();
+  const text = await page.locator('form [role="alert"]').first().innerText();
+  return classifyFailureText(text);
+}
+
+function classifyFailureText(text: string): string {
+  const normalized = text.toLowerCase();
   // The failure-taxonomy strings come from
   // apps/web/src/i18n/messages/en.json (`failure_*` keys). Order matters:
   // invitation-related substrings are checked before generic "already".
-  if (text.includes("invitation") && text.includes("expired"))
+  if (normalized.includes("invitation") && normalized.includes("expired"))
     return "invitation_expired";
-  if (text.includes("invitation") && text.includes("not recognized"))
+  if (
+    normalized.includes("invitation") &&
+    normalized.includes("not recognized")
+  )
     return "invitation_not_found";
-  if (text.includes("invitation") && text.includes("already been accepted"))
+  if (
+    normalized.includes("invitation") &&
+    normalized.includes("already been accepted")
+  )
     return "invitation_already_consumed";
-  if (text.includes("account already exists")) return "duplicate_identifier";
-  if (text.includes("email or password is invalid"))
+  if (normalized.includes("account already exists"))
+    return "duplicate_identifier";
+  if (normalized.includes("email or password is invalid"))
     return "invalid_credential";
-  if (text.includes("check the form fields") || text.includes("required"))
+  if (
+    normalized.includes("check the form fields") ||
+    normalized.includes("required")
+  )
     return "validation_failed";
+  if (normalized.includes("not signed in"))
+    return "target_account_not_signed_in";
   return "unknown";
+}
+
+function assertWebSurface(surface: string): void {
+  if (surface !== "web") {
+    throw new Error(
+      `playwright-bdd web runner cannot execute surface '${surface}'`,
+    );
+  }
+}
+
+async function waitForSwitcherReady(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  await page.waitForSelector("select");
+  await page.waitForFunction(() => {
+    const select = document.querySelector("select");
+    if (!(select instanceof HTMLSelectElement)) {
+      return false;
+    }
+    return select.options.length > 0;
+  });
+}
+
+async function switcherAccountIds(
+  page: import("@playwright/test").Page,
+): Promise<string[]> {
+  return page
+    .locator("select option")
+    .evaluateAll((options) =>
+      options
+        .map((option) => (option as HTMLOptionElement).value)
+        .filter((value) => value.trim() !== ""),
+    );
+}
+
+async function signUpViaApi(
+  page: import("@playwright/test").Page,
+  body: { email: string; password: string; display_name: string },
+): Promise<{ account: { id: string } }> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const result = await page.evaluate(
+    async ({ apiUrl, body }) => {
+      const response = await fetch(`${apiUrl}/accounts`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const failure = (await response.json().catch(() => ({}))) as {
+          code?: string;
+          summary?: string;
+        };
+        return failure.code ?? failure.summary ?? `HTTP ${response.status}`;
+      }
+      return (await response.json()) as { account: { id: string } };
+    },
+    { apiUrl, body },
+  );
+  if (typeof result === "string") {
+    throw new Error(`sign-up setup failed: ${result}`);
+  }
+  return result;
+}
+
+async function acceptInvitationViaApi(
+  page: import("@playwright/test").Page,
+  token: string,
+  body: { email: string; password: string; display_name: string },
+): Promise<{ account: { id: string } }> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const result = await page.evaluate(
+    async ({ apiUrl, token, body }) => {
+      const response = await fetch(
+        `${apiUrl}/invitations/${encodeURIComponent(token)}/accept`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          credentials: "include",
+          body: JSON.stringify(body),
+        },
+      );
+      if (!response.ok) {
+        const failure = (await response.json().catch(() => ({}))) as {
+          code?: string;
+          summary?: string;
+        };
+        return failure.code ?? failure.summary ?? `HTTP ${response.status}`;
+      }
+      return (await response.json()) as { account: { id: string } };
+    },
+    { apiUrl, token, body },
+  );
+  if (typeof result === "string") {
+    throw new Error(`accept-invitation setup failed: ${result}`);
+  }
+  return result;
+}
+
+async function activeAccountIdFromSwitcher(
+  page: import("@playwright/test").Page,
+): Promise<string> {
+  const value = await page.getByRole("combobox").inputValue();
+  if (value.trim() === "") {
+    throw new Error("active account selector is empty");
+  }
+  return value;
+}
+
+async function switchUnsignedAccountViaFetch(
+  page: import("@playwright/test").Page,
+): Promise<string> {
+  const uuid = "00000000-0000-4000-8000-000000000099";
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  return page.evaluate(
+    async ({ target, apiUrl }) => {
+      const windowId = window.sessionStorage.getItem("tanren.window_id");
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      if (windowId && windowId.trim() !== "") {
+        headers["x-tanren-window-id"] = windowId;
+      }
+      const response = await fetch(`${apiUrl}/accounts/active/switch`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ target_account_id: target }),
+      });
+      if (response.ok) {
+        return "unexpected_success";
+      }
+      const body = (await response.json().catch(() => ({}))) as {
+        code?: string;
+        summary?: string;
+      };
+      if (typeof body.code === "string" && body.code.trim() !== "") {
+        return body.code;
+      }
+      if (typeof body.summary === "string") {
+        return body.summary;
+      }
+      return "unknown";
+    },
+    { target: uuid, apiUrl },
+  );
+}
+
+async function switchActiveAccountViaFetch(
+  page: import("@playwright/test").Page,
+  windowId: string,
+  targetAccountId: string,
+): Promise<ActiveAccountListing> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const result = await page.evaluate(
+    async ({ apiUrl, windowId, targetAccountId }) => {
+      const headers: Record<string, string> = {
+        "content-type": "application/json",
+      };
+      if (windowId.trim() !== "") {
+        headers["x-tanren-window-id"] = windowId;
+      }
+      const response = await fetch(`${apiUrl}/accounts/active/switch`, {
+        method: "POST",
+        headers,
+        credentials: "include",
+        body: JSON.stringify({ target_account_id: targetAccountId }),
+      });
+      if (!response.ok) {
+        const body = (await response.json().catch(() => ({}))) as {
+          code?: string;
+          summary?: string;
+        };
+        return body.code ?? body.summary ?? `HTTP ${response.status}`;
+      }
+      const payload = (await response.json()) as {
+        accounts: ActiveAccountListing;
+      };
+      return payload.accounts;
+    },
+    { apiUrl, windowId, targetAccountId },
+  );
+  if (typeof result === "string") {
+    throw new Error(`switch active failed for window '${windowId}': ${result}`);
+  }
+  return result;
+}
+
+async function listActiveAccountsViaFetch(
+  page: import("@playwright/test").Page,
+  windowIdOverride?: string,
+): Promise<ActiveAccountListing> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  return page.evaluate(
+    async ({ apiUrl, windowIdOverride }) => {
+      const windowId =
+        typeof windowIdOverride === "string"
+          ? windowIdOverride
+          : window.sessionStorage.getItem("tanren.window_id");
+      const headers: Record<string, string> = {};
+      if (windowId && windowId.trim() !== "") {
+        headers["x-tanren-window-id"] = windowId;
+      }
+      const response = await fetch(`${apiUrl}/accounts/active`, {
+        method: "GET",
+        headers,
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error(`list active accounts failed: HTTP ${response.status}`);
+      }
+      const payload = (await response.json()) as {
+        accounts: ActiveAccountListing;
+      };
+      return payload.accounts;
+    },
+    { apiUrl, windowIdOverride },
+  );
+}
+
+async function listWindowAccounts(
+  page: import("@playwright/test").Page,
+  world: WebWorld,
+  windowId: string,
+  refresh: boolean,
+): Promise<ActiveAccountListing> {
+  if (!refresh) {
+    const cached = world.windowAccounts.get(windowId);
+    if (cached) {
+      return cached;
+    }
+  }
+  const listing = await listActiveAccountsViaFetch(page, windowId);
+  world.windowAccounts.set(windowId, listing);
+  return listing;
+}
+
+function uniqueSuffix(): string {
+  return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }

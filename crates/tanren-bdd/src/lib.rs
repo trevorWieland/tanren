@@ -15,6 +15,7 @@ pub mod steps;
 use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use tanren_contract::SignedInAccountView;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
@@ -69,6 +70,10 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Last known signed-in account snapshots by window id. Step
+    /// definitions use this cache to avoid redundant list calls while
+    /// still verifying window-isolation behavior.
+    pub window_accounts: HashMap<String, Vec<SignedInAccountView>>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -77,6 +82,10 @@ impl std::fmt::Debug for AccountContext {
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
+            .field(
+                "window_accounts",
+                &self.window_accounts.keys().collect::<Vec<_>>(),
+            )
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
@@ -119,6 +128,7 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            window_accounts: HashMap::new(),
         }
     }
 }

@@ -78,11 +78,33 @@ impl AccountHarness for TuiHarness {
         Ok(accounts)
     }
 
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let accounts = self.inner.list_active_accounts_in_window(window_id).await?;
+        assert_compact_assumptions(&accounts)?;
+        Ok(accounts)
+    }
+
     async fn switch_active_account(
         &mut self,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
         let accounts = self.inner.switch_active_account(target_account_id).await?;
+        assert_compact_assumptions(&accounts)?;
+        Ok(accounts)
+    }
+
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let accounts = self
+            .inner
+            .switch_active_account_in_window(window_id, target_account_id)
+            .await?;
         assert_compact_assumptions(&accounts)?;
         Ok(accounts)
     }

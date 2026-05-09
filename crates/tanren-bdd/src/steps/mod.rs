@@ -1,6 +1,9 @@
-//! Step-definition modules. R-0001 ships only `account` (the account
-//! flow that proves B-0043). Future R-* slices add their own modules
-//! here and the macros register globally.
+//! Step-definition modules.
+//!
+//! `account` carries B-0043 (account lifecycle) coverage.
+//! `active_account` and `active_account_windows` carry B-0046
+//! (active-account switching and window-isolation) coverage.
 
 pub mod account;
 pub mod active_account;
+pub mod active_account_windows;

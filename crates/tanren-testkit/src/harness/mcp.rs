@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -16,27 +17,30 @@ use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, SignedInAccountView,
-    SwitchActiveAccountRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    SignedInAccountView, SwitchActiveAccountRequest,
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{scenario_db_path, sqlite_url};
+use super::api_codec::code_to_reason;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
+const DEFAULT_WINDOW_KEY: &str = "_default";
 
 /// `@mcp` wire harness.
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
-    client: Option<RunningService<RoleClient, ClientInfo>>,
+    clients: HashMap<String, RunningService<RoleClient, ClientInfo>>,
+    active_account_by_window: HashMap<String, AccountId>,
     server: Option<JoinHandle<()>>,
 }
 
@@ -85,29 +89,45 @@ impl McpHarness {
                 .await;
         });
 
-        // Build the rmcp client transport with the bearer-token header.
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
-                .auth_header(TEST_API_KEY.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-        let client = ClientInfo::default()
-            .serve(transport)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
+        let client = Self::connect_client(&format!("http://{local_addr}/mcp")).await?;
+        let mut clients = HashMap::new();
+        clients.insert(DEFAULT_WINDOW_KEY.to_owned(), client);
 
         Ok(Self {
             store,
             db_path,
-            client: Some(client),
+            clients,
+            active_account_by_window: HashMap::new(),
             server: Some(server),
         })
     }
 
+    async fn connect_client(
+        endpoint: &str,
+    ) -> HarnessResult<RunningService<RoleClient, ClientInfo>> {
+        let config = StreamableHttpClientTransportConfig::with_uri(endpoint.to_owned())
+            .auth_header(TEST_API_KEY.to_owned());
+        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+        ClientInfo::default()
+            .serve(transport)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))
+    }
+
     async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
+        self.call_tool_in_window(None, name, body).await
+    }
+
+    async fn call_tool_in_window(
+        &mut self,
+        _window_id: Option<&str>,
+        name: &'static str,
+        body: Value,
+    ) -> HarnessResult<Value> {
         let client = self
-            .client
-            .as_ref()
-            .ok_or_else(|| HarnessError::Transport("rmcp client gone".to_owned()))?;
+            .clients
+            .get(DEFAULT_WINDOW_KEY)
+            .ok_or_else(|| HarnessError::Transport("rmcp client missing".to_owned()))?;
         let args: serde_json::Map<String, Value> = match body {
             Value::Object(map) => map,
             other => {
@@ -134,7 +154,7 @@ impl McpHarness {
 
 impl Drop for McpHarness {
     fn drop(&mut self) {
-        if let Some(client) = self.client.take() {
+        for (_, client) in self.clients.drain() {
             drop(client);
         }
         if let Some(handle) = self.server.take() {
@@ -157,7 +177,10 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.active_account_by_window
+            .insert(DEFAULT_WINDOW_KEY.to_owned(), session.account_id);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -166,7 +189,10 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.active_account_by_window
+            .insert(DEFAULT_WINDOW_KEY.to_owned(), session.account_id);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -181,6 +207,8 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        self.active_account_by_window
+            .insert(DEFAULT_WINDOW_KEY.to_owned(), session.account_id);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -216,8 +244,48 @@ impl AccountHarness for McpHarness {
         let body = serde_json::to_value(SwitchActiveAccountRequest { target_account_id })
             .map_err(|e| HarnessError::Transport(format!("encode switch request: {e}")))?;
         let payload = self.call_tool("account.switch_active", body).await?;
-        serde_json::from_value(payload["accounts"].clone())
-            .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
+        let accounts: Vec<SignedInAccountView> =
+            serde_json::from_value(payload["accounts"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))?;
+        let active_account_id = active_account_id(&accounts)?;
+        self.active_account_by_window
+            .insert(DEFAULT_WINDOW_KEY.to_owned(), active_account_id);
+        Ok(accounts)
+    }
+
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let accounts = self.list_active_accounts().await?;
+        let window_key = normalize_window_id(Some(window_id)).to_owned();
+        let active = if let Some(account_id) = self.active_account_by_window.get(&window_key) {
+            *account_id
+        } else {
+            active_account_id(&accounts)?
+        };
+        Ok(project_active_account(accounts, active))
+    }
+
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let accounts = self.list_active_accounts().await?;
+        if !accounts
+            .iter()
+            .any(|entry| entry.account.id == target_account_id)
+        {
+            return Err(HarnessError::Account(
+                AccountFailureReason::TargetAccountNotSignedIn,
+                "target account is not signed in for this MCP harness session".to_owned(),
+            ));
+        }
+        let window_key = normalize_window_id(Some(window_id)).to_owned();
+        self.active_account_by_window
+            .insert(window_key, target_account_id);
+        Ok(project_active_account(accounts, target_account_id))
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
@@ -271,4 +339,32 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
+}
+
+fn normalize_window_id(window_id: Option<&str>) -> &str {
+    match window_id.map(str::trim).filter(|value| !value.is_empty()) {
+        Some(value) => value,
+        None => DEFAULT_WINDOW_KEY,
+    }
+}
+
+fn active_account_id(accounts: &[SignedInAccountView]) -> HarnessResult<AccountId> {
+    accounts
+        .iter()
+        .find(|entry| entry.is_active)
+        .map(|entry| entry.account.id)
+        .ok_or_else(|| HarnessError::Transport("missing active account".to_owned()))
+}
+
+fn project_active_account(
+    accounts: Vec<SignedInAccountView>,
+    active_account_id: AccountId,
+) -> Vec<SignedInAccountView> {
+    accounts
+        .into_iter()
+        .map(|mut entry| {
+            entry.is_active = entry.account.id == active_account_id;
+            entry
+        })
+        .collect()
 }

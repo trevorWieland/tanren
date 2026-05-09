@@ -43,6 +43,7 @@
 //!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
+mod api_codec;
 mod cli;
 mod in_process;
 mod mcp;
@@ -241,12 +242,35 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     /// harness session/window context.
     async fn list_active_accounts(&mut self) -> HarnessResult<Vec<SignedInAccountView>>;
 
+    /// List signed-in accounts and active selection for the supplied
+    /// window/session key. Harnesses that do not model window identity
+    /// explicitly fall back to [`AccountHarness::list_active_accounts`].
+    async fn list_active_accounts_in_window(
+        &mut self,
+        window_id: &str,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let _ = window_id;
+        self.list_active_accounts().await
+    }
+
     /// Switch the active account for the current harness session/window
     /// context and return the updated signed-in account list.
     async fn switch_active_account(
         &mut self,
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>>;
+
+    /// Switch the active account for the supplied window/session key.
+    /// Harnesses that do not model window identity explicitly fall back
+    /// to [`AccountHarness::switch_active_account`].
+    async fn switch_active_account_in_window(
+        &mut self,
+        window_id: &str,
+        target_account_id: AccountId,
+    ) -> HarnessResult<Vec<SignedInAccountView>> {
+        let _ = window_id;
+        self.switch_active_account(target_account_id).await
+    }
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
