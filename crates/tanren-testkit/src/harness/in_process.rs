@@ -318,7 +318,8 @@ fn permission_grant_view(record: tanren_store::PermissionGrantRecord) -> Permiss
         principal: record.principal,
         scope: record.scope,
         permission: record.permission,
-        source_role_id: record.source_role_id,
+        source: record.source,
+        revocation: record.revocation,
         granted_at: record.granted_at,
     }
 }

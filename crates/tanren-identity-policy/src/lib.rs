@@ -14,9 +14,9 @@ mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
 pub use role::{
-    PermissionGrantId, PermissionName, PermissionScope, PrincipalRef, ProjectId,
-    ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED, ROLE_TEMPLATE_MAX_PERMISSIONS, RoleId, RoleName, RoleScope,
-    ScopedPermission, ScopedRole,
+    PermissionGrantId, PermissionGrantRevocation, PermissionGrantSource, PermissionName,
+    PermissionScope, PrincipalRef, ProjectId, ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED,
+    ROLE_TEMPLATE_MAX_PERMISSIONS, RoleId, RoleName, RoleScope, ScopedPermission, ScopedRole,
 };
 pub use session_token::SessionToken;
 

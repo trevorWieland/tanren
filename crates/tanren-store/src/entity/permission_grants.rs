@@ -12,10 +12,14 @@ pub struct Model {
     pub scope_kind: String,
     pub scope_ref: Uuid,
     pub permission_name: String,
-    pub source_role_id: Uuid,
+    pub source_kind: String,
+    pub source_ref: Option<Uuid>,
     pub granted_by_kind: String,
     pub granted_by_ref: Uuid,
     pub granted_at: DateTimeUtc,
+    pub revoked_by_kind: Option<String>,
+    pub revoked_by_ref: Option<Uuid>,
+    pub revoked_at: Option<DateTimeUtc>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

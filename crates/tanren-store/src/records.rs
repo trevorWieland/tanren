@@ -9,14 +9,17 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, PermissionGrantId, PermissionName,
-    PermissionScope, PrincipalRef, RoleId, RoleName, RoleScope, ScopedRole, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, PermissionGrantId,
+    PermissionGrantRevocation, PermissionGrantSource, PermissionName, PermissionScope,
+    PrincipalRef, RoleId, RoleName, RoleScope, ScopedRole, SessionToken,
 };
 
 use crate::entity;
 use crate::{
-    StoreError, parse_db_identifier, parse_db_invitation_token, parse_db_permission_name,
-    parse_db_permission_scope, parse_db_principal_ref, parse_db_role_name, parse_db_role_scope,
+    StoreError, parse_db_identifier, parse_db_invitation_token,
+    parse_db_permission_grant_revocation, parse_db_permission_grant_source,
+    parse_db_permission_name, parse_db_permission_scope, parse_db_principal_ref,
+    parse_db_role_name, parse_db_role_scope,
 };
 
 /// Persisted account row, exposed as a typed envelope so other crates
@@ -229,12 +232,14 @@ pub struct PermissionGrantRecord {
     pub scope: PermissionScope,
     /// Granted permission.
     pub permission: PermissionName,
-    /// Role template id that produced this grant.
-    pub source_role_id: RoleId,
+    /// Provenance for how this grant was created.
+    pub source: PermissionGrantSource,
     /// Actor that granted this permission.
     pub granted_by: PrincipalRef,
     /// Wall-clock time the grant was created.
     pub granted_at: DateTime<Utc>,
+    /// Revocation metadata when this grant is no longer effective.
+    pub revocation: Option<PermissionGrantRevocation>,
 }
 
 impl TryFrom<entity::permission_grants::Model> for PermissionGrantRecord {
@@ -244,15 +249,22 @@ impl TryFrom<entity::permission_grants::Model> for PermissionGrantRecord {
         let principal = parse_db_principal_ref(&model.grantee_kind, model.grantee_ref)?;
         let scope = parse_db_permission_scope(&model.scope_kind, model.scope_ref)?;
         let permission = parse_db_permission_name(&model.permission_name)?;
+        let source = parse_db_permission_grant_source(&model.source_kind, model.source_ref)?;
         let granted_by = parse_db_principal_ref(&model.granted_by_kind, model.granted_by_ref)?;
+        let revocation = parse_db_permission_grant_revocation(
+            model.revoked_by_kind.as_deref(),
+            model.revoked_by_ref,
+            model.revoked_at,
+        )?;
         Ok(Self {
             id: PermissionGrantId::new(model.id),
             principal,
             scope,
             permission,
-            source_role_id: RoleId::new(model.source_role_id),
+            source,
             granted_by,
             granted_at: model.granted_at,
+            revocation,
         })
     }
 }

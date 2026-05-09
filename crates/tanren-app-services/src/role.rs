@@ -1,6 +1,5 @@
 //! Role-template lifecycle and permission-check handlers.
 //! Role templates are permission bundles, not authorization principals.
-//! Applying a role snapshots its current permissions into direct grants.
 
 use tanren_contract::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
@@ -494,7 +493,8 @@ fn grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantVie
         principal: record.principal,
         scope: record.scope,
         permission: record.permission,
-        source_role_id: record.source_role_id,
+        source: record.source,
+        revocation: record.revocation,
         granted_at: record.granted_at,
     }
 }

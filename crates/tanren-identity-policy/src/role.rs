@@ -5,6 +5,7 @@ use utoipa::ToSchema;
 use uuid::Uuid;
 
 use crate::{AccountId, OrgId};
+use chrono::{DateTime, Utc};
 
 /// Maximum byte length of a valid role name.
 const ROLE_NAME_MAX_LEN: usize = 64;
@@ -145,6 +146,16 @@ impl std::fmt::Display for PermissionGrantId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
     }
+}
+
+/// Typed provenance for a permission grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "source", rename_all = "snake_case")]
+pub enum PermissionGrantSource {
+    /// Grant created from a role-template application snapshot.
+    RoleTemplate { role_id: RoleId },
+    /// Grant created by a direct non-role mutation path.
+    DirectAssignment,
 }
 
 /// Errors raised when parsing role/permission value types.
@@ -438,4 +449,13 @@ pub enum PrincipalRef {
     /// Role identifiers are intentionally rejected as authorization
     /// principals by higher layers.
     Role { role_id: RoleId },
+}
+
+/// Revocation metadata for a permission grant.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct PermissionGrantRevocation {
+    /// Actor that revoked the grant.
+    pub revoked_by: PrincipalRef,
+    /// Wall-clock revocation instant.
+    pub revoked_at: DateTime<Utc>,
 }

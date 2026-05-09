@@ -7,9 +7,9 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, PermissionGrantId, PermissionName, PermissionScope, PrincipalRef,
-    ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED, ROLE_TEMPLATE_MAX_PERMISSIONS, RoleId, RoleName, RoleScope,
-    ScopedRole,
+    AccountId, PermissionGrantId, PermissionGrantRevocation, PermissionGrantSource, PermissionName,
+    PermissionScope, PrincipalRef, ROLE_TEMPLATE_EMPTY_BUNDLE_ALLOWED,
+    ROLE_TEMPLATE_MAX_PERMISSIONS, RoleId, RoleName, RoleScope, ScopedRole,
 };
 use utoipa::ToSchema;
 
@@ -176,8 +176,10 @@ pub struct PermissionGrantView {
     pub scope: PermissionScope,
     /// Granted permission.
     pub permission: PermissionName,
-    /// Role template used as the grant source.
-    pub source_role_id: RoleId,
+    /// Provenance for how this direct grant was created.
+    pub source: PermissionGrantSource,
+    /// Revocation metadata when this grant is no longer effective.
+    pub revocation: Option<PermissionGrantRevocation>,
     /// Grant creation timestamp.
     pub granted_at: DateTime<Utc>,
 }

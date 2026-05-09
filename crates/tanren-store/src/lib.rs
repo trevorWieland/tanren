@@ -1,14 +1,9 @@
 //! Database access layer for Tanren.
-//!
-//! This crate is the **only** place in the workspace that owns SQL and
-//! row-shape entities. Other crates consume typed envelopes through the
-//! [`AccountStore`] port and the concrete [`Store`] adapter; the
-//! underlying `SeaORM` entity types are intentionally crate-private
-//! (`entity/` is a private module) so that row shape changes never leak
-//! across the dependency boundary.
+//! Owns SQL + row shapes while exposing typed store ports to other crates.
 
 mod accept_invitation;
 mod entity;
+mod grant_model;
 mod migration;
 mod records;
 mod role_scope_lookup;
@@ -16,6 +11,10 @@ mod role_store;
 mod role_store_util;
 mod traits;
 
+pub(crate) use grant_model::{
+    parse_db_permission_grant_revocation, parse_db_permission_grant_source,
+    permission_grant_source_to_parts,
+};
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, ApplyRole, EditRole, InvitationRecord, MembershipRecord, NewAccount,
@@ -454,6 +453,7 @@ pub(crate) fn principal_ref_to_parts(principal: PrincipalRef) -> (&'static str, 
         PrincipalRef::Role { role_id } => ("role", role_id.as_uuid()),
     }
 }
+
 /// Wrap a raw string into a [`SecretString`]. Re-exported so callers
 /// can build a [`SecretString`] without taking a direct `secrecy`
 /// dependency.

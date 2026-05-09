@@ -152,6 +152,8 @@ pub enum RoleKind {
     Deleted,
     /// A role template was applied to a principal.
     Applied,
+    /// A direct permission grant was revoked.
+    GrantRevoked,
     /// Authorization check rejected because principal was a role id.
     AuthorizationPrincipalRejected,
 }
@@ -165,6 +167,7 @@ impl RoleKind {
             Self::Edited => "role_edited",
             Self::Deleted => "role_deleted",
             Self::Applied => "role_applied",
+            Self::GrantRevoked => "permission_grant_revoked",
             Self::AuthorizationPrincipalRejected => "authorization_principal_rejected",
         }
     }
@@ -220,6 +223,23 @@ pub struct RoleApplied {
     pub permissions: Vec<PermissionName>,
     /// Wall-clock apply time.
     pub applied_at: DateTime<Utc>,
+}
+
+/// A direct permission grant was revoked.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionGrantRevoked {
+    /// Stable grant identifier.
+    pub grant_id: PermissionGrantId,
+    /// Principal the grant belongs to.
+    pub principal: PrincipalRef,
+    /// Scope the grant was evaluated in.
+    pub grant_scope: PermissionScope,
+    /// Permission that was revoked.
+    pub permission: PermissionName,
+    /// Actor that revoked the grant.
+    pub revoked_by: PrincipalRef,
+    /// Wall-clock revocation time.
+    pub revoked_at: DateTime<Utc>,
 }
 
 /// An authorization check was rejected for role-as-principal.

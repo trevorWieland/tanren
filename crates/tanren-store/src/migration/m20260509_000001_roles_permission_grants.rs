@@ -1,9 +1,9 @@
 //! R-0041 migration: persist role templates, role-permission bundles, and
 //! direct permission grants.
 //!
-//! `permission_grants.source_role_id` intentionally has no foreign-key
-//! constraint to `roles.id`: deleting a role template must never delete
-//! historical grants. Source role metadata is audit-only.
+//! `permission_grants.source_ref` intentionally has no foreign-key
+//! constraints to source tables: deleting a role template must never delete
+//! historical grants. Grant source metadata is audit-only.
 
 use sea_orm_migration::prelude::*;
 
@@ -134,10 +134,11 @@ async fn create_permission_grants_table(manager: &SchemaManager<'_>) -> Result<(
                         .not_null(),
                 )
                 .col(
-                    ColumnDef::new(PermissionGrants::SourceRoleId)
-                        .uuid()
+                    ColumnDef::new(PermissionGrants::SourceKind)
+                        .string()
                         .not_null(),
                 )
+                .col(ColumnDef::new(PermissionGrants::SourceRef).uuid().null())
                 .col(
                     ColumnDef::new(PermissionGrants::GrantedByKind)
                         .string()
@@ -152,6 +153,17 @@ async fn create_permission_grants_table(manager: &SchemaManager<'_>) -> Result<(
                     ColumnDef::new(PermissionGrants::GrantedAt)
                         .timestamp_with_time_zone()
                         .not_null(),
+                )
+                .col(
+                    ColumnDef::new(PermissionGrants::RevokedByKind)
+                        .string()
+                        .null(),
+                )
+                .col(ColumnDef::new(PermissionGrants::RevokedByRef).uuid().null())
+                .col(
+                    ColumnDef::new(PermissionGrants::RevokedAt)
+                        .timestamp_with_time_zone()
+                        .null(),
                 )
                 .to_owned(),
         )
@@ -196,7 +208,6 @@ async fn create_permission_grants_dedup_index(manager: &SchemaManager<'_>) -> Re
                 .col(PermissionGrants::ScopeKind)
                 .col(PermissionGrants::ScopeRef)
                 .col(PermissionGrants::PermissionName)
-                .col(PermissionGrants::SourceRoleId)
                 .unique()
                 .to_owned(),
         )
@@ -214,6 +225,7 @@ async fn create_permission_grants_lookup_index(manager: &SchemaManager<'_>) -> R
                 .col(PermissionGrants::ScopeKind)
                 .col(PermissionGrants::ScopeRef)
                 .col(PermissionGrants::PermissionName)
+                .col(PermissionGrants::RevokedAt)
                 .to_owned(),
         )
         .await
@@ -309,8 +321,12 @@ enum PermissionGrants {
     ScopeKind,
     ScopeRef,
     PermissionName,
-    SourceRoleId,
+    SourceKind,
+    SourceRef,
     GrantedByKind,
     GrantedByRef,
     GrantedAt,
+    RevokedByKind,
+    RevokedByRef,
+    RevokedAt,
 }

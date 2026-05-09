@@ -8,7 +8,9 @@ use sea_orm::{
     ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseConnection, DatabaseTransaction,
     EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
-use tanren_identity_policy::{PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope};
+use tanren_identity_policy::{
+    PermissionGrantSource, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope,
+};
 use uuid::Uuid;
 
 use crate::entity;
@@ -19,7 +21,8 @@ use crate::role_store_util::{
 use crate::{
     ApplyRole, ApplyRoleError, CreateRoleError, EditRole, EditRoleError, NewRole,
     PermissionGrantRecord, RoleRecord, RoleStore, Store, StoreError, parse_db_permission_name,
-    permission_scope_to_parts, principal_ref_to_parts, role_scope_to_parts,
+    permission_grant_source_to_parts, permission_scope_to_parts, principal_ref_to_parts,
+    role_scope_to_parts,
 };
 
 #[async_trait]
@@ -103,6 +106,7 @@ impl RoleStore for Store {
             .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
             .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
             .filter(entity::permission_grants::Column::PermissionName.eq(permission.as_str()))
+            .filter(entity::permission_grants::Column::RevokedAt.is_null())
             .one(&self.conn)
             .await?;
         Ok(row.is_some())
@@ -120,6 +124,7 @@ impl RoleStore for Store {
             .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
             .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
             .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
+            .filter(entity::permission_grants::Column::RevokedAt.is_null())
             .order_by_asc(entity::permission_grants::Column::PermissionName)
             .order_by_asc(entity::permission_grants::Column::GrantedAt)
             .all(&self.conn)
@@ -137,6 +142,7 @@ impl RoleStore for Store {
         let rows = entity::permission_grants::Entity::find()
             .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
             .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
+            .filter(entity::permission_grants::Column::RevokedAt.is_null())
             .order_by_asc(entity::permission_grants::Column::ScopeKind)
             .order_by_asc(entity::permission_grants::Column::ScopeRef)
             .order_by_asc(entity::permission_grants::Column::PermissionName)
@@ -162,6 +168,7 @@ impl RoleStore for Store {
             .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
             .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
             .filter(entity::permission_grants::Column::PermissionName.eq(permission.as_str()))
+            .filter(entity::permission_grants::Column::RevokedAt.is_null())
             .order_by_asc(entity::permission_grants::Column::GrantedAt)
             .all(&self.conn)
             .await?;
@@ -319,6 +326,10 @@ async fn apply_role_in_txn(
     let (grantee_kind, grantee_ref) = principal_ref_to_parts(principal);
     let (scope_kind, scope_ref) = permission_scope_to_parts(grant_scope);
     let (granted_by_kind, granted_by_ref) = principal_ref_to_parts(granted_by);
+    let source = PermissionGrantSource::RoleTemplate {
+        role_id: role.role_id,
+    };
+    let (source_kind, source_ref) = permission_grant_source_to_parts(source);
     let inserts = dedup_permission_strings
         .iter()
         .map(|permission| entity::permission_grants::ActiveModel {
@@ -328,10 +339,14 @@ async fn apply_role_in_txn(
             scope_kind: Set(scope_kind.to_owned()),
             scope_ref: Set(scope_ref),
             permission_name: Set(permission.clone()),
-            source_role_id: Set(role.role_id.as_uuid()),
+            source_kind: Set(source_kind.to_owned()),
+            source_ref: Set(source_ref),
             granted_by_kind: Set(granted_by_kind.to_owned()),
             granted_by_ref: Set(granted_by_ref),
             granted_at: Set(granted_at),
+            revoked_by_kind: Set(None),
+            revoked_by_ref: Set(None),
+            revoked_at: Set(None),
         })
         .collect::<Vec<_>>();
 
@@ -343,7 +358,6 @@ async fn apply_role_in_txn(
                 entity::permission_grants::Column::ScopeKind,
                 entity::permission_grants::Column::ScopeRef,
                 entity::permission_grants::Column::PermissionName,
-                entity::permission_grants::Column::SourceRoleId,
             ])
             .do_nothing()
             .to_owned(),
@@ -357,8 +371,8 @@ async fn apply_role_in_txn(
         .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
         .filter(entity::permission_grants::Column::ScopeKind.eq(scope_kind))
         .filter(entity::permission_grants::Column::ScopeRef.eq(scope_ref))
-        .filter(entity::permission_grants::Column::SourceRoleId.eq(role.role_id.as_uuid()))
         .filter(entity::permission_grants::Column::PermissionName.is_in(dedup_permission_strings))
+        .filter(entity::permission_grants::Column::RevokedAt.is_null())
         .order_by_asc(entity::permission_grants::Column::PermissionName)
         .order_by_asc(entity::permission_grants::Column::GrantedAt)
         .all(txn)

@@ -9,8 +9,8 @@ use tanren_contract::{
     PermissionCheckRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, Email, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleName, RoleScope,
-    ScopedRole,
+    AccountId, Email, OrgId, PermissionGrantSource, PermissionName, PermissionScope, PrincipalRef,
+    RoleName, RoleScope, ScopedRole,
 };
 
 use crate::{RoleScenarioState, TanrenWorld};
@@ -167,10 +167,7 @@ async fn when_apply_role_to_account(world: &mut TanrenWorld, alias: String) {
     for grant in &applied.grants {
         assert_eq!(grant.principal, principal, "grant principal mismatch");
         assert_eq!(grant.scope, grant_scope, "grant scope mismatch");
-        assert_eq!(
-            grant.source_role_id, role.role_id,
-            "grant source role must match applied role"
-        );
+        assert_role_template_grant(grant.source, grant.revocation, role.role_id);
     }
     ctx.role.last_error_code = None;
     ctx.role.last_permission_check = None;
@@ -364,10 +361,7 @@ async fn then_account_has_direct_grants(
     for grant in &grants {
         assert_eq!(grant.principal, principal, "grant principal mismatch");
         assert_eq!(grant.scope, expected_scope, "grant scope mismatch");
-        assert_eq!(
-            grant.source_role_id, role.role_id,
-            "grant source role must match active role id"
-        );
+        assert_role_template_grant(grant.source, grant.revocation, role.role_id);
     }
     assert_eq!(
         permission_set(
@@ -426,6 +420,15 @@ fn parse_outcome_word(word: &str) -> bool {
         "permission-check outcome must be `allowed` or `denied` (got {word})"
     );
     word == "allowed"
+}
+
+fn assert_role_template_grant(
+    source: PermissionGrantSource,
+    revocation: Option<tanren_identity_policy::PermissionGrantRevocation>,
+    role_id: tanren_identity_policy::RoleId,
+) {
+    assert_eq!(source, PermissionGrantSource::RoleTemplate { role_id });
+    assert_eq!(revocation, None);
 }
 
 fn synthetic_permissions(permission_count: usize) -> Vec<PermissionName> {
