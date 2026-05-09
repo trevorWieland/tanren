@@ -13,8 +13,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    MyPermissionsRequest, MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest,
-    SignUpResponse,
+    MyPermissionsFailureReason, MyPermissionsRequest, MyPermissionsResponse, SignInRequest,
+    SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::AccountId;
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
@@ -250,35 +250,6 @@ impl MyPermissionsContext {
     }
 }
 
-/// Closed taxonomy of self-permission query failures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-#[non_exhaustive]
-pub enum PermissionsFailureReason {
-    /// The caller attempted to introspect another account's permissions.
-    PermissionDenied,
-}
-
-impl PermissionsFailureReason {
-    /// Stable wire `code` for this failure.
-    #[must_use]
-    pub const fn code(self) -> &'static str {
-        match self {
-            Self::PermissionDenied => "permission_denied",
-        }
-    }
-
-    /// Human-readable wire `summary` for this failure.
-    #[must_use]
-    pub const fn summary(self) -> &'static str {
-        match self {
-            Self::PermissionDenied => {
-                "You can only view permissions for the authenticated account."
-            }
-        }
-    }
-}
-
 /// Errors raised by app-service handlers.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -295,5 +266,5 @@ pub enum AppServiceError {
     Account(AccountFailureReason),
     /// A self-permission query failed taxonomy checks.
     #[error("permissions: {}", .0.code())]
-    Permissions(PermissionsFailureReason),
+    Permissions(MyPermissionsFailureReason),
 }

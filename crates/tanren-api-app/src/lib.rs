@@ -62,11 +62,11 @@ use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
-pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
 };
+pub use tanren_contract::InterfaceError;
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";

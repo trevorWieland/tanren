@@ -53,10 +53,21 @@ impl MyPermissionsRequest {
 /// Response payload for self-permission introspection.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct MyPermissionsResponse {
+    /// Pagination metadata for this response page.
+    pub page: MyPermissionsPageMeta,
     /// Organization-scoped permission sections visible to the caller.
     pub organizations: Vec<MyOrganizationPermissions>,
     /// Project-scoped permission sections visible to the caller.
     pub projects: Vec<MyProjectPermissions>,
+}
+
+/// Pagination metadata for a self-permissions response page.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct MyPermissionsPageMeta {
+    /// Maximum number of permission entries requested for this page.
+    pub limit: u16,
+    /// Number of permission entries included in this page.
+    pub returned: u16,
 }
 
 /// Organization-level permission section for the current caller.
@@ -97,4 +108,53 @@ pub struct PermissionConstraintView {
     pub reason: PolicyConstraintReason,
     /// Scope that produced the constraint.
     pub source: PolicyConstraintSource,
+}
+
+/// Shared machine-readable interface error body.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct InterfaceError {
+    /// Stable error code from the shared interfaces taxonomy.
+    pub code: String,
+    /// Human-readable summary for the caller.
+    pub summary: String,
+}
+
+impl InterfaceError {
+    /// Build a new interface error body.
+    #[must_use]
+    pub fn new(code: &str, summary: impl Into<String>) -> Self {
+        Self {
+            code: code.to_owned(),
+            summary: summary.into(),
+        }
+    }
+}
+
+/// Closed taxonomy of self-permission query failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+#[non_exhaustive]
+pub enum MyPermissionsFailureReason {
+    /// The caller attempted to introspect another account's permissions.
+    PermissionDenied,
+}
+
+impl MyPermissionsFailureReason {
+    /// Stable wire `code` for this failure.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => "permission_denied",
+        }
+    }
+
+    /// Human-readable wire `summary` for this failure.
+    #[must_use]
+    pub const fn summary(self) -> &'static str {
+        match self {
+            Self::PermissionDenied => {
+                "You can only view permissions for the authenticated account."
+            }
+        }
+    }
 }

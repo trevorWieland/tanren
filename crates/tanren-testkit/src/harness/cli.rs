@@ -12,7 +12,8 @@ use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, MyPermissionsResponse, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsPageMeta,
+    MyPermissionsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{
@@ -116,6 +117,7 @@ impl AccountHarness for CliHarness {
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
+        let session_file = self.db_path.with_extension("session");
         let output = Command::new(&self.binary)
             .args([
                 "account",
@@ -127,6 +129,7 @@ impl AccountHarness for CliHarness {
                 "--password",
                 req.password.expose_secret(),
             ])
+            .env("TANREN_SESSION_FILE", &session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -210,8 +213,10 @@ impl AccountHarness for CliHarness {
             args.push("--target-account-id".to_owned());
             args.push(target.to_string());
         }
+        let session_file = self.db_path.with_extension("session");
         let output = Command::new(&self.binary)
             .args(args)
+            .env("TANREN_SESSION_FILE", &session_file)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -396,6 +401,7 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
 fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissionsResponse> {
     let mut organizations = Vec::new();
     let mut projects = Vec::new();
+    let mut returned: u16 = 0;
     for line in stdout.lines() {
         let line = line.trim();
         if line.is_empty() || line == "permissions=none" {
@@ -446,6 +452,7 @@ fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissionsResponse
             grant_source,
             policy_constraint,
         };
+        returned = returned.saturating_add(1);
         match scope {
             "organization" => organizations.push(tanren_contract::MyOrganizationPermissions {
                 org_id: OrgId::from(
@@ -466,6 +473,10 @@ fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissionsResponse
         }
     }
     Ok(MyPermissionsResponse {
+        page: MyPermissionsPageMeta {
+            limit: MY_PERMISSIONS_DEFAULT_LIMIT,
+            returned,
+        },
         organizations,
         projects,
     })
@@ -479,18 +490,10 @@ fn capture(line: &str, pattern: &str) -> HarnessResult<String> {
     Ok(captures.get(1).map_or("", |m| m.as_str()).to_owned())
 }
 
-fn strip_quotes(input: &str) -> String {
-    input
-        .strip_prefix('"')
-        .and_then(|s| s.strip_suffix('"'))
-        .unwrap_or(input)
-        .to_owned()
-}
-
 fn parse_permission_name(line: &str) -> HarnessResult<String> {
     if let Ok(name) = capture(line, r#"permission=PermissionName\("([^"]+)"\)"#) {
         return Ok(name);
     }
     let raw = capture(line, r#"permission=("[^"]+"|\S+)"#)?;
-    Ok(strip_quotes(&raw))
+    Ok(raw.trim_matches('"').to_owned())
 }

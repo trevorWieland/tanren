@@ -4,12 +4,13 @@
 //! authenticated account's effective permissions from the store.
 
 use tanren_contract::{
-    MyOrganizationPermissions, MyPermissionEntry, MyPermissionsRequest, MyPermissionsResponse,
-    MyProjectPermissions, PermissionConstraintView,
+    MyOrganizationPermissions, MyPermissionEntry, MyPermissionsFailureReason,
+    MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse, MyProjectPermissions,
+    PermissionConstraintView,
 };
 use tanren_store::{AccountStore, MyPermissionsPage, MyPermissionsRecord};
 
-use crate::{AppServiceError, MyPermissionsContext, PermissionsFailureReason};
+use crate::{AppServiceError, MyPermissionsContext};
 
 pub(crate) async fn my_permissions<S>(
     store: &S,
@@ -19,22 +20,24 @@ pub(crate) async fn my_permissions<S>(
 where
     S: AccountStore + ?Sized,
 {
+    let resolved_limit = request.resolved_limit();
     if context.requested_account_id != context.session_account_id {
         return Err(AppServiceError::Permissions(
-            PermissionsFailureReason::PermissionDenied,
+            MyPermissionsFailureReason::PermissionDenied,
         ));
     }
 
     let record = store
         .my_permissions(
             context.session_account_id,
-            MyPermissionsPage::bounded(Some(request.resolved_limit())),
+            MyPermissionsPage::bounded(Some(resolved_limit)),
         )
         .await?;
-    Ok(to_contract_response(record))
+    Ok(to_contract_response(record, resolved_limit))
 }
 
-fn to_contract_response(record: MyPermissionsRecord) -> MyPermissionsResponse {
+fn to_contract_response(record: MyPermissionsRecord, resolved_limit: u16) -> MyPermissionsResponse {
+    let returned_entries = total_entries(&record);
     let organizations = record
         .organizations
         .into_iter()
@@ -61,6 +64,10 @@ fn to_contract_response(record: MyPermissionsRecord) -> MyPermissionsResponse {
         .collect();
 
     MyPermissionsResponse {
+        page: MyPermissionsPageMeta {
+            limit: resolved_limit,
+            returned: u16::try_from(returned_entries).unwrap_or(u16::MAX),
+        },
         organizations,
         projects,
     }
@@ -80,4 +87,18 @@ fn to_permission_entry(record: tanren_store::MyPermissionRecord) -> MyPermission
         grant_source: record.grant_source,
         policy_constraint,
     }
+}
+
+fn total_entries(record: &MyPermissionsRecord) -> usize {
+    let organization_entries: usize = record
+        .organizations
+        .iter()
+        .map(|section| section.permissions.len())
+        .sum();
+    let project_entries: usize = record
+        .projects
+        .iter()
+        .map(|section| section.permissions.len())
+        .sum();
+    organization_entries + project_entries
 }

@@ -14,8 +14,8 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{Handlers, MyPermissionsContext};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, MyPermissionsRequest, MyPermissionsResponse,
-    SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, InterfaceError, MyPermissionsRequest,
+    MyPermissionsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -28,8 +28,8 @@ use crate::cookies::{
     SessionWrite, install_cookie_session, session_account_id, session_expires_at,
 };
 use crate::errors::{
-    AccountFailureBody, ValidatedJson, auth_required_response, internal_error_response,
-    map_app_error, session_install_error,
+    ValidatedJson, auth_required_response, internal_error_response, map_app_error,
+    session_install_error,
 };
 
 /// Liveness response.
@@ -116,7 +116,7 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
-        AccountFailureBody,
+        InterfaceError,
         MyPermissionsResponse,
         SessionEnvelope,
     )),
@@ -154,9 +154,9 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
     request_body = SignUpRequest,
     responses(
         (status = 201, body = SignUpResponseCookie, description = "Account created"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
-        (status = 409, body = AccountFailureBody, description = "duplicate_identifier"),
+        (status = 400, body = InterfaceError, description = "validation_failed"),
+        (status = 401, body = InterfaceError, description = "invalid_credential"),
+        (status = 409, body = InterfaceError, description = "duplicate_identifier"),
     ),
     tag = "accounts",
 )]
@@ -194,8 +194,8 @@ pub(crate) async fn sign_up_route(
     request_body = SignInRequest,
     responses(
         (status = 200, body = SignInResponseCookie, description = "Sign-in succeeded"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+        (status = 400, body = InterfaceError, description = "validation_failed"),
+        (status = 401, body = InterfaceError, description = "invalid_credential"),
     ),
     tag = "accounts",
 )]
@@ -236,9 +236,9 @@ pub(crate) async fn sign_in_route(
     ),
     responses(
         (status = 201, body = AcceptInvitationResponseCookie, description = "Invitation accepted"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 404, body = AccountFailureBody, description = "invitation_not_found"),
-        (status = 410, body = AccountFailureBody, description = "invitation_expired or invitation_already_consumed"),
+        (status = 400, body = InterfaceError, description = "validation_failed"),
+        (status = 404, body = InterfaceError, description = "invitation_not_found"),
+        (status = 410, body = InterfaceError, description = "invitation_expired or invitation_already_consumed"),
     ),
     tag = "accounts",
 )]
@@ -253,10 +253,7 @@ pub(crate) async fn accept_invitation_route(
         Err(err) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(AccountFailureBody {
-                    code: "validation_failed".to_owned(),
-                    summary: err.to_string(),
-                }),
+                Json(InterfaceError::new("validation_failed", err.to_string())),
             )
                 .into_response();
         }
@@ -309,10 +306,10 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
         tracing::error!(target: "tanren_api", error = %err, "session flush");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
-                code: "internal_error".to_owned(),
-                summary: "Tanren encountered an internal error.".to_owned(),
-            }),
+            Json(InterfaceError::new(
+                "internal_error",
+                "Tanren encountered an internal error.",
+            )),
         )
             .into_response();
     }
@@ -328,9 +325,9 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     ),
     responses(
         (status = 200, body = MyPermissionsResponse, description = "Self permissions loaded"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 500, body = AccountFailureBody, description = "internal_error"),
+        (status = 401, body = InterfaceError, description = "auth_required"),
+        (status = 403, body = InterfaceError, description = "permission_denied"),
+        (status = 500, body = InterfaceError, description = "internal_error"),
     ),
     tag = "permissions",
 )]
@@ -365,9 +362,9 @@ pub(crate) async fn my_permissions_route(
         ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
     ),
     responses(
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 500, body = AccountFailureBody, description = "internal_error"),
+        (status = 403, body = InterfaceError, description = "permission_denied"),
+        (status = 401, body = InterfaceError, description = "auth_required"),
+        (status = 500, body = InterfaceError, description = "internal_error"),
     ),
     tag = "permissions",
 )]

@@ -1,7 +1,15 @@
 import * as m from "@/i18n/paraglide/messages";
+import type {
+  InterfaceError,
+  MyPermissionEntry,
+  MyPermissionsResponse,
+  PermissionConstraintView,
+  PermissionGrantSource,
+} from "@/app/lib/generated-interface-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 const MY_PERMISSIONS_LIMIT = 100;
+const MY_PERMISSIONS_DISCOVERY_LIMIT = 1;
 
 export interface SignUpInput {
   email: string;
@@ -53,74 +61,20 @@ export interface AcceptInvitationResult {
   session: SessionView;
   joined_org: string;
 }
-
-export interface MyPermissionsResponse {
-  organizations: MyOrganizationPermissions[];
-  projects: MyProjectPermissions[];
-}
-
-export interface MyOrganizationPermissions {
-  org_id: string;
-  permissions: MyPermissionEntry[];
-}
-
-export interface MyProjectPermissions {
-  project_id: string;
-  permissions: MyPermissionEntry[];
-}
-
-export type PermissionEffectiveState = "granted" | "constrained" | string;
-
-export type PermissionGrantSource =
-  | { kind: "direct" }
-  | { kind: "role_template"; role_template: string }
-  | { kind: string; role_template?: string | undefined };
-
-export interface PermissionConstraintView {
-  reason: string;
-  source: "organization_policy" | "project_policy" | string;
-}
-
-export interface MyPermissionEntry {
-  permission: string;
-  effective_state: PermissionEffectiveState;
-  grant_source: PermissionGrantSource;
-  policy_constraint: PermissionConstraintView | null;
-}
+export type {
+  InterfaceError,
+  MyPermissionEntry,
+  MyPermissionsResponse,
+  PermissionConstraintView,
+  PermissionGrantSource,
+};
 
 /**
- * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
- * Kept in lock-step with the Rust enum so BDD web steps can match on the
- * same taxonomy regardless of transport.
- */
-export type AccountFailureCode =
-  | "duplicate_identifier"
-  | "invalid_credential"
-  | "invitation_not_found"
-  | "invitation_already_consumed"
-  | "invitation_expired"
-  | "validation_failed"
-  | "auth_required"
-  | "permission_denied"
-  | "unavailable"
-  | "internal_error";
-
-export interface AccountFailure {
-  code: AccountFailureCode | string;
-  summary: string;
-}
-
-interface FailureBody {
-  code?: unknown;
-  summary?: unknown;
-}
-
-/**
- * Map an `AccountFailure` to a localized message via paraglide. Falls back
+ * Map an `InterfaceError` to a localized message via paraglide. Falls back
  * to the API-supplied summary, then to a generic "Request failed" string,
  * so unknown failure codes still surface something meaningful.
  */
-export function describeFailure(failure: AccountFailure): string {
+export function describeFailure(failure: InterfaceError): string {
   const key = `failure_${failure.code}`;
   const lookup = m as unknown as Record<string, (() => string) | undefined>;
   const fn = lookup[key];
@@ -134,13 +88,32 @@ export function describeFailure(failure: AccountFailure): string {
 }
 
 export class AccountRequestError extends Error {
-  readonly failure: AccountFailure;
+  readonly failure: InterfaceError;
 
-  constructor(failure: AccountFailure) {
+  constructor(failure: InterfaceError) {
     super(describeFailure(failure));
     this.failure = failure;
     this.name = "AccountRequestError";
   }
+}
+
+function normalizeInterfaceError(
+  payload: unknown,
+  fallbackStatus: number,
+): InterfaceError {
+  if (
+    typeof payload === "object" &&
+    payload !== null &&
+    "code" in payload &&
+    "summary" in payload
+  ) {
+    const code = (payload as { code: unknown }).code;
+    const summary = (payload as { summary: unknown }).summary;
+    if (typeof code === "string" && typeof summary === "string") {
+      return { code, summary };
+    }
+  }
+  return { code: "internal_error", summary: `HTTP ${fallbackStatus}` };
 }
 
 async function requestJson<T>(
@@ -173,19 +146,15 @@ async function requestJson<T>(
   }
 
   if (!response.ok) {
-    let parsed: FailureBody = {};
+    let parsed: unknown = null;
     try {
-      parsed = (await response.json()) as FailureBody;
+      parsed = await response.json();
     } catch {
-      parsed = {};
+      parsed = null;
     }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
-    const summary =
-      typeof parsed.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    throw new AccountRequestError({ code, summary });
+    throw new AccountRequestError(
+      normalizeInterfaceError(parsed, response.status),
+    );
   }
 
   return (await response.json()) as T;
@@ -220,6 +189,21 @@ export function myPermissions(): Promise<MyPermissionsResponse> {
     `/me/permissions?limit=${MY_PERMISSIONS_LIMIT}`,
     "GET",
   );
+}
+
+export async function canAccessMyPermissions(): Promise<boolean> {
+  try {
+    await requestJson<MyPermissionsResponse>(
+      `/me/permissions?limit=${MY_PERMISSIONS_DISCOVERY_LIMIT}`,
+      "GET",
+    );
+    return true;
+  } catch (cause: unknown) {
+    if (cause instanceof AccountRequestError) {
+      return false;
+    }
+    return false;
+  }
 }
 
 /**

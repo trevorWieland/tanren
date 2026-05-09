@@ -10,18 +10,8 @@ use axum::extract::{FromRequest, Request, rejection::JsonRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use tanren_app_services::AppServiceError;
-use tanren_contract::AccountFailureReason;
-
-/// Shared `{code, summary}` failure body.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct AccountFailureBody {
-    /// Stable error code from the closed taxonomy.
-    pub code: String,
-    /// Human-readable summary.
-    pub summary: String,
-}
+use tanren_contract::{AccountFailureReason, InterfaceError};
 
 /// Render the standard `internal_error` body for failed cookie-session
 /// writes. Shared between the sign-up / sign-in / accept-invitation
@@ -35,22 +25,19 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
 pub(crate) fn auth_required_response(summary: &str) -> Response {
     (
         StatusCode::UNAUTHORIZED,
-        Json(AccountFailureBody {
-            code: "auth_required".to_owned(),
-            summary: summary.to_owned(),
-        }),
+        Json(InterfaceError::new("auth_required", summary)),
     )
         .into_response()
 }
 
 /// Shared `500 internal_error` response body.
-pub(crate) fn internal_error_response() -> (StatusCode, Json<AccountFailureBody>) {
+pub(crate) fn internal_error_response() -> (StatusCode, Json<InterfaceError>) {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(AccountFailureBody {
-            code: "internal_error".to_owned(),
-            summary: "Tanren encountered an internal error.".to_owned(),
-        }),
+        Json(InterfaceError::new(
+            "internal_error",
+            "Tanren encountered an internal error.",
+        )),
     )
 }
 
@@ -60,18 +47,12 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
         AppServiceError::Account(reason) => failure_body(reason),
         AppServiceError::Permissions(reason) => (
             StatusCode::FORBIDDEN,
-            Json(AccountFailureBody {
-                code: reason.code().to_owned(),
-                summary: reason.summary().to_owned(),
-            }),
+            Json(InterfaceError::new(reason.code(), reason.summary())),
         )
             .into_response(),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
-            Json(AccountFailureBody {
-                code: "validation_failed".to_owned(),
-                summary: message,
-            }),
+            Json(InterfaceError::new("validation_failed", message)),
         )
             .into_response(),
         AppServiceError::Store(err) => {
@@ -87,10 +68,7 @@ fn failure_body(reason: AccountFailureReason) -> Response {
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
     (
         status,
-        Json(AccountFailureBody {
-            code: reason.code().to_owned(),
-            summary: reason.summary().to_owned(),
-        }),
+        Json(InterfaceError::new(reason.code(), reason.summary())),
     )
         .into_response()
 }
@@ -134,10 +112,7 @@ fn map_json_rejection(rejection: &JsonRejection) -> Response {
     };
     (
         StatusCode::BAD_REQUEST,
-        Json(AccountFailureBody {
-            code: "validation_failed".to_owned(),
-            summary,
-        }),
+        Json(InterfaceError::new("validation_failed", summary)),
     )
         .into_response()
 }

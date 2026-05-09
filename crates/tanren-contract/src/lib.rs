@@ -13,8 +13,9 @@ pub use account::{
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use permissions::{
-    MY_PERMISSIONS_DEFAULT_LIMIT, MY_PERMISSIONS_MAX_LIMIT, MyOrganizationPermissions,
-    MyPermissionEntry, MyPermissionsRequest, MyPermissionsResponse, MyProjectPermissions,
+    InterfaceError, MY_PERMISSIONS_DEFAULT_LIMIT, MY_PERMISSIONS_MAX_LIMIT,
+    MyOrganizationPermissions, MyPermissionEntry, MyPermissionsFailureReason,
+    MyPermissionsPageMeta, MyPermissionsRequest, MyPermissionsResponse, MyProjectPermissions,
     PermissionConstraintView,
 };
 

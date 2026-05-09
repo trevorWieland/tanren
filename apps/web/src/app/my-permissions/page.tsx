@@ -6,7 +6,9 @@ import type { ReactNode } from "react";
 
 import {
   AccountRequestError,
+  describeFailure,
   myPermissions,
+  type InterfaceError,
   type MyPermissionEntry,
   type MyPermissionsResponse,
   type PermissionConstraintView,
@@ -14,31 +16,24 @@ import {
 } from "@/app/lib/account-client";
 import * as m from "@/i18n/paraglide/messages";
 
-interface FailureView {
-  code: string;
-  message: string;
-}
-
 function formatGrantSource(source: PermissionGrantSource): string {
-  if (source.kind === "direct") {
-    return m.myPermissions_sourceDirect();
+  switch (source.kind) {
+    case "direct":
+      return m.myPermissions_sourceDirect();
+    case "role_template":
+      return `${m.myPermissions_sourceRoleTemplate()}: ${source.role_template}`;
   }
-  if (source.kind === "role_template") {
-    return `${m.myPermissions_sourceRoleTemplate()}: ${source.role_template}`;
-  }
-  return source.kind;
 }
 
 function formatConstraintSource(
   source: PermissionConstraintView["source"],
 ): string {
-  if (source === "organization_policy") {
-    return m.myPermissions_constraintSourceOrganizationPolicy();
+  switch (source) {
+    case "organization_policy":
+      return m.myPermissions_constraintSourceOrganizationPolicy();
+    case "project_policy":
+      return m.myPermissions_constraintSourceProjectPolicy();
   }
-  if (source === "project_policy") {
-    return m.myPermissions_constraintSourceProjectPolicy();
-  }
-  return source;
 }
 
 function stateBadgeClass(state: MyPermissionEntry["effective_state"]): string {
@@ -108,7 +103,7 @@ function ScopeCard({
 
 export default function MyPermissionsPage(): ReactNode {
   const [data, setData] = useState<MyPermissionsResponse | null>(null);
-  const [failure, setFailure] = useState<FailureView | null>(null);
+  const [failure, setFailure] = useState<InterfaceError | null>(null);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
@@ -124,15 +119,12 @@ export default function MyPermissionsPage(): ReactNode {
           return;
         }
         if (cause instanceof AccountRequestError) {
-          setFailure({
-            code: cause.failure.code,
-            message: cause.message,
-          });
+          setFailure(cause.failure);
           return;
         }
         setFailure({
           code: "internal_error",
-          message: cause instanceof Error ? cause.message : String(cause),
+          summary: cause instanceof Error ? cause.message : String(cause),
         });
       })
       .finally(() => {
@@ -169,7 +161,7 @@ export default function MyPermissionsPage(): ReactNode {
         </section>
       ) : failure !== null ? (
         <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm">
-          <p className="m-0 text-[--color-error]">{failure.message}</p>
+          <p className="m-0 text-[--color-error]">{describeFailure(failure)}</p>
           <p className="m-0 mt-1 font-mono text-[--color-fg-muted]">
             code: {failure.code}
           </p>
