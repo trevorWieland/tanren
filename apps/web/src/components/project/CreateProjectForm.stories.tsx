@@ -108,7 +108,10 @@ export const Success: Story = {
           project: {
             id: "00000000-0000-7000-8000-0000000000e2",
             owning_account_id: "00000000-0000-7000-8000-0000000000b2",
-            repository: { repository: "acme/new-project" },
+            repository: {
+              provider_family: "fixture-source-control",
+              repository: "acme/new-project",
+            },
             selection: {
               is_active: true,
               selected_at: new Date(Date.now() - 5_000).toISOString(),

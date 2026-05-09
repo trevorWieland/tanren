@@ -6,33 +6,14 @@
 //! (Slack, email). Concrete adapters live in separate crates introduced by
 //! the slice that first needs each provider family.
 
-use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use tanren_identity_policy::{AccountId, RepositoryRef};
+use tanren_identity_policy::{AccountId, DesignatedHost, ProviderFamily, RepositoryRef};
 use thiserror::Error;
 
 #[cfg(any(test, feature = "test-hooks"))]
 use std::collections::HashSet;
 #[cfg(any(test, feature = "test-hooks"))]
 use std::sync::Mutex;
-
-/// Stable identifier for a provider family (`"github"`, `"linear"`, ...).
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
-pub struct ProviderFamily(String);
-
-impl ProviderFamily {
-    /// Wrap a provider family slug.
-    #[must_use]
-    pub const fn new(value: String) -> Self {
-        Self(value)
-    }
-
-    /// Borrow the family slug.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        &self.0
-    }
-}
 
 /// The outbound provider trait every adapter implements.
 #[async_trait::async_trait]
@@ -75,11 +56,14 @@ pub enum SourceControlError {
 /// implement this trait.
 #[async_trait::async_trait]
 pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
+    /// Source-control provider family identifier.
+    fn family(&self) -> ProviderFamily;
+
     /// Validate that the provider is reachable.
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError>;
 
     /// Validate that the designated host is reachable.
-    async fn ensure_host_reachable(&self, host: &str) -> Result<(), SourceControlError>;
+    async fn ensure_host_reachable(&self, host: &DesignatedHost) -> Result<(), SourceControlError>;
 
     /// Validate that the actor can access the repository at the provider.
     async fn can_access_repository(
@@ -92,14 +76,14 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
     async fn can_create_repository_at_host(
         &self,
         actor_account_id: AccountId,
-        host: &str,
+        host: &DesignatedHost,
     ) -> Result<bool, SourceControlError>;
 
     /// Create a repository and return its canonical identity.
     async fn create_repository(
         &self,
         actor_account_id: AccountId,
-        host: &str,
+        host: &DesignatedHost,
         repository: &RepositoryRef,
     ) -> Result<RepositoryRef, SourceControlError>;
 }
@@ -113,11 +97,18 @@ pub struct UnavailableSourceControlProvider;
 
 #[async_trait::async_trait]
 impl SourceControlProvider for UnavailableSourceControlProvider {
+    fn family(&self) -> ProviderFamily {
+        ProviderFamily::source_control()
+    }
+
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
         Err(SourceControlError::ProviderUnavailable)
     }
 
-    async fn ensure_host_reachable(&self, _host: &str) -> Result<(), SourceControlError> {
+    async fn ensure_host_reachable(
+        &self,
+        _host: &DesignatedHost,
+    ) -> Result<(), SourceControlError> {
         Err(SourceControlError::ProviderUnavailable)
     }
 
@@ -132,7 +123,7 @@ impl SourceControlProvider for UnavailableSourceControlProvider {
     async fn can_create_repository_at_host(
         &self,
         _actor_account_id: AccountId,
-        _host: &str,
+        _host: &DesignatedHost,
     ) -> Result<bool, SourceControlError> {
         Err(SourceControlError::ProviderUnavailable)
     }
@@ -140,7 +131,7 @@ impl SourceControlProvider for UnavailableSourceControlProvider {
     async fn create_repository(
         &self,
         _actor_account_id: AccountId,
-        _host: &str,
+        _host: &DesignatedHost,
         _repository: &RepositoryRef,
     ) -> Result<RepositoryRef, SourceControlError> {
         Err(SourceControlError::ProviderUnavailable)
@@ -172,14 +163,18 @@ pub struct AllowAllSourceControlProvider;
 
 #[async_trait::async_trait]
 impl SourceControlProvider for AllowAllSourceControlProvider {
+    fn family(&self) -> ProviderFamily {
+        ProviderFamily::source_control()
+    }
+
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
         Ok(())
     }
 
-    async fn ensure_host_reachable(&self, host: &str) -> Result<(), SourceControlError> {
-        if host.trim().is_empty() {
-            return Err(SourceControlError::HostUnreachable);
-        }
+    async fn ensure_host_reachable(
+        &self,
+        _host: &DesignatedHost,
+    ) -> Result<(), SourceControlError> {
         Ok(())
     }
 
@@ -194,20 +189,17 @@ impl SourceControlProvider for AllowAllSourceControlProvider {
     async fn can_create_repository_at_host(
         &self,
         _actor_account_id: AccountId,
-        host: &str,
+        _host: &DesignatedHost,
     ) -> Result<bool, SourceControlError> {
-        Ok(!host.trim().is_empty())
+        Ok(true)
     }
 
     async fn create_repository(
         &self,
         _actor_account_id: AccountId,
-        host: &str,
+        _host: &DesignatedHost,
         repository: &RepositoryRef,
     ) -> Result<RepositoryRef, SourceControlError> {
-        if host.trim().is_empty() {
-            return Err(SourceControlError::HostUnreachable);
-        }
         Ok(repository.clone())
     }
 }
@@ -294,6 +286,10 @@ impl FixtureSourceControlProvider {
 #[cfg(any(test, feature = "test-hooks"))]
 #[async_trait::async_trait]
 impl SourceControlProvider for FixtureSourceControlProvider {
+    fn family(&self) -> ProviderFamily {
+        ProviderFamily::source_control()
+    }
+
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
         let guard = match self.state.lock() {
             Ok(guard) => guard,
@@ -306,13 +302,12 @@ impl SourceControlProvider for FixtureSourceControlProvider {
         }
     }
 
-    async fn ensure_host_reachable(&self, host: &str) -> Result<(), SourceControlError> {
-        let trimmed = host.trim();
+    async fn ensure_host_reachable(&self, host: &DesignatedHost) -> Result<(), SourceControlError> {
         let guard = match self.state.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
         };
-        if guard.config.reachable_hosts.contains(trimmed) {
+        if guard.config.reachable_hosts.contains(host.as_str()) {
             Ok(())
         } else {
             Err(SourceControlError::HostUnreachable)
@@ -337,9 +332,8 @@ impl SourceControlProvider for FixtureSourceControlProvider {
     async fn can_create_repository_at_host(
         &self,
         actor_account_id: AccountId,
-        host: &str,
+        host: &DesignatedHost,
     ) -> Result<bool, SourceControlError> {
-        let host = host.trim().to_owned();
         let guard = match self.state.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -347,16 +341,15 @@ impl SourceControlProvider for FixtureSourceControlProvider {
         Ok(guard
             .config
             .host_create_access
-            .contains(&(actor_account_id, host)))
+            .contains(&(actor_account_id, host.as_str().to_owned())))
     }
 
     async fn create_repository(
         &self,
         _actor_account_id: AccountId,
-        host: &str,
+        host: &DesignatedHost,
         repository: &RepositoryRef,
     ) -> Result<RepositoryRef, SourceControlError> {
-        let host = host.trim().to_owned();
         let mut guard = match self.state.lock() {
             Ok(guard) => guard,
             Err(poisoned) => poisoned.into_inner(),
@@ -366,7 +359,7 @@ impl SourceControlProvider for FixtureSourceControlProvider {
         }
         guard
             .created_repositories
-            .insert((host, repository.clone()));
+            .insert((host.as_str().to_owned(), repository.clone()));
         Ok(repository.clone())
     }
 }

@@ -9,12 +9,15 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, RepositoryRef,
-    SessionToken,
+    AccountId, DesignatedHost, Identifier, InvitationToken, MembershipId, OrgId, ProjectId,
+    ProviderFamily, RepositoryRef, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token, parse_db_repository_ref};
+use crate::{
+    StoreError, parse_db_designated_host, parse_db_identifier, parse_db_invitation_token,
+    parse_db_project_id, parse_db_provider_family, parse_db_repository_ref,
+};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -120,14 +123,17 @@ pub struct ProjectRecord {
     pub active_selected_at: Option<DateTime<Utc>>,
 }
 
-impl From<entity::projects::Model> for ProjectRecord {
-    fn from(model: entity::projects::Model) -> Self {
-        Self {
-            id: ProjectId::new(model.id),
+impl TryFrom<entity::projects::Model> for ProjectRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::projects::Model) -> Result<Self, Self::Error> {
+        let id = parse_db_project_id(model.id, "projects.id")?;
+        Ok(Self {
+            id,
             owning_account_id: AccountId::new(model.owning_account_id),
             created_at: model.created_at,
             active_selected_at: model.active_selected_at,
-        }
+        })
     }
 }
 
@@ -140,6 +146,10 @@ pub struct ProjectRepositoryRecord {
     pub owning_account_id: AccountId,
     /// Canonical repository identity (`owner/name`).
     pub repository_ref: RepositoryRef,
+    /// Source-control provider family for this binding.
+    pub provider_family: ProviderFamily,
+    /// Designated host key used for repository operations.
+    pub designated_host: DesignatedHost,
     /// Wall-clock time the binding was created.
     pub created_at: DateTime<Utc>,
 }
@@ -149,10 +159,15 @@ impl TryFrom<entity::project_repositories::Model> for ProjectRepositoryRecord {
 
     fn try_from(model: entity::project_repositories::Model) -> Result<Self, Self::Error> {
         let repository_ref = parse_db_repository_ref(&model.repository_ref)?;
+        let provider_family = parse_db_provider_family(&model.provider_family)?;
+        let designated_host = parse_db_designated_host(&model.designated_host)?;
+        let project_id = parse_db_project_id(model.project_id, "project_repositories.project_id")?;
         Ok(Self {
-            project_id: ProjectId::new(model.project_id),
+            project_id,
             owning_account_id: AccountId::new(model.owning_account_id),
             repository_ref,
+            provider_family,
+            designated_host,
             created_at: model.created_at,
         })
     }
@@ -240,6 +255,10 @@ pub struct NewProjectRepository {
     pub owning_account_id: AccountId,
     /// Canonical repository identity (`owner/name`).
     pub repository_ref: RepositoryRef,
+    /// Source-control provider family for this binding.
+    pub provider_family: ProviderFamily,
+    /// Designated host key used for repository operations.
+    pub designated_host: DesignatedHost,
     /// Wall-clock creation time.
     pub created_at: DateTime<Utc>,
 }

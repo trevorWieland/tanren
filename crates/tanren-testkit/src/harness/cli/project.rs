@@ -9,7 +9,7 @@ use tanren_contract::{
     ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectRepositoryView,
     ProjectSelectionView, ProjectView,
 };
-use tanren_identity_policy::{AccountId, ProjectId, RepositoryRef};
+use tanren_identity_policy::{AccountId, ProjectId, ProviderFamily, RepositoryRef};
 use tokio::process::Command;
 use uuid::Uuid;
 
@@ -199,10 +199,11 @@ fn parse_project_line(stdout: &str, owning_account_id: AccountId) -> HarnessResu
     let milestones_raw = captures.get(5).map_or("", |m| m.as_str());
     let initiatives_raw = captures.get(6).map_or("", |m| m.as_str());
 
-    let id = ProjectId::from(
+    let id = ProjectId::try_from_uuid(
         Uuid::parse_str(project_id_raw)
             .map_err(|e| HarnessError::Transport(format!("parse project id: {e}")))?,
-    );
+    )
+    .map_err(|e| HarnessError::Transport(format!("parse project id: {e}")))?;
     let repository = RepositoryRef::parse(repository_raw)
         .map_err(|e| HarnessError::Transport(format!("parse repository ref: {e}")))?;
     let is_active = parse_bool(active_raw)?;
@@ -219,7 +220,10 @@ fn parse_project_line(stdout: &str, owning_account_id: AccountId) -> HarnessResu
     Ok(ProjectView {
         id,
         owning_account_id,
-        repository: ProjectRepositoryView { repository },
+        repository: ProjectRepositoryView {
+            provider_family: ProviderFamily::source_control(),
+            repository,
+        },
         selection: ProjectSelectionView {
             is_active,
             selected_at: if is_active { Some(now) } else { None },

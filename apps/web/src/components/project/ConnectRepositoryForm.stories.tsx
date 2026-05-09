@@ -105,7 +105,10 @@ export const Success: Story = {
           project: {
             id: "00000000-0000-7000-8000-0000000000e1",
             owning_account_id: "00000000-0000-7000-8000-0000000000b1",
-            repository: { repository: "acme/tanren" },
+            repository: {
+              provider_family: "fixture-source-control",
+              repository: "acme/tanren",
+            },
             selection: {
               is_active: true,
               selected_at: new Date(Date.now() - 5_000).toISOString(),

@@ -36,8 +36,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, RepositoryRef,
-    SessionToken, ValidationError,
+    AccountId, DesignatedHost, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId,
+    ProviderFamily, RepositoryRef, SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -378,6 +378,30 @@ pub(crate) fn parse_db_repository_ref(raw: &str) -> Result<RepositoryRef, StoreE
         column: "repository_ref",
         cause: err,
     })
+}
+
+/// Convert a DB-stored provider family into a [`ProviderFamily`].
+pub(crate) fn parse_db_provider_family(raw: &str) -> Result<ProviderFamily, StoreError> {
+    ProviderFamily::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "provider_family",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored designated host into a [`DesignatedHost`].
+pub(crate) fn parse_db_designated_host(raw: &str) -> Result<DesignatedHost, StoreError> {
+    DesignatedHost::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "designated_host",
+        cause: err,
+    })
+}
+
+/// Convert a DB UUID into a validated [`ProjectId`].
+pub(crate) fn parse_db_project_id(
+    raw: Uuid,
+    column: &'static str,
+) -> Result<ProjectId, StoreError> {
+    ProjectId::try_from_uuid(raw).map_err(|err| StoreError::DataInvariant { column, cause: err })
 }
 
 /// Wrap a raw string into a [`SecretString`]. Re-exported so callers

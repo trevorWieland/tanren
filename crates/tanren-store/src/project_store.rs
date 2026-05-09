@@ -5,12 +5,14 @@ use chrono::{DateTime, Utc};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, Set, TransactionTrait,
 };
-use tanren_identity_policy::{AccountId, ProjectId, RepositoryRef, ValidationError};
+use tanren_identity_policy::{
+    AccountId, ProjectId, ProviderFamily, RepositoryRef, ValidationError,
+};
 
 use crate::entity;
 use crate::{
     NewProject, NewProjectRepository, ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord,
-    ProjectStore, ProjectStoreError, Store, StoreError,
+    ProjectStore, ProjectStoreError, Store, StoreError, parse_db_project_id,
 };
 
 #[async_trait]
@@ -30,7 +32,7 @@ impl ProjectStore for Store {
             active_selected_at: Set(new.active_selected_at),
         };
         let inserted = model.insert(&self.conn).await?;
-        Ok(ProjectRecord::from(inserted))
+        ProjectRecord::try_from(inserted)
     }
 
     async fn insert_project_repository(
@@ -41,6 +43,8 @@ impl ProjectStore for Store {
             project_id: Set(new.project_id.as_uuid()),
             owning_account_id: Set(new.owning_account_id.as_uuid()),
             repository_ref: Set(new.repository_ref.as_str().to_owned()),
+            provider_family: Set(new.provider_family.as_str().to_owned()),
+            designated_host: Set(new.designated_host.as_str().to_owned()),
             created_at: Set(new.created_at),
         };
         let inserted = match model.insert(&self.conn).await {
@@ -82,6 +86,8 @@ impl ProjectStore for Store {
                         project_id: Set(repository.project_id.as_uuid()),
                         owning_account_id: Set(repository.owning_account_id.as_uuid()),
                         repository_ref: Set(repository.repository_ref.as_str().to_owned()),
+                        provider_family: Set(repository.provider_family.as_str().to_owned()),
+                        designated_host: Set(repository.designated_host.as_str().to_owned()),
                         created_at: Set(repository.created_at),
                     })
                     .insert(txn)
@@ -132,7 +138,8 @@ impl ProjectStore for Store {
                     };
 
                     let project_record = ProjectRecord {
-                        id: ProjectId::new(inserted_project.id),
+                        id: parse_db_project_id(inserted_project.id, "projects.id")
+                            .map_err(ProjectStoreError::Store)?,
                         owning_account_id: AccountId::new(inserted_project.owning_account_id),
                         created_at: inserted_project.created_at,
                         active_selected_at: selected_at,
@@ -157,12 +164,16 @@ impl ProjectStore for Store {
     async fn find_project_repository(
         &self,
         owning_account_id: AccountId,
+        provider_family: &ProviderFamily,
         repository_ref: &RepositoryRef,
     ) -> Result<Option<ProjectRepositoryRecord>, StoreError> {
         let row = entity::project_repositories::Entity::find()
             .filter(
                 entity::project_repositories::Column::OwningAccountId
                     .eq(owning_account_id.as_uuid()),
+            )
+            .filter(
+                entity::project_repositories::Column::ProviderFamily.eq(provider_family.as_str()),
             )
             .filter(entity::project_repositories::Column::RepositoryRef.eq(repository_ref.as_str()))
             .one(&self.conn)
@@ -183,7 +194,7 @@ impl ProjectStore for Store {
 
         let mut out = Vec::with_capacity(projects.len());
         for row in projects {
-            let project = ProjectRecord::from(row);
+            let project = ProjectRecord::try_from(row)?;
             let repo = entity::project_repositories::Entity::find_by_id(project.id.as_uuid())
                 .one(&self.conn)
                 .await?

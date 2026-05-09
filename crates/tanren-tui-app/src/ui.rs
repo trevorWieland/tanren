@@ -10,7 +10,9 @@ use tanren_contract::{
     CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
     SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{AccountId, Email, InvitationToken, RepositoryRef, ValidationError};
+use tanren_identity_policy::{
+    AccountId, DesignatedHost, Email, InvitationToken, RepositoryRef, ValidationError,
+};
 use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
@@ -319,10 +321,8 @@ pub(crate) fn parse_connect_repository(
 pub(crate) fn parse_create_project(state: &FormState) -> Result<CreateProjectRequest, String> {
     let owning_account_id = parse_account_id(state.value(0))?;
     let repository = RepositoryRef::parse(state.value(1)).map_err(|e| validation_message(&e))?;
-    let designated_host = state.value(2).trim().to_owned();
-    if designated_host.is_empty() {
-        return Err("validation_failed: designated host must not be empty".to_owned());
-    }
+    let designated_host =
+        DesignatedHost::parse(state.value(2)).map_err(|e| validation_message(&e))?;
     let select_as_active = parse_select_as_active(state.value(3))?;
     Ok(CreateProjectRequest {
         owning_account_id,

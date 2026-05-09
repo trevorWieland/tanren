@@ -2,7 +2,7 @@
 
 use cucumber::{given, then, when};
 use tanren_contract::{CreateProjectRequest, ListVisibleProjectsRequest};
-use tanren_identity_policy::{AccountId, RepositoryRef};
+use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 
 use crate::{HostFixtureState, ProjectActorState, TanrenWorld};
 
@@ -136,6 +136,7 @@ async fn create_new_project_impl(
 ) {
     let parsed_repository = RepositoryRef::parse(&repository).expect("repository must parse");
     let host_key = normalized_host(&designated_host);
+    let parsed_host = DesignatedHost::parse(&designated_host).expect("designated host must parse");
     let ctx = world.ensure_project_ctx().await;
     let host_can_create = ctx
         .hosts
@@ -154,7 +155,7 @@ async fn create_new_project_impl(
         .create_project(CreateProjectRequest {
             owning_account_id: request_account_id,
             repository: parsed_repository,
-            designated_host: host_key.clone(),
+            designated_host: parsed_host,
             select_as_active: true,
         })
         .await;

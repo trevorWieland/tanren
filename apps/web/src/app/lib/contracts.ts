@@ -2,7 +2,7 @@ import * as v from "valibot";
 
 import type { components, paths } from "@/app/lib/api-contract.gen";
 
-const REPOSITORY_PATTERN = /^[a-z0-9._-]+\/[a-z0-9._-]+$/;
+const PROVIDER_FAMILY_PATTERN = /^(?!.*--)[a-z0-9][a-z0-9-]{0,46}[a-z0-9]$/;
 
 export type AccountView = components["schemas"]["AccountView"];
 export type SessionView = components["schemas"]["SessionEnvelope"];
@@ -81,17 +81,71 @@ export const repositoryRefSchema = v.pipe(
   v.string(),
   v.trim(),
   v.toLowerCase(),
-  v.regex(REPOSITORY_PATTERN),
+  v.maxLength(140),
+  v.check((value) => {
+    const slash = value.indexOf("/");
+    if (
+      slash <= 0 ||
+      slash >= value.length - 1 ||
+      value.indexOf("/", slash + 1) !== -1
+    ) {
+      return false;
+    }
+    const owner = value.slice(0, slash);
+    const name = value.slice(slash + 1);
+    if (
+      owner.length < 1 ||
+      owner.length > 39 ||
+      name.length < 1 ||
+      name.length > 100
+    ) {
+      return false;
+    }
+    if (
+      !/^[a-z0-9-]+$/.test(owner) ||
+      owner.startsWith("-") ||
+      owner.endsWith("-")
+    ) {
+      return false;
+    }
+    if (owner.includes("--")) {
+      return false;
+    }
+    if (!/^[a-z0-9._-]+$/.test(name)) {
+      return false;
+    }
+    if (/^[-._]|[-._]$/.test(name)) {
+      return false;
+    }
+    return true;
+  }),
 );
 
 export const designatedHostSchema = v.pipe(
   v.string(),
   v.trim(),
+  v.toLowerCase(),
   v.minLength(1),
+  v.maxLength(253),
+  v.check((value) => {
+    if (value.startsWith(".") || value.endsWith(".")) {
+      return false;
+    }
+    return value.split(".").every((label) => {
+      if (label.length < 1 || label.length > 63) {
+        return false;
+      }
+      if (label.startsWith("-") || label.endsWith("-")) {
+        return false;
+      }
+      return /^[a-z0-9-]+$/.test(label);
+    });
+  }),
 );
 export const selectAsActiveSchema = v.boolean();
 
 const projectRepositoryViewSchema = v.strictObject({
+  provider_family: v.pipe(v.string(), v.regex(PROVIDER_FAMILY_PATTERN)),
   repository: repositoryRefSchema,
 });
 

@@ -5,6 +5,10 @@ use sea_orm_migration::prelude::*;
 #[derive(DeriveMigrationName)]
 pub(super) struct Migration;
 
+const REPOSITORY_REF_MAX_LEN: u32 = 140;
+const PROVIDER_FAMILY_MAX_LEN: u32 = 48;
+const DESIGNATED_HOST_MAX_LEN: u32 = 253;
+
 impl std::fmt::Debug for Migration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Migration").finish()
@@ -14,101 +18,9 @@ impl std::fmt::Debug for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .create_table(
-                Table::create()
-                    .table(Projects::Table)
-                    .if_not_exists()
-                    .col(ColumnDef::new(Projects::Id).uuid().not_null().primary_key())
-                    .col(ColumnDef::new(Projects::OwningAccountId).uuid().not_null())
-                    .col(
-                        ColumnDef::new(Projects::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(Projects::ActiveSelectedAt).timestamp_with_time_zone())
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_projects_owning_account")
-                            .from(Projects::Table, Projects::OwningAccountId)
-                            .to(Accounts::Table, Accounts::Id)
-                            .on_delete(ForeignKeyAction::Cascade)
-                            .on_update(ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_table(
-                Table::create()
-                    .table(ProjectRepositories::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(ProjectRepositories::ProjectId)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(ProjectRepositories::OwningAccountId)
-                            .uuid()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(ProjectRepositories::RepositoryRef)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(ProjectRepositories::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_project_repositories_project")
-                            .from(ProjectRepositories::Table, ProjectRepositories::ProjectId)
-                            .to(Projects::Table, Projects::Id)
-                            .on_delete(ForeignKeyAction::Cascade)
-                            .on_update(ForeignKeyAction::Cascade),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_project_repositories_owning_account")
-                            .from(
-                                ProjectRepositories::Table,
-                                ProjectRepositories::OwningAccountId,
-                            )
-                            .to(Accounts::Table, Accounts::Id)
-                            .on_delete(ForeignKeyAction::Cascade)
-                            .on_update(ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_projects_owning_account")
-                    .table(Projects::Table)
-                    .col(Projects::OwningAccountId)
-                    .to_owned(),
-            )
-            .await?;
-
-        manager
-            .create_index(
-                Index::create()
-                    .name("idx_project_repositories_owning_account_repo_unique")
-                    .table(ProjectRepositories::Table)
-                    .col(ProjectRepositories::OwningAccountId)
-                    .col(ProjectRepositories::RepositoryRef)
-                    .unique()
-                    .to_owned(),
-            )
-            .await?;
+        create_projects_table(manager).await?;
+        create_project_repositories_table(manager).await?;
+        create_project_indexes(manager).await?;
 
         Ok(())
     }
@@ -144,6 +56,119 @@ impl MigrationTrait for Migration {
     }
 }
 
+async fn create_projects_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(Projects::Table)
+                .if_not_exists()
+                .col(ColumnDef::new(Projects::Id).uuid().not_null().primary_key())
+                .col(ColumnDef::new(Projects::OwningAccountId).uuid().not_null())
+                .col(
+                    ColumnDef::new(Projects::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(ColumnDef::new(Projects::ActiveSelectedAt).timestamp_with_time_zone())
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_projects_owning_account")
+                        .from(Projects::Table, Projects::OwningAccountId)
+                        .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::Cascade)
+                        .on_update(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_project_repositories_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ProjectRepositories::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ProjectRepositories::ProjectId)
+                        .uuid()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::OwningAccountId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::RepositoryRef)
+                        .string_len(REPOSITORY_REF_MAX_LEN)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::ProviderFamily)
+                        .string_len(PROVIDER_FAMILY_MAX_LEN)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::DesignatedHost)
+                        .string_len(DESIGNATED_HOST_MAX_LEN)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_project_repositories_project")
+                        .from(ProjectRepositories::Table, ProjectRepositories::ProjectId)
+                        .to(Projects::Table, Projects::Id)
+                        .on_delete(ForeignKeyAction::Cascade)
+                        .on_update(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_project_repositories_owning_account")
+                        .from(
+                            ProjectRepositories::Table,
+                            ProjectRepositories::OwningAccountId,
+                        )
+                        .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::Cascade)
+                        .on_update(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_projects_owning_account")
+                .table(Projects::Table)
+                .col(Projects::OwningAccountId)
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_index(
+            Index::create()
+                .name("idx_project_repositories_owning_account_repo_unique")
+                .table(ProjectRepositories::Table)
+                .col(ProjectRepositories::OwningAccountId)
+                .col(ProjectRepositories::ProviderFamily)
+                .col(ProjectRepositories::RepositoryRef)
+                .unique()
+                .to_owned(),
+        )
+        .await
+}
+
 #[derive(DeriveIden)]
 enum Accounts {
     Table,
@@ -165,5 +190,7 @@ enum ProjectRepositories {
     ProjectId,
     OwningAccountId,
     RepositoryRef,
+    ProviderFamily,
+    DesignatedHost,
     CreatedAt,
 }

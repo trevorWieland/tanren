@@ -9,6 +9,8 @@ pub struct Model {
     pub project_id: Uuid,
     pub owning_account_id: Uuid,
     pub repository_ref: String,
+    pub provider_family: String,
+    pub designated_host: String,
     pub created_at: DateTimeUtc,
 }
 

@@ -10,7 +10,7 @@ use tanren_contract::{
     ListVisibleProjectsRequest, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
     ProjectRepositoryView, ProjectSelectionView, ProjectView,
 };
-use tanren_identity_policy::{AccountId, ProjectId, RepositoryRef};
+use tanren_identity_policy::{AccountId, DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
 use tanren_provider_integrations::{SourceControlError, SourceControlProvider};
 use tanren_store::{
     NewProject, NewProjectRepository, ProjectSetupRecord, ProjectStore, ProjectStoreError,
@@ -83,9 +83,15 @@ where
         return Err(AppServiceError::Project(ProjectFailureReason::NoAccess));
     }
 
+    let provider_family = provider.family();
+    let designated_host = DesignatedHost::parse(provider_family.as_str())
+        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
+
     let setup = register_project_repository(
         store,
         command.request.owning_account_id,
+        provider_family,
+        designated_host,
         command.request.repository,
         command.request.select_as_active,
         clock,
@@ -107,12 +113,7 @@ where
     S: ProjectStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    let designated_host = command.request.designated_host.trim();
-    if designated_host.is_empty() {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::ValidationFailed,
-        ));
-    }
+    let designated_host = &command.request.designated_host;
 
     validate_actor_scope(
         store,
@@ -150,6 +151,8 @@ where
     let setup = register_project_repository(
         store,
         command.request.owning_account_id,
+        provider.family(),
+        designated_host.clone(),
         created_repository,
         command.request.select_as_active,
         clock,
@@ -232,6 +235,8 @@ where
 async fn register_project_repository<S>(
     store: &S,
     owning_account_id: AccountId,
+    provider_family: ProviderFamily,
+    designated_host: DesignatedHost,
     repository: RepositoryRef,
     select_as_active: bool,
     clock: &Clock,
@@ -240,7 +245,7 @@ where
     S: ProjectStore + ?Sized,
 {
     if store
-        .find_project_repository(owning_account_id, &repository)
+        .find_project_repository(owning_account_id, &provider_family, &repository)
         .await?
         .is_some()
     {
@@ -263,6 +268,8 @@ where
                 project_id,
                 owning_account_id,
                 repository_ref: repository,
+                provider_family,
+                designated_host,
                 created_at: now,
             },
             select_as_active,
@@ -301,6 +308,7 @@ fn project_view(setup: &ProjectSetupRecord) -> ProjectView {
         id: setup.project.id,
         owning_account_id: setup.project.owning_account_id,
         repository: ProjectRepositoryView {
+            provider_family: setup.repository.provider_family.clone(),
             repository: setup.repository.repository_ref.clone(),
         },
         selection: ProjectSelectionView {

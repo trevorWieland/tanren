@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tanren_identity_policy::{AccountId, ProjectId, RepositoryRef};
+use tanren_identity_policy::{AccountId, DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
 use utoipa::ToSchema;
 
 /// Connect an existing repository as a Tanren project.
@@ -50,7 +50,7 @@ pub struct CreateProjectRequest {
     /// Canonical repository identity (`owner/name`) to create.
     pub repository: RepositoryRef,
     /// Designated host where the repository should be created.
-    pub designated_host: String,
+    pub designated_host: DesignatedHost,
     /// Whether the newly created project should be active immediately.
     pub select_as_active: bool,
 }
@@ -67,7 +67,7 @@ pub struct CreateProjectCookieRequest {
     /// Canonical repository identity (`owner/name`) to create.
     pub repository: RepositoryRef,
     /// Designated host where the repository should be created.
-    pub designated_host: String,
+    pub designated_host: DesignatedHost,
     /// Whether the newly created project should be active immediately.
     pub select_as_active: bool,
 }
@@ -140,6 +140,8 @@ pub struct ProjectView {
 /// Repository metadata bound to a project.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ProjectRepositoryView {
+    /// Source-control provider family for the repository.
+    pub provider_family: ProviderFamily,
     /// Canonical `owner/name` repository identity.
     pub repository: RepositoryRef,
 }

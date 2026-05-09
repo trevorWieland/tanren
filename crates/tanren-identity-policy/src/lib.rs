@@ -13,7 +13,7 @@ pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
-pub use project_identity::{ProjectId, RepositoryRef};
+pub use project_identity::{DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};
@@ -475,25 +475,24 @@ pub enum IdentityError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
-    /// The supplied email string was empty after trimming.
+    #[error("project id is not a valid uuidv7")]
+    ProjectIdInvalid,
     #[error("email is empty")]
     EmptyEmail,
-    /// The supplied email string did not parse as an email address.
     #[error("email is not in a valid form")]
     InvalidEmail,
-    /// The supplied identifier was empty after trimming.
     #[error("identifier is empty")]
     EmptyIdentifier,
-    /// The supplied invitation token was empty after trimming.
     #[error("invitation token is empty")]
     InvitationTokenEmpty,
-    /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
-    /// The supplied repository identity was empty after trimming.
     #[error("repository identity is empty")]
     RepositoryRefEmpty,
-    /// The supplied repository identity was not in canonical `owner/name` form.
     #[error("repository identity is not in canonical owner/name form")]
     RepositoryRefInvalid,
+    #[error("provider family is not a valid lowercase slug")]
+    ProviderFamilyInvalid,
+    #[error("designated host is not in a valid form")]
+    DesignatedHostInvalid,
 }

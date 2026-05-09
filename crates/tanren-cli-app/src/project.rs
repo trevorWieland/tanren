@@ -11,7 +11,7 @@ use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, CreateProjectRequest,
     ListVisibleProjectsRequest, ProjectView,
 };
-use tanren_identity_policy::{AccountId, RepositoryRef};
+use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use uuid::Uuid;
 
@@ -175,6 +175,7 @@ async fn run_create_project(
         .context("connect to store")?;
     let owning_account_id = parse_account_id(owning_account_id)?;
     let repository = parse_repository_ref(repository)?;
+    let designated_host = parse_designated_host(designated_host)?;
     let response = handlers
         .create_project(
             &store,
@@ -184,7 +185,7 @@ async fn run_create_project(
                 request: CreateProjectRequest {
                     owning_account_id,
                     repository,
-                    designated_host: designated_host.to_owned(),
+                    designated_host,
                     select_as_active,
                 },
             },
@@ -275,6 +276,10 @@ fn parse_account_id(raw: &str) -> Result<AccountId> {
 
 fn parse_repository_ref(raw: &str) -> Result<RepositoryRef> {
     RepositoryRef::parse(raw).context("parse --repository as owner/name")
+}
+
+fn parse_designated_host(raw: &str) -> Result<DesignatedHost> {
+    DesignatedHost::parse(raw).context("parse --designated-host as host key")
 }
 
 fn print_project_line(project: &ProjectView) -> Result<()> {

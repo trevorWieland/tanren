@@ -4398,7 +4398,6 @@ name = "tanren-provider-integrations"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "serde",
  "tanren-identity-policy",
  "thiserror 2.0.18",
 ]

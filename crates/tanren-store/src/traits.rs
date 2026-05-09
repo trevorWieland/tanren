@@ -28,8 +28,8 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, RepositoryRef,
-    SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, ProviderFamily,
+    RepositoryRef, SessionToken,
 };
 
 use crate::{
@@ -335,6 +335,7 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     async fn find_project_repository(
         &self,
         owning_account_id: AccountId,
+        provider_family: &ProviderFamily,
         repository_ref: &RepositoryRef,
     ) -> Result<Option<ProjectRepositoryRecord>, StoreError>;
 
