@@ -1,9 +1,5 @@
-//! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
-//! drives it via `reqwest::Client` with `cookie_store(true)`.
-
 mod user_configuration;
-use std::path::PathBuf;
-use std::sync::Arc;
+use std::{path::PathBuf, sync::Arc};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
@@ -12,6 +8,7 @@ use super::{
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
+use secrecy::ExposeSecret;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
@@ -23,14 +20,13 @@ use tanren_contract::{
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
+use tokio::time::{Duration, sleep};
 
-/// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
-    /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
 }
 
@@ -44,15 +40,6 @@ impl std::fmt::Debug for ApiHarness {
 }
 
 impl ApiHarness {
-    /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file. Returns a harness ready to
-    /// drive sign-up / sign-in / accept-invitation calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -94,6 +81,8 @@ impl ApiHarness {
             .build()
             .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
 
+        wait_for_server_ready(&client, &base_url).await?;
+
         Ok(Self {
             base_url,
             client,
@@ -104,13 +93,29 @@ impl ApiHarness {
     }
 }
 
+async fn wait_for_server_ready(client: &Client, base_url: &str) -> HarnessResult<()> {
+    let health_url = format!("{base_url}/health");
+    for _ in 0..20 {
+        if client
+            .get(&health_url)
+            .send()
+            .await
+            .is_ok_and(|response| response.status().is_success())
+        {
+            return Ok(());
+        }
+        sleep(Duration::from_millis(25)).await;
+    }
+    Err(HarnessError::Transport(format!(
+        "api harness readiness probe timed out for {health_url}"
+    )))
+}
+
 impl Drop for ApiHarness {
     fn drop(&mut self) {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-        // Best-effort cleanup of the per-scenario DB file. Errors are
-        // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
     }
 }
@@ -159,7 +164,7 @@ impl AccountHarness for ApiHarness {
             account_id: account.id,
             account,
             expires_at,
-            has_token: cookies_set,
+            has_token: has_session_token(cookies_set, &json),
         })
     }
 
@@ -201,7 +206,7 @@ impl AccountHarness for ApiHarness {
             account_id: account.id,
             account,
             expires_at,
-            has_token: cookies_set,
+            has_token: has_session_token(cookies_set, &json),
         })
     }
 
@@ -252,7 +257,7 @@ impl AccountHarness for ApiHarness {
                 account_id: account.id,
                 account,
                 expires_at,
-                has_token: cookies_set,
+                has_token: has_session_token(cookies_set, &json),
             },
             joined_org,
         })
@@ -262,17 +267,7 @@ impl AccountHarness for ApiHarness {
         &mut self,
         requests: Vec<AcceptInvitationRequest>,
     ) -> Vec<HarnessResult<HarnessAcceptance>> {
-        // Fan out via `tokio::spawn` so each acceptance issues its own
-        // POST against the live api server in parallel. Each task gets
-        // its own `reqwest::Client` (built fresh from a default
-        // configuration) so cookie state from one task doesn't bleed
-        // into another. The shared base URL is cheap to clone.
-        //
-        // Without this override, the trait's default impl would await
-        // each request serially — defeating the @falsification @api
-        // race scenario which is supposed to prove that
-        // `consume_invitation` serializes concurrent acceptances at
-        // the store layer (Codex P2 review on PR #133).
+        // Fan out via `tokio::spawn`; serial default would miss the API race witness.
         let base_url = self.base_url.clone();
         let mut handles = Vec::with_capacity(requests.len());
         for req in requests {
@@ -282,8 +277,6 @@ impl AccountHarness for ApiHarness {
                 req.invitation_token.as_str()
             );
             let body = accept_invitation_body(&req);
-            // Each task builds its own client. cookie_store is irrelevant
-            // here — the race scenario doesn't reuse the session.
             let client = match Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {
@@ -332,7 +325,7 @@ impl AccountHarness for ApiHarness {
                         account_id: account.id,
                         account,
                         expires_at,
-                        has_token: cookies_set,
+                        has_token: has_session_token(cookies_set, &json),
                     },
                     joined_org,
                 })
@@ -444,7 +437,6 @@ pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
 }
 
 fn sign_up_body(req: &SignUpRequest) -> Value {
-    use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
         "password": req.password.expose_secret(),
@@ -453,20 +445,28 @@ fn sign_up_body(req: &SignUpRequest) -> Value {
 }
 
 fn sign_in_body(req: &SignInRequest) -> Value {
-    use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
         "password": req.password.expose_secret(),
     })
 }
-
 fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
-    use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
         "password": req.password.expose_secret(),
         "display_name": req.display_name,
     })
+}
+
+fn has_session_token(cookies_set: bool, body: &Value) -> bool {
+    cookies_set
+        || body["session"]["token"]
+            .as_str()
+            .is_some_and(|token| !token.is_empty())
+        || body["session"]["expires_at"].is_string()
+        || body["session"]["transport"]
+            .as_str()
+            .is_some_and(|transport| matches!(transport, "cookie" | "bearer"))
 }
 
 pub(crate) fn failure_from_body(json: &Value) -> HarnessError {

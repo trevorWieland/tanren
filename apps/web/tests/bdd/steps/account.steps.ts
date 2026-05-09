@@ -58,6 +58,12 @@ interface UserCredentialView {
   updated_at: string;
 }
 
+interface TestHookEventEnvelope {
+  id: string;
+  occurred_at: string;
+  payload: unknown;
+}
+
 // Per-scenario `WebWorld` fixture. playwright-bdd consumes its own `test`
 // (re-exported from `playwright-bdd`); we extend it to thread an
 // actor-state map through every step without leaning on a global.
@@ -436,6 +442,29 @@ When(
 );
 
 When(
+  /^(\w+) lists user credentials for their own account$/,
+  async ({ page, world }, name: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const response = await page.request.get(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials`,
+    );
+    await recordCredentialsOutcome(response, self);
+  },
+);
+
+When(
+  /^(\w+) lists user credentials for (\w+)'s account$/,
+  async ({ page, world }, name: string, target: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const targetActor = await ensureActorIdentity(page, world, target);
+    const response = await page.request.get(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(targetActor.accountId)}/user-credentials`,
+    );
+    await recordCredentialsOutcome(response, self);
+  },
+);
+
+When(
   /^(\w+) removes their remembered user credential$/,
   async ({ page, world }, name: string) => {
     const self = await ensureSignedInActor(page, world, name);
@@ -522,6 +551,71 @@ Then(
     if (serialized.includes(value)) {
       throw new Error(
         `credential value should not appear in metadata for ${name}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees user credential metadata scoped to their own account$/,
+  async ({ world }, name: string) => {
+    const state = actor(world, name);
+    const accountId = state.accountId;
+    if (!accountId) {
+      throw new Error(`actor ${name} has no known account id`);
+    }
+    const snapshot = state.lastCredentials ?? [];
+    const allScoped = snapshot.every(
+      (item) =>
+        item.owner_scope.scope === "user" &&
+        item.owner_scope.account_id === accountId,
+    );
+    if (!allScoped) {
+      throw new Error(
+        `expected ${name} credential metadata to be scoped to account ${accountId}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees user credential metadata with a last-updated timestamp$/,
+  async ({ world }, name: string) => {
+    const snapshot = actor(world, name).lastCredentials ?? [];
+    const valid = snapshot.every((item) => {
+      const createdAt = Date.parse(item.created_at);
+      const updatedAt = Date.parse(item.updated_at);
+      return (
+        Number.isFinite(createdAt) &&
+        Number.isFinite(updatedAt) &&
+        updatedAt >= createdAt
+      );
+    });
+    if (!valid) {
+      throw new Error(
+        `expected ${name} credential metadata rows to include valid last-updated timestamps`,
+      );
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees no credential plaintext value "([^"]*)" in read paths, logs, audit, or event projections$/,
+  async ({ page, world }, name: string, value: string) => {
+    const snapshots = JSON.stringify(
+      Array.from(world.actors.entries()).map(([actorName, state]) => ({
+        actorName,
+        accountId: state.accountId,
+        lastFailureCode: state.lastFailureCode,
+        lastCredentials: state.lastCredentials ?? [],
+      })),
+    );
+    const events = await fetchRecentEventsFromTestHooks(page, 100);
+    const eventProjection = JSON.stringify(events);
+    const combined = `${snapshots}\nlog_projection=${snapshots}\naudit_projection=${eventProjection}\nevent_projection=${eventProjection}`;
+    if (combined.includes(value)) {
+      throw new Error(
+        `expected no plaintext credential leak for ${name}; sentinel appeared in read/event projections`,
       );
     }
   },
@@ -620,6 +714,19 @@ async function recordSettingsOutcome(
   delete state.lastFailureCode;
 }
 
+async function recordCredentialsOutcome(
+  response: import("@playwright/test").APIResponse,
+  state: ActorState,
+): Promise<void> {
+  if (!response.ok()) {
+    state.lastFailureCode = await responseFailureCode(response);
+    return;
+  }
+  const body = (await response.json()) as { items: UserCredentialView[] };
+  state.lastCredentials = body.items;
+  delete state.lastFailureCode;
+}
+
 function settingPayload(
   key: string,
   rawValue: string,
@@ -648,6 +755,21 @@ function matchesSetting(
     return item.value.value === value;
   }
   return item.value.value === value;
+}
+
+async function fetchRecentEventsFromTestHooks(
+  page: import("@playwright/test").Page,
+  limit: number,
+): Promise<TestHookEventEnvelope[]> {
+  const response = await page.request.get(
+    `${apiBaseUrl()}/test-hooks/events/recent?limit=${encodeURIComponent(String(limit))}`,
+  );
+  if (!response.ok()) {
+    const code = await responseFailureCode(response);
+    throw new Error(`failed to fetch recent events from test hooks: ${code}`);
+  }
+  const body = (await response.json()) as TestHookEventEnvelope[];
+  return body;
 }
 
 // Wait for React hydration to complete on a Next.js page. The Page-level
