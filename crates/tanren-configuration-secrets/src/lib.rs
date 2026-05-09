@@ -13,6 +13,11 @@ use tanren_identity_policy::AccountId;
 use thiserror::Error;
 use utoipa::ToSchema;
 
+/// Maximum byte length allowed for the editor setting value.
+pub const USER_SETTING_EDITOR_MAX_BYTES: usize = 1_024;
+/// Maximum byte length allowed for user credential secret values.
+pub const USER_CREDENTIAL_SECRET_MAX_BYTES: usize = 8_192;
+
 /// Configuration tiers in inheritance order, from most-specific to most-general.
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, JsonSchema, ToSchema,
@@ -161,13 +166,10 @@ impl UserCredentialWrite {
     ///
     /// # Errors
     ///
-    /// Returns [`ConfigurationValidationFailure::ValueEmpty`] when the
-    /// secret is blank/whitespace.
+    /// Returns [`ConfigurationValidationFailure`] when the secret is
+    /// blank/whitespace or exceeds the maximum supported byte length.
     pub fn validate(&self) -> Result<(), ConfigurationValidationFailure> {
-        if self.value.expose_secret().trim().is_empty() {
-            return Err(ConfigurationValidationFailure::ValueEmpty);
-        }
-        Ok(())
+        validate_user_credential_value(&self.value)
     }
 }
 
@@ -212,9 +214,25 @@ pub enum ConfigurationValidationFailure {
     /// Editor command was blank after trimming.
     #[error("editor value is empty")]
     EditorEmpty,
+    /// Editor command exceeds the supported byte length bound.
+    #[error("editor value exceeds max byte length ({actual_bytes}>{max_bytes})")]
+    EditorTooLong {
+        /// Maximum byte length accepted by the contract.
+        max_bytes: usize,
+        /// Provided byte length.
+        actual_bytes: usize,
+    },
     /// Secret write value was blank after trimming.
     #[error("secret value is empty")]
     ValueEmpty,
+    /// Secret write value exceeds the supported byte length bound.
+    #[error("secret value exceeds max byte length ({actual_bytes}>{max_bytes})")]
+    ValueTooLong {
+        /// Maximum byte length accepted by the contract.
+        max_bytes: usize,
+        /// Provided byte length.
+        actual_bytes: usize,
+    },
 }
 
 /// Validate a user-tier setting payload.
@@ -242,7 +260,38 @@ pub fn validate_user_setting(
     {
         return Err(ConfigurationValidationFailure::EditorEmpty);
     }
+    if let UserSettingValue::Editor(editor) = value {
+        let actual_bytes = editor.len();
+        if actual_bytes > USER_SETTING_EDITOR_MAX_BYTES {
+            return Err(ConfigurationValidationFailure::EditorTooLong {
+                max_bytes: USER_SETTING_EDITOR_MAX_BYTES,
+                actual_bytes,
+            });
+        }
+    }
 
+    Ok(())
+}
+
+/// Validate a user-owned credential secret before persistence/encryption work.
+///
+/// # Errors
+///
+/// Returns [`ConfigurationValidationFailure`] if the secret is blank/whitespace
+/// or exceeds the configured byte-length bound.
+pub fn validate_user_credential_value(
+    value: &SecretString,
+) -> Result<(), ConfigurationValidationFailure> {
+    if value.expose_secret().trim().is_empty() {
+        return Err(ConfigurationValidationFailure::ValueEmpty);
+    }
+    let actual_bytes = value.expose_secret().len();
+    if actual_bytes > USER_CREDENTIAL_SECRET_MAX_BYTES {
+        return Err(ConfigurationValidationFailure::ValueTooLong {
+            max_bytes: USER_CREDENTIAL_SECRET_MAX_BYTES,
+            actual_bytes,
+        });
+    }
     Ok(())
 }
 

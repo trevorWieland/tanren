@@ -5,10 +5,9 @@
 //! taxonomy and do not leak existence.
 
 use chrono::Utc;
-use secrecy::ExposeSecret;
 use tanren_configuration_secrets::{
     ConfigurationValidationFailure, OwnerScope, UserCredentialStatus, UserCredentialWrite,
-    UserSettingKey, validate_user_setting,
+    UserSettingKey, validate_user_credential_value, validate_user_setting,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
@@ -198,9 +197,7 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     ensure_owner_scope(authenticated_account_id, owner_scope)?;
-    if request.value.expose_secret().trim().is_empty() {
-        return Err(validation_error(ConfigurationValidationFailure::ValueEmpty));
-    }
+    validate_user_credential_value(&request.value).map_err(validation_error)?;
 
     let now = clock.now();
     let Some(item) = store

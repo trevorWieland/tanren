@@ -55,6 +55,14 @@ Feature: Manage user-tier configuration and credentials
       Then the request fails with code "validation_failed"
       When bob lists user settings for their own account
       Then bob sees 0 user settings
+      When bob sets the editor setting to an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user settings for their own account
+      Then bob sees 0 user settings
+      When bob adds a harness_api_token user credential with an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user credentials for their own account
+      Then bob sees 0 user credential metadata rows
 
   Rule: Web surface
 
@@ -103,6 +111,14 @@ Feature: Manage user-tier configuration and credentials
       Then the request fails with code "validation_failed"
       When bob lists user settings for their own account
       Then bob sees 0 user settings
+      When bob sets the editor setting to an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user settings for their own account
+      Then bob sees 0 user settings
+      When bob adds a harness_api_token user credential with an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user credentials for their own account
+      Then bob sees 0 user credential metadata rows
 
   Rule: CLI surface
 
@@ -151,6 +167,14 @@ Feature: Manage user-tier configuration and credentials
       Then the request fails with code "validation_failed"
       When bob lists user settings for their own account
       Then bob sees 0 user settings
+      When bob sets the editor setting to an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user settings for their own account
+      Then bob sees 0 user settings
+      When bob adds a harness_api_token user credential with an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user credentials for their own account
+      Then bob sees 0 user credential metadata rows
 
   Rule: MCP surface
 
@@ -199,6 +223,14 @@ Feature: Manage user-tier configuration and credentials
       Then the request fails with code "validation_failed"
       When bob lists user settings for their own account
       Then bob sees 0 user settings
+      When bob sets the editor setting to an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user settings for their own account
+      Then bob sees 0 user settings
+      When bob adds a harness_api_token user credential with an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user credentials for their own account
+      Then bob sees 0 user credential metadata rows
 
   Rule: TUI surface
 
@@ -247,3 +279,11 @@ Feature: Manage user-tier configuration and credentials
       Then the request fails with code "validation_failed"
       When bob lists user settings for their own account
       Then bob sees 0 user settings
+      When bob sets the editor setting to an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user settings for their own account
+      Then bob sees 0 user settings
+      When bob adds a harness_api_token user credential with an oversized value
+      Then the request fails with code "validation_failed"
+      When bob lists user credentials for their own account
+      Then bob sees 0 user credential metadata rows

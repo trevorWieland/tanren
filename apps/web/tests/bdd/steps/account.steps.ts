@@ -74,6 +74,8 @@ export const test = base.extend<{ world: WebWorld }>({
 });
 
 const { Given, When, Then } = createBdd(test);
+const USER_SETTING_EDITOR_MAX_BYTES = 1024;
+const USER_CREDENTIAL_SECRET_MAX_BYTES = 8192;
 
 function actor(world: WebWorld, name: string): ActorState {
   let state = world.actors.get(name);
@@ -413,6 +415,37 @@ When(
 );
 
 When(
+  /^(\w+) sets the editor setting to an oversized value$/,
+  async ({ page, world }, name: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const response = await page.request.post(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-settings`,
+      {
+        data: {
+          key: "editor",
+          value: {
+            kind: "editor",
+            value: "e".repeat(USER_SETTING_EDITOR_MAX_BYTES + 1),
+          },
+        },
+      },
+    );
+    if (!response.ok()) {
+      self.lastFailureCode = await responseFailureCode(response);
+      return;
+    }
+    delete self.lastFailureCode;
+    const body = (await response.json()) as { setting: UserSettingView };
+    if (!self.lastSettings) self.lastSettings = [];
+    const idx = self.lastSettings.findIndex(
+      (item) => item.key === body.setting.key,
+    );
+    if (idx >= 0) self.lastSettings[idx] = body.setting;
+    else self.lastSettings.push(body.setting);
+  },
+);
+
+When(
   /^(\w+) adds a (\w+) user credential with value "([^"]*)"$/,
   async ({ page, world }, name: string, kind: string, value: string) => {
     const self = await ensureSignedInActor(page, world, name);
@@ -423,6 +456,35 @@ When(
           kind,
           owner_scope: { scope: "user", account_id: self.accountId },
           value,
+        },
+      },
+    );
+    if (!response.ok()) {
+      self.lastFailureCode = await responseFailureCode(response);
+      return;
+    }
+    delete self.lastFailureCode;
+    const body = (await response.json()) as { item: UserCredentialView };
+    self.rememberedCredentialId = body.item.id;
+    if (!self.lastCredentials) self.lastCredentials = [];
+    self.lastCredentials = self.lastCredentials.filter(
+      (item) => item.id !== body.item.id,
+    );
+    self.lastCredentials.push(body.item);
+  },
+);
+
+When(
+  /^(\w+) adds a (\w+) user credential with an oversized value$/,
+  async ({ page, world }, name: string, kind: string) => {
+    const self = await ensureSignedInActor(page, world, name);
+    const response = await page.request.post(
+      `${apiBaseUrl()}/accounts/${encodeURIComponent(self.accountId)}/user-credentials`,
+      {
+        data: {
+          kind,
+          owner_scope: { scope: "user", account_id: self.accountId },
+          value: "s".repeat(USER_CREDENTIAL_SECRET_MAX_BYTES + 1),
         },
       },
     );

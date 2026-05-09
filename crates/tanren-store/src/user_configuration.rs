@@ -13,8 +13,8 @@ use sea_orm::{
 };
 use secrecy::{ExposeSecret, SecretString};
 use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, UserCredentialStatus, UserCredentialWrite,
-    UserSettingKey, UserSettingValue, validate_user_setting,
+    OwnerScope, UserCredentialStatus, UserCredentialWrite, UserSettingKey, UserSettingValue,
+    validate_user_credential_value, validate_user_setting,
 };
 use tanren_identity_policy::AccountId;
 use uuid::Uuid;
@@ -176,11 +176,7 @@ impl UserConfigurationStore for Store {
         status: UserCredentialStatus,
         now: DateTime<Utc>,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError> {
-        if value.expose_secret().trim().is_empty() {
-            return Err(StoreError::InvalidConfiguration(
-                ConfigurationValidationFailure::ValueEmpty,
-            ));
-        }
+        validate_user_credential_value(&value).map_err(StoreError::InvalidConfiguration)?;
 
         let parsed_id = parse_item_id(id)?;
         let (scope, account_id) = owner_scope_to_db(owner_scope);

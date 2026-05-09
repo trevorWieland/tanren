@@ -7,7 +7,8 @@
 use cucumber::{then, when};
 use secrecy::SecretString;
 use tanren_configuration_secrets::{
-    OwnerScope, ThemePreference, UserCredentialKind, UserSettingKey, UserSettingValue,
+    OwnerScope, ThemePreference, USER_CREDENTIAL_SECRET_MAX_BYTES, USER_SETTING_EDITOR_MAX_BYTES,
+    UserCredentialKind, UserSettingKey, UserSettingValue,
 };
 use tanren_contract::{CreateUserCredentialRequest, UpsertUserSettingRequest};
 use tanren_identity_policy::AccountId;
@@ -53,6 +54,12 @@ async fn when_set_setting(world: &mut TanrenWorld, actor: String, key: String, v
     ctx.last_outcome = Some(outcome);
 }
 
+#[when(expr = "{word} sets the editor setting to an oversized value")]
+async fn when_set_editor_setting_oversized(world: &mut TanrenWorld, actor: String) {
+    let oversized = "e".repeat(USER_SETTING_EDITOR_MAX_BYTES + 1);
+    when_set_setting(world, actor, "editor".to_owned(), oversized).await;
+}
+
 #[when(expr = "{word} lists user credentials for their own account")]
 async fn when_list_credentials_own(world: &mut TanrenWorld, actor: String) {
     let ctx = world.ensure_account_ctx().await;
@@ -92,6 +99,12 @@ async fn when_add_credential(world: &mut TanrenWorld, actor: String, kind: Strin
         Err(err) => record_failure(err, entry),
     };
     ctx.last_outcome = Some(outcome);
+}
+
+#[when(expr = "{word} adds a {word} user credential with an oversized value")]
+async fn when_add_credential_oversized(world: &mut TanrenWorld, actor: String, kind: String) {
+    let oversized = "s".repeat(USER_CREDENTIAL_SECRET_MAX_BYTES + 1);
+    when_add_credential(world, actor, kind, oversized).await;
 }
 
 #[when(expr = "{word} removes their remembered user credential")]
