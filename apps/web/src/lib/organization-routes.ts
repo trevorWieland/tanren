@@ -7,16 +7,7 @@ export const ORGANIZATION_API_ROUTES = {
   testHookEvents: "/test-hooks/events",
 } as const;
 
-export const ORGANIZATION_ADMIN_PERMISSIONS = [
-  "invite",
-  "manage_access",
-  "configure",
-  "set_policy",
-  "delete",
-] as const;
-
-export type OrganizationAdminPermission =
-  (typeof ORGANIZATION_ADMIN_PERMISSIONS)[number];
+export type OrganizationAdminPermission = string;
 
 export const ORGANIZATION_WIRE_TEST_IDS = {
   page: "org-wire-page",

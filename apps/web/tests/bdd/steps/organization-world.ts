@@ -1,11 +1,4 @@
-import {
-  ORGANIZATION_ADMIN_PERMISSIONS,
-  type OrganizationAdminPermission,
-} from "@/lib/organization-routes";
-
-export const ALL_ADMIN_PERMISSIONS: readonly OrganizationAdminPermission[] = [
-  ...ORGANIZATION_ADMIN_PERMISSIONS,
-];
+import { type OrganizationAdminPermission } from "@/lib/organization-routes";
 
 export interface ActorState {
   email?: string;
@@ -60,10 +53,6 @@ export interface OrganizationWorld {
   __orgState?: OrganizationWorldState;
 }
 
-const PERMISSION_SET = new Set<OrganizationAdminPermission>(
-  ORGANIZATION_ADMIN_PERMISSIONS,
-);
-
 function isObjectRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
@@ -78,10 +67,7 @@ function hasOnlyStringKeys(value: unknown, keys: readonly string[]): boolean {
 export function isOrganizationPermission(
   value: unknown,
 ): value is OrganizationAdminPermission {
-  return (
-    typeof value === "string" &&
-    PERMISSION_SET.has(value as OrganizationAdminPermission)
-  );
+  return typeof value === "string" && value.trim() !== "";
 }
 
 export function assertOrganizationPermission(

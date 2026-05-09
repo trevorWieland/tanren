@@ -13,13 +13,14 @@ pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
-pub use organization::{OrganizationName, OrganizationPermission};
-pub use session_token::SessionToken;
-
 use chrono::{DateTime, Utc};
+pub use organization::{
+    OrganizationName, OrganizationPermission, ParseOrganizationPermissionError,
+};
 use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+pub use session_token::SessionToken;
 use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;

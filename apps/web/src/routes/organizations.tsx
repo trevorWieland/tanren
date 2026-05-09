@@ -1,10 +1,9 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
-  ORGANIZATION_ADMIN_PERMISSIONS,
   ORGANIZATION_API_ROUTES,
   ORGANIZATION_WIRE_TEST_IDS,
   type OrganizationAdminPermission,
@@ -16,6 +15,7 @@ import {
 } from "@/lib/organization-routes";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+const ORGANIZATION_PERMISSION_CACHE_KEY = "tanren.organization.permissions";
 
 interface WireResponse {
   ok: boolean;
@@ -129,9 +129,10 @@ export default function OrganizationsRoute(): ReactNode {
   const [createName, setCreateName] = useState("");
   const [permissionOrgId, setPermissionOrgId] = useState("");
   const [operationSequence, setOperationSequence] = useState(0);
-  const [permission, setPermission] = useState<OrganizationAdminPermission>(
-    ORGANIZATION_ADMIN_PERMISSIONS[0],
-  );
+  const [permission, setPermission] = useState<OrganizationAdminPermission>("");
+  const [permissionOptions, setPermissionOptions] = useState<
+    OrganizationAdminPermission[]
+  >([]);
   const [organizationsByName, setOrganizationsByName] = useState<
     Record<string, OrganizationRecord>
   >({});
@@ -148,6 +149,29 @@ export default function OrganizationsRoute(): ReactNode {
       ),
     [organizationsByName],
   );
+  useEffect(() => {
+    const cached = window.localStorage.getItem(
+      ORGANIZATION_PERMISSION_CACHE_KEY,
+    );
+    if (!cached) {
+      return;
+    }
+    try {
+      const parsed = JSON.parse(cached) as unknown;
+      if (!Array.isArray(parsed)) {
+        return;
+      }
+      const options = parsed.filter(
+        (entry): entry is string => typeof entry === "string",
+      );
+      if (options.length > 0) {
+        setPermissionOptions(options);
+        setPermission((previous) => previous || options[0] || "");
+      }
+    } catch {
+      // Ignore malformed local-storage state and keep runtime defaults.
+    }
+  }, []);
 
   function beginOperation(): void {
     setOperationSequence((previous) => previous + 1);
@@ -187,6 +211,16 @@ export default function OrganizationsRoute(): ReactNode {
         initialProjectCount,
       },
     }));
+    if (body.granted_permissions.length > 0) {
+      setPermissionOptions(body.granted_permissions);
+      window.localStorage.setItem(
+        ORGANIZATION_PERMISSION_CACHE_KEY,
+        JSON.stringify(body.granted_permissions),
+      );
+      setPermission(
+        (previous) => previous || body.granted_permissions[0] || "",
+      );
+    }
     setPermissionOrgId(body.organization.id);
     setOperation({ status: "success", failureCode: null, detail: null });
   }
@@ -322,7 +356,7 @@ export default function OrganizationsRoute(): ReactNode {
           }
           value={permission}
         >
-          {ORGANIZATION_ADMIN_PERMISSIONS.map((candidate) => (
+          {permissionOptions.map((candidate) => (
             <option key={candidate} value={candidate}>
               {candidate}
             </option>

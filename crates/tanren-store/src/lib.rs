@@ -427,31 +427,11 @@ pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, 
 pub(crate) fn parse_db_organization_permission(
     raw: &str,
 ) -> Result<OrganizationPermission, StoreError> {
-    match raw {
-        "invite" => Ok(OrganizationPermission::Invite),
-        "manage_access" => Ok(OrganizationPermission::ManageAccess),
-        "configure" => Ok(OrganizationPermission::Configure),
-        "set_policy" => Ok(OrganizationPermission::SetPolicy),
-        "delete" => Ok(OrganizationPermission::Delete),
-        _ => Err(StoreError::InvalidPermissionKey {
+    raw.parse::<OrganizationPermission>()
+        .map_err(|_| StoreError::InvalidPermissionKey {
             column: "permission",
             value: raw.to_owned(),
-        }),
-    }
-}
-
-/// Stable DB storage key for an organization-level permission.
-#[must_use]
-pub(crate) const fn organization_permission_key(
-    permission: OrganizationPermission,
-) -> &'static str {
-    match permission {
-        OrganizationPermission::Invite => "invite",
-        OrganizationPermission::ManageAccess => "manage_access",
-        OrganizationPermission::Configure => "configure",
-        OrganizationPermission::SetPolicy => "set_policy",
-        OrganizationPermission::Delete => "delete",
-    }
+        })
 }
 
 /// Wrap a raw string into a [`SecretString`]. Re-exported so callers

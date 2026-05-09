@@ -1,5 +1,6 @@
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use thiserror::Error;
 use utoipa::ToSchema;
 
 use crate::ValidationError;
@@ -102,4 +103,58 @@ pub enum OrganizationPermission {
     SetPolicy,
     /// Delete/disband the organization.
     Delete,
+}
+
+impl OrganizationPermission {
+    /// Canonical ordered set of all organization permissions.
+    pub const ALL: [Self; 5] = [
+        Self::Invite,
+        Self::ManageAccess,
+        Self::Configure,
+        Self::SetPolicy,
+        Self::Delete,
+    ];
+
+    /// Canonical wire/storage key for the permission.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Invite => "invite",
+            Self::ManageAccess => "manage_access",
+            Self::Configure => "configure",
+            Self::SetPolicy => "set_policy",
+            Self::Delete => "delete",
+        }
+    }
+}
+
+impl std::fmt::Display for OrganizationPermission {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl std::str::FromStr for OrganizationPermission {
+    type Err = ParseOrganizationPermissionError;
+
+    fn from_str(raw: &str) -> Result<Self, Self::Err> {
+        let normalized = raw.trim().to_ascii_lowercase();
+        match normalized.as_str() {
+            "invite" => Ok(Self::Invite),
+            "manage_access" => Ok(Self::ManageAccess),
+            "configure" => Ok(Self::Configure),
+            "set_policy" => Ok(Self::SetPolicy),
+            "delete" => Ok(Self::Delete),
+            _ => Err(ParseOrganizationPermissionError {
+                value: raw.to_owned(),
+            }),
+        }
+    }
+}
+
+/// Error returned when parsing an organization permission key fails.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[error("invalid organization permission key: {value}")]
+pub struct ParseOrganizationPermissionError {
+    value: String,
 }

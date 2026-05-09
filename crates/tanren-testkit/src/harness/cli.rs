@@ -10,6 +10,7 @@
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
+use std::str::FromStr;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -102,31 +103,12 @@ impl CliHarness {
             .ok_or_else(super::auth_required_failure)
     }
 
-    fn permission_key(permission: OrganizationPermission) -> &'static str {
-        match permission {
-            OrganizationPermission::Invite => "invite",
-            OrganizationPermission::ManageAccess => "manage_access",
-            OrganizationPermission::Configure => "configure",
-            OrganizationPermission::SetPolicy => "set_policy",
-            OrganizationPermission::Delete => "delete",
-        }
-    }
-
     fn parse_permissions(raw: &str) -> HarnessResult<Vec<OrganizationPermission>> {
         let mut out = Vec::new();
         for piece in raw.split(',').filter(|s| !s.is_empty()) {
-            let permission = match piece {
-                "invite" => OrganizationPermission::Invite,
-                "manage_access" => OrganizationPermission::ManageAccess,
-                "configure" => OrganizationPermission::Configure,
-                "set_policy" => OrganizationPermission::SetPolicy,
-                "delete" => OrganizationPermission::Delete,
-                other => {
-                    return Err(HarnessError::Transport(format!(
-                        "unknown permission key in cli output: {other}"
-                    )));
-                }
-            };
+            let permission = OrganizationPermission::from_str(piece).map_err(|_| {
+                HarnessError::Transport(format!("unknown permission key in cli output: {piece}"))
+            })?;
             out.push(permission);
         }
         Ok(out)
@@ -382,6 +364,7 @@ impl AccountHarness for CliHarness {
         permission: OrganizationPermission,
     ) -> HarnessResult<CheckOrganizationPermissionResponse> {
         let session_file = self.session_file_for(account_id)?;
+        let permission_key = permission.to_string();
         let output = Command::new(&self.binary)
             .args([
                 "organization",
@@ -393,7 +376,7 @@ impl AccountHarness for CliHarness {
                 "--org-id",
                 &org_id.to_string(),
                 "--permission",
-                Self::permission_key(permission),
+                &permission_key,
             ])
             .env("TANREN_SESSION_FILE", session_file)
             .stdin(Stdio::null())

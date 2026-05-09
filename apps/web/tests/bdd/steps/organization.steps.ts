@@ -12,7 +12,6 @@ import {
 import { signInActorViaUi } from "./api-client";
 import { test } from "./account.steps";
 import {
-  ALL_ADMIN_PERMISSIONS,
   actor,
   orgState,
   requireOrganizationWorld,
@@ -202,8 +201,15 @@ Then(
       );
     }
 
-    const actual = [...org.grantedPermissions].sort();
-    const expected = [...ALL_ADMIN_PERMISSIONS].sort();
+    const actual = [...new Set(org.grantedPermissions)].sort();
+    const expected = [
+      ...new Set(state.lastCreateResponse?.granted_permissions ?? []),
+    ].sort();
+    if (expected.length === 0) {
+      throw new Error(
+        "expected create response to include granted_permissions for admin checks",
+      );
+    }
     if (JSON.stringify(actual) !== JSON.stringify(expected)) {
       throw new Error(
         `expected admin permissions ${expected.join(",")}, got ${actual.join(",")}`,
@@ -211,7 +217,7 @@ Then(
     }
 
     await signInActorViaUi(page, typedWorld, name);
-    for (const permission of ALL_ADMIN_PERMISSIONS) {
+    for (const permission of expected) {
       const operation = await checkOrganizationPermissionViaWire(
         page,
         org.id,

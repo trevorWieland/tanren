@@ -1,5 +1,6 @@
 use std::fs;
 use std::io::Write;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use clap::Subcommand;
@@ -107,7 +108,7 @@ async fn create_organization(
     let granted = response
         .granted_permissions
         .iter()
-        .map(|p| permission_key(*p))
+        .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",");
     let stdout = std::io::stdout();
@@ -196,7 +197,7 @@ async fn check_permission(
         "account_id={account} org_id={org} permission={permission} allowed=true",
         account = response.account_id,
         org = response.org_id,
-        permission = permission_key(response.permission),
+        permission = response.permission,
     )
     .context("write permission-check result")?;
     Ok(())
@@ -237,25 +238,12 @@ fn parse_org_id(raw: &str) -> Result<OrgId> {
 }
 
 fn parse_permission(raw: &str) -> Result<OrganizationPermission> {
-    let normalized = raw.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "invite" => Ok(OrganizationPermission::Invite),
-        "manage_access" => Ok(OrganizationPermission::ManageAccess),
-        "configure" => Ok(OrganizationPermission::Configure),
-        "set_policy" => Ok(OrganizationPermission::SetPolicy),
-        "delete" => Ok(OrganizationPermission::Delete),
-        _ => Err(anyhow::anyhow!(
-            "parse --permission: expected invite|manage_access|configure|set_policy|delete"
-        )),
-    }
-}
-
-fn permission_key(permission: OrganizationPermission) -> &'static str {
-    match permission {
-        OrganizationPermission::Invite => "invite",
-        OrganizationPermission::ManageAccess => "manage_access",
-        OrganizationPermission::Configure => "configure",
-        OrganizationPermission::SetPolicy => "set_policy",
-        OrganizationPermission::Delete => "delete",
-    }
+    OrganizationPermission::from_str(raw.trim()).map_err(|_| {
+        let expected = OrganizationPermission::ALL
+            .into_iter()
+            .map(OrganizationPermission::as_str)
+            .collect::<Vec<_>>()
+            .join("|");
+        anyhow::anyhow!("parse --permission: expected {expected}")
+    })
 }

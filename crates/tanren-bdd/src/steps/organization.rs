@@ -5,20 +5,13 @@
 //! real surface under test.
 
 use std::collections::HashSet;
+use std::str::FromStr;
 
 use cucumber::{then, when};
 use tanren_identity_policy::{AccountId, OrganizationName, OrganizationPermission};
 use tanren_testkit::{HarnessOutcome, record_failure};
 
 use crate::TanrenWorld;
-
-const ALL_ADMIN_PERMISSIONS: [OrganizationPermission; 5] = [
-    OrganizationPermission::Invite,
-    OrganizationPermission::ManageAccess,
-    OrganizationPermission::Configure,
-    OrganizationPermission::SetPolicy,
-    OrganizationPermission::Delete,
-];
 
 #[when(expr = "{word} creates organization {string}")]
 async fn when_create_organization(world: &mut TanrenWorld, actor: String, name: String) {
@@ -187,7 +180,8 @@ async fn then_creator_has_admin_permissions(world: &mut TanrenWorld, actor: Stri
         "admin-permission assertion for {actor} must target the just-created organization"
     );
 
-    let expected: HashSet<OrganizationPermission> = ALL_ADMIN_PERMISSIONS.into_iter().collect();
+    let expected: HashSet<OrganizationPermission> =
+        OrganizationPermission::ALL.into_iter().collect();
     let actual: HashSet<OrganizationPermission> =
         created.granted_permissions.iter().copied().collect();
     assert_eq!(
@@ -238,15 +232,7 @@ async fn then_org_has_zero_initial_projects(world: &mut TanrenWorld, name: Strin
 }
 
 fn parse_permission(raw: &str) -> OrganizationPermission {
-    let parsed = match raw {
-        "invite" => Some(OrganizationPermission::Invite),
-        "manage_access" => Some(OrganizationPermission::ManageAccess),
-        "configure" => Some(OrganizationPermission::Configure),
-        "set_policy" => Some(OrganizationPermission::SetPolicy),
-        "delete" => Some(OrganizationPermission::Delete),
-        _ => None,
-    };
-    parsed.expect("unsupported organization permission in scenario")
+    OrganizationPermission::from_str(raw).expect("unsupported organization permission in scenario")
 }
 
 fn account_id_for_actor(ctx: &crate::AccountContext, actor: &str) -> Option<AccountId> {

@@ -3,6 +3,7 @@
 //! workspace 500-line budget.
 
 use secrecy::SecretString;
+use std::str::FromStr;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
@@ -140,7 +141,7 @@ pub(crate) fn create_organization_outcome(response: &CreateOrganizationResponse)
     let granted = response
         .granted_permissions
         .iter()
-        .map(|permission| permission_key(*permission).to_owned())
+        .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ");
     OutcomeView {
@@ -172,7 +173,7 @@ pub(crate) fn check_organization_permission_outcome(
         lines: vec![
             format!("account_id: {}", response.account_id),
             format!("org_id: {}", response.org_id),
-            format!("permission: {}", permission_key(response.permission)),
+            format!("permission: {}", response.permission),
         ],
     }
 }
@@ -278,26 +279,12 @@ fn parse_org_id(raw: &str) -> Result<OrgId, String> {
 }
 
 fn parse_permission(raw: &str) -> Result<OrganizationPermission, String> {
-    let normalized = raw.trim().to_ascii_lowercase();
-    match normalized.as_str() {
-        "invite" => Ok(OrganizationPermission::Invite),
-        "manage_access" => Ok(OrganizationPermission::ManageAccess),
-        "configure" => Ok(OrganizationPermission::Configure),
-        "set_policy" => Ok(OrganizationPermission::SetPolicy),
-        "delete" => Ok(OrganizationPermission::Delete),
-        _ => Err(
-            "validation_failed: permission must be invite|manage_access|configure|set_policy|delete"
-                .to_owned(),
-        ),
-    }
-}
-
-fn permission_key(permission: OrganizationPermission) -> &'static str {
-    match permission {
-        OrganizationPermission::Invite => "invite",
-        OrganizationPermission::ManageAccess => "manage_access",
-        OrganizationPermission::Configure => "configure",
-        OrganizationPermission::SetPolicy => "set_policy",
-        OrganizationPermission::Delete => "delete",
-    }
+    OrganizationPermission::from_str(raw.trim()).map_err(|_| {
+        let expected = OrganizationPermission::ALL
+            .into_iter()
+            .map(OrganizationPermission::as_str)
+            .collect::<Vec<_>>()
+            .join("|");
+        format!("validation_failed: permission must be {expected}")
+    })
 }

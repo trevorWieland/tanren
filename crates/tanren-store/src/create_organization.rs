@@ -14,15 +14,7 @@ use crate::traits::{
     CreateOrganizationEventContext, CreateOrganizationEventsBuilder,
     LastOrganizationAdminGuardError,
 };
-use crate::{OrganizationRecord, StoreError, organization_permission_key};
-
-const ORGANIZATION_ADMIN_PERMISSIONS: [OrganizationPermission; 5] = [
-    OrganizationPermission::Invite,
-    OrganizationPermission::ManageAccess,
-    OrganizationPermission::Configure,
-    OrganizationPermission::SetPolicy,
-    OrganizationPermission::Delete,
-];
+use crate::{OrganizationRecord, StoreError};
 
 pub(crate) async fn run(
     conn: &DatabaseConnection,
@@ -163,7 +155,7 @@ async fn find_idempotent_replay_for_key(
         OrganizationRecord::try_from(organization_row).map_err(CreateOrganizationError::Store)?;
     Ok(Some(CreateOrganizationAtomicOutput {
         organization,
-        granted_permissions: ORGANIZATION_ADMIN_PERMISSIONS.to_vec(),
+        granted_permissions: OrganizationPermission::ALL.to_vec(),
         initial_project_count: 0,
     }))
 }
@@ -246,19 +238,19 @@ async fn insert_creator_admin_grants_in_txn(
     organization_id: OrgId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Vec<OrganizationPermission>, CreateOrganizationError> {
-    for permission in ORGANIZATION_ADMIN_PERMISSIONS {
+    for permission in OrganizationPermission::ALL {
         let model = entity::organization_permission_grants::ActiveModel {
             id: Set(Uuid::now_v7()),
             org_id: Set(organization_id.as_uuid()),
             account_id: Set(creator_account_id.as_uuid()),
-            permission: Set(organization_permission_key(permission).to_owned()),
+            permission: Set(permission.to_string()),
             granted_by_account_id: Set(creator_account_id.as_uuid()),
             created_at: Set(now),
         };
         model.insert(txn).await.map_err(StoreError::from)?;
     }
 
-    Ok(ORGANIZATION_ADMIN_PERMISSIONS.to_vec())
+    Ok(OrganizationPermission::ALL.to_vec())
 }
 
 async fn append_success_events_in_txn(
@@ -283,6 +275,7 @@ pub(crate) async fn has_permission(
     org_id: OrgId,
     permission: OrganizationPermission,
 ) -> Result<bool, StoreError> {
+    let permission_key = permission.to_string();
     let has_membership = entity::memberships::Entity::find()
         .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
         .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
@@ -296,10 +289,7 @@ pub(crate) async fn has_permission(
     let row = entity::organization_permission_grants::Entity::find()
         .filter(entity::organization_permission_grants::Column::AccountId.eq(account_id.as_uuid()))
         .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
-        .filter(
-            entity::organization_permission_grants::Column::Permission
-                .eq(organization_permission_key(permission)),
-        )
+        .filter(entity::organization_permission_grants::Column::Permission.eq(permission_key))
         .one(conn)
         .await?;
 
@@ -313,17 +303,15 @@ pub(crate) async fn enforce_not_last_admin_holder(
 ) -> Result<(), LastOrganizationAdminGuardError> {
     let mut orphaned_permissions = Vec::new();
 
-    for permission in ORGANIZATION_ADMIN_PERMISSIONS {
+    for permission in OrganizationPermission::ALL {
         if !has_permission(conn, account_id, org_id, permission).await? {
             continue;
         }
+        let permission_key = permission.to_string();
 
         let holder_count = entity::organization_permission_grants::Entity::find()
             .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
-            .filter(
-                entity::organization_permission_grants::Column::Permission
-                    .eq(organization_permission_key(permission)),
-            )
+            .filter(entity::organization_permission_grants::Column::Permission.eq(permission_key))
             .count(conn)
             .await
             .map_err(StoreError::from)?;
