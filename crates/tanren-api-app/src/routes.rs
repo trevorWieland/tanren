@@ -13,7 +13,11 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, ListUserCredentialsResponse, ListUserSettingsResponse,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, SessionEnvelope, SignInRequest,
+    SignUpRequest, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
+    UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -21,6 +25,16 @@ use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
+mod user_configuration;
+
+use self::user_configuration::{
+    __path_add_user_credential_route, __path_list_user_credentials_route,
+    __path_list_user_settings_route, __path_remove_user_credential_route,
+    __path_remove_user_setting_route, __path_update_user_credential_route,
+    __path_upsert_user_setting_route, add_user_credential_route, list_user_credentials_route,
+    list_user_settings_route, remove_user_credential_route, remove_user_setting_route,
+    update_user_credential_route, upsert_user_setting_route,
+};
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
@@ -98,6 +112,13 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        list_user_settings_route,
+        upsert_user_setting_route,
+        remove_user_setting_route,
+        add_user_credential_route,
+        update_user_credential_route,
+        list_user_credentials_route,
+        remove_user_credential_route,
     ),
     components(schemas(
         HealthResponse,
@@ -107,12 +128,24 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
+        UpsertUserSettingRequest,
+        UpsertUserSettingResponse,
+        ListUserSettingsResponse,
+        RemoveUserSettingResponse,
+        CreateUserCredentialRequest,
+        CreateUserCredentialResponse,
+        UpdateUserCredentialRequest,
+        UpdateUserCredentialResponse,
+        ListUserCredentialsResponse,
+        RemoveUserCredentialResponse,
+        UserConfigurationFailureReason,
         AccountFailureBody,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "configuration", description = "Authenticated user settings and user credential metadata."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -320,5 +353,12 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(list_user_settings_route))
+        .routes(routes!(upsert_user_setting_route))
+        .routes(routes!(remove_user_setting_route))
+        .routes(routes!(add_user_credential_route))
+        .routes(routes!(update_user_credential_route))
+        .routes(routes!(list_user_credentials_route))
+        .routes(routes!(remove_user_credential_route))
         .with_state(state)
 }

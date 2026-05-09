@@ -17,7 +17,7 @@ use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
 
 const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
-const SESSION_KEY_ACCOUNT: &str = "account_id";
+pub(crate) const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
 
 /// `(account_id, expires_at)` projection of a freshly minted session.

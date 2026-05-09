@@ -4296,6 +4296,7 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-store",
