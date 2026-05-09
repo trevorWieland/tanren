@@ -44,6 +44,15 @@ Feature: Bootstrap Tanren assets into an existing repository
       And no files are written in the repository fixture
 
     @falsification @cli
+    Scenario: Reject install when command destination path is a symlink
+      Given a clean repository fixture
+      And repository path ".codex/skills" is replaced with a symlink to fixture path "external-codex-skills"
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And the install stderr contains "repository path '.codex/skills/"
+
+    @falsification @cli
     Scenario: Reinstall does not overwrite user-edited standards content
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"

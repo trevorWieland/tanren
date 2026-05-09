@@ -3,20 +3,18 @@
 //! The steps execute the real `tanren-cli` binary against a per-scenario
 //! temporary repository fixture. No installer internals are called directly.
 
-use std::collections::BTreeMap;
-use std::fs;
-use std::path::PathBuf;
-use std::sync::atomic::{AtomicU64, Ordering};
-use std::time::{SystemTime, UNIX_EPOCH};
-
-use tokio::process::Command;
-
-use tanren_testkit::locate_workspace_binary;
-
 pub(crate) use crate::steps::install_error::{InstallStepError, InstallStepResult};
 use crate::steps::install_helpers;
 use crate::steps::install_helpers::RepositoryRelativePath;
 use crate::steps::install_snapshot::RepositorySnapshot;
+use std::collections::BTreeMap;
+use std::fs;
+use std::io;
+use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
+use tanren_testkit::locate_workspace_binary;
+use tokio::process::Command;
 
 static SCENARIO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -357,6 +355,60 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn replace_fixture_path_with_directory_symlink(
+        &mut self,
+        link_path: &RepositoryRelativePath,
+        target_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let link_absolute = self.repository_path(link_path.as_str())?;
+        let target_absolute = self.repository_path(target_path.as_str())?;
+        fs::create_dir_all(&target_absolute).map_err(|source| InstallStepError::Io {
+            path: target_absolute.clone(),
+            action: "create symlink target directory in repository fixture",
+            source,
+        })?;
+        if let Some(parent) = link_absolute.parent() {
+            fs::create_dir_all(parent).map_err(|source| InstallStepError::Io {
+                path: parent.to_path_buf(),
+                action: "create symlink parent directory in repository fixture",
+                source,
+            })?;
+        }
+        match fs::symlink_metadata(&link_absolute) {
+            Ok(metadata) => {
+                if metadata.is_dir() {
+                    fs::remove_dir_all(&link_absolute).map_err(|source| InstallStepError::Io {
+                        path: link_absolute.clone(),
+                        action: "remove existing repository fixture directory before symlink swap",
+                        source,
+                    })?;
+                } else {
+                    fs::remove_file(&link_absolute).map_err(|source| InstallStepError::Io {
+                        path: link_absolute.clone(),
+                        action: "remove existing repository fixture file before symlink swap",
+                        source,
+                    })?;
+                }
+            }
+            Err(source) if source.kind() == io::ErrorKind::NotFound => {}
+            Err(source) => {
+                return Err(InstallStepError::Io {
+                    path: link_absolute,
+                    action: "inspect repository fixture path before symlink swap",
+                    source,
+                });
+            }
+        }
+        create_directory_symlink(&target_absolute, &link_absolute).map_err(|source| {
+            InstallStepError::Io {
+                path: link_absolute,
+                action: "create repository fixture symlink",
+                source,
+            }
+        })?;
+        Ok(())
+    }
+
     fn repository_path(&self, relative_path: &str) -> InstallStepResult<PathBuf> {
         install_helpers::validate_relative_path(relative_path)?;
         Ok(self.repository_root.join(relative_path))
@@ -433,3 +485,16 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
     }
     Ok(())
 }
+
+#[cfg(unix)]
+fn create_directory_symlink(target: &std::path::Path, link: &std::path::Path) -> io::Result<()> {
+    std::os::unix::fs::symlink(target, link)
+}
+
+#[cfg(windows)]
+fn create_directory_symlink(target: &std::path::Path, link: &std::path::Path) -> io::Result<()> {
+    std::os::windows::fs::symlink_dir(target, link)
+}
+
+#[cfg(not(any(unix, windows)))]
+compile_error!("install BDD symlink fixture steps require unix or windows support");

@@ -10,6 +10,8 @@
 //! mechanically rejects any step body that calls
 //! `tanren_app_services::Handlers::*` directly.
 
+#[cfg(all(test, unix))]
+mod install_writer_safety_tests;
 pub mod steps;
 
 use cucumber::World as CucumberWorld;

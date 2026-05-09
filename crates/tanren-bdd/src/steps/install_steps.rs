@@ -47,6 +47,18 @@ fn given_repository_file_deleted(world: &mut TanrenWorld, path: String) -> Insta
     ctx.delete_fixture_file(&relative_path)
 }
 
+#[given(expr = "repository path {string} is replaced with a symlink to fixture path {string}")]
+fn given_repository_path_replaced_with_symlink(
+    world: &mut TanrenWorld,
+    link_path: String,
+    target_path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let link_path = RepositoryRelativePath::parse(link_path)?;
+    let target_path = RepositoryRelativePath::parse(target_path)?;
+    ctx.replace_fixture_path_with_directory_symlink(&link_path, &target_path)
+}
+
 #[when(expr = "tanren-cli install runs with profile {string}")]
 async fn when_install_runs_with_profile(
     world: &mut TanrenWorld,

@@ -83,6 +83,7 @@ impl PlannedRemoval {
 /// Install plan produced after validating inputs and current repository state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallPlan {
+    repository_root: PathBuf,
     writes: Vec<PlannedWrite>,
     removals: Vec<PlannedRemoval>,
     preserved: Vec<RepoRelativePath>,
@@ -92,6 +93,12 @@ pub struct InstallPlan {
 }
 
 impl InstallPlan {
+    /// Canonical repository root validated during planning.
+    #[must_use]
+    pub(crate) fn repository_root(&self) -> &Path {
+        &self.repository_root
+    }
+
     /// Planned generated-file writes.
     #[must_use]
     pub fn writes(&self) -> &[PlannedWrite] {
@@ -187,6 +194,7 @@ pub fn build_install_plan(
     );
 
     Ok(InstallPlan {
+        repository_root,
         writes: writes
             .into_iter()
             .filter_map(PlannedAssetAction::into_write)
