@@ -25,6 +25,7 @@ pub(super) struct ParsedScenario {
     pub keyword_line: usize,
     pub tags: Vec<String>,
     pub rationale: Option<String>,
+    pub step_lines: Vec<String>,
 }
 
 /// Parse a `.feature` file by line. Tag groups float forward to attach to
@@ -41,6 +42,7 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
     let mut pending_tags: Vec<String> = Vec::new();
     let mut pending_tag_line: Option<usize> = None;
     let mut pending_rationale: Option<String> = None;
+    let mut current_scenario_idx: Option<usize> = None;
 
     for (idx, raw_line) in content.lines().enumerate() {
         let lineno = idx + 1;
@@ -68,6 +70,7 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
             continue;
         }
         if trimmed.starts_with('@') {
+            current_scenario_idx = None;
             for token in trimmed.split_whitespace() {
                 if token.starts_with('@') {
                     pending_tags.push(token.to_owned());
@@ -79,12 +82,14 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
             continue;
         }
         if trimmed.starts_with("Feature:") {
+            current_scenario_idx = None;
             feature_tags = std::mem::take(&mut pending_tags);
             feature_tag_line = pending_tag_line.take();
             pending_rationale = None;
             continue;
         }
         if trimmed.starts_with("Scenario Outline:") {
+            current_scenario_idx = None;
             scenario_outline_lines.push(lineno);
             pending_tags.clear();
             pending_tag_line = None;
@@ -100,11 +105,14 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
                 keyword_line: lineno,
                 tags: std::mem::take(&mut pending_tags),
                 rationale: pending_rationale.take(),
+                step_lines: Vec::new(),
             });
+            current_scenario_idx = Some(scenarios.len() - 1);
             pending_tag_line = None;
             continue;
         }
         if trimmed.starts_with("Background:") || trimmed.starts_with("Rule:") {
+            current_scenario_idx = None;
             // Tag/rationale must not float past structural keywords
             // other than `Scenario:`. Capture the tag-block start line
             // as a stray-tag violation (a misplaced `@positive @web`
@@ -120,6 +128,12 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
             pending_tags.clear();
             pending_tag_line = None;
             pending_rationale = None;
+            continue;
+        }
+        if let Some(step_text) = parse_step_text(trimmed)
+            && let Some(idx) = current_scenario_idx
+        {
+            scenarios[idx].step_lines.push(step_text.to_owned());
             continue;
         }
         // Steps, doc strings, tables, and any other unrecognised line
@@ -138,6 +152,15 @@ pub(super) fn parse_feature(content: &str) -> ParsedFeature {
         examples_lines,
         stray_tag_lines,
     }
+}
+
+fn parse_step_text(line: &str) -> Option<&str> {
+    for keyword in ["Given ", "When ", "Then ", "And ", "But ", "* "] {
+        if let Some(step) = line.strip_prefix(keyword) {
+            return Some(step.trim());
+        }
+    }
+    None
 }
 
 /// Parse `B-XXXX-<slug>.feature` filenames. Returns the behavior ID and the

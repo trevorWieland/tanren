@@ -42,12 +42,12 @@ impl TanrenWorld {
 
     /// Construct (or return) the lazy install context.
     pub(crate) fn ensure_install_ctx(&mut self) -> Result<&mut InstallContext, InstallStepError> {
-        self.require_cli_account_ctx()?.ensure_install_ctx()
+        self.require_account_ctx()?.ensure_install_ctx()
     }
 
     /// Reset the install context for the current scenario.
     pub(crate) fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
-        self.require_cli_account_ctx()?.reset_install_ctx()
+        self.require_account_ctx()?.reset_install_ctx()
     }
 
     pub(crate) async fn run_install(
@@ -55,22 +55,15 @@ impl TanrenWorld {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
-        self.require_cli_account_ctx()?
+        self.require_account_ctx()?
             .run_install(profile, integrations)
             .await
     }
 
-    fn require_cli_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
-        let ctx = self
-            .account
+    fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
+        self.account
             .as_mut()
-            .ok_or(InstallStepError::AccountContextUnavailable)?;
-        if ctx.harness.kind() != HarnessKind::Cli {
-            return Err(InstallStepError::InstallRequiresCliHarness {
-                actual: ctx.harness.kind(),
-            });
-        }
-        Ok(ctx)
+            .ok_or(InstallStepError::AccountContextUnavailable)
     }
 
     /// Refresh the account context with the harness chosen for the
@@ -82,8 +75,20 @@ impl TanrenWorld {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let kind = HarnessKind::from_tags(tags);
-        let ctx = AccountContext::new_for(kind).await;
+        let tags: Vec<String> = tags
+            .into_iter()
+            .map(|tag| tag.as_ref().to_owned())
+            .collect();
+        let kind = HarnessKind::from_tags(tags.iter().map(String::as_str));
+        let mut ctx = AccountContext::new_for(kind).await;
+        if tags
+            .iter()
+            .any(|tag| tag.strip_prefix('@').unwrap_or(tag) == "cli")
+        {
+            ctx.install = Some(InstallContext::new().expect(
+                "install fixture context must initialize when @cli tag dispatch selects install steps",
+            ));
+        }
         self.account = Some(ctx);
     }
 }
@@ -159,9 +164,6 @@ impl AccountContext {
     }
 
     fn ensure_install_ctx(&mut self) -> InstallStepResult<&mut InstallContext> {
-        if self.install.is_none() {
-            self.install = Some(InstallContext::new()?);
-        }
         self.install
             .as_mut()
             .ok_or(InstallStepError::InstallContextUnavailable)
@@ -177,9 +179,6 @@ impl AccountContext {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
-        if self.install.is_none() {
-            self.install = Some(InstallContext::new()?);
-        }
         let install = self
             .install
             .as_mut()
