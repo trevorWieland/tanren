@@ -2,7 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use sea_orm::DbErr;
+use sea_orm::{DbErr, SqlErr};
 use tanren_identity_policy::PermissionName;
 
 use crate::{ROLE_GRANT_LIST_PAGE_MAX, StoreError};
@@ -20,8 +20,7 @@ pub(crate) fn dedup_permission_names(permissions: &[PermissionName]) -> Vec<Stri
 }
 
 pub(crate) fn is_unique_violation(err: &DbErr) -> bool {
-    let err_text = err.to_string().to_ascii_lowercase();
-    err_text.contains("unique") || err_text.contains("duplicate")
+    matches!(err.sql_err(), Some(SqlErr::UniqueConstraintViolation(_)))
 }
 
 pub(crate) fn map_store_txn_error(err: sea_orm::TransactionError<StoreError>) -> StoreError {

@@ -1,11 +1,10 @@
 //! `SeaORM`-backed role-template + direct-grant persistence adapter.
 
-use std::collections::HashSet;
-
 use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, ConnectionTrait, DatabaseTransaction, EntityTrait, QueryFilter,
-    QueryOrder, QuerySelect, Set, TransactionTrait,
+    ActiveModelTrait, ColumnTrait, DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder,
+    QuerySelect, Set, TransactionTrait,
 };
 use tanren_identity_policy::{
     PermissionGrantId, PermissionGrantSource, PermissionName, PermissionScope, PrincipalRef,
@@ -16,8 +15,9 @@ use uuid::Uuid;
 use crate::entity;
 use crate::role_scope_lookup::{permission_scope_exists, principal_exists, role_scope_exists};
 use crate::role_store_ops::{
-    insert_permission_grants_chunked, insert_role_permissions_in_txn, list_direct_grants_page,
-    list_role_permission_names, list_roles_in_scope_page, role_exists_in_scope,
+    append_event_in_txn, insert_permission_grants_chunked, insert_role_permissions_in_txn,
+    list_direct_grants_page, list_role_permission_names, list_roles_in_scope_page,
+    load_role_record, missing_permissions_for_snapshot, role_exists_in_scope,
     sync_role_permissions_in_txn,
 };
 use crate::role_store_util::{
@@ -25,7 +25,8 @@ use crate::role_store_util::{
 };
 use crate::{
     ApplyRole, ApplyRoleError, CreateRoleError, CursorPage, EditRole, EditRoleError, NewRole,
-    PermissionGrantListCursor, PermissionGrantRecord, RoleListCursor, RoleRecord, RoleStore, Store,
+    PermissionGrantListCursor, PermissionGrantRecord, RoleApplyEventBuilder,
+    RoleDeleteEventBuilder, RoleListCursor, RoleRecord, RoleRecordEventBuilder, RoleStore, Store,
     StoreError, permission_grant_source_to_parts, permission_scope_to_parts,
     principal_ref_to_parts, role_scope_to_parts,
 };
@@ -41,10 +42,46 @@ impl RoleStore for Store {
             .map_err(map_wrapped_txn_error)
     }
 
+    async fn create_role_atomic(
+        &self,
+        new: NewRole,
+        event_builder: RoleRecordEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<RoleRecord, CreateRoleError> {
+        self.conn
+            .transaction::<_, RoleRecord, CreateRoleError>(|txn| {
+                Box::pin(async move {
+                    let role = create_role_in_txn(txn, new).await?;
+                    append_event_in_txn(txn, event_builder(&role), now).await?;
+                    Ok(role)
+                })
+            })
+            .await
+            .map_err(map_wrapped_txn_error)
+    }
+
     async fn edit_role(&self, edit: EditRole) -> Result<RoleRecord, EditRoleError> {
         self.conn
             .transaction::<_, RoleRecord, EditRoleError>(|txn| {
                 Box::pin(async move { edit_role_in_txn(txn, edit).await })
+            })
+            .await
+            .map_err(map_wrapped_txn_error)
+    }
+
+    async fn edit_role_atomic(
+        &self,
+        edit: EditRole,
+        event_builder: RoleRecordEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<RoleRecord, EditRoleError> {
+        self.conn
+            .transaction::<_, RoleRecord, EditRoleError>(|txn| {
+                Box::pin(async move {
+                    let role = edit_role_in_txn(txn, edit).await?;
+                    append_event_in_txn(txn, event_builder(&role), now).await?;
+                    Ok(role)
+                })
             })
             .await
             .map_err(map_wrapped_txn_error)
@@ -57,6 +94,26 @@ impl RoleStore for Store {
         self.conn
             .transaction::<_, bool, StoreError>(|txn| {
                 Box::pin(async move { delete_role_in_txn(txn, role).await })
+            })
+            .await
+            .map_err(map_store_txn_error)
+    }
+
+    async fn delete_role_atomic(
+        &self,
+        role: tanren_identity_policy::ScopedRole,
+        event_builder: RoleDeleteEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StoreError> {
+        self.conn
+            .transaction::<_, bool, StoreError>(|txn| {
+                Box::pin(async move {
+                    let deleted = delete_role_in_txn(txn, role).await?;
+                    if deleted {
+                        append_event_in_txn(txn, event_builder(), now).await?;
+                    }
+                    Ok(deleted)
+                })
             })
             .await
             .map_err(map_store_txn_error)
@@ -97,6 +154,24 @@ impl RoleStore for Store {
         self.conn
             .transaction::<_, Vec<PermissionGrantRecord>, ApplyRoleError>(|txn| {
                 Box::pin(async move { apply_role_in_txn(txn, request).await })
+            })
+            .await
+            .map_err(map_wrapped_txn_error)
+    }
+
+    async fn apply_role_atomic(
+        &self,
+        request: ApplyRole,
+        event_builder: RoleApplyEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<PermissionGrantRecord>, ApplyRoleError> {
+        self.conn
+            .transaction::<_, Vec<PermissionGrantRecord>, ApplyRoleError>(|txn| {
+                Box::pin(async move {
+                    let grants = apply_role_in_txn(txn, request).await?;
+                    append_event_in_txn(txn, event_builder(&grants), now).await?;
+                    Ok(grants)
+                })
             })
             .await
             .map_err(map_wrapped_txn_error)
@@ -402,39 +477,4 @@ async fn apply_role_in_txn(
         .map(PermissionGrantRecord::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(ApplyRoleError::from)
-}
-
-fn missing_permissions_for_snapshot(
-    snapshot_permissions: &[String],
-    existing_rows: &[entity::permission_grants::Model],
-) -> Vec<String> {
-    let existing_permissions = existing_rows
-        .iter()
-        .map(|row| row.permission_name.clone())
-        .collect::<HashSet<_>>();
-    snapshot_permissions
-        .iter()
-        .filter(|permission| !existing_permissions.contains(*permission))
-        .cloned()
-        .collect::<Vec<_>>()
-}
-
-async fn load_role_record<C: ConnectionTrait>(
-    conn: &C,
-    role_id: RoleId,
-    scope: RoleScope,
-) -> Result<Option<RoleRecord>, StoreError> {
-    let (scope_kind, scope_ref) = role_scope_to_parts(scope);
-    let row = entity::roles::Entity::find()
-        .filter(entity::roles::Column::Id.eq(role_id.as_uuid()))
-        .filter(entity::roles::Column::ScopeKind.eq(scope_kind))
-        .filter(entity::roles::Column::ScopeRef.eq(scope_ref))
-        .one(conn)
-        .await?;
-    let Some(role_row) = row else {
-        return Ok(None);
-    };
-
-    let permissions = list_role_permission_names(conn, role_id).await?;
-    RoleRecord::from_parts(role_row, permissions).map(Some)
 }

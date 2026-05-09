@@ -1,9 +1,10 @@
 use std::collections::{HashMap, HashSet};
 
+use chrono::{DateTime, Utc};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
-    ColumnTrait, Condition, ConnectionTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
-    QueryFilter, QueryOrder, QuerySelect, Set,
+    ActiveModelTrait, ColumnTrait, Condition, ConnectionTrait, DatabaseConnection,
+    DatabaseTransaction, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
 };
 use tanren_identity_policy::{PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope};
 use uuid::Uuid;
@@ -130,7 +131,7 @@ pub(crate) async fn insert_role_permissions_in_txn(
     txn: &DatabaseTransaction,
     role_id: RoleId,
     permissions: &[PermissionName],
-    created_at: chrono::DateTime<chrono::Utc>,
+    created_at: DateTime<Utc>,
 ) -> Result<(), StoreError> {
     let dedup_permissions = dedup_permission_names(permissions);
     if dedup_permissions.is_empty() {
@@ -164,7 +165,7 @@ pub(crate) async fn sync_role_permissions_in_txn(
     txn: &DatabaseTransaction,
     role_id: RoleId,
     desired_permissions: &[PermissionName],
-    updated_at: chrono::DateTime<chrono::Utc>,
+    updated_at: DateTime<Utc>,
 ) -> Result<(), StoreError> {
     let existing_rows = entity::role_permissions::Entity::find()
         .filter(entity::role_permissions::Column::RoleId.eq(role_id.as_uuid()))
@@ -283,4 +284,53 @@ pub(crate) async fn list_direct_grants_page(
         None
     };
     Ok(CursorPage { items, next_cursor })
+}
+
+pub(crate) fn missing_permissions_for_snapshot(
+    snapshot_permissions: &[String],
+    existing_rows: &[entity::permission_grants::Model],
+) -> Vec<String> {
+    let existing_permissions = existing_rows
+        .iter()
+        .map(|row| row.permission_name.clone())
+        .collect::<HashSet<_>>();
+    snapshot_permissions
+        .iter()
+        .filter(|permission| !existing_permissions.contains(*permission))
+        .cloned()
+        .collect::<Vec<_>>()
+}
+
+pub(crate) async fn load_role_record<C: ConnectionTrait>(
+    conn: &C,
+    role_id: RoleId,
+    scope: RoleScope,
+) -> Result<Option<RoleRecord>, StoreError> {
+    let (scope_kind, scope_ref) = role_scope_to_parts(scope);
+    let row = entity::roles::Entity::find()
+        .filter(entity::roles::Column::Id.eq(role_id.as_uuid()))
+        .filter(entity::roles::Column::ScopeKind.eq(scope_kind))
+        .filter(entity::roles::Column::ScopeRef.eq(scope_ref))
+        .one(conn)
+        .await?;
+    let Some(role_row) = row else {
+        return Ok(None);
+    };
+
+    let permissions = list_role_permission_names(conn, role_id).await?;
+    RoleRecord::from_parts(role_row, permissions).map(Some)
+}
+
+pub(crate) async fn append_event_in_txn(
+    txn: &DatabaseTransaction,
+    payload: serde_json::Value,
+    now: DateTime<Utc>,
+) -> Result<(), StoreError> {
+    let model = entity::events::ActiveModel {
+        id: Set(Uuid::now_v7()),
+        occurred_at: Set(now),
+        payload: Set(payload),
+    };
+    model.insert(txn).await?;
+    Ok(())
 }

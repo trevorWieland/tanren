@@ -14,6 +14,10 @@ use tanren_identity_policy::{
     AccountId, InvitationToken, OrgId, PermissionGrantId, PermissionName, PermissionScope,
     PrincipalRef, RoleName, ScopedRole,
 };
+use tanren_store::{
+    PermissionGrantRecord, RoleApplyEventBuilder, RoleDeleteEventBuilder, RoleRecord,
+    RoleRecordEventBuilder,
+};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
@@ -261,6 +265,70 @@ pub struct AuthorizationPrincipalRejected {
 #[must_use]
 pub fn role_envelope<T: Serialize>(kind: RoleKind, payload: &T) -> serde_json::Value {
     envelope_with_family(ROLE_EVENT_FAMILY, kind.as_str(), payload)
+}
+
+pub fn role_created_event_builder() -> RoleRecordEventBuilder {
+    Box::new(|role: &RoleRecord| {
+        role_envelope(
+            RoleKind::Created,
+            &RoleCreated {
+                role: role.scoped_role(),
+                name: role.name.clone(),
+                permissions: role.permissions.clone(),
+                created_at: role.created_at,
+            },
+        )
+    })
+}
+
+pub fn role_edited_event_builder() -> RoleRecordEventBuilder {
+    Box::new(|role: &RoleRecord| {
+        role_envelope(
+            RoleKind::Edited,
+            &RoleEdited {
+                role: role.scoped_role(),
+                name: role.name.clone(),
+                permissions: role.permissions.clone(),
+                edited_at: role.updated_at,
+            },
+        )
+    })
+}
+
+pub fn role_deleted_event_builder(role: ScopedRole, now: DateTime<Utc>) -> RoleDeleteEventBuilder {
+    Box::new(move || {
+        role_envelope(
+            RoleKind::Deleted,
+            &RoleDeleted {
+                role,
+                deleted_at: now,
+            },
+        )
+    })
+}
+
+pub fn role_applied_event_builder(
+    role: ScopedRole,
+    principal: PrincipalRef,
+    grant_scope: PermissionScope,
+    now: DateTime<Utc>,
+) -> RoleApplyEventBuilder {
+    Box::new(move |grants: &[PermissionGrantRecord]| {
+        role_envelope(
+            RoleKind::Applied,
+            &RoleApplied {
+                role,
+                principal,
+                grant_scope,
+                grant_ids: grants.iter().map(|grant| grant.id).collect::<Vec<_>>(),
+                permissions: grants
+                    .iter()
+                    .map(|grant| grant.permission.clone())
+                    .collect::<Vec<_>>(),
+                applied_at: now,
+            },
+        )
+    })
 }
 
 fn envelope_with_family<T: Serialize>(family: &str, kind: &str, payload: &T) -> serde_json::Value {

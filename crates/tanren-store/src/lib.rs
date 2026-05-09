@@ -1,5 +1,4 @@
 //! Database access layer for Tanren: owns SQL + row shapes while exposing typed store ports.
-
 mod accept_invitation;
 mod entity;
 mod grant_model;
@@ -24,7 +23,8 @@ pub use records::{
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore, ApplyRoleError,
-    ConsumeInvitationError, ConsumedInvitation, CreateRoleError, EditRoleError, RoleStore,
+    ConsumeInvitationError, ConsumedInvitation, CreateRoleError, EditRoleError,
+    RoleApplyEventBuilder, RoleDeleteEventBuilder, RoleRecordEventBuilder, RoleStore,
 };
 
 use async_trait::async_trait;

@@ -17,7 +17,8 @@ use tanren_store::{
 };
 
 use crate::events::{
-    AuthorizationPrincipalRejected, RoleApplied, RoleCreated, RoleDeleted, RoleEdited, RoleKind,
+    AuthorizationPrincipalRejected, RoleKind, role_applied_event_builder,
+    role_created_event_builder, role_deleted_event_builder, role_edited_event_builder,
     role_envelope,
 };
 use crate::{Clock, RoleServiceError};
@@ -82,30 +83,20 @@ where
     validate_role_permissions_bundle(&request.permissions)?;
     let now = clock.now();
     let role = store
-        .create_role(NewRole {
-            id: RoleId::fresh(),
-            scope: request.scope,
-            name: request.name,
-            permissions: request.permissions,
-            created_at: now,
-            updated_at: now,
-        })
-        .await
-        .map_err(map_create_role_error)?;
-    store
-        .append_event(
-            role_envelope(
-                RoleKind::Created,
-                &RoleCreated {
-                    role: role.scoped_role(),
-                    name: role.name.clone(),
-                    permissions: role.permissions.clone(),
-                    created_at: role.created_at,
-                },
-            ),
+        .create_role_atomic(
+            NewRole {
+                id: RoleId::fresh(),
+                scope: request.scope,
+                name: request.name,
+                permissions: request.permissions,
+                created_at: now,
+                updated_at: now,
+            },
+            role_created_event_builder(),
             now,
         )
-        .await?;
+        .await
+        .map_err(map_create_role_error)?;
     Ok(CreateRoleResponse {
         role: role_view(role),
     })
@@ -124,28 +115,18 @@ where
     validate_role_permissions_bundle(&request.permissions)?;
     let now = clock.now();
     let role = store
-        .edit_role(EditRole {
-            role: request.role,
-            name: request.name,
-            permissions: request.permissions,
-            updated_at: now,
-        })
-        .await
-        .map_err(map_edit_role_error)?;
-    store
-        .append_event(
-            role_envelope(
-                RoleKind::Edited,
-                &RoleEdited {
-                    role: role.scoped_role(),
-                    name: role.name.clone(),
-                    permissions: role.permissions.clone(),
-                    edited_at: role.updated_at,
-                },
-            ),
+        .edit_role_atomic(
+            EditRole {
+                role: request.role,
+                name: request.name,
+                permissions: request.permissions,
+                updated_at: now,
+            },
+            role_edited_event_builder(),
             now,
         )
-        .await?;
+        .await
+        .map_err(map_edit_role_error)?;
     Ok(EditRoleResponse {
         role: role_view(role),
     })
@@ -162,22 +143,16 @@ where
 {
     authorize_manage_role_scope(store, actor.account_id, request.role.scope).await?;
     let now = clock.now();
-    let deleted = store.delete_role(request.role).await?;
-    if !deleted {
-        return Err(RoleServiceError::Role(RoleFailureReason::NotFound));
-    }
-    store
-        .append_event(
-            role_envelope(
-                RoleKind::Deleted,
-                &RoleDeleted {
-                    role: request.role,
-                    deleted_at: now,
-                },
-            ),
+    let deleted = store
+        .delete_role_atomic(
+            request.role,
+            role_deleted_event_builder(request.role, now),
             now,
         )
         .await?;
+    if !deleted {
+        return Err(RoleServiceError::Role(RoleFailureReason::NotFound));
+    }
     Ok(DeleteRoleResponse { role: request.role })
 }
 
@@ -204,37 +179,22 @@ where
     }
     let now = clock.now();
     let grants = store
-        .apply_role(ApplyRole {
-            role: request.role,
-            principal: request.principal,
-            grant_scope: request.grant_scope,
-            granted_by: PrincipalRef::Account {
-                account_id: actor.account_id,
+        .apply_role_atomic(
+            ApplyRole {
+                role: request.role,
+                principal: request.principal,
+                grant_scope: request.grant_scope,
+                granted_by: PrincipalRef::Account {
+                    account_id: actor.account_id,
+                },
+                granted_at: now,
             },
-            granted_at: now,
-        })
+            role_applied_event_builder(request.role, request.principal, request.grant_scope, now),
+            now,
+        )
         .await
         .map_err(map_apply_role_error)?;
     let grant_views = grants.iter().cloned().map(grant_view).collect::<Vec<_>>();
-    store
-        .append_event(
-            role_envelope(
-                RoleKind::Applied,
-                &RoleApplied {
-                    role: request.role,
-                    principal: request.principal,
-                    grant_scope: request.grant_scope,
-                    grant_ids: grants.iter().map(|grant| grant.id).collect::<Vec<_>>(),
-                    permissions: grants
-                        .iter()
-                        .map(|grant| grant.permission.clone())
-                        .collect::<Vec<_>>(),
-                    applied_at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
     Ok(ApplyRoleResponse {
         role: request.role,
         grants: grant_views,
