@@ -8,8 +8,8 @@ use chacha20poly1305::{
 };
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder, Set,
-    TransactionTrait,
+    ActiveModelTrait, ColumnTrait, EntityTrait, IntoActiveModel, QueryFilter, QueryOrder,
+    QuerySelect, QueryTrait, Set, TransactionTrait,
 };
 use secrecy::{ExposeSecret, SecretString};
 use tanren_configuration_secrets::{
@@ -255,16 +255,27 @@ impl UserConfigurationStore for Store {
         owner_scope: OwnerScope,
     ) -> Result<bool, StoreError> {
         let parsed_id = parse_item_id(id)?;
-        let (_, account_id) = owner_scope_to_db(owner_scope);
+        let (scope, account_id) = owner_scope_to_db(owner_scope);
+        let scoped_credential_ids = entity::user_credentials::Entity::find()
+            .select_only()
+            .column(entity::user_credentials::Column::Id)
+            .filter(entity::user_credentials::Column::Id.eq(parsed_id))
+            .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
+            .into_query();
         let txn = self.conn.begin().await?;
         entity::user_credential_values::Entity::delete_many()
             .filter(entity::user_credential_values::Column::ItemId.eq(parsed_id))
             .filter(entity::user_credential_values::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(
+                entity::user_credential_values::Column::ItemId.in_subquery(scoped_credential_ids),
+            )
             .exec(&txn)
             .await?;
         let result = entity::user_credentials::Entity::delete_many()
             .filter(entity::user_credentials::Column::Id.eq(parsed_id))
             .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
+            .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
             .exec(&txn)
             .await?;
         txn.commit().await?;
