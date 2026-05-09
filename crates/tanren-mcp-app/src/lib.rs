@@ -12,22 +12,23 @@
 
 use anyhow::Result;
 use rmcp::ErrorData as McpError;
+use rmcp::RoleServer;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
+use rmcp::handler::server::tool::{Extension, ToolCallContext};
 use rmcp::handler::server::wrapper::Parameters;
-use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
-use schemars::JsonSchema;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
+use rmcp::model::{
+    CallToolRequestParams, CallToolResult, InitializeRequestParams, InitializeResult,
+    ListToolsResult, PaginatedRequestParams, ServerInfo,
+};
+use rmcp::service::RequestContext;
 use std::sync::Arc;
-use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_configuration_secrets::{OwnerScope, UserSettingKey, UserSettingValue};
+use tanren_app_services::{Handlers, Store};
+use tanren_configuration_secrets::OwnerScope;
 use tanren_contract::{
     AcceptInvitationRequest, CreateUserCredentialRequest, SignInRequest, SignUpRequest,
     UpdateUserCredentialRequest, UpsertUserSettingRequest,
 };
-use tanren_identity_policy::AccountId;
-use uuid::Uuid;
 
 pub(crate) const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 pub(crate) const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
@@ -35,9 +36,20 @@ pub(crate) const DATABASE_URL_ENV: &str = "DATABASE_URL";
 /// Comma-separated extra hostnames / `host:port` authorities to add to
 /// rmcp's `allowed_hosts` Host-header allowlist.
 pub(crate) const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
+/// Comma-separated explicit origins for MCP CORS.
+pub(crate) const CORS_ORIGINS_ENV: &str = "TANREN_MCP_CORS_ORIGINS";
 
 mod auth;
 mod server;
+mod tool_support;
+
+use crate::auth::ActorCapabilityModel;
+use crate::tool_support::{
+    AccountScopeParams, AddCredentialParams, RemoveCredentialParams, RemoveUserConfigParams,
+    SetUserConfigParams, UpdateCredentialParams, account_principal_from_parts,
+    actor_capability_model_from_context, map_failure, parse_account_id, permission_denied_failure,
+    server_info_for_capability_model, success, validation_failure,
+};
 
 #[cfg(any(test, feature = "test-hooks"))]
 pub use crate::server::build_router_with_store;
@@ -149,15 +161,24 @@ impl TanrenMcp {
     )]
     async fn config_user_list(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<AccountScopeParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
         match self
             .handlers
-            .list_user_settings(self.store.as_ref(), account_id, account_id)
+            .list_user_settings(
+                self.store.as_ref(),
+                authenticated_account_id,
+                requested_account_id,
+            )
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -172,9 +193,14 @@ impl TanrenMcp {
     )]
     async fn config_user_set(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<SetUserConfigParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
@@ -182,8 +208,8 @@ impl TanrenMcp {
             .handlers
             .upsert_user_setting(
                 self.store.as_ref(),
-                account_id,
-                account_id,
+                authenticated_account_id,
+                requested_account_id,
                 UpsertUserSettingRequest {
                     key: request.key,
                     value: request.value,
@@ -203,15 +229,25 @@ impl TanrenMcp {
     )]
     async fn config_user_remove(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<RemoveUserConfigParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
         match self
             .handlers
-            .remove_user_setting(self.store.as_ref(), account_id, account_id, request.key)
+            .remove_user_setting(
+                self.store.as_ref(),
+                authenticated_account_id,
+                requested_account_id,
+                request.key,
+            )
             .await
         {
             Ok(response) => Ok(success(&response)),
@@ -226,9 +262,14 @@ impl TanrenMcp {
     )]
     async fn credential_add(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<AddCredentialParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
@@ -236,10 +277,12 @@ impl TanrenMcp {
             .handlers
             .add_user_credential(
                 self.store.as_ref(),
-                account_id,
+                authenticated_account_id,
                 CreateUserCredentialRequest {
                     kind: request.kind,
-                    owner_scope: OwnerScope::User { account_id },
+                    owner_scope: OwnerScope::User {
+                        account_id: requested_account_id,
+                    },
                     value: request.value,
                 },
             )
@@ -257,9 +300,14 @@ impl TanrenMcp {
     )]
     async fn credential_update(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<UpdateCredentialParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
@@ -267,9 +315,11 @@ impl TanrenMcp {
             .handlers
             .update_user_credential(
                 self.store.as_ref(),
-                account_id,
+                authenticated_account_id,
                 &request.item_id,
-                OwnerScope::User { account_id },
+                OwnerScope::User {
+                    account_id: requested_account_id,
+                },
                 UpdateUserCredentialRequest {
                     value: request.value,
                 },
@@ -288,9 +338,14 @@ impl TanrenMcp {
     )]
     async fn credential_list(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<AccountScopeParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
@@ -298,8 +353,10 @@ impl TanrenMcp {
             .handlers
             .list_user_credentials(
                 self.store.as_ref(),
-                account_id,
-                OwnerScope::User { account_id },
+                authenticated_account_id,
+                OwnerScope::User {
+                    account_id: requested_account_id,
+                },
             )
             .await
         {
@@ -315,9 +372,14 @@ impl TanrenMcp {
     )]
     async fn credential_remove(
         &self,
+        Extension(parts): Extension<axum::http::request::Parts>,
         Parameters(request): Parameters<RemoveCredentialParams>,
     ) -> Result<CallToolResult, McpError> {
-        let account_id = match parse_account_id(&request.account_id) {
+        let authenticated_account_id = match account_principal_from_parts(&parts) {
+            Ok(value) => value,
+            Err(result) => return Ok(result),
+        };
+        let requested_account_id = match parse_account_id(&request.account_id) {
             Ok(value) => value,
             Err(summary) => return Ok(validation_failure(&summary)),
         };
@@ -325,9 +387,11 @@ impl TanrenMcp {
             .handlers
             .remove_user_credential(
                 self.store.as_ref(),
-                account_id,
+                authenticated_account_id,
                 &request.item_id,
-                OwnerScope::User { account_id },
+                OwnerScope::User {
+                    account_id: requested_account_id,
+                },
             )
             .await
         {
@@ -350,106 +414,58 @@ impl TanrenMcp {
 
 #[rmcp::tool_handler]
 impl ServerHandler for TanrenMcp {
+    async fn call_tool(
+        &self,
+        request: CallToolRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<CallToolResult, McpError> {
+        let capability_model = actor_capability_model_from_context(&context)?;
+        if !capability_model.allows_tool(request.name.as_ref()) {
+            return Ok(permission_denied_failure(
+                "Authenticated principal is not allowed to call this MCP tool.",
+            ));
+        }
+        let tool_context = ToolCallContext::new(self, request, context);
+        self.router().call(tool_context).await
+    }
+
+    async fn list_tools(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        context: RequestContext<RoleServer>,
+    ) -> Result<ListToolsResult, McpError> {
+        let capability_model = actor_capability_model_from_context(&context)?;
+        let tools = self
+            .router()
+            .list_all()
+            .into_iter()
+            .filter(|tool| capability_model.allows_tool(tool.name.as_ref()))
+            .collect();
+        Ok(ListToolsResult {
+            tools,
+            meta: None,
+            next_cursor: None,
+        })
+    }
+
+    async fn initialize(
+        &self,
+        request: InitializeRequestParams,
+        context: RequestContext<RoleServer>,
+    ) -> Result<InitializeResult, McpError> {
+        if context.peer.peer_info().is_none() {
+            context.peer.set_peer_info(request);
+        }
+        let capability_model = actor_capability_model_from_context(&context)?;
+        Ok(server_info_for_capability_model(capability_model))
+    }
+
     fn get_info(&self) -> ServerInfo {
         // Touch the cached router so the dead-code lint never flags
         // `tool_router` even on rmcp macro versions whose tool_handler
         // expansion path uses the static `Self::tool_router()` builder
         // rather than the cached field.
         let _ = self.router();
-        let mut info = ServerInfo::default();
-        info.instructions = Some(
-            "Tanren control plane MCP server. Account-flow tools route through the same handlers the HTTP API uses; failure responses share the {code, summary} error taxonomy."
-                .to_owned(),
-        );
-        info.capabilities = ServerCapabilities::builder().enable_tools().build();
-        info
+        server_info_for_capability_model(ActorCapabilityModel::bootstrap())
     }
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct AccountScopeParams {
-    account_id: String,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct SetUserConfigParams {
-    account_id: String,
-    key: UserSettingKey,
-    value: UserSettingValue,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct RemoveUserConfigParams {
-    account_id: String,
-    key: UserSettingKey,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct AddCredentialParams {
-    account_id: String,
-    kind: tanren_configuration_secrets::UserCredentialKind,
-    #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
-    #[schemars(with = "String")]
-    value: secrecy::SecretString,
-}
-
-#[derive(Debug, Clone, Deserialize, JsonSchema)]
-struct UpdateCredentialParams {
-    account_id: String,
-    item_id: String,
-    #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
-    #[schemars(with = "String")]
-    value: secrecy::SecretString,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-struct RemoveCredentialParams {
-    account_id: String,
-    item_id: String,
-}
-
-/// Encode a successful handler response as a JSON-text `CallToolResult`.
-fn success<T: Serialize>(value: &T) -> CallToolResult {
-    let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::success(vec![Content::text(text)])
-}
-
-/// Encode an [`AppServiceError`] as the shared `{code, summary}` error
-/// body and surface it as an MCP tool failure result.
-fn map_failure(err: AppServiceError) -> CallToolResult {
-    let (code, summary) = match err {
-        AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::Configuration(reason) => {
-            (reason.code().to_owned(), reason.summary().to_owned())
-        }
-        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(_) => (
-            "internal_error".to_owned(),
-            "Tanren encountered an internal error.".to_owned(),
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
-        ),
-    };
-    let body = json!({
-        "code": code,
-        "summary": summary,
-    });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
-}
-
-fn validation_failure(summary: &str) -> CallToolResult {
-    let body = json!({
-        "code": "validation_failed",
-        "summary": summary,
-    });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
-}
-
-fn parse_account_id(raw: &str) -> std::result::Result<AccountId, String> {
-    let parsed = Uuid::parse_str(raw).map_err(|_| "account_id must be a valid uuid".to_owned())?;
-    Ok(AccountId::new(parsed))
 }

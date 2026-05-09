@@ -37,6 +37,7 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    endpoint_url: String,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
     authenticated_account_id: Option<tanren_identity_policy::AccountId>,
@@ -75,6 +76,7 @@ impl McpHarness {
         let local_addr = listener
             .local_addr()
             .map_err(|e| HarnessError::Transport(format!("local addr: {e}")))?;
+        let endpoint_url = format!("http://{local_addr}/mcp");
 
         let (router, cancellation) = tanren_mcp_app::build_router_with_store(
             store.clone(),
@@ -88,22 +90,25 @@ impl McpHarness {
         });
 
         // Build the rmcp client transport with the bearer-token header.
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
-                .auth_header(TEST_API_KEY.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-        let client = ClientInfo::default()
-            .serve(transport)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
+        let client = connect_client(&endpoint_url, TEST_API_KEY.to_owned()).await?;
 
         Ok(Self {
             store,
             db_path,
+            endpoint_url,
             client: Some(client),
             server: Some(server),
             authenticated_account_id: None,
         })
+    }
+
+    async fn rotate_auth(&mut self, bearer_token: String) -> HarnessResult<()> {
+        if let Some(client) = self.client.take() {
+            drop(client);
+        }
+        let client = connect_client(&self.endpoint_url, bearer_token).await?;
+        self.client = Some(client);
+        Ok(())
     }
 
     async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
@@ -193,7 +198,8 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        let session = decode_session(&payload)?;
+        let (session, session_token) = decode_session(&payload)?;
+        self.rotate_auth(session_token).await?;
         self.authenticated_account_id = Some(session.account_id);
         Ok(session)
     }
@@ -204,7 +210,8 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        let session = decode_session(&payload)?;
+        let (session, session_token) = decode_session(&payload)?;
+        self.rotate_auth(session_token).await?;
         self.authenticated_account_id = Some(session.account_id);
         Ok(session)
     }
@@ -220,7 +227,8 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
-        let session = decode_session(&payload)?;
+        let (session, session_token) = decode_session(&payload)?;
+        self.rotate_auth(session_token).await?;
         self.authenticated_account_id = Some(session.account_id);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
@@ -331,7 +339,20 @@ fn first_text(content: &[Content]) -> Option<String> {
     None
 }
 
-fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
+async fn connect_client(
+    endpoint_url: &str,
+    bearer_token: String,
+) -> HarnessResult<RunningService<RoleClient, ClientInfo>> {
+    let config = StreamableHttpClientTransportConfig::with_uri(endpoint_url.to_owned())
+        .auth_header(bearer_token);
+    let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+    ClientInfo::default()
+        .serve(transport)
+        .await
+        .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))
+}
+
+fn decode_session(payload: &Value) -> HarnessResult<(HarnessSession, String)> {
     let account: AccountView = serde_json::from_value(payload["account"].clone())
         .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
     let expires_at = payload["session"]["expires_at"]
@@ -339,15 +360,21 @@ fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
         .map(|d| d.with_timezone(&chrono::Utc))
         .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
-    let token_present = payload["session"]["token"]
+    let token = payload["session"]["token"]
         .as_str()
-        .is_some_and(|s| !s.is_empty());
-    Ok(HarnessSession {
-        account_id: account.id,
-        account,
-        expires_at,
-        has_token: token_present,
-    })
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| HarnessError::Transport("missing session.token".to_owned()))?
+        .to_owned();
+    Ok((
+        HarnessSession {
+            account_id: account.id,
+            account,
+            expires_at,
+            has_token: true,
+        },
+        token,
+    ))
 }
 
 fn failure_from_payload(payload: &Value) -> HarnessError {

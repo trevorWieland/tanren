@@ -43,6 +43,8 @@ Feature: Manage user-tier configuration and credentials
       And bob signs in with the same credentials
       When bob lists user settings for alice's account
       Then the request fails with code "setting_not_found"
+      When bob lists user credentials for alice's account
+      Then the request fails with code "item_not_found"
       When bob lists user settings for their own account
       Then bob sees 0 user settings
       When alice signs in with the same credentials
