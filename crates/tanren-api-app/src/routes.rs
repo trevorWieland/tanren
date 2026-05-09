@@ -9,16 +9,18 @@ use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::{AppServiceError, Handlers};
+use tanren_app_services::{AccountStore, AppServiceError, Handlers};
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView,
     CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
     SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
+    AccountId, Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
+    SessionToken,
 };
 use tower_sessions::Session;
 use utoipa::OpenApi;
@@ -185,7 +187,6 @@ pub(crate) async fn sign_up_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
-                session_token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -225,7 +226,6 @@ pub(crate) async fn sign_in_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
-                session_token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -293,7 +293,6 @@ pub(crate) async fn accept_invitation_route(
             let write = SessionWrite {
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
-                session_token: response.session.token.clone(),
             };
             match install_cookie_session(&session, &write).await {
                 Ok(()) => (
@@ -323,6 +322,34 @@ async fn require_authenticated_session(session: &Session) -> Result<SessionRead,
     }
 }
 
+#[derive(Clone)]
+struct AuthoritativeAuth(AccountId, SessionToken);
+
+async fn resolve_authoritative_auth(
+    state: &AppState,
+    cookie: SessionRead,
+) -> Result<AuthoritativeAuth, Response> {
+    let canonical = match state
+        .store
+        .find_latest_active_session_for_account(cookie.account_id, cookie.expires_at, Utc::now())
+        .await
+    {
+        Ok(Some(session)) => session,
+        Ok(None) => return Err(map_account_failure(AccountFailureReason::AuthRequired)),
+        Err(err) => return Err(map_app_error(AppServiceError::Store(err))),
+    };
+
+    Ok(AuthoritativeAuth(canonical.account_id, canonical.token))
+}
+
+async fn require_authoritative_auth(
+    state: &AppState,
+    session: &Session,
+) -> Result<AuthoritativeAuth, Response> {
+    let cookie = require_authenticated_session(session).await?;
+    resolve_authoritative_auth(state, cookie).await
+}
+
 #[utoipa::path(
     post,
     path = "/organizations",
@@ -339,13 +366,13 @@ pub(crate) async fn create_organization_route(
     session: Session,
     ValidatedJson(body): ValidatedJson<CreateOrganizationBody>,
 ) -> Response {
-    let auth = match require_authenticated_session(&session).await {
+    let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
         Err(response) => return response,
     };
     let request = tanren_contract::CreateOrganizationRequest {
-        session_token: auth.session_token,
-        account_id: auth.account_id,
+        session_token: auth.1,
+        account_id: auth.0,
         name: body.name,
     };
     match state
@@ -371,13 +398,13 @@ pub(crate) async fn list_organizations_route(
     State(state): State<AppState>,
     session: Session,
 ) -> Response {
-    let auth = match require_authenticated_session(&session).await {
+    let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
         Err(response) => return response,
     };
     let request = tanren_contract::ListOrganizationsRequest {
-        session_token: auth.session_token,
-        account_id: auth.account_id,
+        session_token: auth.1,
+        account_id: auth.0,
     };
     match state
         .handlers
@@ -405,13 +432,13 @@ pub(crate) async fn check_organization_permission_route(
     session: Session,
     ValidatedJson(body): ValidatedJson<CheckOrganizationPermissionBody>,
 ) -> Response {
-    let auth = match require_authenticated_session(&session).await {
+    let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
         Err(response) => return response,
     };
     let request = tanren_contract::CheckOrganizationPermissionRequest {
-        session_token: auth.session_token,
-        account_id: auth.account_id,
+        session_token: auth.1,
+        account_id: auth.0,
         org_id: body.org_id,
         permission: body.permission,
     };

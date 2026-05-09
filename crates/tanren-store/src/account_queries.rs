@@ -1,6 +1,7 @@
 //! Query helpers shared by the `AccountStore` adapter implementation.
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter};
+use chrono::{DateTime, Utc};
+use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder};
 use tanren_identity_policy::{AccountId, SessionToken};
 
 use crate::entity;
@@ -37,4 +38,20 @@ pub(crate) async fn list_organizations_for_account(
         .all(conn)
         .await?;
     rows.into_iter().map(OrganizationRecord::try_from).collect()
+}
+
+pub(crate) async fn find_latest_active_session_for_account(
+    conn: &sea_orm::DatabaseConnection,
+    account_id: AccountId,
+    expires_at: DateTime<Utc>,
+    now: DateTime<Utc>,
+) -> Result<Option<SessionRecord>, StoreError> {
+    let row = entity::account_sessions::Entity::find()
+        .filter(entity::account_sessions::Column::AccountId.eq(account_id.as_uuid()))
+        .filter(entity::account_sessions::Column::ExpiresAt.eq(expires_at))
+        .filter(entity::account_sessions::Column::ExpiresAt.gt(now))
+        .order_by_desc(entity::account_sessions::Column::CreatedAt)
+        .one(conn)
+        .await?;
+    Ok(row.map(SessionRecord::from))
 }

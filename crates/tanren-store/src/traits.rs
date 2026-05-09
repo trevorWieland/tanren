@@ -362,6 +362,15 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         token: &SessionToken,
     ) -> Result<Option<SessionRecord>, StoreError>;
 
+    /// Look up the most recent active session for an account matching
+    /// a projected expiry timestamp.
+    async fn find_latest_active_session_for_account(
+        &self,
+        account_id: AccountId,
+        expires_at: DateTime<Utc>,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
     /// List organizations currently visible to an account through
     /// membership rows.
     async fn list_organizations_for_account(
