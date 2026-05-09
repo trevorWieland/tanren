@@ -9,13 +9,16 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
+    SignUpRequest,
+};
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -124,6 +127,44 @@ impl AccountHarness for InProcessHarness {
         }
     }
 
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        Ok(self
+            .handlers
+            .list_supported_deployment_postures()
+            .into_iter()
+            .map(|entry| HarnessSupportedPosture {
+                posture: entry.posture,
+                capability_summary: entry.capability_summary,
+            })
+            .collect())
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        actor: tanren_identity_policy::AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        match self
+            .handlers
+            .set_deployment_posture(&self.store, actor, request)
+            .await
+        {
+            Ok(response) => Ok(response.into()),
+            Err(err) => Err(translate_posture_error(err)),
+        }
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        self.handlers
+            .deployment_posture(&self.store, scope)
+            .await
+            .map(|current| current.map(Into::into))
+            .map_err(|err| HarnessError::Transport(format!("deployment_posture: {err}")))
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
@@ -152,5 +193,21 @@ fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessErro
         }
         AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
         _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+    }
+}
+
+fn translate_posture_error(
+    err: tanren_app_services::deployment_posture::SetDeploymentPostureError,
+) -> HarnessError {
+    use tanren_app_services::deployment_posture::SetDeploymentPostureError;
+    match err {
+        SetDeploymentPostureError::Contract { failure } => HarnessError::FailureCode {
+            code: failure.reason.code().to_owned(),
+            summary: failure.detail,
+        },
+        SetDeploymentPostureError::Store { source } => {
+            HarnessError::Transport(format!("store: {source}"))
+        }
+        _ => HarnessError::Transport("unknown posture failure".to_owned()),
     }
 }

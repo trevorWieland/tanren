@@ -15,15 +15,19 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -185,6 +189,39 @@ impl AccountHarness for McpHarness {
         })
     }
 
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        let payload = self
+            .call_tool("deployment_posture.list", serde_json::json!({}))
+            .await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        _actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        let body = serde_json::to_value(request)
+            .map_err(|e| HarnessError::Transport(format!("encode posture request: {e}")))?;
+        let payload = self.call_tool("deployment_posture.set", body).await?;
+        let response: SetDeploymentPostureResponse = serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(response.into())
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        let body = serde_json::to_value(scope)
+            .map_err(|e| HarnessError::Transport(format!("encode posture scope: {e}")))?;
+        let payload = self.call_tool("deployment_posture.get", body).await?;
+        let current: Option<SetDeploymentPostureResponse> = serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
+        Ok(current.map(Into::into))
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
@@ -245,6 +282,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if code != "transport_error" {
+        HarnessError::FailureCode { code, summary }
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

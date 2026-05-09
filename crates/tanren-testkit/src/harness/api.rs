@@ -1,13 +1,4 @@
-//! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
-//! drives it via `reqwest::Client` with `cookie_store(true)`.
-//!
-//! The harness owns the `SQLite` database (a per-scenario file under
-//! the OS temp directory). The same database is shared between (a)
-//! the `Arc<Store>` injected into the api app for account-flow data
-//! and (b) the tower-sessions sqlite-backed cookie store. Reading
-//! recent events for the `Then a "..." event is recorded` step
-//! goes through the harness's own `Store` handle (the api app's
-//! `Arc<Store>` is a clone of the same `Store`).
+//! `@api` harness — drives `tanren-api-app` over HTTP.
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -18,15 +9,17 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPostureScope,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 /// `@api` wire harness.
@@ -49,15 +42,7 @@ impl std::fmt::Debug for ApiHarness {
 }
 
 impl ApiHarness {
-    /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file. Returns a harness ready to
-    /// drive sign-up / sign-in / accept-invitation calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
+    /// Spawn a fresh `tanren-api-app` on an ephemeral port.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -114,8 +99,6 @@ impl Drop for ApiHarness {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-        // Best-effort cleanup of the per-scenario DB file. Errors are
-        // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
     }
 }
@@ -263,21 +246,83 @@ impl AccountHarness for ApiHarness {
         })
     }
 
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        let url = format!("{}/deployment-postures", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("GET /deployment-postures: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let supported = serde_json::from_value(json["supported"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))?;
+        Ok(supported)
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        _actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        let url = format!("{}/deployment-postures", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&request)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /deployment-postures: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let response: SetDeploymentPostureResponse = serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(response.into())
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        let (scope_kind, scope_id) = scope_path(scope);
+        let url = format!(
+            "{}/deployment-postures/{scope_kind}/{scope_id}",
+            self.base_url
+        );
+        let response = self.client.get(&url).send().await.map_err(|e| {
+            HarnessError::Transport(format!("GET /deployment-postures/{{scope}}: {e}"))
+        })?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let current: Option<SetDeploymentPostureResponse> =
+            serde_json::from_value(json["current"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
+        Ok(current.map(Into::into))
+    }
+
     async fn accept_invitations_concurrent(
         &mut self,
         requests: Vec<AcceptInvitationRequest>,
     ) -> Vec<HarnessResult<HarnessAcceptance>> {
-        // Fan out via `tokio::spawn` so each acceptance issues its own
-        // POST against the live api server in parallel. Each task gets
-        // its own `reqwest::Client` (built fresh from a default
-        // configuration) so cookie state from one task doesn't bleed
-        // into another. The shared base URL is cheap to clone.
-        //
-        // Without this override, the trait's default impl would await
-        // each request serially — defeating the @falsification @api
-        // race scenario which is supposed to prove that
-        // `consume_invitation` serializes concurrent acceptances at
-        // the store layer (Codex P2 review on PR #133).
         let base_url = self.base_url.clone();
         let mut handles = Vec::with_capacity(requests.len());
         for req in requests {
@@ -287,8 +332,6 @@ impl AccountHarness for ApiHarness {
                 req.invitation_token.as_str()
             );
             let body = accept_invitation_body(&req);
-            // Each task builds its own client. cookie_store is irrelevant
-            // here — the race scenario doesn't reuse the session.
             let client = match Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {
@@ -425,8 +468,20 @@ pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if code != "transport_error" {
+        HarnessError::FailureCode { code, summary }
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
+    }
+}
+
+fn scope_path(scope: DeploymentPostureScope) -> (&'static str, String) {
+    match scope {
+        DeploymentPostureScope::Account { account_id } => ("account", account_id.to_string()),
+        DeploymentPostureScope::Project { project_id } => ("project", project_id.to_string()),
+        DeploymentPostureScope::Installation { installation_id } => {
+            ("installation", installation_id.to_string())
+        }
     }
 }
 

@@ -309,16 +309,22 @@ async fn then_holds_n_accounts(world: &mut TanrenWorld, actor: String, count: us
 #[then(expr = "the request fails with code {string}")]
 async fn then_fails_with(world: &mut TanrenWorld, code: String) {
     let ctx = world.ensure_account_ctx().await;
-    let actual = match &ctx.last_outcome {
-        Some(HarnessOutcome::Failure(reason)) => reason.code().to_owned(),
-        Some(HarnessOutcome::SignedUp(_)) => "signed_up_unexpectedly".to_owned(),
-        Some(HarnessOutcome::SignedIn(_)) => "signed_in_unexpectedly".to_owned(),
-        Some(HarnessOutcome::AcceptedInvitation(_)) => {
-            "accepted_invitation_unexpectedly".to_owned()
-        }
-        Some(HarnessOutcome::Other(s)) => format!("other:{s}"),
-        None => "no_outcome".to_owned(),
-    };
+    let actual = ctx
+        .last_outcome
+        .as_ref()
+        .and_then(HarnessOutcome::failure_code)
+        .unwrap_or_else(|| match &ctx.last_outcome {
+            Some(HarnessOutcome::SignedUp(_)) => "signed_up_unexpectedly".to_owned(),
+            Some(HarnessOutcome::SignedIn(_)) => "signed_in_unexpectedly".to_owned(),
+            Some(HarnessOutcome::AcceptedInvitation(_)) => {
+                "accepted_invitation_unexpectedly".to_owned()
+            }
+            Some(HarnessOutcome::Other(s)) => format!("other:{s}"),
+            None => "no_outcome".to_owned(),
+            Some(HarnessOutcome::Failure(_) | HarnessOutcome::FailureCode(_)) => {
+                "unknown_failure_code".to_owned()
+            }
+        });
     assert_eq!(actual, code, "expected failure code");
 }
 

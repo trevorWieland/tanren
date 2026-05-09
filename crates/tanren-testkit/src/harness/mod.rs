@@ -55,9 +55,12 @@ use std::time::Duration;
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPosture,
+    DeploymentPostureCapabilitySummary, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -146,6 +149,36 @@ pub struct HarnessAcceptance {
     pub joined_org: OrgId,
 }
 
+/// Supported posture option surfaced by interface list operations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HarnessSupportedPosture {
+    /// Canonical posture value.
+    pub posture: DeploymentPosture,
+    /// Canonical capability explanation for this posture.
+    pub capability_summary: DeploymentPostureCapabilitySummary,
+}
+
+/// Persisted posture row surfaced by interface set/get operations.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HarnessPostureView {
+    /// Scope where the posture is now in effect.
+    pub scope: DeploymentPostureScope,
+    /// Persisted posture value.
+    pub posture: DeploymentPosture,
+    /// Canonical capability explanation for the posture.
+    pub capability_summary: DeploymentPostureCapabilitySummary,
+}
+
+impl From<SetDeploymentPostureResponse> for HarnessPostureView {
+    fn from(value: SetDeploymentPostureResponse) -> Self {
+        Self {
+            scope: value.scope,
+            posture: value.posture,
+            capability_summary: value.capability_summary,
+        }
+    }
+}
+
 /// Failure surface — every harness collapses transport-specific
 /// failures down to a [`AccountFailureReason`] (matched on the wire
 /// `code`) plus an opaque message used for diagnostic output.
@@ -154,6 +187,14 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A taxonomy failure identified by an explicit wire `code`.
+    #[error("{code}: {summary}")]
+    FailureCode {
+        /// Wire taxonomy code.
+        code: String,
+        /// Human-readable failure summary.
+        summary: String,
+    },
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +207,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::FailureCode { code, .. } => code.clone(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -210,6 +252,27 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         &mut self,
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance>;
+
+    /// List every supported deployment posture with capability summary.
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>>;
+
+    /// Set deployment posture for the supplied scope.
+    ///
+    /// `actor` is the caller account for transports that surface an
+    /// explicit actor id (for example CLI and in-process). Session-based
+    /// transports (for example API) ignore the parameter and use the
+    /// authenticated session context.
+    async fn set_deployment_posture(
+        &mut self,
+        actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView>;
+
+    /// Read the currently recorded deployment posture for `scope`.
+    async fn get_deployment_posture(
+        &mut self,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>>;
 
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race
@@ -267,6 +330,8 @@ pub struct ActorState {
     pub accept_invitation: Option<HarnessAcceptance>,
     /// Last failure (taxonomy code), if any.
     pub last_failure: Option<AccountFailureReason>,
+    /// Last failure summary (human-readable), if any.
+    pub last_failure_summary: Option<String>,
 }
 
 /// Outcome of the most recent action.
@@ -280,6 +345,8 @@ pub enum HarnessOutcome {
     AcceptedInvitation(HarnessAcceptance),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
+    /// Non-account taxonomy failure represented by wire `code`.
+    FailureCode(String),
     /// Non-taxonomy infrastructure failure.
     Other(String),
 }
@@ -292,6 +359,7 @@ impl HarnessOutcome {
     pub fn failure_code(&self) -> Option<String> {
         match self {
             Self::Failure(reason) => Some(reason.code().to_owned()),
+            Self::FailureCode(code) => Some(code.clone()),
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
@@ -307,9 +375,17 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
     match err {
         HarnessError::Account(reason, _) => {
             entry.last_failure = Some(reason);
+            entry.last_failure_summary = Some(reason.summary().to_owned());
             HarnessOutcome::Failure(reason)
         }
-        HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
+        HarnessError::FailureCode { code, summary } => {
+            entry.last_failure_summary = Some(summary);
+            HarnessOutcome::FailureCode(code)
+        }
+        HarnessError::Transport(message) => {
+            entry.last_failure_summary = Some(message.clone());
+            HarnessOutcome::Other(format!("transport: {message}"))
+        }
     }
 }
 
@@ -348,6 +424,9 @@ impl ConcurrentAcceptanceTally {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
                 let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::FailureCode { code, .. }) => {
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
             Err(HarnessError::Transport(msg)) => self.other.push(msg),

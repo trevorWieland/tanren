@@ -21,13 +21,17 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessPostureView,
+    HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -71,6 +75,25 @@ impl AccountHarness for WebHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         self.inner.accept_invitation(req).await
+    }
+
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        self.inner.list_supported_postures().await
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        self.inner.set_deployment_posture(actor, request).await
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        self.inner.get_deployment_posture(scope).await
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {

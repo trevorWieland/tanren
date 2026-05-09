@@ -18,7 +18,8 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    HarnessPostureView, HarnessSupportedPosture, InProcessHarness, McpHarness, TuiHarness,
+    WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -69,6 +70,8 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Per-scenario deployment-posture state recorded by B-0137 steps.
+    pub deployment_posture: DeploymentPostureContext,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -77,6 +80,7 @@ impl std::fmt::Debug for AccountContext {
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
+            .field("deployment_posture", &self.deployment_posture)
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
@@ -119,6 +123,7 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            deployment_posture: DeploymentPostureContext::default(),
         }
     }
 }
@@ -129,8 +134,20 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::SignedIn(_) => "SignedIn",
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
         HarnessOutcome::Failure(_) => "Failure",
+        HarnessOutcome::FailureCode(_) => "FailureCode",
         HarnessOutcome::Other(_) => "Other",
     }
+}
+
+/// Mutable per-scenario state owned by B-0137 steps.
+#[derive(Debug, Default)]
+pub struct DeploymentPostureContext {
+    /// Result of the most recent posture-list request.
+    pub last_supported: Vec<HarnessSupportedPosture>,
+    /// Result of the most recent posture-set request.
+    pub last_set: Option<HarnessPostureView>,
+    /// Result of the most recent posture-get request.
+    pub last_get: Option<Option<HarnessPostureView>>,
 }
 
 /// Run the cucumber harness against the supplied features directory.

@@ -16,7 +16,10 @@ use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+};
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
@@ -24,8 +27,8 @@ use uuid::Uuid;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 /// `@cli` wire harness.
@@ -203,6 +206,94 @@ impl AccountHarness for CliHarness {
         })
     }
 
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        let output = Command::new(&self.binary)
+            .args(["posture", "list"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture list: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json = parse_json_from_stdout(&stdout, "posture list")?;
+        serde_json::from_value(json["supported"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        let (scope_kind, scope_id) = scope_args(request.scope);
+        let output = Command::new(&self.binary)
+            .args([
+                "posture",
+                "set",
+                "--database-url",
+                &self.db_url,
+                "--actor-account-id",
+                &actor.to_string(),
+                "--scope-kind",
+                scope_kind,
+                "--scope-id",
+                &scope_id,
+                "--posture",
+                &request.posture,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture set: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json = parse_json_from_stdout(&stdout, "posture set")?;
+        let current: SetDeploymentPostureResponse = serde_json::from_value(json["current"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(current.into())
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        let (scope_kind, scope_id) = scope_args(scope);
+        let output = Command::new(&self.binary)
+            .args([
+                "posture",
+                "get",
+                "--database-url",
+                &self.db_url,
+                "--scope-kind",
+                scope_kind,
+                "--scope-id",
+                &scope_id,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture get: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let json = parse_json_from_stdout(&stdout, "posture get")?;
+        let current: Option<SetDeploymentPostureResponse> =
+            serde_json::from_value(json["current"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
+        Ok(current.map(Into::into))
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.store
             .seed_invitation(NewInvitation {
@@ -279,6 +370,10 @@ fn translate_cli_error(stderr: &[u8]) -> HarnessError {
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
         }
+        return HarnessError::FailureCode {
+            code: code.to_owned(),
+            summary,
+        };
     }
     HarnessError::Transport(text.into_owned())
 }
@@ -326,4 +421,27 @@ fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
     Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
         HarnessError::Transport(format!("parse org id: {e}"))
     })?))
+}
+
+fn scope_args(scope: DeploymentPostureScope) -> (&'static str, String) {
+    match scope {
+        DeploymentPostureScope::Account { account_id } => ("account", account_id.to_string()),
+        DeploymentPostureScope::Project { project_id } => ("project", project_id.to_string()),
+        DeploymentPostureScope::Installation { installation_id } => {
+            ("installation", installation_id.to_string())
+        }
+    }
+}
+
+fn parse_json_from_stdout(stdout: &str, operation: &str) -> HarnessResult<serde_json::Value> {
+    let candidate = stdout
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .unwrap_or_default();
+    serde_json::from_str(candidate).map_err(|e| {
+        HarnessError::Transport(format!(
+            "decode {operation} output as JSON: {e} (stdout={stdout})"
+        ))
+    })
 }

@@ -1,5 +1,7 @@
-//! Step-definition modules. R-0001 ships only `account` (the account
-//! flow that proves B-0043). Future R-* slices add their own modules
-//! here and the macros register globally.
+//! Step-definition modules.
+//!
+//! - `account`: B-0043 account flow.
+//! - `deployment_posture`: B-0137 deployment posture flow.
 
 pub mod account;
+pub mod deployment_posture;
