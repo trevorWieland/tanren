@@ -246,6 +246,9 @@ password-hash = { version = "0.5", default-features = false, features = [
 chacha20poly1305 = { version = "0.10", default-features = false, features = [
   "std",
 ] }
+# Explicit zeroization primitives for scrubbing temporary key material and
+# passphrase buffers in credential-sealing flows.
+zeroize = "1"
 
 # Cookie sessions for the API surface (R-0001 sub-8). `tower-sessions`
 # provides the SameSite=Strict + Secure + HttpOnly cookie middleware;

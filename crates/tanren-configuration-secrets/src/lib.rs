@@ -17,6 +17,10 @@ use utoipa::ToSchema;
 pub const USER_SETTING_EDITOR_MAX_BYTES: usize = 1_024;
 /// Maximum byte length allowed for user credential secret values.
 pub const USER_CREDENTIAL_SECRET_MAX_BYTES: usize = 8_192;
+/// Minimum byte length required for credential sealing passphrases.
+pub const CREDENTIAL_SEAL_PASSPHRASE_MIN_BYTES: usize = 16;
+/// Minimum estimated entropy bits required for credential sealing passphrases.
+pub const CREDENTIAL_SEAL_PASSPHRASE_MIN_ESTIMATED_ENTROPY_BITS: usize = 48;
 
 /// Configuration tiers in inheritance order, from most-specific to most-general.
 #[derive(
@@ -161,6 +165,37 @@ pub struct UserCredentialWrite {
     pub value: SecretString,
 }
 
+/// Validated passphrase used to derive per-credential sealing keys.
+///
+/// Validation enforces minimum size and a minimum estimated entropy budget.
+#[derive(Clone)]
+pub struct CredentialSealPassphrase(SecretString);
+
+impl std::fmt::Debug for CredentialSealPassphrase {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("CredentialSealPassphrase(<redacted>)")
+    }
+}
+
+impl CredentialSealPassphrase {
+    /// Parse and validate a credential-seal passphrase.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`CredentialSealPassphraseValidationFailure`] when the
+    /// passphrase does not meet minimum size or entropy checks.
+    pub fn parse(value: &str) -> Result<Self, CredentialSealPassphraseValidationFailure> {
+        validate_credential_seal_passphrase(value)?;
+        Ok(Self(SecretString::new(value.to_owned().into_boxed_str())))
+    }
+
+    /// Access the passphrase bytes for key derivation.
+    #[must_use]
+    pub fn as_bytes(&self) -> &[u8] {
+        self.0.expose_secret().as_bytes()
+    }
+}
+
 impl UserCredentialWrite {
     /// Validate the write payload before persistence.
     ///
@@ -235,6 +270,32 @@ pub enum ConfigurationValidationFailure {
     },
 }
 
+/// Validation failures for credential-seal passphrases.
+#[derive(Debug, Clone, PartialEq, Eq, Error)]
+#[non_exhaustive]
+pub enum CredentialSealPassphraseValidationFailure {
+    /// Passphrase is shorter than the minimum supported byte length.
+    #[error(
+        "credential seal passphrase is too short ({actual_bytes} bytes); minimum is {min_bytes} bytes"
+    )]
+    TooShort {
+        /// Required minimum byte length.
+        min_bytes: usize,
+        /// Provided byte length.
+        actual_bytes: usize,
+    },
+    /// Passphrase failed the minimum entropy heuristic.
+    #[error(
+        "credential seal passphrase entropy is too low ({estimated_bits} bits); minimum is {min_estimated_bits} bits"
+    )]
+    LowEntropy {
+        /// Required minimum estimated entropy bits.
+        min_estimated_bits: usize,
+        /// Estimated entropy bits from the heuristic.
+        estimated_bits: usize,
+    },
+}
+
 /// Validate a user-tier setting payload.
 ///
 /// # Errors
@@ -295,6 +356,51 @@ pub fn validate_user_credential_value(
     Ok(())
 }
 
+/// Validate a credential-seal passphrase used for at-rest credential encryption.
+///
+/// # Errors
+///
+/// Returns [`CredentialSealPassphraseValidationFailure`] if the passphrase is
+/// shorter than the minimum supported byte length or fails the minimum entropy
+/// heuristic.
+pub fn validate_credential_seal_passphrase(
+    value: &str,
+) -> Result<(), CredentialSealPassphraseValidationFailure> {
+    let bytes = value.as_bytes();
+    let actual_bytes = bytes.len();
+    if actual_bytes < CREDENTIAL_SEAL_PASSPHRASE_MIN_BYTES {
+        return Err(CredentialSealPassphraseValidationFailure::TooShort {
+            min_bytes: CREDENTIAL_SEAL_PASSPHRASE_MIN_BYTES,
+            actual_bytes,
+        });
+    }
+    let estimated_bits = estimated_entropy_bits(bytes);
+    if estimated_bits < CREDENTIAL_SEAL_PASSPHRASE_MIN_ESTIMATED_ENTROPY_BITS {
+        return Err(CredentialSealPassphraseValidationFailure::LowEntropy {
+            min_estimated_bits: CREDENTIAL_SEAL_PASSPHRASE_MIN_ESTIMATED_ENTROPY_BITS,
+            estimated_bits,
+        });
+    }
+    Ok(())
+}
+
+fn estimated_entropy_bits(bytes: &[u8]) -> usize {
+    let mut seen = [false; 256];
+    let mut unique_symbols = 0_usize;
+    for byte in bytes {
+        let index = usize::from(*byte);
+        if !seen[index] {
+            seen[index] = true;
+            unique_symbols += 1;
+        }
+    }
+
+    let bits_per_symbol = unique_symbols
+        .checked_ilog2()
+        .map_or(0_usize, |bits| bits as usize);
+    bytes.len().saturating_mul(bits_per_symbol)
+}
+
 /// Errors raised by configuration and secrets operations.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -305,4 +411,7 @@ pub enum ConfigSecretsError {
     /// Input payload failed contract/domain validation.
     #[error("invalid input: {0}")]
     Validation(#[from] ConfigurationValidationFailure),
+    /// Installation credential-seal configuration failed validation.
+    #[error("invalid credential seal configuration: {0}")]
+    CredentialSealConfiguration(#[from] CredentialSealPassphraseValidationFailure),
 }
