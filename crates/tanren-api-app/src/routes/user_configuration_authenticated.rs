@@ -5,6 +5,7 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::Deserialize;
+use tanren_app_services::AuthenticatedConfigurationContext;
 use tanren_configuration_secrets::{
     OwnerScope, UserCredentialKind, UserSettingKey, UserSettingValue,
 };
@@ -64,7 +65,10 @@ pub(crate) async fn list_authenticated_user_settings_route(
 ) -> Response {
     match state
         .handlers
-        .list_user_settings(state.store.as_ref(), account_id, account_id)
+        .list_user_settings_with_context(
+            state.store.as_ref(),
+            AuthenticatedConfigurationContext::for_requested_account(account_id, account_id),
+        )
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -95,7 +99,11 @@ pub(crate) async fn upsert_authenticated_user_setting_route(
     };
     match state
         .handlers
-        .upsert_user_setting(state.store.as_ref(), account_id, account_id, request)
+        .upsert_user_setting_with_context(
+            state.store.as_ref(),
+            AuthenticatedConfigurationContext::for_requested_account(account_id, account_id),
+            request,
+        )
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -128,7 +136,11 @@ pub(crate) async fn remove_authenticated_user_setting_route(
     };
     match state
         .handlers
-        .remove_user_setting(state.store.as_ref(), account_id, account_id, key)
+        .remove_user_setting_with_context(
+            state.store.as_ref(),
+            AuthenticatedConfigurationContext::for_requested_account(account_id, account_id),
+            key,
+        )
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -160,7 +172,11 @@ pub(crate) async fn add_authenticated_user_credential_route(
     };
     match state
         .handlers
-        .add_user_credential(state.store.as_ref(), account_id, request)
+        .add_user_credential_with_context(
+            state.store.as_ref(),
+            AuthenticatedConfigurationContext::for_requested_account(account_id, account_id),
+            request,
+        )
         .await
     {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
@@ -191,11 +207,13 @@ pub(crate) async fn update_authenticated_user_credential_route(
 ) -> Response {
     match state
         .handlers
-        .update_user_credential(
+        .update_user_credential_with_context(
             state.store.as_ref(),
-            account_id,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                account_id,
+                owner_scope_for(account_id),
+            ),
             &item_id,
-            owner_scope_for(account_id),
             UpdateUserCredentialRequest {
                 value: request.value,
             },
@@ -223,10 +241,12 @@ pub(crate) async fn list_authenticated_user_credentials_route(
 ) -> Response {
     match state
         .handlers
-        .list_user_credentials(
+        .list_user_credentials_with_context(
             state.store.as_ref(),
-            account_id,
-            owner_scope_for(account_id),
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                account_id,
+                owner_scope_for(account_id),
+            ),
         )
         .await
     {
@@ -255,11 +275,13 @@ pub(crate) async fn remove_authenticated_user_credential_route(
 ) -> Response {
     match state
         .handlers
-        .remove_user_credential(
+        .remove_user_credential_with_context(
             state.store.as_ref(),
-            account_id,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                account_id,
+                owner_scope_for(account_id),
+            ),
             &item_id,
-            owner_scope_for(account_id),
         )
         .await
     {

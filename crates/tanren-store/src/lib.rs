@@ -16,13 +16,14 @@ mod user_configuration;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
-    UserOwnedItemRecord, UserOwnedValueRecord, UserSettingRecord,
+    AccountRecord, AuthenticatedSessionRecord, InvitationRecord, MembershipRecord, NewAccount,
+    NewInvitation, SessionRecord, UserOwnedItemRecord, UserOwnedValueRecord, UserSettingRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, UserConfigurationStore,
+    ConsumeInvitationError, ConsumedInvitation, SessionAuthenticationLookup,
+    UserConfigurationStore,
 };
 
 use async_trait::async_trait;
@@ -277,6 +278,19 @@ impl AccountStore for Store {
             created_at: now,
             expires_at,
         })
+    }
+
+    async fn authenticate_session(
+        &self,
+        lookup: SessionAuthenticationLookup,
+    ) -> Result<Option<AuthenticatedSessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(
+            lookup.session_token.expose_secret().to_owned(),
+        )
+        .filter(entity::account_sessions::Column::ExpiresAt.gt(lookup.now))
+        .one(&self.conn)
+        .await?;
+        Ok(row.map(AuthenticatedSessionRecord::from))
     }
 
     async fn append_event(

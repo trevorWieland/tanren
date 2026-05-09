@@ -27,16 +27,76 @@ use crate::{AppServiceError, Clock};
 const CREATE_STATUS: UserCredentialStatus = UserCredentialStatus::Pending;
 const UPDATE_STATUS: UserCredentialStatus = UserCredentialStatus::Pending;
 
-pub(crate) async fn list_user_settings<S>(
-    store: &S,
+/// Shared context for authenticated user-configuration operations.
+///
+/// The authenticated actor and requested scope are carried separately so
+/// handlers can enforce same-account rules without conflating the two values.
+#[derive(Debug, Clone, Copy)]
+pub struct AuthenticatedConfigurationContext {
     authenticated_account_id: AccountId,
     requested_account_id: AccountId,
+    requested_owner_scope: OwnerScope,
+}
+
+impl AuthenticatedConfigurationContext {
+    /// Build context for a request targeting a specific account id.
+    #[must_use]
+    pub const fn for_requested_account(
+        authenticated_account_id: AccountId,
+        requested_account_id: AccountId,
+    ) -> Self {
+        Self {
+            authenticated_account_id,
+            requested_account_id,
+            requested_owner_scope: OwnerScope::User {
+                account_id: requested_account_id,
+            },
+        }
+    }
+
+    /// Build context for a request targeting an explicit owner scope.
+    #[must_use]
+    pub const fn for_requested_owner_scope(
+        authenticated_account_id: AccountId,
+        requested_owner_scope: OwnerScope,
+    ) -> Self {
+        let requested_account_id = match requested_owner_scope {
+            OwnerScope::User { account_id } => account_id,
+        };
+        Self {
+            authenticated_account_id,
+            requested_account_id,
+            requested_owner_scope,
+        }
+    }
+
+    #[must_use]
+    pub const fn authenticated_account_id(self) -> AccountId {
+        self.authenticated_account_id
+    }
+
+    #[must_use]
+    pub const fn requested_account_id(self) -> AccountId {
+        self.requested_account_id
+    }
+
+    #[must_use]
+    pub const fn requested_owner_scope(self) -> OwnerScope {
+        self.requested_owner_scope
+    }
+}
+
+pub(crate) async fn list_user_settings<S>(
+    store: &S,
+    context: AuthenticatedConfigurationContext,
 ) -> Result<ListUserSettingsResponse, AppServiceError>
 where
     S: UserConfigurationStore + ?Sized,
 {
-    ensure_user_setting_scope(authenticated_account_id, requested_account_id)?;
-    let rows = store.list_user_settings(requested_account_id).await?;
+    ensure_user_setting_scope(context)?;
+    let rows = store
+        .list_user_settings(context.requested_account_id())
+        .await?;
     let items = rows
         .into_iter()
         .map(|record| UserSettingView {
@@ -51,20 +111,19 @@ where
 pub(crate) async fn upsert_user_setting<S>(
     store: &S,
     clock: &Clock,
-    authenticated_account_id: AccountId,
-    requested_account_id: AccountId,
+    context: AuthenticatedConfigurationContext,
     request: UpsertUserSettingRequest,
 ) -> Result<UpsertUserSettingResponse, AppServiceError>
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_user_setting_scope(authenticated_account_id, requested_account_id)?;
+    ensure_user_setting_scope(context)?;
     validate_user_setting(request.key, &request.value).map_err(validation_error)?;
 
     let now = clock.now();
     let setting = store
         .set_user_setting(
-            requested_account_id,
+            context.requested_account_id(),
             request.key,
             request.value.clone(),
             now,
@@ -77,9 +136,9 @@ where
             configuration_envelope(
                 ConfigurationEventType::UserSettingChanged,
                 &UserSettingChanged {
-                    actor: authenticated_account_id,
+                    actor: context.authenticated_account_id(),
                     scope: OwnerScope::User {
-                        account_id: requested_account_id,
+                        account_id: context.requested_account_id(),
                     },
                     key: setting.key,
                     value_kind: setting.value.kind(),
@@ -102,17 +161,16 @@ where
 pub(crate) async fn remove_user_setting<S>(
     store: &S,
     clock: &Clock,
-    authenticated_account_id: AccountId,
-    requested_account_id: AccountId,
+    context: AuthenticatedConfigurationContext,
     key: UserSettingKey,
 ) -> Result<RemoveUserSettingResponse, AppServiceError>
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_user_setting_scope(authenticated_account_id, requested_account_id)?;
+    ensure_user_setting_scope(context)?;
 
     let Some(setting) = store
-        .get_user_setting(requested_account_id, key)
+        .get_user_setting(context.requested_account_id(), key)
         .await
         .map_err(map_store_error)?
     else {
@@ -120,7 +178,7 @@ where
     };
 
     let removed = store
-        .remove_user_setting(requested_account_id, key)
+        .remove_user_setting(context.requested_account_id(), key)
         .await
         .map_err(map_store_error)?;
     if !removed {
@@ -133,9 +191,9 @@ where
             configuration_envelope(
                 ConfigurationEventType::UserSettingRemoved,
                 &UserSettingRemoved {
-                    actor: authenticated_account_id,
+                    actor: context.authenticated_account_id(),
                     scope: OwnerScope::User {
-                        account_id: requested_account_id,
+                        account_id: context.requested_account_id(),
                     },
                     key,
                     removed_at: now,
@@ -157,17 +215,20 @@ where
 pub(crate) async fn add_user_credential<S>(
     store: &S,
     clock: &Clock,
-    authenticated_account_id: AccountId,
+    context: AuthenticatedConfigurationContext,
     request: CreateUserCredentialRequest,
 ) -> Result<CreateUserCredentialResponse, AppServiceError>
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(authenticated_account_id, request.owner_scope)?;
+    ensure_owner_scope(context)?;
+    if request.owner_scope != context.requested_owner_scope() {
+        return Err(item_not_found());
+    }
 
     let write = UserCredentialWrite {
         kind: request.kind,
-        owner_scope: request.owner_scope,
+        owner_scope: context.requested_owner_scope(),
         value: request.value,
     };
     write.validate().map_err(validation_error)?;
@@ -178,7 +239,8 @@ where
         .await
         .map_err(map_store_error)?;
 
-    append_user_credential_changed_event(store, authenticated_account_id, &item, now).await?;
+    append_user_credential_changed_event(store, context.authenticated_account_id(), &item, now)
+        .await?;
 
     Ok(CreateUserCredentialResponse {
         item: item.into_metadata().into(),
@@ -188,27 +250,33 @@ where
 pub(crate) async fn update_user_credential<S>(
     store: &S,
     clock: &Clock,
-    authenticated_account_id: AccountId,
+    context: AuthenticatedConfigurationContext,
     item_id: &str,
-    owner_scope: OwnerScope,
     request: UpdateUserCredentialRequest,
 ) -> Result<UpdateUserCredentialResponse, AppServiceError>
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(authenticated_account_id, owner_scope)?;
+    ensure_owner_scope(context)?;
     validate_user_credential_value(&request.value).map_err(validation_error)?;
 
     let now = clock.now();
     let Some(item) = store
-        .update_user_credential(item_id, owner_scope, request.value, UPDATE_STATUS, now)
+        .update_user_credential(
+            item_id,
+            context.requested_owner_scope(),
+            request.value,
+            UPDATE_STATUS,
+            now,
+        )
         .await
         .map_err(map_store_error)?
     else {
         return Err(item_not_found());
     };
 
-    append_user_credential_changed_event(store, authenticated_account_id, &item, now).await?;
+    append_user_credential_changed_event(store, context.authenticated_account_id(), &item, now)
+        .await?;
 
     Ok(UpdateUserCredentialResponse {
         item: item.into_metadata().into(),
@@ -217,15 +285,14 @@ where
 
 pub(crate) async fn list_user_credentials<S>(
     store: &S,
-    authenticated_account_id: AccountId,
-    owner_scope: OwnerScope,
+    context: AuthenticatedConfigurationContext,
 ) -> Result<ListUserCredentialsResponse, AppServiceError>
 where
     S: UserConfigurationStore + ?Sized,
 {
-    ensure_owner_scope(authenticated_account_id, owner_scope)?;
+    ensure_owner_scope(context)?;
     let rows = store
-        .list_user_credentials(owner_scope)
+        .list_user_credentials(context.requested_owner_scope())
         .await
         .map_err(map_store_error)?;
     let items = rows
@@ -238,17 +305,16 @@ where
 pub(crate) async fn remove_user_credential<S>(
     store: &S,
     clock: &Clock,
-    authenticated_account_id: AccountId,
+    context: AuthenticatedConfigurationContext,
     item_id: &str,
-    owner_scope: OwnerScope,
 ) -> Result<RemoveUserCredentialResponse, AppServiceError>
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(authenticated_account_id, owner_scope)?;
+    ensure_owner_scope(context)?;
 
     let item = store
-        .list_user_credentials(owner_scope)
+        .list_user_credentials(context.requested_owner_scope())
         .await
         .map_err(map_store_error)?
         .into_iter()
@@ -256,7 +322,7 @@ where
         .ok_or_else(item_not_found)?;
 
     let removed = store
-        .remove_user_credential(item_id, owner_scope)
+        .remove_user_credential(item_id, context.requested_owner_scope())
         .await
         .map_err(map_store_error)?;
     if !removed {
@@ -269,8 +335,8 @@ where
             configuration_envelope(
                 ConfigurationEventType::UserCredentialRemoved,
                 &UserCredentialRemoved {
-                    actor: authenticated_account_id,
-                    scope: owner_scope,
+                    actor: context.authenticated_account_id(),
+                    scope: context.requested_owner_scope(),
                     item_id: item.id.clone(),
                     kind: item.kind,
                     removed_at: now,
@@ -286,21 +352,19 @@ where
 }
 
 fn ensure_user_setting_scope(
-    authenticated_account_id: AccountId,
-    requested_account_id: AccountId,
+    context: AuthenticatedConfigurationContext,
 ) -> Result<(), AppServiceError> {
-    if authenticated_account_id == requested_account_id {
+    if context.authenticated_account_id() == context.requested_account_id() {
         return Ok(());
     }
     Err(setting_not_found())
 }
 
-fn ensure_owner_scope(
-    authenticated_account_id: AccountId,
-    owner_scope: OwnerScope,
-) -> Result<(), AppServiceError> {
-    match owner_scope {
-        OwnerScope::User { account_id } if account_id == authenticated_account_id => Ok(()),
+fn ensure_owner_scope(context: AuthenticatedConfigurationContext) -> Result<(), AppServiceError> {
+    match context.requested_owner_scope() {
+        OwnerScope::User { account_id } if account_id == context.authenticated_account_id() => {
+            Ok(())
+        }
         OwnerScope::User { .. } => Err(item_not_found()),
     }
 }

@@ -140,6 +140,27 @@ impl From<entity::account_sessions::Model> for SessionRecord {
     }
 }
 
+/// Authenticated session lookup result.
+///
+/// This projection intentionally omits the session token and exposes only the
+/// authenticated account id + expiry metadata needed by callers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthenticatedSessionRecord {
+    /// Account authenticated by the session token.
+    pub authenticated_account_id: AccountId,
+    /// Session expiry instant.
+    pub expires_at: DateTime<Utc>,
+}
+
+impl From<entity::account_sessions::Model> for AuthenticatedSessionRecord {
+    fn from(model: entity::account_sessions::Model) -> Self {
+        Self {
+            authenticated_account_id: AccountId::new(model.account_id),
+            expires_at: model.expires_at,
+        }
+    }
+}
+
 /// Persisted user-tier setting row.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UserSettingRecord {

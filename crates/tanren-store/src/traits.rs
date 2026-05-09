@@ -36,8 +36,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
-    UserOwnedItemRecord, UserSettingRecord,
+    AccountRecord, AuthenticatedSessionRecord, EventEnvelope, InvitationRecord, NewAccount,
+    SessionRecord, StoreError, UserOwnedItemRecord, UserSettingRecord,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -124,6 +124,26 @@ pub struct AcceptInvitationAtomicOutput {
     pub session: SessionRecord,
     /// Organization the new account joined.
     pub joined_org: OrgId,
+}
+
+/// Session-token lookup context used for authenticated account resolution.
+///
+/// `Debug` redacts the token so accidental logging in callers does not leak
+/// bearer credentials.
+pub struct SessionAuthenticationLookup {
+    /// Opaque session token presented by the caller.
+    pub session_token: SessionToken,
+    /// Reference instant used to filter expired sessions.
+    pub now: DateTime<Utc>,
+}
+
+impl std::fmt::Debug for SessionAuthenticationLookup {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("SessionAuthenticationLookup")
+            .field("session_token", &"<redacted>")
+            .field("now", &self.now)
+            .finish()
+    }
 }
 
 /// Failure taxonomy for [`AccountStore::accept_invitation_atomic`]. The
@@ -246,6 +266,15 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         now: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
+
+    /// Resolve the authenticated account context for an existing session token.
+    ///
+    /// Returns `Ok(Some(_))` only when the token exists and the session has not
+    /// expired at `lookup.now`.
+    async fn authenticate_session(
+        &self,
+        lookup: SessionAuthenticationLookup,
+    ) -> Result<Option<AuthenticatedSessionRecord>, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied
     /// instant.

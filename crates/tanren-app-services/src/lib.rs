@@ -8,7 +8,6 @@
 pub mod account;
 pub mod events;
 pub mod user_configuration;
-
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
@@ -26,6 +25,7 @@ pub use tanren_store::{AccountStore, Store};
 use std::sync::Arc;
 use tanren_store::StoreError;
 use thiserror::Error;
+pub use user_configuration::AuthenticatedConfigurationContext;
 
 /// Stable response shape for the cross-interface health/liveness query.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -222,12 +222,25 @@ impl Handlers {
     where
         S: UserConfigurationStore + ?Sized,
     {
-        user_configuration::list_user_settings(
+        self.list_user_settings_with_context(
             store,
-            authenticated_account_id,
-            requested_account_id,
+            AuthenticatedConfigurationContext::for_requested_account(
+                authenticated_account_id,
+                requested_account_id,
+            ),
         )
         .await
+    }
+
+    pub async fn list_user_settings_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+    ) -> Result<ListUserSettingsResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + ?Sized,
+    {
+        user_configuration::list_user_settings(store, context).await
     }
 
     /// Insert or update a user-tier setting.
@@ -246,14 +259,27 @@ impl Handlers {
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::upsert_user_setting(
+        self.upsert_user_setting_with_context(
             store,
-            &self.clock,
-            authenticated_account_id,
-            requested_account_id,
+            AuthenticatedConfigurationContext::for_requested_account(
+                authenticated_account_id,
+                requested_account_id,
+            ),
             request,
         )
         .await
+    }
+
+    pub async fn upsert_user_setting_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+        request: UpsertUserSettingRequest,
+    ) -> Result<UpsertUserSettingResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::upsert_user_setting(store, &self.clock, context, request).await
     }
 
     /// Remove a user-tier setting.
@@ -273,14 +299,27 @@ impl Handlers {
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::remove_user_setting(
+        self.remove_user_setting_with_context(
             store,
-            &self.clock,
-            authenticated_account_id,
-            requested_account_id,
+            AuthenticatedConfigurationContext::for_requested_account(
+                authenticated_account_id,
+                requested_account_id,
+            ),
             key,
         )
         .await
+    }
+
+    pub async fn remove_user_setting_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+        key: tanren_configuration_secrets::UserSettingKey,
+    ) -> Result<RemoveUserSettingResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::remove_user_setting(store, &self.clock, context, key).await
     }
 
     /// Add one user-owned credential and return metadata-only output.
@@ -298,13 +337,27 @@ impl Handlers {
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::add_user_credential(
+        self.add_user_credential_with_context(
             store,
-            &self.clock,
-            authenticated_account_id,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                authenticated_account_id,
+                request.owner_scope,
+            ),
             request,
         )
         .await
+    }
+
+    pub async fn add_user_credential_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+        request: CreateUserCredentialRequest,
+    ) -> Result<CreateUserCredentialResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::add_user_credential(store, &self.clock, context, request).await
     }
 
     /// Update one user-owned credential secret value and return
@@ -325,15 +378,30 @@ impl Handlers {
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::update_user_credential(
+        self.update_user_credential_with_context(
             store,
-            &self.clock,
-            authenticated_account_id,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                authenticated_account_id,
+                owner_scope,
+            ),
             item_id,
-            owner_scope,
             request,
         )
         .await
+    }
+
+    pub async fn update_user_credential_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+        item_id: &str,
+        request: UpdateUserCredentialRequest,
+    ) -> Result<UpdateUserCredentialResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::update_user_credential(store, &self.clock, context, item_id, request)
+            .await
     }
 
     /// List user-owned credential metadata rows for the requested scope.
@@ -351,8 +419,25 @@ impl Handlers {
     where
         S: UserConfigurationStore + ?Sized,
     {
-        user_configuration::list_user_credentials(store, authenticated_account_id, owner_scope)
-            .await
+        self.list_user_credentials_with_context(
+            store,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                authenticated_account_id,
+                owner_scope,
+            ),
+        )
+        .await
+    }
+
+    pub async fn list_user_credentials_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+    ) -> Result<ListUserCredentialsResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + ?Sized,
+    {
+        user_configuration::list_user_credentials(store, context).await
     }
 
     /// Remove one user-owned credential and return metadata-only output.
@@ -371,14 +456,27 @@ impl Handlers {
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::remove_user_credential(
+        self.remove_user_credential_with_context(
             store,
-            &self.clock,
-            authenticated_account_id,
+            AuthenticatedConfigurationContext::for_requested_owner_scope(
+                authenticated_account_id,
+                owner_scope,
+            ),
             item_id,
-            owner_scope,
         )
         .await
+    }
+
+    pub async fn remove_user_credential_with_context<S>(
+        &self,
+        store: &S,
+        context: AuthenticatedConfigurationContext,
+        item_id: &str,
+    ) -> Result<RemoveUserCredentialResponse, AppServiceError>
+    where
+        S: UserConfigurationStore + AccountStore + ?Sized,
+    {
+        user_configuration::remove_user_credential(store, &self.clock, context, item_id).await
     }
 }
 

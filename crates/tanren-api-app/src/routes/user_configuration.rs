@@ -4,6 +4,7 @@ use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use std::collections::HashMap;
+use tanren_app_services::AuthenticatedConfigurationContext;
 use tanren_configuration_secrets::{OwnerScope, UserSettingKey};
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
@@ -39,7 +40,7 @@ pub(crate) async fn list_user_settings_route(
 ) -> Response {
     match state
         .handlers
-        .list_user_settings(state.store.as_ref(), scope.authenticated, scope.requested)
+        .list_user_settings_with_context(state.store.as_ref(), scope.context())
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -69,12 +70,7 @@ pub(crate) async fn upsert_user_setting_route(
 ) -> Response {
     match state
         .handlers
-        .upsert_user_setting(
-            state.store.as_ref(),
-            scope.authenticated,
-            scope.requested,
-            request,
-        )
+        .upsert_user_setting_with_context(state.store.as_ref(), scope.context(), request)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -109,12 +105,7 @@ pub(crate) async fn remove_user_setting_route(
     };
     match state
         .handlers
-        .remove_user_setting(
-            state.store.as_ref(),
-            scope.authenticated,
-            scope.requested,
-            key,
-        )
+        .remove_user_setting_with_context(state.store.as_ref(), scope.context(), key)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -150,7 +141,7 @@ pub(crate) async fn add_user_credential_route(
     }
     match state
         .handlers
-        .add_user_credential(state.store.as_ref(), scope.authenticated, request)
+        .add_user_credential_with_context(state.store.as_ref(), scope.context(), request)
         .await
     {
         Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
@@ -183,13 +174,10 @@ pub(crate) async fn update_user_credential_route(
     let (_, item_id) = path_params;
     match state
         .handlers
-        .update_user_credential(
+        .update_user_credential_with_context(
             state.store.as_ref(),
-            scope.authenticated,
+            scope.context(),
             &item_id,
-            OwnerScope::User {
-                account_id: scope.requested,
-            },
             request,
         )
         .await
@@ -219,13 +207,7 @@ pub(crate) async fn list_user_credentials_route(
 ) -> Response {
     match state
         .handlers
-        .list_user_credentials(
-            state.store.as_ref(),
-            scope.authenticated,
-            OwnerScope::User {
-                account_id: scope.requested,
-            },
-        )
+        .list_user_credentials_with_context(state.store.as_ref(), scope.context())
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -256,14 +238,7 @@ pub(crate) async fn remove_user_credential_route(
     let (_, item_id) = path_params;
     match state
         .handlers
-        .remove_user_credential(
-            state.store.as_ref(),
-            scope.authenticated,
-            &item_id,
-            OwnerScope::User {
-                account_id: scope.requested,
-            },
-        )
+        .remove_user_credential_with_context(state.store.as_ref(), scope.context(), &item_id)
         .await
     {
         Ok(response) => (StatusCode::OK, Json(response)).into_response(),
@@ -275,6 +250,12 @@ pub(crate) async fn remove_user_credential_route(
 struct AuthorizedAccount {
     authenticated: AccountId,
     requested: AccountId,
+}
+
+impl AuthorizedAccount {
+    const fn context(self) -> AuthenticatedConfigurationContext {
+        AuthenticatedConfigurationContext::for_requested_account(self.authenticated, self.requested)
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
