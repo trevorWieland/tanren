@@ -168,6 +168,16 @@ pub(crate) async fn has_permission(
     org_id: OrgId,
     permission: OrganizationPermission,
 ) -> Result<bool, StoreError> {
+    let has_membership = entity::memberships::Entity::find()
+        .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+        .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+        .one(conn)
+        .await?
+        .is_some();
+    if !has_membership {
+        return Ok(false);
+    }
+
     let row = entity::organization_permission_grants::Entity::find()
         .filter(entity::organization_permission_grants::Column::AccountId.eq(account_id.as_uuid()))
         .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))

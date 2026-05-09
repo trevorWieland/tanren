@@ -36,8 +36,10 @@
 //! - **Sign-out.** `POST /sessions/revoke` clears the cookie via
 //!   `Session::flush` and returns 204.
 
+mod auth;
 mod cookies;
 mod errors;
+mod organization_tracing;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition

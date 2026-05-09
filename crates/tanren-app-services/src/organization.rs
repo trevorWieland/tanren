@@ -78,16 +78,20 @@ pub(crate) async fn check_organization_permission<S>(
 where
     S: AccountStore + ?Sized,
 {
-    let now = clock.now();
-    resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
-    let allowed = store
-        .has_organization_permission(request.account_id, request.org_id, request.permission)
-        .await?;
+    require_organization_permission(
+        store,
+        clock,
+        &request.session_token,
+        request.account_id,
+        request.org_id,
+        request.permission,
+    )
+    .await?;
     Ok(CheckOrganizationPermissionResponse {
         account_id: request.account_id,
         org_id: request.org_id,
         permission: request.permission,
-        allowed,
+        allowed: true,
     })
 }
 
@@ -104,10 +108,10 @@ where
 {
     let now = clock.now();
     resolve_authenticated_account(store, account_id, session_token, now).await?;
-    let allowed = store
+    if store
         .has_organization_permission(account_id, org_id, permission)
-        .await?;
-    if allowed {
+        .await?
+    {
         return Ok(());
     }
     Err(AppServiceError::Account(

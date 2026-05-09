@@ -4,35 +4,33 @@
 //! Split out of `lib.rs` so the api-app crate stays under the workspace
 //! 500-line line-budget. The wiring (router, openapi-json route,
 //! tower-sessions layer) lives in `lib.rs::build_app`.
-
+use crate::AppState;
+use crate::auth::require_authoritative_auth;
+use crate::cookies::{SessionWrite, install_cookie_session};
+use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::organization_tracing::{
+    emit_route_auth_denial, emit_route_failure, emit_route_success, organization_route_span,
+    record_authenticated_account,
+};
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
-use chrono::Utc;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::{AccountStore, AppServiceError, Handlers};
+use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView,
-    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
-    SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
+    CreateOrganizationResponse, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
-    SessionToken,
+    Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
 };
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
-
-use crate::AppState;
-use crate::cookies::{SessionRead, SessionWrite, install_cookie_session, read_cookie_session};
-use crate::errors::{
-    AccountFailureBody, ValidatedJson, map_account_failure, map_app_error, session_install_error,
-};
-
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct HealthResponse {
@@ -311,45 +309,6 @@ pub(crate) async fn accept_invitation_route(
     }
 }
 
-async fn require_authenticated_session(session: &Session) -> Result<SessionRead, Response> {
-    match read_cookie_session(session).await {
-        Ok(Some(auth)) => Ok(auth),
-        Ok(None) => Err(map_account_failure(AccountFailureReason::AuthRequired)),
-        Err(err) => {
-            tracing::error!(target: "tanren_api", error = %err, "read cookie session");
-            Err(session_install_error(&err))
-        }
-    }
-}
-
-#[derive(Clone)]
-struct AuthoritativeAuth(AccountId, SessionToken);
-
-async fn resolve_authoritative_auth(
-    state: &AppState,
-    cookie: SessionRead,
-) -> Result<AuthoritativeAuth, Response> {
-    let canonical = match state
-        .store
-        .find_latest_active_session_for_account(cookie.account_id, cookie.expires_at, Utc::now())
-        .await
-    {
-        Ok(Some(session)) => session,
-        Ok(None) => return Err(map_account_failure(AccountFailureReason::AuthRequired)),
-        Err(err) => return Err(map_app_error(AppServiceError::Store(err))),
-    };
-
-    Ok(AuthoritativeAuth(canonical.account_id, canonical.token))
-}
-
-async fn require_authoritative_auth(
-    state: &AppState,
-    session: &Session,
-) -> Result<AuthoritativeAuth, Response> {
-    let cookie = require_authenticated_session(session).await?;
-    resolve_authoritative_auth(state, cookie).await
-}
-
 #[utoipa::path(
     post,
     path = "/organizations",
@@ -366,10 +325,16 @@ pub(crate) async fn create_organization_route(
     session: Session,
     ValidatedJson(body): ValidatedJson<CreateOrganizationBody>,
 ) -> Response {
+    let span = organization_route_span("create_organization", None);
+    let _span_guard = span.enter();
     let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
-        Err(response) => return response,
+        Err(response) => {
+            emit_route_auth_denial("create_organization", None);
+            return response;
+        }
     };
+    record_authenticated_account(&span, auth.0);
     let request = tanren_contract::CreateOrganizationRequest {
         session_token: auth.1,
         account_id: auth.0,
@@ -380,8 +345,18 @@ pub(crate) async fn create_organization_route(
         .create_organization(state.store.as_ref(), request)
         .await
     {
-        Ok(response) => (StatusCode::CREATED, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
+        Ok(response) => {
+            emit_route_success(
+                "create_organization",
+                auth.0,
+                Some(response.organization.id),
+            );
+            (StatusCode::CREATED, Json(response)).into_response()
+        }
+        Err(err) => {
+            emit_route_failure("create_organization", auth.0, None, &err);
+            map_app_error(err)
+        }
     }
 }
 
@@ -398,10 +373,16 @@ pub(crate) async fn list_organizations_route(
     State(state): State<AppState>,
     session: Session,
 ) -> Response {
+    let span = organization_route_span("list_organizations", None);
+    let _span_guard = span.enter();
     let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
-        Err(response) => return response,
+        Err(response) => {
+            emit_route_auth_denial("list_organizations", None);
+            return response;
+        }
     };
+    record_authenticated_account(&span, auth.0);
     let request = tanren_contract::ListOrganizationsRequest {
         session_token: auth.1,
         account_id: auth.0,
@@ -411,8 +392,14 @@ pub(crate) async fn list_organizations_route(
         .list_organizations(state.store.as_ref(), request)
         .await
     {
-        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
-        Err(err) => map_app_error(err),
+        Ok(response) => {
+            emit_route_success("list_organizations", auth.0, None);
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(err) => {
+            emit_route_failure("list_organizations", auth.0, None, &err);
+            map_app_error(err)
+        }
     }
 }
 
@@ -432,10 +419,16 @@ pub(crate) async fn check_organization_permission_route(
     session: Session,
     ValidatedJson(body): ValidatedJson<CheckOrganizationPermissionBody>,
 ) -> Response {
+    let span = organization_route_span("check_organization_permission", Some(body.org_id));
+    let _span_guard = span.enter();
     let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
-        Err(response) => return response,
+        Err(response) => {
+            emit_route_auth_denial("check_organization_permission", Some(body.org_id));
+            return response;
+        }
     };
+    record_authenticated_account(&span, auth.0);
     let request = tanren_contract::CheckOrganizationPermissionRequest {
         session_token: auth.1,
         account_id: auth.0,
@@ -447,11 +440,19 @@ pub(crate) async fn check_organization_permission_route(
         .check_organization_permission(state.store.as_ref(), request)
         .await
     {
-        Ok(response) if response.allowed => (StatusCode::OK, Json(response)).into_response(),
-        Ok(_) => map_app_error(AppServiceError::Account(
-            AccountFailureReason::PermissionDenied,
-        )),
-        Err(err) => map_app_error(err),
+        Ok(response) => {
+            emit_route_success("check_organization_permission", auth.0, Some(body.org_id));
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(err) => {
+            emit_route_failure(
+                "check_organization_permission",
+                auth.0,
+                Some(body.org_id),
+                &err,
+            );
+            map_app_error(err)
+        }
     }
 }
 
