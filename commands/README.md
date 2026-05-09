@@ -2,43 +2,29 @@
 
 This directory is the single source of truth for Tanren's shared agent
 commands. `tanren-cli install` renders these sources into per-agent-framework
-destinations such as `.claude/commands/`, `.codex/skills/`, and
-`.opencode/commands/`.
+destinations.
 
 Do not hand-edit rendered artifacts. Edit files in `commands/` and re-run
 `just install-commands` in this repository, or `tanren-cli install` in an
 adopting repository.
 
-## Current `tanren-cli install` Surface
+## Install Contract Reference
 
-Delivery architecture is the source of truth for install lifecycle and
-manifest contract details. Keep this section as a quick summary aligned to
-`docs/architecture/delivery.md` (`Generated Repository Assets`,
-`Install Preview`, `Upgrades And Migrations`, `Stack Uninstall`,
-`Repo Uninstall`).
+Use `tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`
+to materialize command assets in a target repository.
 
-`tanren-cli install` currently exposes:
+Detailed install lifecycle, supported integration matrix, manifest ownership,
+reinstall/cleanup semantics, preview behavior, upgrade flow, and uninstall
+contracts are defined in `docs/architecture/delivery.md`.
 
-```text
-tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
-```
+Reference sections:
 
-- `--profile` is required. Current supported value: `rust-cargo`.
-- `--repo` defaults to `.` (the current working directory).
-- `--integrations` is optional comma-separated names. Supported values:
-  `claude`, `codex`, `opencode`. Omitted means "install all supported
-  integrations."
-
-Install output is manifest-driven:
-
-- Integration command assets are generated under `.claude/commands/`,
-  `.codex/skills/`, and `.opencode/commands/` for the selected integrations.
-- The install manifest is written to `.tanren/install-manifest.toml`.
-- Tanren-owned generated command assets use replace-on-reinstall semantics.
-- Standards profile files are user-editable and preserve user edits on
-  reinstall, while missing tracked standards files are restored.
-- Stale Tanren-generated command files tracked in the prior manifest are
-  removed on reinstall.
+- `Generated Repository Assets`
+- `Current Local Install Command Surface (R-0023)`
+- `Install Preview`
+- `Upgrades And Migrations`
+- `Stack Uninstall`
+- `Repo Uninstall`
 
 > **Note (rewrite reset):** the `spec/` directory and the
 > `assess-implementation` command have been removed during the architecture
