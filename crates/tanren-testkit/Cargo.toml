@@ -43,6 +43,7 @@ tanren-identity-policy = { path = "../tanren-identity-policy", features = [
 ] }
 tanren-mcp-app = { path = "../tanren-mcp-app", features = ["test-hooks"] }
 tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
+tanren-tui-app = { path = "../tanren-tui-app" }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
 uuid = { workspace = true }

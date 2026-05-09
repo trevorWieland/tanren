@@ -209,13 +209,7 @@ impl AccountHarness for McpHarness {
         let session_token = self
             .session_tokens
             .get(&session_account_id)
-            .ok_or_else(|| {
-                HarnessError::Transport(format!(
-                    "missing mcp session token for account_id={session_account_id}"
-                ))
-            })?
-            .expose_secret()
-            .to_owned();
+            .map(|token| token.expose_secret().to_owned());
         let body = serde_json::json!({
             "session_token": session_token,
             "target_account_id": requested_account_id,

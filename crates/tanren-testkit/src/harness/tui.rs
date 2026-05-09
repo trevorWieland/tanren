@@ -1,19 +1,10 @@
-//! `@tui` harness — currently delegates to [`super::InProcessHarness`].
+//! `@tui` harness — uses the in-process service harness for stateful
+//! account actions, and renders self-permissions through the real
+//! `tanren-tui-app` ratatui draw path for empirical visibility checks.
 //!
-//! TODO(R-0001 sub-11 or follow-up): wire `expectrl` + `portable-pty`
-//! to drive the `tanren-tui` binary inside a real pseudo-terminal.
-//! The ratatui screen-scrape path was prototyped but proved too
-//! fragile to commit as the default — the `expectrl` workspace dep
-//! is staged in `Cargo.toml [workspace.dependencies]` so the next
-//! iteration can import it without further dependency churn.
-//!
-//! Until that lands, every `@tui` scenario routes through the
-//! direct-`Handlers` in-process harness — the same surface every
-//! interface delegates to via the equivalent-operations rule in
-//! `docs/architecture/subsystems/interfaces.md`. The wire harness
-//! coverage check (`xtask check-bdd-wire-coverage`) is satisfied
-//! because step bodies dispatch through the `AccountHarness` trait,
-//! which keeps `Handlers::*` invisible from `tanren-bdd`.
+//! TODO(R-0001 sub-11 or follow-up): replace the remaining service
+//! actions with a full `expectrl` + `portable-pty` driver against the
+//! `tanren-tui` binary.
 
 use async_trait::async_trait;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
@@ -72,9 +63,14 @@ impl AccountHarness for TuiHarness {
         session_account_id: tanren_identity_policy::AccountId,
         requested_account_id: Option<tanren_identity_policy::AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
-        self.inner
+        let view = self
+            .inner
             .my_permissions(session_account_id, requested_account_id)
-            .await
+            .await?;
+        Ok(HarnessPermissionsView {
+            rendered: tanren_tui_app::render_my_permissions_screen(&view.response),
+            response: view.response,
+        })
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {

@@ -178,6 +178,26 @@ When(
   },
 );
 
+When(
+  "an unauthenticated client views their own permissions",
+  async ({ page, world }) => {
+    await page.context().clearCookies();
+    permissionsMemo(world).eventIdsBefore =
+      await snapshotPermissionEventsCheckpoint();
+
+    const response = await page.request.get(`${API_URL}/me/permissions`);
+    const unauth = actor(world, "unauthenticated");
+    if (response.ok()) {
+      unauth.hasSession = false;
+      unauth.lastFailureCode = "unexpected_success";
+      return;
+    }
+    const body = (await response.json()) as { code?: string };
+    unauth.hasSession = false;
+    unauth.lastFailureCode = body.code ?? "unknown";
+  },
+);
+
 Then(
   /^(\w+) sees organization and project permission sections$/,
   async ({ page }, _name: string) => {
@@ -237,30 +257,60 @@ Then(
     await page.goto("/my-permissions");
     await waitForHydration(page);
 
-    const roleTemplateVisible = await page
+    const organizationPermission = page
+      .getByText(ORG_PERMISSION, { exact: false })
+      .first();
+    const rolePermission = page
+      .getByText(PROJECT_ROLE_PERMISSION, { exact: false })
+      .first();
+    const constrainedPermission = page
+      .getByText(PROJECT_CONSTRAINED_PERMISSION, { exact: false })
+      .first();
+    const directSource = page.getByText(/^direct$/i).first();
+    const roleTemplateSource = page
       .getByText(new RegExp(`role template\\s*:\\s*${ROLE_TEMPLATE_NAME}`, "i"))
-      .first()
-      .isVisible();
-    if (!roleTemplateVisible) {
-      throw new Error("role-template source is not visible on phone viewport");
-    }
-
-    const reasonVisible = await page
+      .first();
+    const constraintSource = page.getByText(/^organization policy$/i).first();
+    const constraintReason = page
       .getByText(/organization policy requires approval ticket\./i)
-      .first()
-      .isVisible();
-    if (!reasonVisible) {
-      throw new Error("constraint reason is not visible on phone viewport");
-    }
+      .first();
 
-    const backLinkVisible = await page
-      .getByRole("link", { name: /back to home/i })
-      .isVisible();
-    if (!backLinkVisible) {
-      throw new Error(
-        "permissions page controls are not usable on phone viewport",
-      );
-    }
+    await organizationPermission.waitFor();
+    await rolePermission.waitFor();
+    await constrainedPermission.waitFor();
+    await directSource.waitFor();
+    await roleTemplateSource.waitFor();
+    await constraintSource.waitFor();
+    await constraintReason.waitFor();
+
+    const roleSourceBox = await requiredBox(
+      roleTemplateSource,
+      "role-template source",
+    );
+    const constraintReasonBox = await requiredBox(
+      constraintReason,
+      "constraint reason",
+    );
+    const orgPermissionBox = await requiredBox(
+      organizationPermission,
+      "organization permission",
+    );
+    const constrainedPermissionBox = await requiredBox(
+      constrainedPermission,
+      "constrained permission",
+    );
+    assertNoOverlap(
+      roleSourceBox,
+      constraintReasonBox,
+      "role-template source",
+      "constraint reason",
+    );
+    assertNoOverlap(
+      orgPermissionBox,
+      constrainedPermissionBox,
+      "organization permission",
+      "constrained permission",
+    );
   },
 );
 
@@ -293,4 +343,28 @@ async function waitForHydration(
     },
     { timeout: 30_000 },
   );
+}
+
+type Box = { x: number; y: number; width: number; height: number };
+
+async function requiredBox(
+  locator: import("@playwright/test").Locator,
+  label: string,
+): Promise<Box> {
+  const box = await locator.boundingBox();
+  if (!box) {
+    throw new Error(`${label} is not visible in the phone viewport`);
+  }
+  return box;
+}
+
+function assertNoOverlap(a: Box, b: Box, aLabel: string, bLabel: string): void {
+  const overlap =
+    a.x < b.x + b.width &&
+    a.x + a.width > b.x &&
+    a.y < b.y + b.height &&
+    a.y + a.height > b.y;
+  if (overlap) {
+    throw new Error(`${aLabel} overlaps ${bLabel} on phone viewport`);
+  }
 }

@@ -29,10 +29,10 @@
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
+//! - `@tui` — account actions currently dispatch through
+//!   [`InProcessHarness`], but `my_permissions` rendering runs through
+//!   `tanren-tui-app`'s ratatui draw path so the witness asserts on the
+//!   real TUI output surface.
 //! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
 //!   parallel Node-side Playwright harness for the same `@web` Gherkin
 //!   scenarios via `playwright-bdd`. The two layers prove themselves
@@ -49,7 +49,7 @@ mod mcp;
 mod tui;
 mod web;
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -398,6 +398,32 @@ pub fn event_kinds(events: &[EventEnvelope]) -> Vec<String> {
                 .map(str::to_owned)
         })
         .collect()
+}
+
+/// Verify a read-only permissions check by comparing a pre-query
+/// checkpoint against later events and rejecting any new permission
+/// mutation kinds.
+pub fn assert_no_permission_request_or_grant_events(
+    event_ids_before: &HashSet<String, impl std::hash::BuildHasher>,
+    events_after: &[EventEnvelope],
+) -> HarnessResult<()> {
+    let mut forbidden = Vec::new();
+    for event in events_after {
+        if event_ids_before.contains(&event.id.to_string()) {
+            continue;
+        }
+        if let Some(kind) = event.payload.get("kind").and_then(Value::as_str)
+            && (kind == "permission_requested" || kind == "permission_granted")
+        {
+            forbidden.push(kind.to_owned());
+        }
+    }
+    if forbidden.is_empty() {
+        return Ok(());
+    }
+    Err(HarnessError::Transport(format!(
+        "permissions view should be read-only; saw forbidden events {forbidden:?}"
+    )))
 }
 
 /// Track concurrent invitation-acceptance outcomes for the falsification

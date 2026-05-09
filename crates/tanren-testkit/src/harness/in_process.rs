@@ -4,6 +4,7 @@
 //! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
 //! is hardened).
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -12,6 +13,7 @@ use tanren_app_services::{Clock, Handlers, MyPermissionsContext, Store};
 use tanren_contract::{
     AcceptInvitationRequest, MyPermissionsRequest, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{
     AccountStore, EventEnvelope, NewInvitation, NewPermissionConstraint, NewPermissionGrant,
@@ -32,6 +34,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    authenticated_accounts: HashSet<AccountId>,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -69,6 +72,7 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            authenticated_accounts: HashSet::new(),
         })
     }
 
@@ -90,24 +94,30 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.authenticated_accounts.insert(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                self.authenticated_accounts.insert(response.account.id);
+                Ok(HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -117,24 +127,33 @@ impl AccountHarness for InProcessHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         match self.handlers.accept_invitation(&self.store, req).await {
-            Ok(response) => Ok(HarnessAcceptance {
-                session: HarnessSession {
-                    account: response.account.clone(),
-                    account_id: response.account.id,
-                    expires_at: response.session.expires_at,
-                    has_token: !response.session.token.expose_secret().is_empty(),
-                },
-                joined_org: response.joined_org,
-            }),
+            Ok(response) => {
+                self.authenticated_accounts.insert(response.account.id);
+                Ok(HarnessAcceptance {
+                    session: HarnessSession {
+                        account: response.account.clone(),
+                        account_id: response.account.id,
+                        expires_at: response.session.expires_at,
+                        has_token: !response.session.token.expose_secret().is_empty(),
+                    },
+                    joined_org: response.joined_org,
+                })
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn my_permissions(
         &mut self,
-        session_account_id: tanren_identity_policy::AccountId,
-        requested_account_id: Option<tanren_identity_policy::AccountId>,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
+        if !self.authenticated_accounts.contains(&session_account_id) {
+            return Err(HarnessError::FailureCode {
+                code: "auth_required".to_owned(),
+                summary: "No authenticated session is present. Sign in and retry.".to_owned(),
+            });
+        }
         let context = MyPermissionsContext::with_requested_account(
             session_account_id,
             requested_account_id.unwrap_or(session_account_id),

@@ -21,6 +21,12 @@ Feature: See my own permissions
       And the permissions view does not create permission request or grant events
 
     @falsification @api
+    Scenario: API requires authentication for self permissions
+      When an unauthenticated client views their own permissions
+      Then the request fails with code "auth_required"
+      And the permissions view does not create permission request or grant events
+
+    @falsification @api
     Scenario: API denies requesting another account through the self view
       Given alice has signed up with email "alice-perms-api-deny@example.com" and password "p4ssw0rd"
       And bob has signed up with email "bob-perms-api-deny@example.com" and password "p4ssw0rd"
@@ -42,6 +48,12 @@ Feature: See my own permissions
       And the permissions view does not create permission request or grant events
 
     @falsification @mcp
+    Scenario: MCP requires authentication for self permissions
+      When an unauthenticated client views their own permissions
+      Then the request fails with code "auth_required"
+      And the permissions view does not create permission request or grant events
+
+    @falsification @mcp
     Scenario: MCP denies requesting another account through the self view
       Given alice has signed up with email "alice-perms-mcp-deny@example.com" and password "p4ssw0rd"
       And bob has signed up with email "bob-perms-mcp-deny@example.com" and password "p4ssw0rd"
@@ -60,6 +72,12 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions view does not create permission request or grant events
+
+    @falsification @cli
+    Scenario: CLI requires authentication for self permissions
+      When an unauthenticated client views their own permissions
+      Then the request fails with code "auth_required"
       And the permissions view does not create permission request or grant events
 
     @falsification @cli
@@ -85,6 +103,12 @@ Feature: See my own permissions
       And the permissions view does not create permission request or grant events
 
     @falsification @web
+    Scenario: Web requires authentication for self permissions
+      When an unauthenticated client views their own permissions
+      Then the request fails with code "auth_required"
+      And the permissions view does not create permission request or grant events
+
+    @falsification @web
     Scenario: Web denies requesting another account through the self view
       Given alice has signed up with email "alice-perms-web-deny@example.com" and password "p4ssw0rd"
       And bob has signed up with email "bob-perms-web-deny@example.com" and password "p4ssw0rd"
@@ -103,6 +127,12 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions view does not create permission request or grant events
+
+    @falsification @tui
+    Scenario: TUI requires authentication for self permissions
+      When an unauthenticated client views their own permissions
+      Then the request fails with code "auth_required"
       And the permissions view does not create permission request or grant events
 
     @falsification @tui

@@ -4465,6 +4465,7 @@ dependencies = [
  "tanren-identity-policy",
  "tanren-mcp-app",
  "tanren-store",
+ "tanren-tui-app",
  "thiserror 2.0.18",
  "tokio",
  "uuid",

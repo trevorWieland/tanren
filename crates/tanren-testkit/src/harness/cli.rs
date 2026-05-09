@@ -1,6 +1,4 @@
-//! `@cli` harness — shells out to the `tanren-cli` binary against a
-//! per-scenario `SQLite` file.
-//!
+//! `@cli` harness — shells out to the `tanren-cli` binary against a per-scenario `SQLite` file.
 
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -214,6 +212,12 @@ impl AccountHarness for CliHarness {
             args.push(target.to_string());
         }
         let session_file = self.db_path.with_extension("session");
+        if !session_file.exists() {
+            return Err(HarnessError::FailureCode {
+                code: "auth_required".to_owned(),
+                summary: "session credential file is missing; sign in and retry".to_owned(),
+            });
+        }
         let output = Command::new(&self.binary)
             .args(args)
             .env("TANREN_SESSION_FILE", &session_file)
@@ -290,9 +294,6 @@ impl AccountHarness for CliHarness {
     }
 }
 
-/// Locate a workspace binary by name. The BDD runner is at
-/// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
-/// the same directory.
 pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if let Ok(explicit) = std::env::var(format!(
         "TANREN_BIN_{}",
@@ -315,8 +316,6 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if candidate.exists() {
         return Ok(candidate);
     }
-    // Fallback: walk up to the workspace root and check
-    // `target/{debug,release}/<bin>`.
     let mut cursor = dir;
     while let Some(parent) = cursor.parent() {
         for profile in ["debug", "release"] {
@@ -338,7 +337,7 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
+    let re = Regex::new(r"error:\s*([a-z_]+)\s*[—-]\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();

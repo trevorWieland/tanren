@@ -15,7 +15,7 @@ use tanren_identity_policy::{
 };
 use tanren_testkit::{
     HarnessOutcome, HarnessPermissionConstraintFixture, HarnessPermissionGrantFixture,
-    HarnessPermissionScope,
+    HarnessPermissionScope, assert_no_permission_request_or_grant_events,
 };
 
 use crate::TanrenWorld;
@@ -95,6 +95,33 @@ async fn when_view_own_permissions(world: &mut TanrenWorld, actor: String) {
     }
 }
 
+#[when(expr = "an unauthenticated client views their own permissions")]
+async fn when_unauthenticated_view_own_permissions(world: &mut TanrenWorld) {
+    let ctx = world.ensure_account_ctx().await;
+    let before = snapshot_event_ids(ctx).await;
+    ctx.event_ids_before_permissions_query = Some(before);
+
+    match ctx
+        .harness
+        .my_permissions(tanren_identity_policy::AccountId::fresh(), None)
+        .await
+    {
+        Ok(view) => {
+            ctx.last_permissions = Some(view);
+            ctx.last_permissions_failure_code = None;
+            ctx.last_outcome = Some(HarnessOutcome::Other(
+                "permissions_loaded_unexpectedly".to_owned(),
+            ));
+        }
+        Err(err) => {
+            let code = err.code();
+            ctx.last_permissions = None;
+            ctx.last_permissions_failure_code = Some(code.clone());
+            ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));
+        }
+    }
+}
+
 #[when(expr = "{word} attempts to view {word}'s permissions through the self view")]
 async fn when_view_other_permissions(world: &mut TanrenWorld, actor: String, target: String) {
     let session_account_id = ensure_actor_signed_in(world, &actor).await;
@@ -143,6 +170,18 @@ async fn then_sees_org_and_project(world: &mut TanrenWorld, actor: String) {
         !view.response.projects.is_empty(),
         "expected at least one project section"
     );
+    if ctx.harness.kind() == tanren_testkit::HarnessKind::Tui {
+        assert!(
+            view.rendered.contains("org_id="),
+            "expected rendered TUI output to include organization ids; got {}",
+            view.rendered
+        );
+        assert!(
+            view.rendered.contains("project_id="),
+            "expected rendered TUI output to include project ids; got {}",
+            view.rendered
+        );
+    }
 }
 
 #[then(expr = "{word} sees the direct organization permission entry")]
@@ -163,6 +202,13 @@ async fn then_sees_direct_org_permission(world: &mut TanrenWorld, actor: String)
         "expected rendered output to include {ORG_PERMISSION}; got {}",
         view.rendered
     );
+    if ctx.harness.kind() == tanren_testkit::HarnessKind::Tui {
+        assert!(
+            view.rendered.contains("source=direct"),
+            "expected rendered TUI output to include direct source label; got {}",
+            view.rendered
+        );
+    }
 }
 
 #[then(expr = "{word} sees the role-template project permission entry")]
@@ -185,6 +231,14 @@ async fn then_sees_role_template_project_permission(world: &mut TanrenWorld, act
         "expected rendered output to include role template {ROLE_TEMPLATE_NAME}; got {}",
         view.rendered
     );
+    if ctx.harness.kind() == tanren_testkit::HarnessKind::Tui {
+        assert!(
+            view.rendered
+                .contains(&format!("source=role_template:{ROLE_TEMPLATE_NAME}")),
+            "expected rendered TUI output to include role-template source label; got {}",
+            view.rendered
+        );
+    }
 }
 
 #[then(expr = "{word} sees constrained permission reason {string} from source {string}")]
@@ -273,26 +327,8 @@ async fn then_no_permission_events(world: &mut TanrenWorld) {
         .recent_events(200)
         .await
         .expect("recent_events should succeed under BDD");
-
-    let mut forbidden = Vec::new();
-    for event in after {
-        let id = event.id.to_string();
-        if before.contains(&id) {
-            continue;
-        }
-        if let Some(kind) = event
-            .payload
-            .get("kind")
-            .and_then(serde_json::Value::as_str)
-            && (kind == "permission_requested" || kind == "permission_granted")
-        {
-            forbidden.push(kind.to_owned());
-        }
-    }
-    assert!(
-        forbidden.is_empty(),
-        "permissions view should be read-only; saw forbidden events {forbidden:?}"
-    );
+    assert_no_permission_request_or_grant_events(&before, &after)
+        .expect("permissions view should remain read-only");
 }
 
 async fn ensure_actor_signed_in(

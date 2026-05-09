@@ -18,7 +18,8 @@ pub use harness::{
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome,
     HarnessPermissionConstraintFixture, HarnessPermissionGrantFixture, HarnessPermissionScope,
     HarnessPermissionsView, HarnessResult, HarnessSession, InProcessHarness, McpHarness,
-    TuiHarness, WebHarness, event_kinds, record_failure,
+    TuiHarness, WebHarness, assert_no_permission_request_or_grant_events, event_kinds,
+    record_failure,
 };
 
 use chrono::{DateTime, Duration, Utc};
