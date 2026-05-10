@@ -6,6 +6,7 @@
 mod assertions;
 mod context;
 mod manifest_helpers;
+mod projection_authority;
 mod repo_fixture;
 
 pub(crate) use crate::steps::install_error::{InstallStepError, InstallStepResult};

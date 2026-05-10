@@ -14,6 +14,7 @@
 pub mod drift_output;
 pub mod harness;
 pub mod install_contract;
+pub mod install_output;
 
 pub use drift_output::{
     DriftCommandStatus, DriftDetailRecord, DriftOutput, DriftOutputParseError, DriftPathStatus,
@@ -34,6 +35,9 @@ pub use install_contract::{
     assert_rust_cargo_standards_installed, assert_selected_integration_command_assets,
     parse_install_integration_selection, read_workspace_catalog_file, sha256_hex_string,
     tamper_manifest_with_raw_generated_entry,
+};
+pub use install_output::{
+    InstallSummaryOutput, InstallSummaryOutputParseError, parse_install_summary_output,
 };
 
 use chrono::{DateTime, Duration, Utc};

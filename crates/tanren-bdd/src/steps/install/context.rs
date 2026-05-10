@@ -23,6 +23,7 @@ pub(crate) struct InstallContext {
     pub(super) fixture_proof_file_baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
     pub(super) fixture_proof_snapshot_before_last_run: Option<RepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
+    pub(super) last_command_kind: Option<InstallCommandKind>,
 }
 
 impl InstallContext {
@@ -39,6 +40,7 @@ impl InstallContext {
             fixture_proof_file_baselines: BTreeMap::new(),
             fixture_proof_snapshot_before_last_run: None,
             last_run: None,
+            last_command_kind: None,
         })
     }
 
@@ -75,6 +77,7 @@ impl InstallContext {
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
         self.fixture_proof_snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
+        self.last_command_kind = Some(InstallCommandKind::Install);
         Ok(())
     }
 
@@ -111,12 +114,18 @@ impl InstallContext {
             .map_err(|source| InstallStepError::RunDriftCommand { source })?;
         self.fixture_proof_snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
+        self.last_command_kind = Some(InstallCommandKind::Drift);
         Ok(())
     }
 
     pub(super) fn require_last_run(&self) -> InstallStepResult<&InstallCommandOutcome> {
         self.last_run
             .as_ref()
+            .ok_or(InstallStepError::InstallCommandNotExecuted)
+    }
+
+    pub(super) fn require_last_command_kind(&self) -> InstallStepResult<InstallCommandKind> {
+        self.last_command_kind
             .ok_or(InstallStepError::InstallCommandNotExecuted)
     }
 

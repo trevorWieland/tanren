@@ -50,6 +50,8 @@ pub(crate) enum InstallStepError {
     ValidationFailureMissing { diagnostic: RedactedDiagnostic },
     #[error("expected repository fixture to remain unchanged after command")]
     RepositorySnapshotMismatch,
+    #[error("typed projection authority conflict: {reason}")]
+    ProjectionAuthorityConflict { reason: String },
     #[error("expected stale path to be absent before manifest injection: {path}")]
     StaleManifestPathAlreadyPresent { path: String },
     #[error("expected repository file content to equal baseline for `{path}`")]
