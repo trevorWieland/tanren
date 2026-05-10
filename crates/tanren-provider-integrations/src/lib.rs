@@ -6,8 +6,11 @@
 //! (Slack, email). Concrete adapters live in separate crates introduced by
 //! the slice that first needs each provider family.
 
+#[cfg(any(test, feature = "test-hooks"))]
 mod source_control_fixture_env;
+mod source_control_registry;
 
+use source_control_registry::SourceControlProviderRegistry;
 use std::sync::Arc;
 use tanren_identity_policy::{AccountId, DesignatedHost, ProviderFamily, RepositoryRef};
 use thiserror::Error;
@@ -36,7 +39,6 @@ pub enum ProviderError {
 /// Failure taxonomy for source-control provider operations used by
 /// project-setup commands.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[non_exhaustive]
 pub enum SourceControlError {
     /// No source-control adapter is configured for this environment.
     #[error("source-control provider unavailable")]
@@ -96,7 +98,9 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
     ) -> Result<RepositoryRef, SourceControlError>;
 }
 
+#[cfg(any(test, feature = "test-hooks"))]
 const SOURCE_CONTROL_PROVIDER_FIXTURE_ENV: &str = "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE";
+#[cfg(any(test, feature = "test-hooks"))]
 const SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE: &str = "allow_all";
 const DEFAULT_SOURCE_CONTROL_BINDING_HOST: &str = "source-control.local";
 
@@ -163,30 +167,19 @@ impl SourceControlProvider for UnavailableSourceControlProvider {
 ///
 /// This slice does not yet ship concrete provider adapters. Production
 /// constructors therefore inject a fail-closed adapter that returns
-/// `SourceControlError::ProviderUnavailable` for every operation unless
-/// an explicit override is requested.
+/// `SourceControlError::ProviderUnavailable` for every operation until a
+/// concrete adapter is registered.
 #[must_use]
 pub fn production_source_control_provider() -> Arc<dyn SourceControlProvider> {
-    if let Ok(raw) = std::env::var(SOURCE_CONTROL_PROVIDER_FIXTURE_ENV) {
-        if raw
-            .trim()
-            .eq_ignore_ascii_case(SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE)
-        {
-            return fixture_allow_all_source_control_provider();
-        }
-        if let Some(provider) =
-            source_control_fixture_env::env_fixture_source_control_provider(raw.trim())
-        {
-            return provider;
-        }
-    }
-    Arc::new(UnavailableSourceControlProvider)
+    SourceControlProviderRegistry::production().resolve()
 }
 
 /// Deterministic allow-all provider used only by test and fixture paths.
+#[cfg(any(test, feature = "test-hooks"))]
 #[derive(Debug, Clone, Default)]
 pub struct AllowAllSourceControlProvider;
 
+#[cfg(any(test, feature = "test-hooks"))]
 #[async_trait::async_trait]
 impl SourceControlProvider for AllowAllSourceControlProvider {
     fn family(&self) -> ProviderFamily {
@@ -238,9 +231,30 @@ impl SourceControlProvider for AllowAllSourceControlProvider {
 }
 
 /// Deterministic allow-all constructor for controlled environments.
+#[cfg(any(test, feature = "test-hooks"))]
 #[must_use]
 pub fn fixture_allow_all_source_control_provider() -> Arc<dyn SourceControlProvider> {
     Arc::new(AllowAllSourceControlProvider)
+}
+
+/// Build a fixture provider from the standard fixture environment variable.
+#[cfg(any(test, feature = "test-hooks"))]
+#[must_use]
+pub fn fixture_source_control_provider_from_env() -> Option<Arc<dyn SourceControlProvider>> {
+    let raw = std::env::var(SOURCE_CONTROL_PROVIDER_FIXTURE_ENV).ok()?;
+    fixture_source_control_provider_from_env_value(raw.trim())
+}
+
+/// Build a fixture provider from a deterministic fixture env value.
+#[cfg(any(test, feature = "test-hooks"))]
+#[must_use]
+pub fn fixture_source_control_provider_from_env_value(
+    raw: &str,
+) -> Option<Arc<dyn SourceControlProvider>> {
+    if raw.eq_ignore_ascii_case(SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE) {
+        return Some(fixture_allow_all_source_control_provider());
+    }
+    source_control_fixture_env::env_fixture_source_control_provider(raw)
 }
 
 /// Configuration for deterministic fixture SCM behavior.

@@ -356,7 +356,6 @@ fn map_provider_error(err: SourceControlError) -> AppServiceError {
         | SourceControlError::OperationFailed => {
             AppServiceError::Project(ProjectFailureReason::ProviderFailure)
         }
-        _ => AppServiceError::Project(ProjectFailureReason::ProviderFailure),
     }
 }
 
