@@ -27,12 +27,9 @@ use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, CheckOrganizationPermissionRequest,
-    CreateOrganizationRequest, ListOrganizationsRequest, SignInRequest, SignUpRequest,
-};
-use tanren_identity_policy::{
-    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
-    SessionToken,
+    AcceptInvitationRequest, AccountFailureReason, AccountId, CheckOrganizationPermissionRequest,
+    CreateOrganizationRequest, IdempotencyKey, ListOrganizationsRequest, MembershipId, OrgId,
+    OrganizationName, OrganizationPermission, SessionToken, SignInRequest, SignUpRequest,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -421,13 +418,11 @@ fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServ
 pub fn build_router_with_store(
     store: Arc<Store>,
     api_key: secrecy::SecretString,
-) -> (Router, CancellationToken) {
-    let auth_config = Arc::new(AuthConfig {
-        bootstrap_key: Some(api_key),
-    });
+) -> Result<(Router, CancellationToken)> {
+    let auth_config = Arc::new(AuthConfig::from_bootstrap_key(api_key)?);
     let cancellation = CancellationToken::new();
     let router = build_router(auth_config, Handlers::new(), store, cancellation.clone());
-    (router, cancellation)
+    Ok((router, cancellation))
 }
 
 /// Serve the tanren-mcp surface to completion. Honours `SIGTERM`/`SIGINT`
@@ -440,7 +435,7 @@ pub fn build_router_with_store(
 pub async fn serve(_config: Config) -> Result<()> {
     let bind = env::var(BIND_ADDRESS_ENV).unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned());
     let auth_config = Arc::new(AuthConfig::from_env().context("load MCP auth config")?);
-    if auth_config.bootstrap_key.is_none() {
+    if !auth_config.is_configured() {
         tracing::warn!(
             target: "tanren_mcp",
             env_var = API_KEY_ENV,

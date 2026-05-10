@@ -7,11 +7,15 @@
 
 pub mod account;
 pub mod events;
+pub mod mcp_auth;
 pub mod organization;
 pub mod organization_errors;
 
 pub use crate::organization_errors::{OrganizationErrorProjection, map_organization_error};
 use chrono::{DateTime, Utc};
+pub use mcp_auth::{
+    MCP_API_KEY_ENV, McpActorContext, McpAuthConfig, McpAuthConfigError, McpAuthFailure,
+};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,

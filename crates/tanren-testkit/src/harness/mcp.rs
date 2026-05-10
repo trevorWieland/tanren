@@ -85,7 +85,8 @@ impl McpHarness {
         let (router, cancellation) = tanren_mcp_app::build_router_with_store(
             store.clone(),
             SecretString::from(TEST_API_KEY.to_owned()),
-        );
+        )
+        .map_err(|e| HarnessError::Transport(format!("build mcp router: {e}")))?;
 
         let server = tokio::spawn(async move {
             let _ = axum::serve(listener, router)

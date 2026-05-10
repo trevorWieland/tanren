@@ -23,6 +23,10 @@ pub use organization::{
     OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
     organization_permission_options,
 };
+pub use tanren_identity_policy::{
+    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
+    SessionToken,
+};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
