@@ -41,6 +41,9 @@ export type WindowContextId = v.InferOutput<typeof WindowContextIdSchema>;
 export const IdentifierSchema = v.string();
 export type Identifier = v.InferOutput<typeof IdentifierSchema>;
 
+export const InvitationTokenSchema = v.string();
+export type InvitationToken = v.InferOutput<typeof InvitationTokenSchema>;
+
 export const AccountViewSchema = v.object({
   display_name: v.string(),
   id: AccountIdSchema,
@@ -79,13 +82,36 @@ export const SessionEnvelopeSchema = v.union([
 ]);
 export type SessionEnvelope = v.InferOutput<typeof SessionEnvelopeSchema>;
 
+export const SignUpRequestSchema = v.object({
+  display_name: v.string(),
+  email: v.string(),
+  password: v.string(),
+});
+export type SignUpRequest = v.InferOutput<typeof SignUpRequestSchema>;
+
+export const SignInRequestSchema = v.object({
+  email: v.string(),
+  password: v.string(),
+});
+export type SignInRequest = v.InferOutput<typeof SignInRequestSchema>;
+
+export const AcceptInvitationRequestSchema = v.object({
+  display_name: v.string(),
+  email: v.string(),
+  invitation_token: InvitationTokenSchema,
+  password: v.string(),
+});
+export type AcceptInvitationRequest = v.InferOutput<
+  typeof AcceptInvitationRequestSchema
+>;
+
 export const ListActiveAccountsRequestSchema = v.object({});
 export type ListActiveAccountsRequest = v.InferOutput<
   typeof ListActiveAccountsRequestSchema
 >;
 
 export const ListActiveAccountsResponseSchema = v.object({
-  accounts: v.array(SignedInAccountViewSchema),
+  accounts: v.pipe(v.array(SignedInAccountViewSchema), v.maxLength(16)),
 });
 export type ListActiveAccountsResponse = v.InferOutput<
   typeof ListActiveAccountsResponseSchema
@@ -99,11 +125,32 @@ export type SwitchActiveAccountRequest = v.InferOutput<
 >;
 
 export const SwitchActiveAccountResponseSchema = v.object({
-  accounts: v.array(SignedInAccountViewSchema),
+  accounts: v.pipe(v.array(SignedInAccountViewSchema), v.maxLength(16)),
   active_account_id: AccountIdSchema,
 });
 export type SwitchActiveAccountResponse = v.InferOutput<
   typeof SwitchActiveAccountResponseSchema
+>;
+
+export const WebSignUpResponseSchema = v.object({
+  account: AccountViewSchema,
+  session: SessionEnvelopeSchema,
+});
+export type WebSignUpResponse = v.InferOutput<typeof WebSignUpResponseSchema>;
+
+export const WebSignInResponseSchema = v.object({
+  account: AccountViewSchema,
+  session: SessionEnvelopeSchema,
+});
+export type WebSignInResponse = v.InferOutput<typeof WebSignInResponseSchema>;
+
+export const WebAcceptInvitationResponseSchema = v.object({
+  account: AccountViewSchema,
+  joined_org: OrgIdSchema,
+  session: SessionEnvelopeSchema,
+});
+export type WebAcceptInvitationResponse = v.InferOutput<
+  typeof WebAcceptInvitationResponseSchema
 >;
 
 function parseWithSchema<
@@ -132,6 +179,10 @@ export function parseIdentifier(payload: unknown): Identifier | null {
   return parseWithSchema(IdentifierSchema, payload);
 }
 
+export function parseInvitationToken(payload: unknown): InvitationToken | null {
+  return parseWithSchema(InvitationTokenSchema, payload);
+}
+
 export function parseAccountView(payload: unknown): AccountView | null {
   return parseWithSchema(AccountViewSchema, payload);
 }
@@ -150,6 +201,20 @@ export function parseSignedInAccountView(
 
 export function parseSessionEnvelope(payload: unknown): SessionEnvelope | null {
   return parseWithSchema(SessionEnvelopeSchema, payload);
+}
+
+export function parseSignUpRequest(payload: unknown): SignUpRequest | null {
+  return parseWithSchema(SignUpRequestSchema, payload);
+}
+
+export function parseSignInRequest(payload: unknown): SignInRequest | null {
+  return parseWithSchema(SignInRequestSchema, payload);
+}
+
+export function parseAcceptInvitationRequest(
+  payload: unknown,
+): AcceptInvitationRequest | null {
+  return parseWithSchema(AcceptInvitationRequestSchema, payload);
 }
 
 export function parseListActiveAccountsRequest(
@@ -176,11 +241,56 @@ export function parseSwitchActiveAccountResponse(
   return parseWithSchema(SwitchActiveAccountResponseSchema, payload);
 }
 
-export type AccountFailureCode =
-  | "duplicate_identifier"
-  | "invalid_credential"
-  | "validation_failed"
-  | "invitation_not_found"
-  | "invitation_expired"
-  | "invitation_already_consumed"
-  | "target_account_not_signed_in";
+export function parseWebSignUpResponse(
+  payload: unknown,
+): WebSignUpResponse | null {
+  return parseWithSchema(WebSignUpResponseSchema, payload);
+}
+
+export function parseWebSignInResponse(
+  payload: unknown,
+): WebSignInResponse | null {
+  return parseWithSchema(WebSignInResponseSchema, payload);
+}
+
+export function parseWebAcceptInvitationResponse(
+  payload: unknown,
+): WebAcceptInvitationResponse | null {
+  return parseWithSchema(WebAcceptInvitationResponseSchema, payload);
+}
+
+export const AccountFailureCodeValues = [
+  "duplicate_identifier",
+  "invalid_credential",
+  "validation_failed",
+  "invitation_not_found",
+  "invitation_expired",
+  "invitation_already_consumed",
+  "target_account_not_signed_in",
+] as const;
+export const AccountFailureCodeSchema = v.picklist(AccountFailureCodeValues);
+export type AccountFailureCode = v.InferOutput<typeof AccountFailureCodeSchema>;
+
+export function parseAccountFailureCode(
+  payload: unknown,
+): AccountFailureCode | null {
+  return parseWithSchema(AccountFailureCodeSchema, payload);
+}
+
+export const AccountRequestFailureCodeValues = [
+  ...AccountFailureCodeValues,
+  "unavailable",
+  "internal_error",
+] as const;
+export const AccountRequestFailureCodeSchema = v.picklist(
+  AccountRequestFailureCodeValues,
+);
+export type AccountRequestFailureCode = v.InferOutput<
+  typeof AccountRequestFailureCodeSchema
+>;
+
+export function parseAccountRequestFailureCode(
+  payload: unknown,
+): AccountRequestFailureCode | null {
+  return parseWithSchema(AccountRequestFailureCodeSchema, payload);
+}

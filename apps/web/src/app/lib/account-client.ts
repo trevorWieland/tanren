@@ -1,26 +1,34 @@
 import * as m from "@/i18n/paraglide/messages";
-import * as v from "valibot";
 import type {
+  AcceptInvitationRequest,
   AccountFailureCode,
+  AccountRequestFailureCode,
   AccountId,
   AccountView,
-  SessionEnvelope,
+  ListActiveAccountsRequest,
   ListActiveAccountsResponse,
   OrgId,
+  SessionEnvelope,
+  SignInRequest,
+  SignUpRequest,
   SignedInAccountView,
   SwitchActiveAccountRequest,
   SwitchActiveAccountResponse,
   WindowContextId,
 } from "@/app/lib/generated/account-contract";
 import {
-  AccountIdSchema,
-  AccountViewSchema,
-  ListActiveAccountsResponseSchema,
-  OrgIdSchema,
-  SessionEnvelopeSchema,
-  SwitchActiveAccountRequestSchema,
-  SwitchActiveAccountResponseSchema,
+  parseAcceptInvitationRequest,
   parseAccountId as parseGeneratedAccountId,
+  parseAccountRequestFailureCode,
+  parseListActiveAccountsRequest,
+  parseListActiveAccountsResponse,
+  parseSignInRequest,
+  parseSignUpRequest,
+  parseSwitchActiveAccountRequest,
+  parseSwitchActiveAccountResponse,
+  parseWebAcceptInvitationResponse,
+  parseWebSignInResponse,
+  parseWebSignUpResponse,
   parseWindowContextId as parseGeneratedWindowContextId,
 } from "@/app/lib/generated/account-contract";
 
@@ -57,7 +65,7 @@ export type { AccountFailureCode, AccountView, SignedInAccountView };
  */
 export interface SessionView {
   account_id: AccountId;
-  expires_at: string;
+  expires_at: Date;
 }
 
 export interface SignUpResult {
@@ -80,15 +88,6 @@ export type ListActiveAccountsResult = ListActiveAccountsResponse;
 export type SwitchActiveAccountInput = SwitchActiveAccountRequest;
 export type SwitchActiveAccountResult = SwitchActiveAccountResponse;
 
-/**
- * Network/runtime-only extensions layered on top of canonical
- * `AccountFailureCode` from the generated contract.
- */
-export type AccountRequestFailureCode =
-  | AccountFailureCode
-  | "unavailable"
-  | "internal_error";
-
 export interface AccountFailure {
   code: AccountRequestFailureCode;
   summary: string;
@@ -99,80 +98,115 @@ interface FailureBody {
   summary?: unknown;
 }
 
-const SessionViewSchema = v.object({
-  account_id: AccountIdSchema,
-  expires_at: v.string(),
-});
-
-const SessionEnvelopeCookieSchema = v.object({
-  transport: v.literal("cookie"),
-  account_id: AccountIdSchema,
-  expires_at: v.string(),
-});
-
-const SignUpWireSchema = v.object({
-  account: AccountViewSchema,
-  session: SessionEnvelopeSchema,
-});
-
-const SignInWireSchema = v.object({
-  account: AccountViewSchema,
-  session: SessionEnvelopeSchema,
-});
-
-const AcceptInvitationWireSchema = v.object({
-  account: AccountViewSchema,
-  session: SessionEnvelopeSchema,
-  joined_org: OrgIdSchema,
-});
-
-const FailureBodySchema = v.object({
-  code: v.optional(v.string()),
-  summary: v.optional(v.string()),
-});
-
-const STABLE_FAILURE_CODES = [
-  "duplicate_identifier",
-  "invalid_credential",
-  "validation_failed",
-  "invitation_not_found",
-  "invitation_expired",
-  "invitation_already_consumed",
-  "target_account_not_signed_in",
-] as const satisfies readonly AccountFailureCode[];
-
 type JsonDecoder<T> = (payload: unknown) => T | null;
 
-function decodeWithSchema<
-  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
->(schema: TSchema, payload: unknown): v.InferOutput<TSchema> | null {
-  const parsed = v.safeParse(schema, payload);
-  if (!parsed.success) {
-    return null;
-  }
-  return parsed.output;
-}
+type ResponseMode = "json" | "empty";
 
-export function parseWindowContextId(payload: unknown): WindowContextId | null {
-  return parseGeneratedWindowContextId(payload);
-}
+type AccountOperation<TRequest, TResponse> = {
+  method: "GET" | "POST";
+  path: string | ((request: TRequest) => string);
+  parseRequest: JsonDecoder<TRequest>;
+  responseMode: ResponseMode;
+  parseResponse?: JsonDecoder<TResponse>;
+  encodeBody?: (request: TRequest) => unknown;
+  afterSuccess?: () => void;
+};
+
+const ACCOUNT_OPERATIONS: {
+  signUp: AccountOperation<SignUpRequest, SignUpResult>;
+  signIn: AccountOperation<SignInRequest, SignInResult>;
+  acceptInvitation: AccountOperation<
+    AcceptInvitationRequest,
+    AcceptInvitationResult
+  >;
+  listActiveAccounts: AccountOperation<
+    ListActiveAccountsRequest,
+    ListActiveAccountsResult
+  >;
+  switchActiveAccount: AccountOperation<
+    SwitchActiveAccountRequest,
+    SwitchActiveAccountResult
+  >;
+  signOut: AccountOperation<ListActiveAccountsRequest, void>;
+} = {
+  signUp: {
+    method: "POST",
+    path: "/accounts",
+    parseRequest: parseSignUpRequest,
+    responseMode: "json",
+    parseResponse: decodeSignUpResult,
+    afterSuccess: rotateWindowId,
+  },
+  signIn: {
+    method: "POST",
+    path: "/sessions",
+    parseRequest: parseSignInRequest,
+    responseMode: "json",
+    parseResponse: decodeSignInResult,
+    afterSuccess: rotateWindowId,
+  },
+  acceptInvitation: {
+    method: "POST",
+    path: (request) =>
+      `/invitations/${encodeURIComponent(request.invitation_token)}/accept`,
+    parseRequest: parseAcceptInvitationRequest,
+    responseMode: "json",
+    parseResponse: decodeAcceptInvitationResult,
+    encodeBody: (request) => ({
+      display_name: request.display_name,
+      email: request.email,
+      password: request.password,
+    }),
+    afterSuccess: rotateWindowId,
+  },
+  listActiveAccounts: {
+    method: "GET",
+    path: "/accounts/active",
+    parseRequest: parseListActiveAccountsRequest,
+    responseMode: "json",
+    parseResponse: parseListActiveAccountsResponse,
+  },
+  switchActiveAccount: {
+    method: "POST",
+    path: "/accounts/active/switch",
+    parseRequest: parseSwitchActiveAccountRequest,
+    responseMode: "json",
+    parseResponse: parseSwitchActiveAccountResponse,
+  },
+  signOut: {
+    method: "POST",
+    path: "/sessions/revoke",
+    parseRequest: parseListActiveAccountsRequest,
+    responseMode: "empty",
+    afterSuccess: clearWindowId,
+  },
+};
 
 function decodeFailureBody(payload: unknown): FailureBody | null {
-  return decodeWithSchema(FailureBodySchema, payload);
-}
-
-function parseStableFailureCode(payload: unknown): AccountFailureCode | null {
-  if (typeof payload !== "string") {
+  if (
+    payload === null ||
+    typeof payload !== "object" ||
+    Array.isArray(payload)
+  ) {
     return null;
   }
-  if ((STABLE_FAILURE_CODES as readonly string[]).includes(payload)) {
-    return payload as AccountFailureCode;
+  const source = payload as Record<string, unknown>;
+  return {
+    code: source["code"],
+    summary: source["summary"],
+  };
+}
+
+function parseCookieSessionExpiry(value: string): Date | null {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return null;
   }
-  return null;
+  return parsed;
 }
 
 function decodeSignUpResult(payload: unknown): SignUpResult | null {
-  const decoded = decodeWithSchema(SignUpWireSchema, payload);
+  const decoded = parseWebSignUpResponse(payload);
   if (decoded === null) {
     return null;
   }
@@ -187,7 +221,7 @@ function decodeSignUpResult(payload: unknown): SignUpResult | null {
 }
 
 function decodeSignInResult(payload: unknown): SignInResult | null {
-  const decoded = decodeWithSchema(SignInWireSchema, payload);
+  const decoded = parseWebSignInResponse(payload);
   if (decoded === null) {
     return null;
   }
@@ -204,7 +238,7 @@ function decodeSignInResult(payload: unknown): SignInResult | null {
 function decodeAcceptInvitationResult(
   payload: unknown,
 ): AcceptInvitationResult | null {
-  const decoded = decodeWithSchema(AcceptInvitationWireSchema, payload);
+  const decoded = parseWebAcceptInvitationResponse(payload);
   if (decoded === null) {
     return null;
   }
@@ -219,26 +253,20 @@ function decodeAcceptInvitationResult(
   };
 }
 
-function decodeListActiveAccountsResult(
-  payload: unknown,
-): ListActiveAccountsResult | null {
-  return decodeWithSchema(ListActiveAccountsResponseSchema, payload);
-}
-
-function decodeSwitchActiveAccountResult(
-  payload: unknown,
-): SwitchActiveAccountResult | null {
-  return decodeWithSchema(SwitchActiveAccountResponseSchema, payload);
-}
-
 function decodeCookieSessionEnvelope(
   payload: SessionEnvelope,
 ): SessionView | null {
-  const parsed = decodeWithSchema(SessionEnvelopeCookieSchema, payload);
-  if (parsed === null) {
+  if (payload.transport !== "cookie") {
     return null;
   }
-  return decodeWithSchema(SessionViewSchema, parsed);
+  const expiresAt = parseCookieSessionExpiry(payload.expires_at);
+  if (expiresAt === null) {
+    return null;
+  }
+  return {
+    account_id: payload.account_id,
+    expires_at: expiresAt,
+  };
 }
 
 /**
@@ -269,28 +297,43 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function requestJson<T>(
-  path: string,
-  method: "GET" | "POST",
-  decode: JsonDecoder<T>,
-  body?: unknown,
-): Promise<T> {
+async function requestJson<TRequest, TResponse>(
+  operation: AccountOperation<TRequest, TResponse>,
+  input: unknown,
+): Promise<TResponse> {
+  const request = operation.parseRequest(input);
+  if (request === null) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: "Invalid request body.",
+    });
+  }
+
   const identityHeader = windowIdentityHeader();
   let response: Response;
   try {
     const init: RequestInit = {
-      method,
+      method: operation.method,
       headers: {
-        ...(method === "POST" ? { "content-type": "application/json" } : {}),
+        ...(operation.method === "POST"
+          ? { "content-type": "application/json" }
+          : {}),
         ...identityHeader,
       },
       // Cookie transport: send/receive HTTP-only session cookie on every
       // request. Replaces localStorage token storage (M2).
       credentials: "include",
     };
-    if (method === "POST" && body !== undefined) {
-      init.body = JSON.stringify(body);
+    if (operation.method === "POST") {
+      const body = operation.encodeBody?.(request) ?? request;
+      if (body !== undefined) {
+        init.body = JSON.stringify(body);
+      }
     }
+    const path =
+      typeof operation.path === "function"
+        ? operation.path(request)
+        : operation.path;
     response = await fetch(`${API_URL}${path}`, init);
   } catch (cause: unknown) {
     throw new AccountRequestError({
@@ -301,12 +344,15 @@ async function requestJson<T>(
 
   if (!response.ok) {
     let parsed: FailureBody | null = null;
-    try {
-      parsed = decodeFailureBody(await response.json());
-    } catch {
-      parsed = null;
+    if (response.status !== 204) {
+      try {
+        parsed = decodeFailureBody(await response.json());
+      } catch {
+        parsed = null;
+      }
     }
-    const code = parseStableFailureCode(parsed?.code) ?? "internal_error";
+    const code =
+      parseAccountRequestFailureCode(parsed?.code) ?? "internal_error";
     const summary =
       typeof parsed?.summary === "string"
         ? parsed.summary
@@ -315,6 +361,11 @@ async function requestJson<T>(
       rotateWindowId();
     }
     throw new AccountRequestError({ code, summary });
+  }
+
+  if (operation.responseMode === "empty") {
+    operation.afterSuccess?.();
+    return undefined as TResponse;
   }
 
   let payload: unknown;
@@ -327,6 +378,13 @@ async function requestJson<T>(
     });
   }
 
+  const decode = operation.parseResponse;
+  if (decode === undefined) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: "Invalid response decoder.",
+    });
+  }
   const decoded = decode(payload);
   if (decoded === null) {
     throw new AccountRequestError({
@@ -334,94 +392,54 @@ async function requestJson<T>(
       summary: "Invalid response body.",
     });
   }
+  operation.afterSuccess?.();
   return decoded;
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return requestJson("/accounts", "POST", decodeSignUpResult, input).then(
-    (result) => {
-      rotateWindowId();
-      return result;
-    },
-  );
+  return requestJson(ACCOUNT_OPERATIONS.signUp, input);
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return requestJson("/sessions", "POST", decodeSignInResult, input).then(
-    (result) => {
-      rotateWindowId();
-      return result;
-    },
-  );
+  return requestJson(ACCOUNT_OPERATIONS.signIn, input);
 }
 
 export function acceptInvitation(
   token: string,
   input: Omit<AcceptInvitationInput, "invitation_token">,
 ): Promise<AcceptInvitationResult> {
-  const path = `/invitations/${encodeURIComponent(token)}/accept`;
-  return requestJson(path, "POST", decodeAcceptInvitationResult, {
-    email: input.email,
-    password: input.password,
+  return requestJson(ACCOUNT_OPERATIONS.acceptInvitation, {
     display_name: input.display_name,
-  }).then((result) => {
-    rotateWindowId();
-    return result;
+    email: input.email,
+    invitation_token: token,
+    password: input.password,
   });
 }
 
 export function listActiveAccounts(): Promise<ListActiveAccountsResult> {
-  return requestJson("/accounts/active", "GET", decodeListActiveAccountsResult);
+  return requestJson(ACCOUNT_OPERATIONS.listActiveAccounts, {});
 }
 
 export function switchActiveAccount(
   input: SwitchActiveAccountInput,
 ): Promise<SwitchActiveAccountResult> {
-  const parsed = decodeWithSchema(SwitchActiveAccountRequestSchema, input);
-  if (parsed === null) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: "Invalid request body.",
-    });
-  }
-  return requestJson(
-    "/accounts/active/switch",
-    "POST",
-    decodeSwitchActiveAccountResult,
-    parsed,
-  );
+  return requestJson(ACCOUNT_OPERATIONS.switchActiveAccount, input);
 }
 
 /**
  * Sign-out clears the session row server-side and the cookie via
  * `Set-Cookie: tanren_session=; Max-Age=0`.
  */
-export async function signOut(): Promise<void> {
-  const identityHeader = windowIdentityHeader();
-  let response: Response;
-  try {
-    response = await fetch(`${API_URL}/sessions/revoke`, {
-      method: "POST",
-      headers: identityHeader,
-      credentials: "include",
-    });
-  } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
-  }
-  if (!response.ok) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: `HTTP ${response.status}`,
-    });
-  }
-  clearWindowId();
+export function signOut(): Promise<void> {
+  return requestJson(ACCOUNT_OPERATIONS.signOut, {});
 }
 
 export function parseAccountId(value: string): AccountId | null {
   return parseGeneratedAccountId(value);
+}
+
+export function parseWindowContextId(payload: unknown): WindowContextId | null {
+  return parseGeneratedWindowContextId(payload);
 }
 
 function windowIdentityHeader(): Record<string, string> {

@@ -10,11 +10,12 @@ use std::fs;
 use std::io::Write;
 use std::path::Path;
 use tanren_contract::{
-    AccountFailureReason, AccountView, ActiveAccountView, ListActiveAccountsRequest,
-    ListActiveAccountsResponse, SessionEnvelope, SignedInAccountView, SwitchActiveAccountRequest,
-    SwitchActiveAccountResponse, WindowContextId,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ActiveAccountView,
+    ListActiveAccountsRequest, ListActiveAccountsResponse, SessionEnvelope, SignInRequest,
+    SignUpRequest, SignedInAccountView, SwitchActiveAccountRequest, SwitchActiveAccountResponse,
+    WindowContextId,
 };
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_identity_policy::{AccountId, Identifier, InvitationToken, OrgId};
 
 const OUTPUT_PATH: &str = "apps/web/src/app/lib/generated/account-contract.ts";
 
@@ -47,8 +48,9 @@ fn render_contract_file() -> String {
     let mut rendered = String::new();
     render_header(&mut rendered);
     render_schema_exports(&mut rendered, &targets);
+    render_web_operation_schemas(&mut rendered);
     render_parse_helpers(&mut rendered, &targets);
-    render_failure_code_union(&mut rendered);
+    render_failure_codes(&mut rendered);
     rendered
 }
 
@@ -75,6 +77,11 @@ fn schema_targets() -> Vec<SchemaTarget> {
             brand: None,
         },
         SchemaTarget {
+            name: "InvitationToken",
+            schema: schema_json::<InvitationToken>(),
+            brand: None,
+        },
+        SchemaTarget {
             name: "AccountView",
             schema: schema_json::<AccountView>(),
             brand: None,
@@ -92,6 +99,21 @@ fn schema_targets() -> Vec<SchemaTarget> {
         SchemaTarget {
             name: "SessionEnvelope",
             schema: schema_json::<SessionEnvelope>(),
+            brand: None,
+        },
+        SchemaTarget {
+            name: "SignUpRequest",
+            schema: schema_json::<SignUpRequest>(),
+            brand: None,
+        },
+        SchemaTarget {
+            name: "SignInRequest",
+            schema: schema_json::<SignInRequest>(),
+            brand: None,
+        },
+        SchemaTarget {
+            name: "AcceptInvitationRequest",
+            schema: schema_json::<AcceptInvitationRequest>(),
             brand: None,
         },
         SchemaTarget {
@@ -157,6 +179,33 @@ fn render_schema_exports(rendered: &mut String, targets: &[SchemaTarget]) {
     }
 }
 
+fn render_web_operation_schemas(rendered: &mut String) {
+    rendered.push_str("export const WebSignUpResponseSchema = v.object({\n");
+    rendered.push_str("  account: AccountViewSchema,\n");
+    rendered.push_str("  session: SessionEnvelopeSchema,\n");
+    rendered.push_str("});\n");
+    rendered.push_str(
+        "export type WebSignUpResponse = v.InferOutput<typeof WebSignUpResponseSchema>;\n\n",
+    );
+
+    rendered.push_str("export const WebSignInResponseSchema = v.object({\n");
+    rendered.push_str("  account: AccountViewSchema,\n");
+    rendered.push_str("  session: SessionEnvelopeSchema,\n");
+    rendered.push_str("});\n");
+    rendered.push_str(
+        "export type WebSignInResponse = v.InferOutput<typeof WebSignInResponseSchema>;\n\n",
+    );
+
+    rendered.push_str("export const WebAcceptInvitationResponseSchema = v.object({\n");
+    rendered.push_str("  account: AccountViewSchema,\n");
+    rendered.push_str("  joined_org: OrgIdSchema,\n");
+    rendered.push_str("  session: SessionEnvelopeSchema,\n");
+    rendered.push_str("});\n");
+    rendered.push_str(
+        "export type WebAcceptInvitationResponse = v.InferOutput<typeof WebAcceptInvitationResponseSchema>;\n\n",
+    );
+}
+
 fn render_parse_helpers(rendered: &mut String, targets: &[SchemaTarget]) {
     rendered.push_str("function parseWithSchema<\n");
     rendered.push_str("  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,\n");
@@ -181,14 +230,60 @@ fn render_parse_helpers(rendered: &mut String, targets: &[SchemaTarget]) {
         );
         rendered.push_str("}\n\n");
     }
+
+    rendered.push_str(
+        "export function parseWebSignUpResponse(payload: unknown): WebSignUpResponse | null {\n",
+    );
+    rendered.push_str("  return parseWithSchema(WebSignUpResponseSchema, payload);\n");
+    rendered.push_str("}\n\n");
+
+    rendered.push_str(
+        "export function parseWebSignInResponse(payload: unknown): WebSignInResponse | null {\n",
+    );
+    rendered.push_str("  return parseWithSchema(WebSignInResponseSchema, payload);\n");
+    rendered.push_str("}\n\n");
+
+    rendered.push_str(
+        "export function parseWebAcceptInvitationResponse(payload: unknown): WebAcceptInvitationResponse | null {\n",
+    );
+    rendered.push_str("  return parseWithSchema(WebAcceptInvitationResponseSchema, payload);\n");
+    rendered.push_str("}\n\n");
 }
 
-fn render_failure_code_union(rendered: &mut String) {
-    rendered.push_str("export type AccountFailureCode =\n");
+fn render_failure_codes(rendered: &mut String) {
+    rendered.push_str("export const AccountFailureCodeValues = [\n");
     for reason in AccountFailureReason::all() {
-        let _ = writeln!(rendered, "  | \"{}\"", reason.code());
+        let _ = writeln!(rendered, "  \"{}\",", reason.code());
     }
-    rendered.push_str(";\n");
+    rendered.push_str("] as const;\n");
+    rendered.push_str(
+        "export const AccountFailureCodeSchema = v.picklist(AccountFailureCodeValues);\n",
+    );
+    rendered.push_str(
+        "export type AccountFailureCode = v.InferOutput<typeof AccountFailureCodeSchema>;\n\n",
+    );
+    rendered.push_str(
+        "export function parseAccountFailureCode(payload: unknown): AccountFailureCode | null {\n",
+    );
+    rendered.push_str("  return parseWithSchema(AccountFailureCodeSchema, payload);\n");
+    rendered.push_str("}\n\n");
+
+    rendered.push_str("export const AccountRequestFailureCodeValues = [\n");
+    rendered.push_str("  ...AccountFailureCodeValues,\n");
+    rendered.push_str("  \"unavailable\",\n");
+    rendered.push_str("  \"internal_error\",\n");
+    rendered.push_str("] as const;\n");
+    rendered.push_str(
+        "export const AccountRequestFailureCodeSchema = v.picklist(AccountRequestFailureCodeValues);\n",
+    );
+    rendered.push_str(
+        "export type AccountRequestFailureCode = v.InferOutput<typeof AccountRequestFailureCodeSchema>;\n\n",
+    );
+    rendered.push_str(
+        "export function parseAccountRequestFailureCode(payload: unknown): AccountRequestFailureCode | null {\n",
+    );
+    rendered.push_str("  return parseWithSchema(AccountRequestFailureCodeSchema, payload);\n");
+    rendered.push_str("}\n");
 }
 
 fn schema_json<T: schemars::JsonSchema>() -> Value {
@@ -297,7 +392,7 @@ fn schema_to_valibot(
     if object.get("items").is_some() {
         let items = object.get("items").unwrap_or(&Value::Null);
         let item_schema = schema_to_valibot(items, defs, known_names, stack, None);
-        return format!("v.array({item_schema})");
+        return render_array_schema(object, &item_schema);
     }
 
     "v.unknown()".to_owned()
@@ -319,7 +414,7 @@ fn render_typed_schema(
         "array" => {
             let items = object.get("items").unwrap_or(&Value::Null);
             let item_schema = schema_to_valibot(items, defs, known_names, stack, None);
-            format!("v.array({item_schema})")
+            render_array_schema(object, &item_schema)
         }
         "object" => render_object_schema(object, defs, known_names, stack),
         _ => "v.unknown()".to_owned(),
@@ -351,6 +446,21 @@ fn render_string_schema(object: &Map<String, Value>, brand: Option<&'static str>
     }
     if steps.len() == 1 {
         return steps.pop().unwrap_or_else(|| "v.string()".to_owned());
+    }
+    format!("v.pipe({})", steps.join(", "))
+}
+
+fn render_array_schema(object: &Map<String, Value>, item_schema: &str) -> String {
+    let fallback = format!("v.array({item_schema})");
+    let mut steps = vec![fallback.clone()];
+    if let Some(value) = object.get("minItems").and_then(Value::as_u64) {
+        steps.push(format!("v.minLength({value})"));
+    }
+    if let Some(value) = object.get("maxItems").and_then(Value::as_u64) {
+        steps.push(format!("v.maxLength({value})"));
+    }
+    if steps.len() == 1 {
+        return fallback;
     }
     format!("v.pipe({})", steps.join(", "))
 }

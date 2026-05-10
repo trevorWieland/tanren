@@ -157,6 +157,7 @@ pub struct SignedInAccountView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListActiveAccountsResponse {
     /// Signed-in accounts for the current caller.
+    #[schemars(length(max = 16))]
     pub accounts: Vec<SignedInAccountView>,
 }
 
@@ -173,6 +174,7 @@ pub struct SwitchActiveAccountResponse {
     /// Account that is now active for this window/session.
     pub active_account_id: AccountId,
     /// Signed-in account set after the switch.
+    #[schemars(length(max = 16))]
     pub accounts: Vec<SignedInAccountView>,
 }
 
