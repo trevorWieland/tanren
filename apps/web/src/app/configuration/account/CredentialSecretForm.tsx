@@ -1,12 +1,15 @@
-import { useState } from "react";
+import { useRef } from "react";
 import type { FormEvent, ReactNode } from "react";
+
+import { secretInput } from "@/app/lib/api-contracts";
+import type { SecretInput } from "@/app/lib/api-contracts";
 
 interface CredentialSecretFormProps {
   busy: boolean;
   className?: string;
   placeholder: string;
   submitLabel: string;
-  onSubmit: (secret: string) => Promise<void>;
+  onSubmit: (secret: SecretInput) => Promise<void>;
 }
 
 export function CredentialSecretForm({
@@ -16,25 +19,29 @@ export function CredentialSecretForm({
   submitLabel,
   onSubmit,
 }: CredentialSecretFormProps): ReactNode {
-  const [secret, setSecret] = useState("");
+  const secretFieldRef = useRef<HTMLInputElement>(null);
 
   async function submit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const secretValue = secret.trim();
-    if (secretValue === "") {
+    const input = secretFieldRef.current;
+    if (input === null) {
       return;
     }
-    // Clear immediately so raw secrets are not retained in rendered state.
-    setSecret("");
-    await onSubmit(secretValue);
+    const capturedSecret = input.value;
+    // Clear immediately after capture so the DOM never retains prior secrets.
+    input.value = "";
+    if (capturedSecret === "") {
+      return;
+    }
+    await onSubmit(secretInput(capturedSecret));
   }
 
   return (
     <form className={className} onSubmit={(event) => void submit(event)}>
       <input
+        ref={secretFieldRef}
         type="password"
-        value={secret}
-        onChange={(event) => setSecret(event.target.value)}
+        disabled={busy}
         className="min-w-48 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
         placeholder={placeholder}
         autoComplete="off"

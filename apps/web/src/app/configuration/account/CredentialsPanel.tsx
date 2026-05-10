@@ -5,6 +5,7 @@ import { CredentialSecretForm } from "@/app/configuration/account/CredentialSecr
 import type {
   CreateUserCredentialInput,
   ListUserCredentialsResult,
+  SecretInput,
   UpdateUserCredentialInput,
   UserCredentialKind,
 } from "@/app/lib/api-contracts";
@@ -57,20 +58,20 @@ export function CredentialsPanel({
       typeof item.value === "string" && item.value.trim() !== "",
   );
 
-  async function submitAdd(secret: string): Promise<void> {
+  async function submitAdd(secret: SecretInput): Promise<void> {
     await onAdd({
       kind: credentialKind,
-      value: secret,
+      value: secret.value,
     });
   }
 
-  async function submitUpdate(secret: string): Promise<void> {
+  async function submitUpdate(secret: SecretInput): Promise<void> {
     const itemId = credentialItemId.trim();
     if (itemId === "") {
       return;
     }
     await onUpdate(itemId, {
-      value: secret,
+      value: secret.value,
     });
   }
 

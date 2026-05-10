@@ -21,6 +21,15 @@ type OperationJsonRequest<Op extends keyof operations> =
 export type UserSettingKey = components["schemas"]["UserSettingKey"];
 export type UserCredentialKind = components["schemas"]["UserCredentialKind"];
 export type UserSettingValue = components["schemas"]["UserSettingValue"];
+declare const SECRET_INPUT_BRAND: unique symbol;
+export type SecretInput = {
+  readonly value: string;
+  readonly [SECRET_INPUT_BRAND]: "SecretInput";
+};
+
+export function secretInput(value: string): SecretInput {
+  return { value } as SecretInput;
+}
 
 export type UserSettingView = components["schemas"]["UserSettingView"];
 export type UserCredentialView = components["schemas"]["UserCredentialView"];
