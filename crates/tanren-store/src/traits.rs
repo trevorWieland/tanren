@@ -319,6 +319,9 @@ pub enum ApplyRoleError {
     /// No role template matches the requested scoped id.
     #[error("role not found")]
     RoleNotFound,
+    /// Role identifiers are rejected as grant principals.
+    #[error("role principal rejected")]
+    RoleAsPrincipalRejected,
     /// Principal referenced by the request does not exist.
     #[error("principal not found")]
     PrincipalNotFound,

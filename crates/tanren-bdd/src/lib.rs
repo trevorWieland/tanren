@@ -197,4 +197,13 @@ mod tests {
         };
         assert_eq!(world.seed.value(), 42);
     }
+
+    #[tokio::test]
+    async fn store_rejects_role_principal_for_direct_apply_paths() {
+        let result = tanren_testkit::verify_store_rejects_role_principal_apply().await;
+        assert!(
+            result.is_ok(),
+            "store regression witness failed: {result:?}"
+        );
+    }
 }

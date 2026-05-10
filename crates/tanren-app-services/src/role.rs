@@ -426,6 +426,9 @@ fn map_apply_role_error(err: ApplyRoleError) -> RoleServiceError {
         ApplyRoleError::RoleNotFound
         | ApplyRoleError::PrincipalNotFound
         | ApplyRoleError::GrantScopeNotFound => RoleServiceError::Role(RoleFailureReason::NotFound),
+        ApplyRoleError::RoleAsPrincipalRejected => {
+            RoleServiceError::Role(RoleFailureReason::RoleAsPrincipalRejected)
+        }
         ApplyRoleError::IncompatibleGrantScope => {
             RoleServiceError::Role(RoleFailureReason::ValidationFailed)
         }

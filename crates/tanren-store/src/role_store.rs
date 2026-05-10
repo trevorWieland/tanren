@@ -381,31 +381,19 @@ async fn apply_role_in_txn(
         granted_by,
         granted_at,
     } = request;
-    if !role_exists_in_scope(txn, role.role_id, role.scope).await? {
-        return Err(ApplyRoleError::RoleNotFound);
-    }
-    if !principal_exists(txn, principal).await? {
-        return Err(ApplyRoleError::PrincipalNotFound);
-    }
-    if !permission_scope_exists(txn, grant_scope).await? {
-        return Err(ApplyRoleError::GrantScopeNotFound);
-    }
-    if !role.scope.allows_grant_scope(grant_scope) {
-        return Err(ApplyRoleError::IncompatibleGrantScope);
-    }
+    validate_apply_role_request(txn, role, principal, grant_scope).await?;
     let permission_names = list_role_permission_names(txn, role.role_id).await?;
     if permission_names.is_empty() {
         return Ok(Vec::new());
     }
-
     let dedup_permission_strings = dedup_permission_names(&permission_names);
     let (grantee_kind, grantee_ref) = principal_ref_to_parts(principal);
     let (scope_kind, scope_ref) = permission_scope_to_parts(grant_scope);
     let (granted_by_kind, granted_by_ref) = principal_ref_to_parts(granted_by);
-    let source = PermissionGrantSource::RoleTemplate {
-        role_id: role.role_id,
-    };
-    let (source_kind, source_ref) = permission_grant_source_to_parts(source);
+    let (source_kind, source_ref) =
+        permission_grant_source_to_parts(PermissionGrantSource::RoleTemplate {
+            role_id: role.role_id,
+        });
     let existing_rows = entity::permission_grants::Entity::find()
         .filter(entity::permission_grants::Column::GranteeKind.eq(grantee_kind))
         .filter(entity::permission_grants::Column::GranteeRef.eq(grantee_ref))
@@ -422,10 +410,8 @@ async fn apply_role_in_txn(
         .all(txn)
         .await
         .map_err(StoreError::from)?;
-
     let missing_permissions =
         missing_permissions_for_snapshot(&dedup_permission_strings, &existing_rows);
-
     if !missing_permissions.is_empty() {
         let inserts = missing_permissions
             .iter()
@@ -448,7 +434,6 @@ async fn apply_role_in_txn(
             .collect::<Vec<_>>();
         insert_permission_grants_chunked(txn, inserts).await?;
     }
-
     let mut rows = existing_rows;
     if !missing_permissions.is_empty() {
         let inserted_or_raced_rows = entity::permission_grants::Entity::find()
@@ -472,9 +457,38 @@ async fn apply_role_in_txn(
             .then(left.granted_at.cmp(&right.granted_at))
             .then(left.id.cmp(&right.id))
     });
-
     rows.into_iter()
         .map(PermissionGrantRecord::try_from)
         .collect::<Result<Vec<_>, _>>()
         .map_err(ApplyRoleError::from)
+}
+
+fn reject_role_principal(principal: PrincipalRef) -> Result<(), ApplyRoleError> {
+    if matches!(principal, PrincipalRef::Role { .. }) {
+        Err(ApplyRoleError::RoleAsPrincipalRejected)
+    } else {
+        Ok(())
+    }
+}
+
+async fn validate_apply_role_request(
+    txn: &DatabaseTransaction,
+    role: tanren_identity_policy::ScopedRole,
+    principal: PrincipalRef,
+    grant_scope: PermissionScope,
+) -> Result<(), ApplyRoleError> {
+    reject_role_principal(principal)?;
+    if !role_exists_in_scope(txn, role.role_id, role.scope).await? {
+        return Err(ApplyRoleError::RoleNotFound);
+    }
+    if !principal_exists(txn, principal).await? {
+        return Err(ApplyRoleError::PrincipalNotFound);
+    }
+    if !permission_scope_exists(txn, grant_scope).await? {
+        return Err(ApplyRoleError::GrantScopeNotFound);
+    }
+    if !role.scope.allows_grant_scope(grant_scope) {
+        return Err(ApplyRoleError::IncompatibleGrantScope);
+    }
+    Ok(())
 }

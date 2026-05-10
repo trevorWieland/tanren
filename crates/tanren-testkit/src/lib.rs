@@ -20,11 +20,18 @@ pub use harness::{
     RoleHarnessError, RoleHarnessResult, TuiHarness, WebHarness, event_kinds, record_failure,
 };
 
+use anyhow::{anyhow, ensure};
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Store;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, StoreError};
+use tanren_identity_policy::{
+    AccountId, Email, Identifier, InvitationToken, OrgId, PermissionName, PermissionScope,
+    PrincipalRef, RoleId, RoleName, RoleScope,
+};
+use tanren_store::{
+    AccountStore, ApplyRole, ApplyRoleError, NewAccount, NewInvitation, NewRole, RoleStore,
+    StoreError,
+};
 use uuid::Uuid;
 
 /// A fixture seed used to produce deterministic test data. Default seed is
@@ -121,5 +128,101 @@ pub async fn seed_invitation(store: &Store, fixture: &InvitationFixture) -> Resu
             expires_at: fixture.expires_at,
         })
         .await?;
+    Ok(())
+}
+
+/// Regression witness for the store boundary invariant that role refs
+/// cannot be used as grant principals.
+///
+/// # Errors
+///
+/// Returns an error when either direct store path (`apply_role` or
+/// `apply_role_atomic`) accepts a role principal, inserts grants, or
+/// appends an event.
+pub async fn verify_store_rejects_role_principal_apply() -> anyhow::Result<()> {
+    let now = DateTime::parse_from_rfc3339("2026-05-10T00:00:00Z")?.with_timezone(&Utc);
+    let store = ephemeral_store().await?;
+
+    let account_id = AccountId::fresh();
+    let email = Email::parse("actor@example.com")?;
+    let identifier = Identifier::from_email(&email);
+    AccountStore::insert_account(
+        &store,
+        NewAccount {
+            id: account_id,
+            identifier,
+            display_name: "Actor".to_owned(),
+            password_phc: "$argon2id$v=19$m=65536,t=3,p=1$testsalt$testhash".to_owned(),
+            created_at: now,
+            org_id: None,
+        },
+    )
+    .await?;
+
+    let permission = PermissionName::parse("roles.read")?;
+    let role = RoleStore::create_role(
+        &store,
+        NewRole {
+            id: RoleId::fresh(),
+            scope: RoleScope::Account { account_id },
+            name: RoleName::parse("reader")?,
+            permissions: vec![permission.clone()],
+            created_at: now,
+            updated_at: now,
+        },
+    )
+    .await?;
+
+    let principal = PrincipalRef::Role { role_id: role.id };
+    let grant_scope = PermissionScope::Account { account_id };
+    let request = ApplyRole {
+        role: role.scoped_role(),
+        principal,
+        grant_scope,
+        granted_by: PrincipalRef::Account { account_id },
+        granted_at: now,
+    };
+
+    let Err(apply_err) = RoleStore::apply_role(&store, request.clone()).await else {
+        return Err(anyhow!("store apply_role accepted role principal"));
+    };
+    ensure!(
+        matches!(apply_err, ApplyRoleError::RoleAsPrincipalRejected),
+        "store apply_role returned unexpected error: {apply_err}"
+    );
+    let grant_ids =
+        RoleStore::find_direct_grant_ids(&store, principal, grant_scope, &permission).await?;
+    ensure!(
+        grant_ids.is_empty(),
+        "store apply_role inserted grants for role principal"
+    );
+
+    let before_events = AccountStore::recent_events(&store, 10).await?;
+    let Err(atomic_err) = RoleStore::apply_role_atomic(
+        &store,
+        request,
+        Box::new(|_| serde_json::json!({"kind":"role_applied_test"})),
+        now,
+    )
+    .await
+    else {
+        return Err(anyhow!("store apply_role_atomic accepted role principal"));
+    };
+    ensure!(
+        matches!(atomic_err, ApplyRoleError::RoleAsPrincipalRejected),
+        "store apply_role_atomic returned unexpected error: {atomic_err}"
+    );
+
+    let after_events = AccountStore::recent_events(&store, 10).await?;
+    ensure!(
+        after_events.len() == before_events.len(),
+        "store apply_role_atomic appended an event for role principal rejection"
+    );
+    let atomic_grant_ids =
+        RoleStore::find_direct_grant_ids(&store, principal, grant_scope, &permission).await?;
+    ensure!(
+        atomic_grant_ids.is_empty(),
+        "store apply_role_atomic inserted grants for role principal"
+    );
     Ok(())
 }
