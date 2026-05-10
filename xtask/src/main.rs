@@ -6,6 +6,7 @@ mod check_event_coverage;
 mod check_newtype_ids;
 mod check_openapi_handcraft;
 mod check_orphan_traits;
+mod check_profile_asset_catalog;
 mod check_profiles;
 mod check_secrets;
 mod check_test_hooks;
@@ -49,6 +50,15 @@ impl RootArg {
             None => workspace_root(),
         }
     }
+}
+
+#[derive(Debug, Args, Clone, Default)]
+struct ProfileAssetCatalogArg {
+    #[command(flatten)]
+    root: RootArg,
+    /// Rewrite the generated catalog file instead of failing on drift.
+    #[arg(long, default_value_t = false)]
+    write: bool,
 }
 
 #[derive(Debug, Subcommand)]
@@ -112,6 +122,10 @@ enum Command {
     /// (or is listed in `xtask/check-profiles-pending.toml`).
     #[command(name = "check-profiles")]
     Profiles(RootArg),
+    /// Ensure the generated rust-cargo profile asset catalog is in sync
+    /// with `profiles/rust-cargo/**/*.md`.
+    #[command(name = "check-profile-asset-catalog")]
+    ProfileAssetCatalog(ProfileAssetCatalogArg),
     /// Reject `pub trait` definitions that have no implementor in the
     /// workspace. See `profiles/rust-cargo/global/just-ci-gate.md`.
     #[command(name = "check-orphan-traits")]
@@ -138,6 +152,9 @@ fn main() -> Result<()> {
         Command::TracingInit(r) => check_tracing_init::run(&r.resolve()?),
         Command::EventCoverage(r) => check_event_coverage::run(&r.resolve()?),
         Command::Profiles(r) => check_profiles::run(&r.resolve()?),
+        Command::ProfileAssetCatalog(arg) => {
+            check_profile_asset_catalog::run(&arg.root.resolve()?, arg.write)
+        }
         Command::OrphanTraits(r) => check_orphan_traits::run(&r.resolve()?),
         Command::OpenapiHandcraft(r) => check_openapi_handcraft::run(&r.resolve()?),
     }

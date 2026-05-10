@@ -341,6 +341,7 @@ check:
     run_stage "orphan traits" just check-orphan-traits
     run_stage "event coverage" just check-event-coverage
     run_stage "profiles" just check-profiles
+    run_stage "profile asset catalog" just check-profile-asset-catalog
     run_stage "thin binary" just check-thin-binary
     run_stage "tracing init" just check-tracing-init
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
@@ -730,6 +731,16 @@ check-event-coverage:
 # wiring (N1/N2/N3). Wired into `check` by PR 2 (this PR).
 check-profiles:
     @{{ cargo }} run -q -p tanren-xtask -- check-profiles
+
+# Validate the generated rust-cargo install profile asset index stays
+# aligned with `profiles/rust-cargo/**/*.md`.
+check-profile-asset-catalog:
+    @{{ cargo }} run -q -p tanren-xtask -- check-profile-asset-catalog
+
+# Regenerate the rust-cargo install profile asset index after adding or
+# removing standards markdown files.
+generate-profile-asset-catalog:
+    @{{ cargo }} run -q -p tanren-xtask -- check-profile-asset-catalog --write
 
 # Reject `pub trait` definitions with no production impls (H1). Wired
 # into `check` by PR 5.

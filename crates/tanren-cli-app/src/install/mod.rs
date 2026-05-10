@@ -12,6 +12,7 @@ mod error;
 mod manifest;
 mod path_guard;
 mod plan;
+mod rust_cargo_profile_assets;
 mod writer;
 mod writer_tx;
 
