@@ -15,17 +15,17 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
     CreateUserCredentialRequest, CreateUserCredentialResponse, GetAuthenticatedAccountResponse,
     ListUserCredentialsRequest, ListUserCredentialsResponse, ListUserSettingsRequest,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
+    ListUserSettingsResponse, OwnerScope, RemoveUserCredentialResponse, RemoveUserSettingResponse,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UpdateUserCredentialRequest,
     UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserConfigurationFailureReason,
+    UserConfigurationFailureReason, UserCredentialId, UserSettingKey,
 };
-use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier, SessionToken};
 use tanren_store::UserConfigurationStore;
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
-use tanren_store::StoreError;
+use tanren_store::{SessionAuthenticationLookup, StoreError};
 use thiserror::Error;
 pub use user_configuration::AuthenticatedConfigurationContext;
 
@@ -34,6 +34,18 @@ pub struct HealthReport {
     pub status: &'static str,
     pub version: &'static str,
     pub contract_version: ContractVersion,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SessionAuthenticationRequest {
+    pub session_token: SessionToken,
+    pub now: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthenticatedSessionView {
+    pub authenticated_account_id: AccountId,
+    pub expires_at: DateTime<Utc>,
 }
 
 #[derive(Clone)]
@@ -117,6 +129,26 @@ impl Handlers {
         let store = Store::connect(database_url).await?;
         store.migrate().await?;
         Ok(())
+    }
+
+    pub async fn authenticate_session<S>(
+        &self,
+        store: &S,
+        request: SessionAuthenticationRequest,
+    ) -> Result<Option<AuthenticatedSessionView>, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        let authenticated = store
+            .authenticate_session(SessionAuthenticationLookup {
+                session_token: request.session_token,
+                now: request.now,
+            })
+            .await?;
+        Ok(authenticated.map(|session| AuthenticatedSessionView {
+            authenticated_account_id: session.authenticated_account_id,
+            expires_at: session.expires_at,
+        }))
     }
 
     pub async fn sign_up<S>(
@@ -255,7 +287,7 @@ impl Handlers {
         store: &S,
         authenticated_account_id: AccountId,
         requested_account_id: AccountId,
-        key: tanren_configuration_secrets::UserSettingKey,
+        key: UserSettingKey,
     ) -> Result<RemoveUserSettingResponse, AppServiceError>
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
@@ -275,7 +307,7 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
-        key: tanren_configuration_secrets::UserSettingKey,
+        key: UserSettingKey,
     ) -> Result<RemoveUserSettingResponse, AppServiceError>
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
@@ -319,8 +351,8 @@ impl Handlers {
         &self,
         store: &S,
         authenticated_account_id: AccountId,
-        item_id: tanren_configuration_secrets::UserCredentialId,
-        owner_scope: tanren_configuration_secrets::OwnerScope,
+        item_id: UserCredentialId,
+        owner_scope: OwnerScope,
         request: UpdateUserCredentialRequest,
     ) -> Result<UpdateUserCredentialResponse, AppServiceError>
     where
@@ -342,7 +374,7 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
-        item_id: tanren_configuration_secrets::UserCredentialId,
+        item_id: UserCredentialId,
         request: UpdateUserCredentialRequest,
     ) -> Result<UpdateUserCredentialResponse, AppServiceError>
     where
@@ -356,7 +388,7 @@ impl Handlers {
         &self,
         store: &S,
         authenticated_account_id: AccountId,
-        owner_scope: tanren_configuration_secrets::OwnerScope,
+        owner_scope: OwnerScope,
     ) -> Result<ListUserCredentialsResponse, AppServiceError>
     where
         S: UserConfigurationStore + ?Sized,
@@ -388,7 +420,7 @@ impl Handlers {
         &self,
         store: &S,
         authenticated_account_id: AccountId,
-        owner_scope: tanren_configuration_secrets::OwnerScope,
+        owner_scope: OwnerScope,
         request: ListUserCredentialsRequest,
     ) -> Result<ListUserCredentialsResponse, AppServiceError>
     where
@@ -409,8 +441,8 @@ impl Handlers {
         &self,
         store: &S,
         authenticated_account_id: AccountId,
-        item_id: tanren_configuration_secrets::UserCredentialId,
-        owner_scope: tanren_configuration_secrets::OwnerScope,
+        item_id: UserCredentialId,
+        owner_scope: OwnerScope,
     ) -> Result<RemoveUserCredentialResponse, AppServiceError>
     where
         S: UserConfigurationStore + AccountStore + ?Sized,
@@ -430,7 +462,7 @@ impl Handlers {
         &self,
         store: &S,
         context: AuthenticatedConfigurationContext,
-        item_id: tanren_configuration_secrets::UserCredentialId,
+        item_id: UserCredentialId,
     ) -> Result<RemoveUserCredentialResponse, AppServiceError>
     where
         S: UserConfigurationStore + AccountStore + ?Sized,

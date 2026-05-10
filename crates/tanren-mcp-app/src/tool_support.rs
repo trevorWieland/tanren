@@ -6,7 +6,7 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_configuration_secrets::{UserCredentialId, UserSettingKey, UserSettingValue};
+use tanren_contract::{UserCredentialId, UserCredentialKind, UserSettingKey, UserSettingValue};
 use tanren_identity_policy::AccountId;
 use uuid::Uuid;
 
@@ -35,7 +35,7 @@ pub(crate) struct RemoveUserConfigParams {
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub(crate) struct AddCredentialParams {
     pub(crate) account_id: String,
-    pub(crate) kind: tanren_configuration_secrets::UserCredentialKind,
+    pub(crate) kind: UserCredentialKind,
     #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
     #[schemars(with = "String")]
     pub(crate) value: secrecy::SecretString,

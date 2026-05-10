@@ -8,16 +8,13 @@ use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tanren_app_services::AuthenticatedConfigurationContext;
-use tanren_configuration_secrets::{
-    OwnerScope, UserCredentialId, UserSettingKey,
-    parse_user_setting_key as parse_user_setting_key_registry,
-};
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
-    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse, OwnerScope,
     RemoveUserCredentialResponse, RemoveUserSettingResponse, UpdateUserCredentialRequest,
     UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserConfigurationFailureReason,
+    UserConfigurationFailureReason, UserCredentialId, UserSettingKey,
+    parse_user_setting_key as parse_user_setting_key_registry,
 };
 use tanren_identity_policy::AccountId;
 use tower_sessions::Session;

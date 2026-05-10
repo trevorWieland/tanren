@@ -10,9 +10,11 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, UserCredentialId, UserCredentialKind,
-    UserCredentialMetadata, UserCredentialStatus, UserSettingKey, UserSettingValue,
+use tanren_configuration_secrets::UserCredentialMetadata;
+pub use tanren_configuration_secrets::{
+    ConfigurationValidationFailure, OwnerScope, ThemePreference, UserCredentialId,
+    UserCredentialKind, UserCredentialStatus, UserSettingKey, UserSettingValue,
+    parse_user_credential_kind, parse_user_setting_key,
 };
 use tanren_identity_policy::secret_serde;
 use utoipa::ToSchema;

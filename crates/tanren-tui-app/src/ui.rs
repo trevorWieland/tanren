@@ -4,13 +4,11 @@
 use crate::{FormField, FormState, OutcomeView};
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
-use tanren_configuration_secrets::{
-    ThemePreference, UserCredentialId, UserCredentialKind, UserSettingKey, UserSettingValue,
-    parse_user_credential_kind, parse_user_setting_key,
-};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse, UserCredentialView,
+    SignInResponse, SignUpRequest, SignUpResponse, ThemePreference, UserCredentialId,
+    UserCredentialKind, UserCredentialStatus, UserCredentialView, UserSettingKey, UserSettingValue,
+    parse_user_credential_kind, parse_user_setting_key,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, ValidationError};
 use uuid::Uuid;
@@ -431,11 +429,11 @@ fn credential_kind(kind: UserCredentialKind) -> &'static str {
         UserCredentialKind::HarnessApiToken => "harness_api_token",
     }
 }
-fn credential_status(status: tanren_configuration_secrets::UserCredentialStatus) -> &'static str {
+fn credential_status(status: UserCredentialStatus) -> &'static str {
     match status {
-        tanren_configuration_secrets::UserCredentialStatus::Pending => "pending",
-        tanren_configuration_secrets::UserCredentialStatus::Active => "active",
-        tanren_configuration_secrets::UserCredentialStatus::Invalid => "invalid",
+        UserCredentialStatus::Pending => "pending",
+        UserCredentialStatus::Active => "active",
+        UserCredentialStatus::Invalid => "invalid",
     }
 }
 pub(crate) fn parse_sign_in(state: &FormState) -> Result<SignInRequest, String> {

@@ -6,7 +6,6 @@ use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::Deserialize;
-use tanren_configuration_secrets::{UserCredentialKind, UserSettingKey, UserSettingValue};
 use tanren_contract::{
     ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
     CredentialCapabilitiesView, CredentialCapabilityAction,
@@ -14,6 +13,7 @@ use tanren_contract::{
     ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
     SettingCapabilitiesView, SettingCapabilityAction, UpdateUserCredentialRequest,
     UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserCredentialKind, UserSettingKey, UserSettingValue,
 };
 use tanren_identity_policy::{AccountId, secret_serde};
 use tower_sessions::Session;

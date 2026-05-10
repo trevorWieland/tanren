@@ -24,10 +24,9 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use std::sync::Arc;
 use tanren_app_services::{Handlers, Store};
-use tanren_configuration_secrets::OwnerScope;
 use tanren_contract::{
     AcceptInvitationRequest, CreateUserCredentialRequest, ListUserCredentialsRequest,
-    ListUserSettingsRequest, SignInRequest, SignUpRequest, UpdateUserCredentialRequest,
+    ListUserSettingsRequest, OwnerScope, SignInRequest, SignUpRequest, UpdateUserCredentialRequest,
     UpsertUserSettingRequest,
 };
 

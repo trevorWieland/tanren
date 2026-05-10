@@ -8,9 +8,8 @@ use crate::ui::{
 };
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
-use tanren_configuration_secrets::OwnerScope;
 use tanren_contract::{
-    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest,
+    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest, OwnerScope,
     UpdateUserCredentialRequest, UpsertUserSettingRequest,
 };
 impl App {

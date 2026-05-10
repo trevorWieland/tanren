@@ -8,9 +8,8 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use secrecy::SecretString;
 use serde_json::json;
-use tanren_app_services::{AccountStore, Store};
+use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
 use tanren_identity_policy::{AccountId, SessionToken};
-use tanren_store::SessionAuthenticationLookup;
 
 pub(crate) const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
 
@@ -137,17 +136,18 @@ pub(crate) async fn require_authenticated_principal(
             .into_response();
     };
 
-    let principal = match AccountStore::authenticate_session(
-        state.store.as_ref(),
-        SessionAuthenticationLookup {
-            session_token: SessionToken::from_secret(SecretString::from(presented.to_owned())),
-            now: Utc::now(),
-        },
-    )
-    .await
+    let principal = match Handlers::new()
+        .authenticate_session(
+            state.store.as_ref(),
+            SessionAuthenticationRequest {
+                session_token: SessionToken::from_secret(SecretString::from(presented.to_owned())),
+                now: Utc::now(),
+            },
+        )
+        .await
     {
-        Ok(Some(record)) => Some(AuthenticatedPrincipal::Account {
-            account_id: record.authenticated_account_id,
+        Ok(Some(session)) => Some(AuthenticatedPrincipal::Account {
+            account_id: session.authenticated_account_id,
         }),
         Ok(None) => state
             .config

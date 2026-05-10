@@ -14,14 +14,16 @@ pub use account::{
     SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use configuration::{
-    ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
-    CredentialCapabilitiesView, CredentialCapabilityAction,
+    ConfigurationCapabilitiesView, ConfigurationValidationFailure, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, CredentialCapabilitiesView, CredentialCapabilityAction,
     GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsRequest,
-    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
+    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse, OwnerScope,
     RemoveUserCredentialResponse, RemoveUserSettingResponse, SettingCapabilitiesView,
-    SettingCapabilityAction, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
-    UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
-    UserCredentialView, UserSettingView,
+    SettingCapabilityAction, ThemePreference, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason, UserCredentialId, UserCredentialKind, UserCredentialStatus,
+    UserCredentialView, UserSettingKey, UserSettingValue, UserSettingView,
+    parse_user_credential_kind, parse_user_setting_key,
 };
 
 use serde::{Deserialize, Serialize};

@@ -1,8 +1,7 @@
 use chrono::Utc;
-use tanren_app_services::{AccountStore, Store};
+use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
 use tanren_contract::SessionView;
 use tanren_identity_policy::AccountId;
-use tanren_store::SessionAuthenticationLookup;
 
 use crate::FormState;
 
@@ -67,10 +66,13 @@ impl App {
         })?;
         let authenticated = self
             .runtime
-            .block_on(store.authenticate_session(SessionAuthenticationLookup {
-                session_token: session.session_token.clone(),
-                now: Utc::now(),
-            }))
+            .block_on(Handlers::new().authenticate_session(
+                store,
+                SessionAuthenticationRequest {
+                    session_token: session.session_token.clone(),
+                    now: Utc::now(),
+                },
+            ))
             .map_err(|_| "internal_error: Tanren encountered an internal error.".to_owned())?;
         let account_id = authenticated
             .ok_or_else(|| {

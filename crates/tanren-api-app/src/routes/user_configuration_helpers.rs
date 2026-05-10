@@ -2,10 +2,9 @@ use axum::Json;
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use tanren_app_services::AuthenticatedConfigurationContext;
-use tanren_configuration_secrets::{UserCredentialId, UserSettingKey};
 use tanren_contract::{
     CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest,
-    UpdateUserCredentialRequest, UpsertUserSettingRequest,
+    UpdateUserCredentialRequest, UpsertUserSettingRequest, UserCredentialId, UserSettingKey,
 };
 
 use crate::AppState;

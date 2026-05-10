@@ -4,17 +4,13 @@ use chrono::Utc;
 use clap::{Subcommand, ValueEnum};
 use secrecy::SecretString;
 use std::io::Write;
-use tanren_app_services::{AccountStore, Handlers, Store};
-use tanren_configuration_secrets::{
-    OwnerScope, ThemePreference, UserCredentialId, UserCredentialKind, UserCredentialStatus,
-    UserSettingKey, UserSettingValue,
-};
+use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
 use tanren_contract::{
-    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest,
-    UpdateUserCredentialRequest, UpsertUserSettingRequest, UserCredentialView,
+    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest, OwnerScope,
+    ThemePreference, UpdateUserCredentialRequest, UpsertUserSettingRequest, UserCredentialId,
+    UserCredentialKind, UserCredentialStatus, UserCredentialView, UserSettingKey, UserSettingValue,
 };
 use tanren_identity_policy::AccountId;
-use tanren_store::SessionAuthenticationLookup;
 use uuid::Uuid;
 const ACCOUNT_ID_ENV: &str = "TANREN_ACCOUNT_ID";
 #[derive(Debug, Subcommand)]
@@ -387,12 +383,16 @@ async fn run_credential_remove(
     Ok(())
 }
 async fn resolve_authenticated_account_id(store: &Store) -> Result<AccountId> {
+    let handlers = Handlers::new();
     let session_token = load_persisted_session_token()?;
-    let authenticated = store
-        .authenticate_session(SessionAuthenticationLookup {
-            session_token,
-            now: Utc::now(),
-        })
+    let authenticated = handlers
+        .authenticate_session(
+            store,
+            SessionAuthenticationRequest {
+                session_token,
+                now: Utc::now(),
+            },
+        )
         .await
         .context("authenticate persisted session token")?;
     authenticated
