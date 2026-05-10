@@ -83,6 +83,20 @@ Feature: Manage roles as permission templates
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 
+    @falsification @web
+    Scenario: Web role validation rejects empty or oversized bundles, incompatible grant scopes, and missing principals
+      When the operator attempts to create role template "Empty Web" with 0 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to create role template "Oversized Web" with 65 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator creates role template "Scope Guard Web" with permissions "project.read"
+      When the operator attempts to apply the role template with an account grant-scope mismatch
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to apply the role template to missing account principal ghost
+      Then the role request fails with code "not_found"
+      When the operator checks permission "project.read" for missing account principal ghost
+      Then the role request fails with code "not_found"
+
   Rule: MCP surface
 
     @positive @mcp
@@ -151,6 +165,20 @@ Feature: Manage roles as permission templates
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 
+    @falsification @cli
+    Scenario: CLI role validation rejects empty or oversized bundles, incompatible grant scopes, and missing principals
+      When the operator attempts to create role template "Empty CLI" with 0 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to create role template "Oversized CLI" with 65 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator creates role template "Scope Guard CLI" with permissions "project.read"
+      When the operator attempts to apply the role template with an account grant-scope mismatch
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to apply the role template to missing account principal ghost
+      Then the role request fails with code "not_found"
+      When the operator checks permission "project.read" for missing account principal ghost
+      Then the role request fails with code "not_found"
+
   Rule: TUI surface
 
     @positive @tui
@@ -177,3 +205,17 @@ Feature: Manage roles as permission templates
       Then the permission check result is allowed
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
+
+    @falsification @tui
+    Scenario: TUI role validation rejects empty or oversized bundles, incompatible grant scopes, and missing principals
+      When the operator attempts to create role template "Empty TUI" with 0 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to create role template "Oversized TUI" with 65 synthetic permissions
+      Then the role request fails with code "validation_failed"
+      When the operator creates role template "Scope Guard TUI" with permissions "project.read"
+      When the operator attempts to apply the role template with an account grant-scope mismatch
+      Then the role request fails with code "validation_failed"
+      When the operator attempts to apply the role template to missing account principal ghost
+      Then the role request fails with code "not_found"
+      When the operator checks permission "project.read" for missing account principal ghost
+      Then the role request fails with code "not_found"

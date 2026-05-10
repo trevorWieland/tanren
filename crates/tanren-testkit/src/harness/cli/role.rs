@@ -6,7 +6,7 @@ use serde::de::DeserializeOwned;
 use tanren_contract::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
-    PermissionCheckResponse, PermissionGrantView, RoleTemplateView,
+    PermissionCheckResponse, PermissionGrantView, RoleFailureReason, RoleTemplateView,
 };
 use tanren_identity_policy::{PermissionScope, PrincipalRef, RoleScope, ScopedRole};
 use tanren_store::{NewRole, RoleStore};
@@ -204,13 +204,19 @@ impl RoleHarness for CliHarness {
 
 fn translate_cli_role_error(stderr: &[u8]) -> RoleHarnessError {
     let text = String::from_utf8_lossy(stderr);
-    let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
+    let re = Regex::new(r"error:\s*([a-z_]+)\s*(?:—|–|-)\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
         if let Some(reason) = role_code_to_reason(code) {
             return RoleHarnessError::Role(reason, summary);
         }
+    }
+    if text.contains("required arguments were not provided") && text.contains("--permission") {
+        return RoleHarnessError::Role(
+            RoleFailureReason::ValidationFailed,
+            "at least one permission is required".to_owned(),
+        );
     }
     RoleHarnessError::Transport(text.into_owned())
 }

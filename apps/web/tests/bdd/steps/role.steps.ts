@@ -6,6 +6,7 @@ import type {
   RoleScope,
 } from "../../../src/app/lib/generated/role-contract";
 import {
+  asAccountId,
   asOrgId,
   isRoleServerFailureCode,
 } from "../../../src/app/lib/generated/role-contract";
@@ -108,6 +109,43 @@ When(
 );
 
 When(
+  "the operator attempts to create role template {string} with {int} synthetic permissions",
+  async ({ page, world }, name: string, permissionCount: number) => {
+    const scope = roleScope(world);
+    const createCard = roleCard(page, "Create role");
+
+    await setScope(createCard, "scope_", scope);
+    await createCard.locator('[name="name"]').fill(name);
+    await createCard
+      .locator('[name="permissions"]')
+      .fill(syntheticPermissions(permissionCount).join(","));
+
+    const message =
+      permissionCount === 0
+        ? await submitRoleCardWithoutRequest(page, createCard, "create role")
+        : await submitRoleCard(page, createCard, {
+            path: "/roles",
+            label: "create role",
+          });
+    if (message.endsWith(": ok")) {
+      const summary = await readOperationSummary(page, "Create role");
+      const roleId = summaryLine(summary, "role");
+      if (roleId.length > 0) {
+        world.activeRoleId = roleId;
+      }
+      world.activeRoleName = name;
+      world.lastErrorCode = "unexpected_success";
+      world.lastPermissionCheck = undefined;
+      return;
+    }
+
+    world.lastErrorCode =
+      parseRoleErrorCode(message, "create role") ?? "transport_error";
+    world.lastPermissionCheck = undefined;
+  },
+);
+
+When(
   "the operator edits the active role template to name {string} and permissions {string}",
   async ({ page, world }, name: string, permissions: string) => {
     const scope = roleScope(world);
@@ -187,6 +225,56 @@ When(
 );
 
 When(
+  "the operator attempts to apply the role template to missing account principal {word}",
+  async ({ page, world }, alias: string) => {
+    const result = await runApplyRole(page, {
+      roleId: requiredActiveRoleId(world),
+      roleScope: roleScope(world),
+      principalAccountId: missingPrincipalAccountId(alias),
+      grantScope: permissionScopeFromRoleScope(roleScope(world)),
+    });
+    if (result.ok) {
+      world.lastErrorCode = "unexpected_success";
+      world.lastPermissionCheck = undefined;
+      return;
+    }
+    world.lastErrorCode = result.code;
+    world.lastPermissionCheck = undefined;
+  },
+);
+
+When(
+  "the operator attempts to apply the role template with an account grant-scope mismatch",
+  async ({ page, world }) => {
+    const scopeMismatch = await ensureScenarioPrincipalAccount(
+      page,
+      world,
+      "scope_mismatch",
+    );
+    await seedRoleAdminGrants(requiredOperator(world).accountId, {
+      scope: "account",
+      account_id: asAccountId(scopeMismatch.accountId),
+    });
+    const result = await runApplyRole(page, {
+      roleId: requiredActiveRoleId(world),
+      roleScope: roleScope(world),
+      principalAccountId: scopeMismatch.accountId,
+      grantScope: {
+        scope: "account",
+        account_id: asAccountId(scopeMismatch.accountId),
+      },
+    });
+    if (result.ok) {
+      world.lastErrorCode = "unexpected_success";
+      world.lastPermissionCheck = undefined;
+      return;
+    }
+    world.lastErrorCode = result.code;
+    world.lastPermissionCheck = undefined;
+  },
+);
+
+When(
   "the operator checks permission {string} for account principal {word}",
   async ({ page, world }, permission: string, alias: string) => {
     const principal = await ensureScenarioPrincipalAccount(page, world, alias);
@@ -203,6 +291,25 @@ When(
     }
     world.lastPermissionCheck = result.allowed;
     world.lastErrorCode = undefined;
+  },
+);
+
+When(
+  "the operator checks permission {string} for missing account principal {word}",
+  async ({ page, world }, permission: string, alias: string) => {
+    const result = await runPermissionCheck(page, {
+      principalKind: "account",
+      principalId: missingPrincipalAccountId(alias),
+      permission,
+      scope: permissionScopeFromRoleScope(roleScope(world)),
+    });
+    if (result.ok) {
+      world.lastPermissionCheck = result.allowed;
+      world.lastErrorCode = "unexpected_success";
+      return;
+    }
+    world.lastPermissionCheck = undefined;
+    world.lastErrorCode = result.code;
   },
 );
 
@@ -353,6 +460,14 @@ function parsePermissionsCsv(raw: string): string[] {
   return normalizePermissions(raw.split(","));
 }
 
+function syntheticPermissions(permissionCount: number): string[] {
+  const values: string[] = [];
+  for (let index = 0; index < permissionCount; index += 1) {
+    values.push(`project.synthetic_${index}`);
+  }
+  return values;
+}
+
 function normalizePermissions(values: string[]): string[] {
   return values
     .map((value) => value.trim().toLowerCase())
@@ -454,6 +569,10 @@ async function ensureScenarioPrincipalAccount(
   await openRoleWorkbench(page);
 
   return principal;
+}
+
+function missingPrincipalAccountId(_alias: string): string {
+  return asAccountId(crypto.randomUUID());
 }
 
 async function signUpActorViaUi(
@@ -624,6 +743,15 @@ async function submitRoleCard(
   await card.getByRole("button", { name: /^run$/i }).click();
   await responsePromise;
   return await waitForRoleMessage(page, input.label);
+}
+
+async function submitRoleCardWithoutRequest(
+  page: import("@playwright/test").Page,
+  card: import("@playwright/test").Locator,
+  label: string,
+): Promise<string> {
+  await card.getByRole("button", { name: /^run$/i }).click();
+  return await waitForRoleMessage(page, label);
 }
 
 async function runApplyRole(

@@ -13,7 +13,7 @@ use tanren_contract::{
     AcceptInvitationRequest, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
     CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
     PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleActor,
-    RoleTemplateView, SignInRequest, SignUpRequest,
+    RoleFailureReason, RoleTemplateView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewRole, RoleStore};
@@ -291,7 +291,7 @@ fn translate_role_error(err: tanren_app_services::RoleServiceError) -> RoleHarne
     match err {
         RoleServiceError::Role(reason) => RoleHarnessError::Role(reason, reason.code().to_owned()),
         RoleServiceError::InvalidInput(msg) => {
-            RoleHarnessError::Transport(format!("invalid_input: {msg}"))
+            RoleHarnessError::Role(RoleFailureReason::ValidationFailed, msg)
         }
         RoleServiceError::Store(err) => RoleHarnessError::Transport(format!("store: {err}")),
         _ => RoleHarnessError::Transport("unknown app-service failure".to_owned()),
