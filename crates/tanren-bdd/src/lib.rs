@@ -19,7 +19,7 @@ use std::path::PathBuf;
 use tanren_contract::{
     CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
 };
-use tanren_identity_policy::OrgId;
+use tanren_identity_policy::{OrgId, OrganizationName};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -74,7 +74,7 @@ pub struct AccountContext {
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
     /// Per-scenario map of normalized organization names to ids.
-    pub organizations_by_name: HashMap<String, OrgId>,
+    pub organizations_by_name: HashMap<OrganizationName, OrgId>,
     /// Most recent create-organization success payload.
     pub last_created_organization: Option<CreateOrganizationResponse>,
     /// Most recent list-organizations success payload.
