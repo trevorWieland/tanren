@@ -5,7 +5,8 @@ mod proof_contract;
 mod workspace;
 
 pub(crate) use fixture_manifest::{
-    append_stale_generated_manifest_entry, tamper_manifest_with_raw_generated_entry,
+    append_uninstall_stale_generated_manifest_entry,
+    tamper_uninstall_manifest_with_raw_generated_entry,
 };
 pub(crate) use hash::sha256_hex_string;
 pub(crate) use paths::{RepositoryRelativePath, io_error, validate_relative_path};

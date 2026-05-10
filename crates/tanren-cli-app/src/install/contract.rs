@@ -1,7 +1,6 @@
 //! Delivery-owned install proof contract helpers used by behavior witnesses.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
@@ -10,15 +9,20 @@ use thiserror::Error;
 use crate::install::catalog::generated_integration_destination_roots;
 use crate::install::manifest::{
     AssetClass, INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallManifest,
-    RepoRelativePath,
 };
 use crate::install::{
     InstallError, InstallIntegration, InstallProfile, parse_integration_selection,
 };
 
-const TAMPERED_ENTRY_SHA256: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
 const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
+
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
+#[cfg(feature = "test-hooks")]
+pub use test_hooks::{
+    append_stale_generated_manifest_entry, read_workspace_catalog_file,
+    tamper_manifest_with_raw_generated_entry,
+};
 
 /// Delivery-owned proof failures surfaced to BDD assertion mapping.
 #[derive(Debug, Error)]
@@ -167,57 +171,16 @@ pub fn assert_manifest_rust_cargo_defaults(
 
     Ok(())
 }
-
-/// Append a stale generated-manifest row for mutation-flow fixtures.
-#[cfg(feature = "test-hooks")]
-pub fn append_stale_generated_manifest_entry(
-    manifest: &mut String,
-    relative_path: &RepoRelativePath,
-    content_hash: &str,
-) {
-    let _ = write!(
-        manifest,
-        "\n[[entries]]\npath = \"{}\"\ncontent_hash = \"{}\"\nasset_class = \"methodology-command\"\nintegration = \"{}\"\npreservation = \"replace-generated\"\n",
-        relative_path.as_str(),
-        content_hash,
-        InstallIntegration::Codex.as_str()
-    );
-}
-
-/// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
-#[cfg(feature = "test-hooks")]
-pub fn tamper_manifest_with_raw_generated_entry(
+pub fn assert_uninstall_removes_generated_assets_and_manifest(
     repository_root: &Path,
-    raw_path: &str,
 ) -> Result<(), InstallProofError> {
     let manifest_path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
-    let mut manifest = read_to_string_with_context(&manifest_path, "read install manifest")?;
-    let path_line = format!("path = \"{raw_path}\"");
-    if manifest.contains(&path_line) {
-        return Err(InstallProofError::StaleManifestPathAlreadyPresent {
-            path: raw_path.to_owned(),
+    if manifest_path.exists() {
+        return Err(InstallProofError::ExpectedFileToBeAbsent {
+            path: manifest_path,
         });
     }
-    let _ = write!(
-        manifest,
-        "\n[[entries]]\npath = \"{raw_path}\"\ncontent_hash = \"{TAMPERED_ENTRY_SHA256}\"\nasset_class = \"methodology-command\"\nintegration = \"{}\"\npreservation = \"replace-generated\"\n",
-        InstallIntegration::Codex.as_str()
-    );
-    fs::write(&manifest_path, manifest).map_err(|source| InstallProofError::WriteFile {
-        path: manifest_path,
-        action: "write install manifest with tampered raw entry",
-        source,
-    })?;
-    Ok(())
-}
-
-/// Read a workspace catalog file for fixture seeding.
-#[cfg(feature = "test-hooks")]
-pub fn read_workspace_catalog_file(
-    relative_path: &RepoRelativePath,
-) -> Result<String, InstallProofError> {
-    let absolute = workspace_root()?.join(relative_path.as_str());
-    read_to_string_with_context(&absolute, "read workspace catalog file")
+    assert_unselected_integration_roots_are_empty(repository_root, &BTreeSet::new())
 }
 
 #[derive(Debug)]
@@ -454,22 +417,13 @@ fn manifest_contract_error(
 }
 
 fn format_integration_set(set: &BTreeSet<InstallIntegration>) -> String {
-    let values = set
-        .iter()
-        .map(|integration| integration.as_str())
-        .collect::<Vec<_>>();
-    format!("[{}]", values.join(", "))
-}
-
-#[cfg(feature = "test-hooks")]
-fn workspace_root() -> Result<PathBuf, InstallProofError> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .map_err(|source| InstallProofError::CanonicalizeWorkspaceRoot {
-            action: "resolving workspace root",
-            source,
-        })
+    format!(
+        "[{}]",
+        set.iter()
+            .map(|integration| integration.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    )
 }
 
 fn assert_file_exists(
@@ -477,12 +431,11 @@ fn assert_file_exists(
     relative_path: &str,
 ) -> Result<(), InstallProofError> {
     let absolute = repository_root.join(relative_path);
-    if !absolute.exists() {
-        return Err(InstallProofError::ExpectedFileToExist { path: absolute });
-    }
-    Ok(())
+    absolute
+        .exists()
+        .then_some(())
+        .ok_or(InstallProofError::ExpectedFileToExist { path: absolute })
 }
-
 fn read_to_string_with_context(
     path: &Path,
     action: &'static str,

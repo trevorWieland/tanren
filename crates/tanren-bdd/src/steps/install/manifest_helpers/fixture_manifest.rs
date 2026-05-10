@@ -29,3 +29,18 @@ pub(crate) fn tamper_manifest_with_raw_generated_entry(
     contract_tamper_manifest_with_raw_generated_entry(repository_root, raw_path)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
+
+pub(crate) fn append_uninstall_stale_generated_manifest_entry(
+    manifest: &mut String,
+    relative_path: &RepositoryRelativePath,
+    content_hash: &str,
+) -> Result<(), InstallStepError> {
+    append_stale_generated_manifest_entry(manifest, relative_path, content_hash)
+}
+
+pub(crate) fn tamper_uninstall_manifest_with_raw_generated_entry(
+    repository_root: &Path,
+    raw_path: &str,
+) -> Result<(), InstallStepError> {
+    tamper_manifest_with_raw_generated_entry(repository_root, raw_path)
+}

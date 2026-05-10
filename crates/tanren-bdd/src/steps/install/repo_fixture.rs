@@ -76,7 +76,7 @@ impl InstallContext {
             source,
         })?;
         let stale_hash = manifest_helpers::sha256_hex_string(&stale_bytes);
-        manifest_helpers::append_stale_generated_manifest_entry(
+        manifest_helpers::append_uninstall_stale_generated_manifest_entry(
             &mut manifest,
             relative_path,
             stale_hash.as_str(),
@@ -93,7 +93,10 @@ impl InstallContext {
         &mut self,
         raw_path: &str,
     ) -> InstallStepResult<()> {
-        manifest_helpers::tamper_manifest_with_raw_generated_entry(&self.repository_root, raw_path)
+        manifest_helpers::tamper_uninstall_manifest_with_raw_generated_entry(
+            &self.repository_root,
+            raw_path,
+        )
     }
 
     pub(crate) fn inject_manifest_invalid_content_hash_entry(&mut self) -> InstallStepResult<()> {

@@ -9,10 +9,12 @@ use tanren_cli_app::install::contract;
 use tanren_cli_app::install::{RepoRelativePath, sha256_hex};
 use thiserror::Error;
 
-/// Install manifest schema version asserted by the BDD install proofs.
-pub const INSTALL_MANIFEST_VERSION: u32 = 1;
-/// Repo-relative install manifest location asserted by the BDD install proofs.
-pub const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
+pub use tanren_cli_app::install::{
+    INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION,
+    InstallManifestAssetClass as InstallProofAssetClass,
+    InstallManifestPreservationPolicy as InstallProofPreservationPolicy,
+};
+
 /// Rust standards profile identifier for install proofs.
 pub const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
 
@@ -100,14 +102,6 @@ impl FromStr for InstallProofIntegration {
     }
 }
 
-/// Install manifest asset-class identifiers used by BDD assertions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InstallProofAssetClass {
-    MethodologyCommand,
-    StandardsProfile,
-}
-
 /// Parse a comma-separated integration selection into typed identifiers.
 pub fn parse_install_integration_selection(
     selection: &str,
@@ -169,6 +163,13 @@ pub fn assert_manifest_rust_cargo_defaults(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
     contract::assert_manifest_rust_cargo_defaults(repository_root)
+}
+
+/// Assert confirmed uninstall removes generated command assets and install metadata.
+pub fn assert_uninstall_removes_generated_assets_and_manifest(
+    repository_root: &Path,
+) -> Result<(), InstallProofError> {
+    contract::assert_uninstall_removes_generated_assets_and_manifest(repository_root)
 }
 
 /// Append a stale generated-manifest row for mutation-flow fixtures.

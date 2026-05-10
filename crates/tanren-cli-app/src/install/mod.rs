@@ -20,6 +20,15 @@ pub use cli::{InstallCommand, UninstallCommand};
 pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
+#[cfg(feature = "test-hooks")]
+pub use manifest::{
+    AssetClass as InstallManifestAssetClass,
+    PreservationPolicy as InstallManifestPreservationPolicy,
+};
+#[cfg(feature = "test-hooks")]
+pub const INSTALL_MANIFEST_REPO_PATH: &str = manifest::INSTALL_MANIFEST_REPO_PATH;
+#[cfg(feature = "test-hooks")]
+pub const INSTALL_MANIFEST_VERSION: u32 = manifest::INSTALL_MANIFEST_VERSION;
 pub use plan::InstallPlan;
 pub use uninstall_plan::{
     UninstallPreserveReason, UninstallPreservedPath, UninstallPreview, UninstallWarning,
