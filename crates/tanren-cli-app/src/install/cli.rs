@@ -203,6 +203,7 @@ fn preserve_reason_name(reason: UninstallPreserveReason) -> &'static str {
         UninstallPreserveReason::ContentDrifted => "content_drifted",
         UninstallPreserveReason::MissingFromRepository => "missing_from_repository",
         UninstallPreserveReason::UnsafeRepositoryPath => "unsafe_repository_path",
+        UninstallPreserveReason::MalformedHash => "malformed_hash",
     }
 }
 
@@ -212,6 +213,7 @@ fn warning_kind_name(kind: UninstallWarningKind) -> &'static str {
         UninstallWarningKind::UntrustedManifestEntry => "untrusted_manifest_entry",
         UninstallWarningKind::UnsafeRepositoryPath => "unsafe_repository_path",
         UninstallWarningKind::ContentDrifted => "content_drifted",
+        UninstallWarningKind::DuplicateManifestEntry => "duplicate_manifest_entry",
     }
 }
 

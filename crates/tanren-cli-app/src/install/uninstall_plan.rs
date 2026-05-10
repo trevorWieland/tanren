@@ -1,6 +1,7 @@
 //! Manifest-driven uninstall preview planning.
 
 use std::collections::BTreeSet;
+use std::fmt;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
@@ -30,6 +31,21 @@ pub enum UninstallPreserveReason {
     MissingFromRepository,
     /// Entry path cannot be resolved safely inside the repository.
     UnsafeRepositoryPath,
+    /// Entry content hash is structurally invalid (wrong length or non-hex characters).
+    MalformedHash,
+}
+
+impl fmt::Display for UninstallPreserveReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::NotReplaceGenerated => f.write_str("not_replace_generated"),
+            Self::UntrustedManifestEntry => f.write_str("untrusted_manifest_entry"),
+            Self::ContentDrifted => f.write_str("content_drifted"),
+            Self::MissingFromRepository => f.write_str("missing_from_repository"),
+            Self::UnsafeRepositoryPath => f.write_str("unsafe_repository_path"),
+            Self::MalformedHash => f.write_str("malformed_hash"),
+        }
+    }
 }
 
 /// Preserved path and the reason uninstall did not schedule removal.
@@ -64,6 +80,20 @@ pub enum UninstallWarningKind {
     UnsafeRepositoryPath,
     /// Manifest-tracked generated content drifted and is preserved.
     ContentDrifted,
+    /// Manifest contains duplicate entry paths.
+    DuplicateManifestEntry,
+}
+
+impl fmt::Display for UninstallWarningKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ManifestMissing => f.write_str("manifest_missing"),
+            Self::UntrustedManifestEntry => f.write_str("untrusted_manifest_entry"),
+            Self::UnsafeRepositoryPath => f.write_str("unsafe_repository_path"),
+            Self::ContentDrifted => f.write_str("content_drifted"),
+            Self::DuplicateManifestEntry => f.write_str("duplicate_manifest_entry"),
+        }
+    }
 }
 
 /// Warning emitted during uninstall planning.
@@ -94,6 +124,15 @@ pub enum UninstallNothingReason {
     ManifestMissing,
     /// Manifest entries were present, but none qualified for removal.
     NoRemovalCandidates,
+}
+
+impl fmt::Display for UninstallNothingReason {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::ManifestMissing => f.write_str("manifest_missing"),
+            Self::NoRemovalCandidates => f.write_str("no_removal_candidates"),
+        }
+    }
 }
 
 /// Non-mutating uninstall preview grouped into deterministic outcome buckets.
@@ -136,6 +175,12 @@ impl UninstallPreview {
     pub const fn nothing_reason(&self) -> Option<UninstallNothingReason> {
         self.nothing_reason
     }
+
+    /// Total classified entries (remove + preserve + warning) for allocation hints.
+    #[must_use]
+    pub fn total_entry_count(&self) -> usize {
+        self.remove.len() + self.preserve.len() + self.warning.len()
+    }
 }
 
 pub(super) fn build_uninstall_preview(repository: &Path) -> Result<UninstallPreview, InstallError> {
@@ -148,7 +193,8 @@ pub(super) fn build_uninstall_preview(repository: &Path) -> Result<UninstallPrev
     let manifest = load_manifest(&manifest_absolute_path)?;
     validate_manifest_version(&manifest)?;
     let trusted_generated_assets = build_trusted_generated_asset_registry()?;
-    let mut outcomes = PreviewOutcomes::default();
+    let entry_count = manifest.entries.len();
+    let mut outcomes = PreviewOutcomes::with_capacity(entry_count);
     let mut seen_paths = BTreeSet::new();
 
     for entry in &manifest.entries {
@@ -199,6 +245,14 @@ impl PreviewOutcomes {
             kind,
             path: Some(path),
         });
+    }
+
+    fn with_capacity(capacity: usize) -> Self {
+        Self {
+            remove: Vec::with_capacity(capacity),
+            preserve: Vec::with_capacity(capacity),
+            warning: Vec::with_capacity(capacity),
+        }
     }
 
     fn remove(&mut self, path: RepoRelativePath) {
