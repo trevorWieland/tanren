@@ -47,8 +47,8 @@ use crate::auth::ActorCapabilityModel;
 use crate::tool_support::{
     AccountScopeParams, AddCredentialParams, RemoveCredentialParams, RemoveUserConfigParams,
     SetUserConfigParams, UpdateCredentialParams, account_principal_from_parts,
-    actor_capability_model_from_context, map_failure, parse_account_id, parse_user_credential_id,
-    permission_denied_failure, server_info_for_capability_model, success, validation_failure,
+    actor_capability_model_from_context, map_failure, permission_denied_failure,
+    server_info_for_capability_model, success,
 };
 
 #[cfg(any(test, feature = "test-hooks"))]
@@ -173,10 +173,7 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
         match self
             .handlers
             .list_user_settings_page(
@@ -206,10 +203,7 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
         match self
             .handlers
             .upsert_user_setting(
@@ -242,10 +236,7 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
         match self
             .handlers
             .remove_user_setting(
@@ -275,10 +266,7 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
         match self
             .handlers
             .add_user_credential(
@@ -313,14 +301,8 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
-        let item_id = match parse_user_credential_id(&request.item_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
+        let item_id = request.item_id;
         match self
             .handlers
             .update_user_credential(
@@ -355,10 +337,7 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
         match self
             .handlers
             .list_user_credentials_page(
@@ -390,14 +369,8 @@ impl TanrenMcp {
             Ok(value) => value,
             Err(result) => return Ok(result),
         };
-        let requested_account_id = match parse_account_id(&request.account_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
-        let item_id = match parse_user_credential_id(&request.item_id) {
-            Ok(value) => value,
-            Err(summary) => return Ok(validation_failure(&summary)),
-        };
+        let requested_account_id = request.account_id;
+        let item_id = request.item_id;
         match self
             .handlers
             .remove_user_credential(

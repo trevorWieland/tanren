@@ -7,17 +7,16 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    ListUserCredentialsRequest, ListUserSettingsRequest, UserCredentialId, UserCredentialKind,
-    UserSettingKey, UserSettingValue, user_credentials_page_request, user_settings_page_request,
+    ListUserCredentialsRequest, ListUserSettingsRequest, UserCredentialKind, UserSettingKey,
+    UserSettingValue, user_credentials_page_request, user_settings_page_request,
 };
-use tanren_identity_policy::AccountId;
-use uuid::Uuid;
 
 use crate::auth::{ActorCapabilityModel, AuthenticatedPrincipal};
+use tanren_identity_policy::AccountId;
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct AccountScopeParams {
-    pub(crate) account_id: String,
+    pub(crate) account_id: AccountId,
     pub(crate) limit: Option<u16>,
     pub(crate) after: Option<String>,
 }
@@ -36,20 +35,20 @@ impl AccountScopeParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct SetUserConfigParams {
-    pub(crate) account_id: String,
+    pub(crate) account_id: AccountId,
     pub(crate) key: UserSettingKey,
     pub(crate) value: UserSettingValue,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct RemoveUserConfigParams {
-    pub(crate) account_id: String,
+    pub(crate) account_id: AccountId,
     pub(crate) key: UserSettingKey,
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub(crate) struct AddCredentialParams {
-    pub(crate) account_id: String,
+    pub(crate) account_id: AccountId,
     pub(crate) kind: UserCredentialKind,
     #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
     #[schemars(with = "String")]
@@ -58,8 +57,8 @@ pub(crate) struct AddCredentialParams {
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]
 pub(crate) struct UpdateCredentialParams {
-    pub(crate) account_id: String,
-    pub(crate) item_id: String,
+    pub(crate) account_id: AccountId,
+    pub(crate) item_id: tanren_configuration_secrets::UserCredentialId,
     #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
     #[schemars(with = "String")]
     pub(crate) value: secrecy::SecretString,
@@ -67,8 +66,8 @@ pub(crate) struct UpdateCredentialParams {
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
 pub(crate) struct RemoveCredentialParams {
-    pub(crate) account_id: String,
-    pub(crate) item_id: String,
+    pub(crate) account_id: AccountId,
+    pub(crate) item_id: tanren_configuration_secrets::UserCredentialId,
 }
 
 /// Encode a successful handler response as a JSON-text `CallToolResult`.
@@ -97,15 +96,6 @@ pub(crate) fn map_failure(err: AppServiceError) -> CallToolResult {
     };
     let body = json!({
         "code": code,
-        "summary": summary,
-    });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
-}
-
-pub(crate) fn validation_failure(summary: &str) -> CallToolResult {
-    let body = json!({
-        "code": "validation_failed",
         "summary": summary,
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
@@ -152,15 +142,6 @@ pub(crate) fn server_info_for_capability_model(
             .to_owned(),
     );
     info
-}
-
-pub(crate) fn parse_account_id(raw: &str) -> Result<AccountId, String> {
-    let parsed = Uuid::parse_str(raw).map_err(|_| "account_id must be a valid uuid".to_owned())?;
-    Ok(AccountId::new(parsed))
-}
-
-pub(crate) fn parse_user_credential_id(raw: &str) -> Result<UserCredentialId, String> {
-    UserCredentialId::parse(raw).map_err(|_| "item_id must be a valid uuid".to_owned())
 }
 
 fn principal_from_context(
