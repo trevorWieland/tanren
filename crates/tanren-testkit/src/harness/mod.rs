@@ -48,6 +48,7 @@ mod cli;
 mod in_process;
 mod mcp;
 mod tui;
+mod tui_driver;
 mod web;
 
 use std::collections::HashMap;
@@ -61,8 +62,8 @@ use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPosture,
     DeploymentPostureCapabilitySummary, DeploymentPostureContractFailure,
-    DeploymentPostureReadModel, DeploymentPostureScope, SetDeploymentPostureRequest,
-    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    DeploymentPostureReadModel, DeploymentPostureScope, RawSetDeploymentPostureRequest,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -295,16 +296,18 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         scope: DeploymentPostureScope,
         posture_raw: &str,
     ) -> HarnessResult<HarnessPostureView> {
-        let posture = DeploymentPosture::from_wire_value(posture_raw).ok_or_else(|| {
-            let failure = DeploymentPostureContractFailure::unsupported_posture(posture_raw);
+        let request = SetDeploymentPostureRequest::try_from(RawSetDeploymentPostureRequest {
+            scope,
+            posture: posture_raw.to_owned(),
+        })
+        .map_err(|failure: DeploymentPostureContractFailure| {
             let body = failure.render();
             HarnessError::FailureCode {
                 code: body.code,
                 summary: body.summary,
             }
         })?;
-        self.set_deployment_posture(actor, SetDeploymentPostureRequest { scope, posture })
-            .await
+        self.set_deployment_posture(actor, request).await
     }
 
     /// Read the currently recorded deployment posture for `scope`.

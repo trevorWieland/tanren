@@ -1,11 +1,11 @@
 // playwright-bdd step definitions for the `@web` slice of B-0137.
 //
 // The Web BDD runner uses the same canonical feature file as the Rust
-// harness. For posture flows we drive the API from Playwright so we can
-// prove cookie-backed auth, shared wire taxonomy, and capability payloads.
+// harness. For posture flows we now drive the real `/deployment-posture`
+// page workflow and assert against the resulting wire responses.
 
 import { createBdd } from "playwright-bdd";
-import type { Page } from "@playwright/test";
+import type { Page, Request, Response, Route } from "@playwright/test";
 
 import { test } from "./account.steps";
 import {
@@ -16,7 +16,6 @@ import {
   decodeSupportedResponse,
   isDeploymentPosture,
   type PostureScenarioState,
-  unsupportedPostureFailure,
 } from "./support/deployment-posture";
 import {
   actor,
@@ -39,6 +38,216 @@ function stateFor(world: WebWorld): PostureScenarioState {
   return state;
 }
 
+function isListPostureResponse(response: Response): boolean {
+  if (response.request().method() !== "GET") {
+    return false;
+  }
+  const pathname = new URL(response.url()).pathname;
+  return pathname === "/deployment-postures";
+}
+
+function isSetPostureResponse(response: Response): boolean {
+  if (response.request().method() !== "POST") {
+    return false;
+  }
+  const pathname = new URL(response.url()).pathname;
+  return pathname === "/deployment-postures";
+}
+
+function isGetPostureResponse(response: Response): boolean {
+  if (response.request().method() !== "GET") {
+    return false;
+  }
+  const pathname = new URL(response.url()).pathname;
+  return pathname.startsWith("/deployment-postures/");
+}
+
+async function parseJsonResponse(response: Response): Promise<{
+  ok: boolean;
+  status: number;
+  json: unknown;
+}> {
+  let json: unknown = {};
+  try {
+    json = (await response.json()) as unknown;
+  } catch {
+    json = {};
+  }
+  return {
+    ok: response.ok(),
+    status: response.status(),
+    json,
+  };
+}
+
+interface JsonResponse {
+  ok: boolean;
+  status: number;
+  json: unknown;
+}
+
+async function openPosturePageForScope(
+  page: Page,
+  accountId: string,
+): Promise<JsonResponse> {
+  const listResponsePromise = page.waitForResponse(isListPostureResponse);
+  await page.goto("/");
+  await page.evaluate((scopeId) => {
+    window.localStorage.setItem("tanren.active-account-scope-id", scopeId);
+  }, accountId);
+  await page.goto("/deployment-posture");
+  await page
+    .getByRole("heading", { name: /deployment posture operations/i })
+    .waitFor();
+  return parseJsonResponse(await listResponsePromise);
+}
+
+async function discoverCapabilitiesFromUi(
+  page: Page,
+  listResponse: JsonResponse,
+): Promise<unknown> {
+  await page
+    .getByRole("button", { name: /discover capabilities/i })
+    .first()
+    .click();
+  const postureSelect = page.locator("#posture-value");
+  await postureSelect.waitFor();
+  await page.waitForFunction(
+    () => {
+      const element =
+        document.querySelector<HTMLSelectElement>("#posture-value");
+      return element !== null && element.options.length > 0;
+    },
+    undefined,
+    { timeout: 10_000 },
+  );
+  if (!listResponse.ok) {
+    throw new Error(
+      `list supported postures failed with HTTP ${listResponse.status}`,
+    );
+  }
+  return listResponse.json;
+}
+
+async function setPostureViaUi(
+  page: Page,
+  world: WebWorld,
+  postureRaw: string,
+  scopeAccountId: string,
+): Promise<void> {
+  const postureActor = actor(world, "actor");
+  const state = stateFor(world);
+
+  const listResponse = await openPosturePageForScope(page, scopeAccountId);
+  const supportedPayload = await discoverCapabilitiesFromUi(page, listResponse);
+  const supported = decodeSupportedResponse(supportedPayload);
+  state.lastSupported = supported.supported;
+
+  const postureSelect = page.locator("#posture-value");
+  await postureSelect.waitFor();
+  const shouldTamperRequest = !isDeploymentPosture(postureRaw);
+  if (shouldTamperRequest) {
+    const replacement = supported.supported[0]?.posture;
+    if (!replacement) {
+      throw new Error("supported posture list was empty before save");
+    }
+    await postureSelect.selectOption(replacement);
+  } else {
+    await postureSelect.selectOption(postureRaw);
+  }
+
+  const routePattern = "**/deployment-postures";
+  let routeHandler: ((route: Route, request: Request) => Promise<void>) | null =
+    null;
+  if (shouldTamperRequest) {
+    routeHandler = async (route: Route, request: Request): Promise<void> => {
+      if (request.method() !== "POST") {
+        await route.continue();
+        return;
+      }
+      let payload: unknown = {};
+      try {
+        payload = request.postDataJSON();
+      } catch {
+        payload = {};
+      }
+      const payloadObject: Record<string, unknown> =
+        typeof payload === "object" && payload !== null
+          ? (payload as Record<string, unknown>)
+          : {};
+      const nextPayload = {
+        ...payloadObject,
+        posture: postureRaw,
+      };
+      await route.continue({
+        headers: {
+          ...request.headers(),
+          "content-type": "application/json",
+        },
+        postData: JSON.stringify(nextPayload),
+      });
+    };
+    await page.route(routePattern, routeHandler);
+  }
+
+  const setResponsePromise = page.waitForResponse(isSetPostureResponse);
+  try {
+    await page
+      .getByRole("button", { name: /(set posture|save)/i })
+      .first()
+      .click();
+  } finally {
+    if (routeHandler) {
+      await page.unroute(routePattern, routeHandler);
+    }
+  }
+  const setResponse = await parseJsonResponse(await setResponsePromise);
+
+  if (setResponse.ok) {
+    state.lastSet = decodeSetResponse(setResponse.json);
+    delete state.lastFailureSummary;
+    postureActor.hasSession = true;
+    delete postureActor.lastFailureCode;
+    return;
+  }
+
+  const failure = normalizeFailureBody(setResponse.json, setResponse.status);
+  state.lastFailureSummary = failure.summary;
+  postureActor.hasSession = false;
+  postureActor.lastFailureCode = failure.code;
+}
+
+async function readPostureViaUi(
+  page: Page,
+  world: WebWorld,
+  scopeAccountId: string,
+): Promise<void> {
+  const postureActor = actor(world, "actor");
+  const state = stateFor(world);
+
+  const listResponse = await openPosturePageForScope(page, scopeAccountId);
+  const supportedPayload = await discoverCapabilitiesFromUi(page, listResponse);
+  const supported = decodeSupportedResponse(supportedPayload);
+  state.lastSupported = supported.supported;
+
+  const getResponsePromise = page.waitForResponse(isGetPostureResponse);
+  await page.getByRole("button", { name: /load/i }).first().click();
+  const getResponse = await parseJsonResponse(await getResponsePromise);
+
+  if (getResponse.ok) {
+    decodeCurrentResponse(getResponse.json);
+    delete state.lastFailureSummary;
+    postureActor.hasSession = true;
+    delete postureActor.lastFailureCode;
+    return;
+  }
+
+  const failure = normalizeFailureBody(getResponse.json, getResponse.status);
+  state.lastFailureSummary = failure.summary;
+  postureActor.hasSession = false;
+  postureActor.lastFailureCode = failure.code;
+}
+
 async function signUpActor(
   page: Page,
   world: WebWorld,
@@ -47,23 +256,18 @@ async function signUpActor(
   password: string,
   displayName: string,
 ): Promise<string> {
-  const response = await page.request.post(`${apiUrl()}/accounts`, {
-    data: {
-      email,
-      password,
-      display_name: displayName,
-    },
+  const response = await browserJsonRequest(page, "POST", "/accounts", {
+    email,
+    password,
+    display_name: displayName,
   });
-  if (!response.ok()) {
-    const parsed = normalizeFailureBody(
-      await response.json().catch(() => ({})),
-      response.status(),
-    );
+  if (!response.ok) {
+    const parsed = normalizeFailureBody(response.json, response.status);
     throw new Error(
       `sign-up failed for ${actorName}: ${parsed.code} (${parsed.summary})`,
     );
   }
-  const data = (await response.json()) as {
+  const data = response.json as {
     account?: { id?: unknown };
   };
   const accountId = data.account?.id;
@@ -101,69 +305,6 @@ async function signInActor(
     );
   }
   entry.hasSession = true;
-}
-
-async function setPosture(
-  page: Page,
-  world: WebWorld,
-  postureRaw: string,
-  accountId: string,
-): Promise<void> {
-  const postureActor = actor(world, "actor");
-  const state = stateFor(world);
-  if (!isDeploymentPosture(postureRaw)) {
-    const failure = unsupportedPostureFailure(postureRaw);
-    state.lastFailureSummary = failure.summary;
-    postureActor.hasSession = false;
-    postureActor.lastFailureCode = failure.code;
-    return;
-  }
-
-  const response = await browserJsonRequest(
-    page,
-    "POST",
-    "/deployment-postures",
-    {
-      scope: { scope: "account", account_id: accountId },
-      posture: postureRaw,
-    },
-  );
-  if (response.ok) {
-    state.lastSet = decodeSetResponse(response.json);
-    delete state.lastFailureSummary;
-    postureActor.hasSession = true;
-    delete postureActor.lastFailureCode;
-    return;
-  }
-  const failure = normalizeFailureBody(response.json, response.status);
-  state.lastFailureSummary = failure.summary;
-  postureActor.hasSession = false;
-  postureActor.lastFailureCode = failure.code;
-}
-
-async function readPosture(
-  page: Page,
-  world: WebWorld,
-  accountId: string,
-): Promise<void> {
-  const postureActor = actor(world, "actor");
-  const state = stateFor(world);
-  const response = await browserJsonRequest(
-    page,
-    "GET",
-    `/deployment-postures/account/${encodeURIComponent(accountId)}`,
-  );
-  if (response.ok) {
-    decodeCurrentResponse(response.json);
-    delete state.lastFailureSummary;
-    postureActor.hasSession = true;
-    delete postureActor.lastFailureCode;
-    return;
-  }
-  const failure = normalizeFailureBody(response.json, response.status);
-  state.lastFailureSummary = failure.summary;
-  postureActor.hasSession = false;
-  postureActor.lastFailureCode = failure.code;
 }
 
 async function seedActorWithPermission(
@@ -265,21 +406,18 @@ Given(
 When(
   "the actor lists supported deployment postures over web",
   async ({ page, world }) => {
-    const response = await browserJsonRequest(
-      page,
-      "GET",
-      "/deployment-postures",
-    );
-    if (!response.ok) {
-      throw new Error(
-        `list supported postures failed with HTTP ${response.status}`,
-      );
+    const state = stateFor(world);
+    const accountId = state.actorAccountId;
+    if (!accountId) {
+      throw new Error("actor account id missing before listing postures");
     }
-    const data = decodeSupportedResponse(response.json);
+    const listResponse = await openPosturePageForScope(page, accountId);
+    const payload = await discoverCapabilitiesFromUi(page, listResponse);
+    const data = decodeSupportedResponse(payload);
     if (!Array.isArray(data.supported)) {
       throw new Error("supported posture payload did not include an array");
     }
-    stateFor(world).lastSupported = data.supported;
+    state.lastSupported = data.supported;
   },
 );
 
@@ -290,7 +428,7 @@ When(
     if (!state.actorAccountId) {
       throw new Error("actor account id missing before posture set");
     }
-    await setPosture(page, world, posture, state.actorAccountId);
+    await setPostureViaUi(page, world, posture, state.actorAccountId);
   },
 );
 
@@ -303,14 +441,14 @@ When(
         "other account id missing before unauthorized posture set",
       );
     }
-    await setPosture(page, world, posture, state.otherAccountId);
+    await setPostureViaUi(page, world, posture, state.otherAccountId);
   },
 );
 
 When(
   "the actor sets deployment posture {string} for a missing account scope over web",
   async ({ page, world }, posture: string) => {
-    await setPosture(page, world, posture, crypto.randomUUID());
+    await setPostureViaUi(page, world, posture, crypto.randomUUID());
   },
 );
 
@@ -323,7 +461,7 @@ When(
         "other account id missing before unauthorized posture read",
       );
     }
-    await readPosture(page, world, state.otherAccountId);
+    await readPostureViaUi(page, world, state.otherAccountId);
   },
 );
 
@@ -386,17 +524,20 @@ Then(
     if (!state.actorAccountId) {
       throw new Error("actor account id missing before readback");
     }
-    const response = await browserJsonRequest(
+    const listResponse = await openPosturePageForScope(
       page,
-      "GET",
-      `/deployment-postures/account/${encodeURIComponent(state.actorAccountId)}`,
+      state.actorAccountId,
     );
-    if (!response.ok) {
+    await discoverCapabilitiesFromUi(page, listResponse);
+    const getResponsePromise = page.waitForResponse(isGetPostureResponse);
+    await page.getByRole("button", { name: /load/i }).first().click();
+    const getResponse = await parseJsonResponse(await getResponsePromise);
+    if (!getResponse.ok) {
       throw new Error(
-        `get deployment posture failed with HTTP ${response.status}`,
+        `get deployment posture failed with HTTP ${getResponse.status}`,
       );
     }
-    const payload = decodeCurrentResponse(response.json);
+    const payload = decodeCurrentResponse(getResponse.json);
     if (!payload.current) {
       throw new Error("expected an existing recorded posture");
     }

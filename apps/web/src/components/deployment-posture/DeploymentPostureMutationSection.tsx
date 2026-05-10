@@ -36,8 +36,12 @@ export function DeploymentPostureMutationSection({
   return (
     <section className="space-y-3 rounded border border-[--color-border] p-4">
       <h3 className="text-base font-semibold">Set posture</h3>
+      <label htmlFor="posture-value" className="text-sm font-medium">
+        Deployment posture
+      </label>
       <div className="grid gap-3 sm:grid-cols-[2fr_auto_auto]">
         <select
+          id="posture-value"
           value={selectedPosture}
           disabled={!canMutate || postureOptions.length === 0}
           onChange={(event) => {

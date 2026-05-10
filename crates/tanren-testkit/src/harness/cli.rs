@@ -232,7 +232,17 @@ impl AccountHarness for CliHarness {
         _actor: AccountId,
         request: SetDeploymentPostureRequest,
     ) -> HarnessResult<HarnessPostureView> {
-        let (scope_kind, scope_id) = scope_args(request.scope);
+        self.set_deployment_posture_raw(_actor, request.scope, request.posture.as_wire_value())
+            .await
+    }
+
+    async fn set_deployment_posture_raw(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let (scope_kind, scope_id) = scope_args(scope);
         let output = self
             .command()
             .args([
@@ -245,7 +255,7 @@ impl AccountHarness for CliHarness {
                 "--scope-id",
                 &scope_id,
                 "--posture",
-                request.posture.as_wire_value(),
+                posture_raw,
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())

@@ -1,4 +1,4 @@
-//! `@web` harness — currently delegates to [`super::InProcessHarness`].
+//! `@web` harness — delegates to [`super::ApiHarness`].
 //!
 //! PR 11 stands up a parallel Node-side Playwright harness for the same
 //! `@web` Gherkin scenarios via `playwright-bdd`. The Gherkin source is
@@ -6,8 +6,9 @@
 //! `tests/bdd/features/`), so the same scenarios prove themselves twice:
 //!
 //! - **Rust BDD** (this crate, fast feedback): every `@web` scenario
-//!   routes through this harness, which falls back to the in-process
-//!   `Handlers` dispatch. The witness is the cucumber-rs run executed
+//!   routes through this harness, which drives the same HTTP wire
+//!   shape as `@api` while retaining `@web` scenario tags. The witness
+//!   is the cucumber-rs run executed
 //!   by `just tests` and `cargo run -p tanren-bdd --bin tanren-bdd-runner`.
 //! - **playwright-bdd** (`apps/web/tests/bdd/`, real browser): the same
 //!   `@web` scenarios run end-to-end against a Playwright-driven Chromium
@@ -28,18 +29,18 @@ use tanren_contract::{
 use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
-use super::in_process::InProcessHarness;
+use super::api::ApiHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessPostureView,
     HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
-/// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
-/// real-browser proof lives on the Node side via `playwright-bdd`; this
-/// harness keeps the Rust BDD runner self-contained for fast feedback.
+/// `@web` harness — wrapper around [`ApiHarness`]. The real-browser
+/// proof lives on the Node side via `playwright-bdd`; this harness
+/// keeps Rust BDD on real HTTP decoding semantics for posture mutations.
 #[derive(Debug)]
 pub struct WebHarness {
-    inner: InProcessHarness,
+    inner: ApiHarness,
 }
 
 impl WebHarness {
@@ -47,11 +48,11 @@ impl WebHarness {
     ///
     /// # Errors
     ///
-    /// Returns an error if the underlying in-process harness cannot
-    /// initialize an ephemeral `SQLite` store.
+    /// Returns an error if the underlying API harness cannot
+    /// initialize an ephemeral `SQLite` store + HTTP app.
     pub async fn spawn() -> HarnessResult<Self> {
         Ok(Self {
-            inner: InProcessHarness::new(HarnessKind::Web).await?,
+            inner: ApiHarness::spawn().await?,
         })
     }
 }
@@ -87,6 +88,17 @@ impl AccountHarness for WebHarness {
         request: SetDeploymentPostureRequest,
     ) -> HarnessResult<HarnessPostureView> {
         self.inner.set_deployment_posture(actor, request).await
+    }
+
+    async fn set_deployment_posture_raw(
+        &mut self,
+        actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        self.inner
+            .set_deployment_posture_raw(actor, scope, posture_raw)
+            .await
     }
 
     async fn get_deployment_posture(

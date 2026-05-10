@@ -17,8 +17,6 @@ import type {
   SupportedDeploymentPosturesResponse,
 } from "../../../../src/app/lib/generated/deployment-posture-contract";
 
-import type { NormalizedFailure } from "./web-wire";
-
 export interface PostureScenarioState {
   actorAccountId?: string;
   otherAccountId?: string;
@@ -45,13 +43,6 @@ export function decodeCurrentResponse(
   raw: unknown,
 ): CurrentDeploymentPostureResponse {
   return decodeCurrentDeploymentPostureResponse(raw);
-}
-
-export function unsupportedPostureFailure(raw: string): NormalizedFailure {
-  return {
-    code: "unsupported_posture",
-    summary: `Unsupported deployment posture \`${raw}\`. Supported values: hosted, self_hosted, local_only.`,
-  };
 }
 
 export function assertCapabilitySummary(
