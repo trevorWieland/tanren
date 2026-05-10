@@ -14,7 +14,7 @@
 
 use std::env;
 use std::fs;
-use std::io::Write;
+use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::process::ExitCode;
 
@@ -32,6 +32,7 @@ mod project;
 use project::{ProjectAction, dispatch_project};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
+const ACCOUNT_PASSWORD_ENV: &str = "TANREN_ACCOUNT_PASSWORD";
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
 /// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
@@ -98,9 +99,9 @@ enum AccountAction {
         /// Email to register.
         #[arg(long)]
         identifier: String,
-        /// Password.
-        #[arg(long)]
-        password: String,
+        /// Read password from stdin instead of environment/prompt.
+        #[arg(long, default_value_t = false)]
+        password_stdin: bool,
         /// Display name.
         #[arg(long, default_value_t = String::from("Tanren user"))]
         display_name: String,
@@ -117,9 +118,9 @@ enum AccountAction {
         /// Email to sign in with.
         #[arg(long)]
         identifier: String,
-        /// Password.
-        #[arg(long)]
-        password: String,
+        /// Read password from stdin instead of environment/prompt.
+        #[arg(long, default_value_t = false)]
+        password_stdin: bool,
     },
 }
 
@@ -192,7 +193,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
         AccountAction::Create {
             database_url,
             identifier,
-            password,
+            password_stdin,
             display_name,
             invitation,
         } => {
@@ -200,7 +201,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
                 .await
                 .context("connect to store")?;
             let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
+            let password = load_account_password(password_stdin)?;
             match invitation {
                 None => {
                     let response = handlers
@@ -260,13 +261,13 @@ async fn run_account(action: AccountAction) -> Result<()> {
         AccountAction::SignIn {
             database_url,
             identifier,
-            password,
+            password_stdin,
         } => {
             let store = Store::connect(&database_url)
                 .await
                 .context("connect to store")?;
             let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
+            let password = load_account_password(password_stdin)?;
             let response = handlers
                 .sign_in(&store, SignInRequest { email, password })
                 .await
@@ -321,6 +322,56 @@ fn session_path() -> PathBuf {
             PathBuf::from,
         );
     base.join("tanren").join("session")
+}
+
+fn load_account_password(password_stdin: bool) -> Result<SecretString> {
+    if password_stdin {
+        return read_secret_from_stdin("account password")
+            .map(SecretString::from)
+            .context("read account password from stdin");
+    }
+    if let Some(password) = read_secret_from_env(ACCOUNT_PASSWORD_ENV) {
+        return Ok(SecretString::from(password));
+    }
+    prompt_secret("password: ").map(SecretString::from)
+}
+
+fn read_secret_from_env(name: &str) -> Option<String> {
+    let value = env::var(name).ok()?;
+    let trimmed = value.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
+}
+
+fn read_secret_from_stdin(kind: &str) -> Result<String> {
+    let mut input = String::new();
+    std::io::stdin()
+        .read_to_string(&mut input)
+        .with_context(|| format!("read {kind} from stdin"))?;
+    let trimmed = input.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        anyhow::bail!("error: validation_failed — missing {kind}");
+    }
+    Ok(trimmed.to_owned())
+}
+
+fn prompt_secret(prompt: &str) -> Result<String> {
+    let stderr = std::io::stderr();
+    let mut stderr_handle = stderr.lock();
+    write!(stderr_handle, "{prompt}").context("write password prompt")?;
+    stderr_handle.flush().context("flush password prompt")?;
+
+    let mut input = String::new();
+    std::io::stdin()
+        .read_line(&mut input)
+        .context("read password from prompt")?;
+    let trimmed = input.trim_end_matches(['\n', '\r']);
+    if trimmed.is_empty() {
+        anyhow::bail!("error: validation_failed — missing account password");
+    }
+    Ok(trimmed.to_owned())
 }
 
 fn persist_session(token: &str) -> Result<()> {

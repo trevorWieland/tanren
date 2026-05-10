@@ -54,7 +54,7 @@ type ProjectCommandResult<T> = std::result::Result<T, ProjectFailureBody>;
 struct ProjectRequestScope<'a> {
     database_url: &'a str,
     owning_account_id: &'a str,
-    session_token: Option<&'a str>,
+    session_token_stdin: bool,
 }
 
 /// Project setup and visibility subcommands.
@@ -68,9 +68,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
-        /// Session token for the authenticated actor.
-        #[arg(long)]
-        session_token: Option<String>,
+        /// Read session token from stdin instead of env/session file.
+        #[arg(long, default_value_t = false)]
+        session_token_stdin: bool,
         /// Repository identity (`owner/name`).
         #[arg(long)]
         repository: String,
@@ -89,9 +89,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
-        /// Session token for the authenticated actor.
-        #[arg(long)]
-        session_token: Option<String>,
+        /// Read session token from stdin instead of env/session file.
+        #[arg(long, default_value_t = false)]
+        session_token_stdin: bool,
         /// Repository identity (`owner/name`).
         #[arg(long)]
         repository: String,
@@ -113,9 +113,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
-        /// Session token for the authenticated actor.
-        #[arg(long)]
-        session_token: Option<String>,
+        /// Read session token from stdin instead of env/session file.
+        #[arg(long, default_value_t = false)]
+        session_token_stdin: bool,
         /// Output mode.
         #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
         output: ProjectOutputMode,
@@ -128,9 +128,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
-        /// Session token for the authenticated actor.
-        #[arg(long)]
-        session_token: Option<String>,
+        /// Read session token from stdin instead of env/session file.
+        #[arg(long, default_value_t = false)]
+        session_token_stdin: bool,
         /// Output mode.
         #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
         output: ProjectOutputMode,
@@ -152,7 +152,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::ConnectRepository {
             database_url,
             owning_account_id,
-            session_token,
+            session_token_stdin,
             repository,
             select_as_active,
             output,
@@ -162,7 +162,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 provider.as_ref(),
                 &database_url,
                 &owning_account_id,
-                session_token.as_deref(),
+                session_token_stdin,
                 &repository,
                 select_as_active,
             )
@@ -175,7 +175,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::Create {
             database_url,
             owning_account_id,
-            session_token,
+            session_token_stdin,
             repository,
             designated_host,
             select_as_active,
@@ -187,7 +187,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 ProjectRequestScope {
                     database_url: &database_url,
                     owning_account_id: &owning_account_id,
-                    session_token: session_token.as_deref(),
+                    session_token_stdin,
                 },
                 &repository,
                 &designated_host,
@@ -202,13 +202,13 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::List {
             database_url,
             owning_account_id,
-            session_token,
+            session_token_stdin,
             output,
         } => match run_list_projects(
             &handlers,
             &database_url,
             &owning_account_id,
-            session_token.as_deref(),
+            session_token_stdin,
         )
         .await
         {
@@ -218,13 +218,13 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::Active {
             database_url,
             owning_account_id,
-            session_token,
+            session_token_stdin,
             output,
         } => match run_active_project(
             &handlers,
             &database_url,
             &owning_account_id,
-            session_token.as_deref(),
+            session_token_stdin,
         )
         .await
         {
@@ -240,13 +240,13 @@ async fn run_connect_repository(
     provider: &dyn SourceControlProvider,
     database_url: &str,
     owning_account_id: &str,
-    session_token: Option<&str>,
+    session_token_stdin: bool,
     repository: &str,
     select_as_active: bool,
 ) -> ProjectCommandResult<tanren_contract::ConnectProjectRepositoryResponse> {
     let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
-    let actor_account_id = resolve_actor_account_id(&store, session_token).await?;
+    let actor_account_id = resolve_actor_account_id(&store, session_token_stdin).await?;
     let repository = parse_repository_ref(repository)?;
     handlers
         .connect_project_repository(
@@ -275,7 +275,7 @@ async fn run_create_project(
 ) -> ProjectCommandResult<tanren_contract::CreateProjectResponse> {
     let store = connect_store(scope.database_url).await?;
     let owning_account_id = parse_account_id(scope.owning_account_id)?;
-    let actor_account_id = resolve_actor_account_id(&store, scope.session_token).await?;
+    let actor_account_id = resolve_actor_account_id(&store, scope.session_token_stdin).await?;
     let repository = parse_repository_ref(repository)?;
     let designated_host = parse_designated_host(designated_host)?;
     handlers
@@ -300,11 +300,11 @@ async fn run_list_projects(
     handlers: &Handlers,
     database_url: &str,
     owning_account_id: &str,
-    session_token: Option<&str>,
+    session_token_stdin: bool,
 ) -> ProjectCommandResult<ProjectCollectionView> {
     let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
-    let actor_account_id = resolve_actor_account_id(&store, session_token).await?;
+    let actor_account_id = resolve_actor_account_id(&store, session_token_stdin).await?;
     handlers
         .list_visible_projects(
             &store,
@@ -324,11 +324,11 @@ async fn run_active_project(
     handlers: &Handlers,
     database_url: &str,
     owning_account_id: &str,
-    session_token: Option<&str>,
+    session_token_stdin: bool,
 ) -> ProjectCommandResult<tanren_contract::ActiveProjectView> {
     let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
-    let actor_account_id = resolve_actor_account_id(&store, session_token).await?;
+    let actor_account_id = resolve_actor_account_id(&store, session_token_stdin).await?;
     handlers
         .active_project(
             &store,

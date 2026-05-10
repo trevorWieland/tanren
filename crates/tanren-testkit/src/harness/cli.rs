@@ -27,6 +27,8 @@ use super::{
     HarnessSession,
 };
 
+const ACCOUNT_PASSWORD_ENV: &str = "TANREN_ACCOUNT_PASSWORD";
+
 pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
@@ -193,6 +195,7 @@ impl AccountHarness for CliHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
             .env("TANREN_SESSION_FILE", &self.session_file)
+            .env(ACCOUNT_PASSWORD_ENV, req.password.expose_secret())
             .args([
                 "account",
                 "create",
@@ -200,8 +203,6 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--identifier",
                 req.email.as_str(),
-                "--password",
-                req.password.expose_secret(),
                 "--display-name",
                 &req.display_name,
             ])
@@ -233,6 +234,7 @@ impl AccountHarness for CliHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
             .env("TANREN_SESSION_FILE", &self.session_file)
+            .env(ACCOUNT_PASSWORD_ENV, req.password.expose_secret())
             .args([
                 "account",
                 "sign-in",
@@ -240,8 +242,6 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--identifier",
                 req.email.as_str(),
-                "--password",
-                req.password.expose_secret(),
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -272,6 +272,7 @@ impl AccountHarness for CliHarness {
     ) -> HarnessResult<HarnessAcceptance> {
         let output = Command::new(&self.binary)
             .env("TANREN_SESSION_FILE", &self.session_file)
+            .env(ACCOUNT_PASSWORD_ENV, req.password.expose_secret())
             .args([
                 "account",
                 "create",
@@ -279,8 +280,6 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--identifier",
                 req.email.as_str(),
-                "--password",
-                req.password.expose_secret(),
                 "--display-name",
                 &req.display_name,
                 "--invitation",

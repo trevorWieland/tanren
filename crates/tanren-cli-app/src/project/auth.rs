@@ -1,3 +1,5 @@
+use std::io::Read;
+
 use tanren_app_services::{AccountStore, Clock, Store};
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef, SessionToken};
 use tracing::error;
@@ -31,6 +33,34 @@ fn parse_session_token(raw: &str) -> ProjectCommandResult<SessionToken> {
     })
 }
 
+fn read_session_token_from_stdin() -> ProjectCommandResult<SessionToken> {
+    let mut input = String::new();
+    std::io::stdin().read_to_string(&mut input).map_err(|err| {
+        error!(error = ?err, "project command failed to read session token from stdin");
+        ProjectFailureBody::internal(
+            "Tanren encountered an internal error while processing the project request.",
+        )
+    })?;
+    parse_session_token(&input)
+}
+
+fn load_session_token_from_env() -> ProjectCommandResult<Option<SessionToken>> {
+    let raw = match std::env::var("TANREN_SESSION_TOKEN") {
+        Ok(value) => value,
+        Err(std::env::VarError::NotPresent) => return Ok(None),
+        Err(err) => {
+            error!(error = ?err, "project command failed to read session token environment variable");
+            return Err(ProjectFailureBody::internal(
+                "Tanren encountered an internal error while processing the project request.",
+            ));
+        }
+    };
+    if raw.trim().is_empty() {
+        return Ok(None);
+    }
+    parse_session_token(&raw).map(Some)
+}
+
 fn load_default_session_token() -> ProjectCommandResult<Option<SessionToken>> {
     let path = super::super::session_path();
     match std::fs::read_to_string(&path) {
@@ -47,14 +77,18 @@ fn load_default_session_token() -> ProjectCommandResult<Option<SessionToken>> {
 
 pub(super) async fn resolve_actor_account_id(
     store: &Store,
-    session_token_raw: Option<&str>,
+    session_token_stdin: bool,
 ) -> ProjectCommandResult<AccountId> {
-    let token = match session_token_raw {
-        Some(raw) => parse_session_token(raw)?,
-        None => load_default_session_token()?.ok_or_else(|| ProjectFailureBody {
+    let token = if session_token_stdin {
+        read_session_token_from_stdin()?
+    } else if let Some(token) = load_session_token_from_env()? {
+        token
+    } else {
+        load_default_session_token()?.ok_or_else(|| ProjectFailureBody {
             code: "auth_required".to_owned(),
-            summary: "Sign in first or provide --session-token.".to_owned(),
-        })?,
+            summary: "Sign in first or provide TANREN_SESSION_TOKEN or --session-token-stdin."
+                .to_owned(),
+        })?
     };
     let session = store
         .find_active_session(&token, Clock::default().now())
