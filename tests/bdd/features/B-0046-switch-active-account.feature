@@ -74,6 +74,20 @@ Feature: Switch the active account
       And alice sees the second account as active via the api
 
     @falsification @api
+    Scenario: API rejects blank window ids without mutating active state
+      Given alice holds two signed-in accounts via the api
+      When alice switches the active account to the second account in window "" via the api
+      Then the request fails with code "validation_failed"
+      And alice sees the second account as active via the api
+
+    @falsification @api
+    Scenario: API rejects overlong window ids without mutating active state
+      Given alice holds two signed-in accounts via the api
+      When alice switches the active account to the second account in window "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" via the api
+      Then the request fails with code "validation_failed"
+      And alice sees the second account as active via the api
+
+    @falsification @api
     Scenario: API switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the api
       When alice switches the active account to the first account in window "11111111-1111-4111-8111-11111111111a" via the api
@@ -137,6 +151,20 @@ Feature: Switch the active account
     Scenario: Web rejects non-UUID window ids without mutating active state
       Given alice holds two signed-in accounts via the web
       When alice switches the active account to the second account in window "web-window-invalid" via the web
+      Then the request fails with code "validation_failed"
+      And alice sees the second account as active via the web
+
+    @falsification @web
+    Scenario: Web rejects blank window ids without mutating active state
+      Given alice holds two signed-in accounts via the web
+      When alice switches the active account to the second account in window "" via the web
+      Then the request fails with code "validation_failed"
+      And alice sees the second account as active via the web
+
+    @falsification @web
+    Scenario: Web rejects overlong window ids without mutating active state
+      Given alice holds two signed-in accounts via the web
+      When alice switches the active account to the second account in window "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" via the web
       Then the request fails with code "validation_failed"
       And alice sees the second account as active via the web
 

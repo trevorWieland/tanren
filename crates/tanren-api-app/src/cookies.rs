@@ -12,13 +12,12 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Duration as ChronoDuration, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{ACTIVE_ACCOUNT_REGISTRY_LIMIT, ACTIVE_ACCOUNT_WINDOW_REGISTRY_LIMIT};
+use tanren_contract::WindowContextId;
 use tanren_identity_policy::AccountId;
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, Session, SessionManagerLayer};
 use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
-
-use crate::window_context::WindowContextId;
 
 const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
@@ -227,7 +226,7 @@ pub(crate) async fn write_active_account_for_window(
 }
 
 fn normalize_window_key(window_context: WindowContextId) -> String {
-    window_context.as_session_key()
+    window_context.to_string()
 }
 
 async fn read_signed_in_accounts(session: &Session) -> Result<Vec<SignedInAccountSessionEntry>> {

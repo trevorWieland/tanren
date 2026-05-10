@@ -27,6 +27,17 @@ export const OrgIdSchema = v.pipe(
 );
 export type OrgId = v.InferOutput<typeof OrgIdSchema>;
 
+export const WindowContextIdSchema = v.pipe(
+  v.string(),
+  v.trim(),
+  v.uuid(),
+  v.transform(
+    (value): Brand<string, "WindowContextId"> =>
+      value as Brand<string, "WindowContextId">,
+  ),
+);
+export type WindowContextId = v.InferOutput<typeof WindowContextIdSchema>;
+
 export const IdentifierSchema = v.string();
 export type Identifier = v.InferOutput<typeof IdentifierSchema>;
 
@@ -111,6 +122,10 @@ export function parseAccountId(payload: unknown): AccountId | null {
 
 export function parseOrgId(payload: unknown): OrgId | null {
   return parseWithSchema(OrgIdSchema, payload);
+}
+
+export function parseWindowContextId(payload: unknown): WindowContextId | null {
+  return parseWithSchema(WindowContextIdSchema, payload);
 }
 
 export function parseIdentifier(payload: unknown): Identifier | null {

@@ -12,7 +12,7 @@ use std::path::Path;
 use tanren_contract::{
     AccountFailureReason, AccountView, ActiveAccountView, ListActiveAccountsRequest,
     ListActiveAccountsResponse, SessionEnvelope, SignedInAccountView, SwitchActiveAccountRequest,
-    SwitchActiveAccountResponse,
+    SwitchActiveAccountResponse, WindowContextId,
 };
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 
@@ -63,6 +63,11 @@ fn schema_targets() -> Vec<SchemaTarget> {
             name: "OrgId",
             schema: schema_json::<OrgId>(),
             brand: Some("OrgId"),
+        },
+        SchemaTarget {
+            name: "WindowContextId",
+            schema: schema_json::<WindowContextId>(),
+            brand: Some("WindowContextId"),
         },
         SchemaTarget {
             name: "Identifier",

@@ -437,7 +437,7 @@ impl ApiHarness {
         let response = send_with_retry(
             || {
                 let mut request = self.client.get(&url);
-                if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
+                if let Some(window_id) = window_id {
                     request = request.header(WINDOW_ID_HEADER, window_id);
                 }
                 request
@@ -469,7 +469,7 @@ impl ApiHarness {
                     .client
                     .post(&url)
                     .json(&SwitchActiveAccountRequest { target_account_id });
-                if let Some(window_id) = window_id.filter(|id| !id.trim().is_empty()) {
+                if let Some(window_id) = window_id {
                     request = request.header(WINDOW_ID_HEADER, window_id);
                 }
                 request

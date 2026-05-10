@@ -10,9 +10,11 @@
 mod argon2_verifier;
 pub mod secret_serde;
 mod session_token;
+mod window_context_id;
 
 pub use argon2_verifier::Argon2idVerifier;
 pub use session_token::SessionToken;
+pub use window_context_id::{WindowContextId, WindowContextValidationError};
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;

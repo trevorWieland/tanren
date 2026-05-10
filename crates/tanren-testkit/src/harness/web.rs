@@ -27,7 +27,6 @@ use tanren_contract::{
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
-use uuid::Uuid;
 
 use super::in_process::InProcessHarness;
 use super::{
@@ -122,15 +121,11 @@ impl AccountHarness for WebHarness {
 }
 
 fn validate_window_context_id(window_id: &str) -> HarnessResult<()> {
-    let trimmed = window_id.trim();
-    if trimmed.is_empty() {
-        return Ok(());
-    }
-    if Uuid::parse_str(trimmed).is_ok() {
+    if tanren_contract::WindowContextId::parse(window_id).is_ok() {
         return Ok(());
     }
     Err(HarnessError::Account(
         AccountFailureReason::ValidationFailed,
-        format!("invalid window context id `{trimmed}`"),
+        format!("invalid window context id `{}`", window_id.trim()),
     ))
 }

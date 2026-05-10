@@ -55,10 +55,10 @@ function parseInvalidWindowContextId(
     return null;
   }
   const trimmed = value.trim();
-  if (trimmed === "" || UUID_REGEX.test(trimmed)) {
+  if (UUID_REGEX.test(trimmed)) {
     return null;
   }
-  return trimmed as InvalidWindowContextId;
+  return value as InvalidWindowContextId;
 }
 
 function parseWindowContextHeaderValue(

@@ -4,13 +4,13 @@ import type {
   AccountFailureCode,
   AccountId,
   AccountView,
-  Brand,
   SessionEnvelope,
   ListActiveAccountsResponse,
   OrgId,
   SignedInAccountView,
   SwitchActiveAccountRequest,
   SwitchActiveAccountResponse,
+  WindowContextId,
 } from "@/app/lib/generated/account-contract";
 import {
   AccountIdSchema,
@@ -21,6 +21,7 @@ import {
   SwitchActiveAccountRequestSchema,
   SwitchActiveAccountResponseSchema,
   parseAccountId as parseGeneratedAccountId,
+  parseWindowContextId as parseGeneratedWindowContextId,
 } from "@/app/lib/generated/account-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
@@ -48,7 +49,6 @@ export interface AcceptInvitationInput {
 }
 
 export type { AccountFailureCode, AccountView, SignedInAccountView };
-export type WindowContextId = Brand<string, "WindowContextId">;
 
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
@@ -98,13 +98,6 @@ interface FailureBody {
   code?: unknown;
   summary?: unknown;
 }
-
-const WindowContextIdSchema = v.pipe(
-  v.string(),
-  v.trim(),
-  v.uuid(),
-  v.transform((value): WindowContextId => value as WindowContextId),
-);
 
 const SessionViewSchema = v.object({
   account_id: AccountIdSchema,
@@ -161,7 +154,7 @@ function decodeWithSchema<
 }
 
 export function parseWindowContextId(payload: unknown): WindowContextId | null {
-  return decodeWithSchema(WindowContextIdSchema, payload);
+  return parseGeneratedWindowContextId(payload);
 }
 
 function decodeFailureBody(payload: unknown): FailureBody | null {
@@ -318,6 +311,9 @@ async function requestJson<T>(
       typeof parsed?.summary === "string"
         ? parsed.summary
         : `HTTP ${response.status}`;
+    if (windowContextRejectedByServer(code, summary)) {
+      rotateWindowId();
+    }
     throw new AccountRequestError({ code, summary });
   }
 
@@ -342,11 +338,21 @@ async function requestJson<T>(
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return requestJson("/accounts", "POST", decodeSignUpResult, input);
+  return requestJson("/accounts", "POST", decodeSignUpResult, input).then(
+    (result) => {
+      rotateWindowId();
+      return result;
+    },
+  );
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return requestJson("/sessions", "POST", decodeSignInResult, input);
+  return requestJson("/sessions", "POST", decodeSignInResult, input).then(
+    (result) => {
+      rotateWindowId();
+      return result;
+    },
+  );
 }
 
 export function acceptInvitation(
@@ -358,6 +364,9 @@ export function acceptInvitation(
     email: input.email,
     password: input.password,
     display_name: input.display_name,
+  }).then((result) => {
+    rotateWindowId();
+    return result;
   });
 }
 
@@ -408,6 +417,7 @@ export async function signOut(): Promise<void> {
       summary: `HTTP ${response.status}`,
     });
   }
+  clearWindowId();
 }
 
 export function parseAccountId(value: string): AccountId | null {
@@ -436,7 +446,7 @@ function getWindowId(): WindowContextId | null {
       if (existing !== null) {
         return existing;
       }
-      window.sessionStorage.removeItem(WINDOW_ID_STORAGE_KEY);
+      clearWindowId();
     }
 
     if (typeof globalThis.crypto?.randomUUID !== "function") {
@@ -451,4 +461,35 @@ function getWindowId(): WindowContextId | null {
   } catch {
     return null;
   }
+}
+
+function clearWindowId(): void {
+  if (typeof window === "undefined") {
+    return;
+  }
+  try {
+    window.sessionStorage.removeItem(WINDOW_ID_STORAGE_KEY);
+  } catch {
+    // Ignore storage access errors; callers already surface failures.
+  }
+}
+
+function rotateWindowId(): void {
+  clearWindowId();
+  // Best-effort replacement so the next request can proceed without
+  // waiting for a second retry path.
+  void getWindowId();
+}
+
+function windowContextRejectedByServer(
+  code: AccountRequestFailureCode,
+  summary: string,
+): boolean {
+  if (code !== "validation_failed") {
+    return false;
+  }
+  const normalized = summary.toLowerCase();
+  return (
+    normalized.includes("window id") || normalized.includes(WINDOW_ID_HEADER)
+  );
 }

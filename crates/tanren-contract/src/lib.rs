@@ -13,6 +13,7 @@ pub use account::{
     SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, SignedInAccountView,
     SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
+pub use tanren_identity_policy::{WindowContextId, WindowContextValidationError};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
