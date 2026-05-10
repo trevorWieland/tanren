@@ -23,7 +23,7 @@ pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
-pub use upgrade::UpgradeCommand;
+pub use upgrade::{UpgradeCommand, UpgradeWitnessRun, run_upgrade_witness};
 pub use writer::InstallReport;
 
 /// Calculate a hex SHA-256 digest for test fixture bytes.

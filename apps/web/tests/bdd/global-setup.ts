@@ -122,9 +122,10 @@ export default async function globalSetup(): Promise<void> {
     }
     // Mirror to .env.local so the Next.js dev server (a child
     // process spawned by Playwright's webServer) picks it up.
+    process.env["NEXT_PUBLIC_ENABLE_UPGRADE_WITNESS"] = "true";
     writeFileSync(
       envLocalPath,
-      `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\n`,
+      `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\nNEXT_PUBLIC_ENABLE_UPGRADE_WITNESS=true\n`,
     );
     // Stash the pre-existing content for teardown even on the
     // external-API path; teardown reads __tanrenBddState first and
@@ -203,7 +204,11 @@ export default async function globalSetup(): Promise<void> {
   await waitForHealth(`${apiUrl}/health`, 180_000);
 
   process.env["NEXT_PUBLIC_API_URL"] = apiUrl;
-  writeFileSync(envLocalPath, `NEXT_PUBLIC_API_URL=${apiUrl}\n`);
+  process.env["NEXT_PUBLIC_ENABLE_UPGRADE_WITNESS"] = "true";
+  writeFileSync(
+    envLocalPath,
+    `NEXT_PUBLIC_API_URL=${apiUrl}\nNEXT_PUBLIC_ENABLE_UPGRADE_WITNESS=true\n`,
+  );
 
   globalThis.__tanrenBddState = {
     apiProcess,

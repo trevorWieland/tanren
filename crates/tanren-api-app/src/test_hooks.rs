@@ -29,6 +29,14 @@ use tanren_identity_policy::{InvitationToken, OrgId};
 use tanren_store::{NewInvitation, Store};
 use uuid::Uuid;
 
+mod upgrade_fixture;
+
+#[derive(Clone)]
+pub(crate) struct TestHooksState {
+    store: Arc<Store>,
+    upgrade_fixture: upgrade_fixture::UpgradeFixtureHarness,
+}
+
 /// Request body for `POST /test-hooks/invitations`.
 #[derive(Debug, Deserialize)]
 pub(crate) struct SeedInvitationBody {
@@ -47,13 +55,14 @@ pub(crate) struct SeedInvitationBody {
 }
 
 pub(crate) async fn seed_invitation_route(
-    State(store): State<Arc<Store>>,
+    State(state): State<TestHooksState>,
     Json(body): Json<SeedInvitationBody>,
 ) -> Result<StatusCode, (StatusCode, String)> {
     let token = InvitationToken::parse(&body.token)
         .map_err(|err| (StatusCode::BAD_REQUEST, err.to_string()))?;
     let inviting_org_id = body.inviting_org_id.map_or_else(OrgId::fresh, OrgId::new);
-    store
+    state
+        .store
         .seed_invitation(NewInvitation {
             token,
             inviting_org_id,
@@ -67,7 +76,15 @@ pub(crate) async fn seed_invitation_route(
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
+    let shared_state = TestHooksState {
+        store,
+        upgrade_fixture: upgrade_fixture::UpgradeFixtureHarness::new(),
+    };
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
-        .with_state(store)
+        .route(
+            "/test-hooks/upgrade-fixture/{action}",
+            post(upgrade_fixture::upgrade_fixture_action_route),
+        )
+        .with_state(shared_state)
 }

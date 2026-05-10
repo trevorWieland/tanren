@@ -89,3 +89,116 @@ fn apply_upgrade(preview: &UpgradePreview) -> Result<Option<InstallReport>, Inst
         }
     }
 }
+
+/// Structured outcome for web/API witnesses that need the same observable
+/// upgrade report without shelling out to the CLI binary.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct UpgradeWitnessRun {
+    /// Canonical stdout lines that mirror `tanren-cli upgrade` output.
+    pub stdout_lines: Vec<String>,
+}
+
+impl UpgradeWitnessRun {
+    /// Join `stdout_lines` into a newline-delimited payload.
+    #[must_use]
+    pub fn stdout(&self) -> String {
+        self.stdout_lines.join("\n")
+    }
+}
+
+/// Run `upgrade` in-process and render the same machine-readable witness lines
+/// the CLI prints to stdout.
+pub fn run_upgrade_witness(
+    repository: &Path,
+    confirm: bool,
+) -> Result<UpgradeWitnessRun, InstallError> {
+    let preview = preview_upgrade(repository)?;
+    let mut lines = Vec::new();
+    let render = preview.report().render();
+
+    lines.push(format!(
+        "status=preview command=upgrade repo={} changed={} destructive={} preserved={} concerns={}",
+        display_repository_argument(repository),
+        render.changed_count(),
+        render.destructive_count(),
+        render.preserved_count(),
+        render.concern_count(),
+    ));
+    lines.push(format!(
+        "preview changed=[{}] destructive=[{}] preserved=[{}] concerns=[{}]",
+        render.changed_paths_csv(),
+        render.destructive_paths_csv(),
+        render.preserved_paths_csv(),
+        render.concern_codes_csv(),
+    ));
+
+    if !confirm {
+        lines.push(format!(
+            "status=confirmation_required command=upgrade repo={} confirm=false applied=false writes=0 removals=0 preserved=0 can_apply={}",
+            display_repository_argument(repository),
+            preview.can_apply(),
+        ));
+        return Ok(UpgradeWitnessRun {
+            stdout_lines: lines,
+        });
+    }
+
+    if !preview.can_apply() {
+        lines.push(format!(
+            "status=noop command=upgrade repo={} confirm=true applied=false created=0 updated=0 removed=0 restored=0 preserved=0",
+            display_repository_argument(repository),
+        ));
+        return Ok(UpgradeWitnessRun {
+            stdout_lines: lines,
+        });
+    }
+
+    let apply_report = apply_upgrade(&preview)?;
+    let Some(report) = apply_report else {
+        lines.push(format!(
+            "status=noop command=upgrade repo={} confirm=true applied=false created=0 updated=0 removed=0 restored=0 preserved=0",
+            display_repository_argument(repository),
+        ));
+        return Ok(UpgradeWitnessRun {
+            stdout_lines: lines,
+        });
+    };
+
+    lines.push(format!(
+        "status=ok command=upgrade repo={} confirm=true applied=true created={} updated={} removed={} restored={} preserved={}",
+        display_repository_argument(repository),
+        report.created.len(),
+        report.updated.len(),
+        report.removed.len(),
+        report.restored.len(),
+        report.preserved.len(),
+    ));
+    lines.push(format!(
+        "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
+        format_path_list(&report.created),
+        format_path_list(&report.updated),
+        format_path_list(&report.removed),
+        format_path_list(&report.restored),
+        format_path_list(&report.preserved),
+    ));
+
+    Ok(UpgradeWitnessRun {
+        stdout_lines: lines,
+    })
+}
+
+fn display_repository_argument(path: &Path) -> String {
+    if path.is_absolute() {
+        "<redacted-absolute-path>".to_owned()
+    } else {
+        path.display().to_string()
+    }
+}
+
+fn format_path_list(paths: &[crate::install::manifest::RepoRelativePath]) -> String {
+    paths
+        .iter()
+        .map(crate::install::manifest::RepoRelativePath::as_str)
+        .collect::<Vec<_>>()
+        .join(",")
+}
