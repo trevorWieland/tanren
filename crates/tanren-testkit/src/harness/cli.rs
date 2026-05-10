@@ -30,7 +30,7 @@ use super::{
 };
 
 /// Captured output from a `tanren-cli` subprocess invocation.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Clone, PartialEq, Eq)]
 pub struct CliCommandOutcome {
     /// Exit status code, or `None` when unavailable.
     pub status_code: Option<i32>,
@@ -40,6 +40,19 @@ pub struct CliCommandOutcome {
     pub stdout: String,
     /// Process standard error decoded as UTF-8 lossily.
     pub stderr: String,
+}
+
+impl std::fmt::Debug for CliCommandOutcome {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CliCommandOutcome")
+            .field("status_code", &self.status_code)
+            .field("success", &self.success)
+            .field("stdout", &"<redacted>")
+            .field("stderr", &"<redacted>")
+            .field("stdout_bytes", &self.stdout.len())
+            .field("stderr_bytes", &self.stderr.len())
+            .finish()
+    }
 }
 
 impl From<std::process::Output> for CliCommandOutcome {

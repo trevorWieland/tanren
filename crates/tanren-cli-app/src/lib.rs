@@ -217,6 +217,7 @@ async fn run_account(action: AccountAction) -> Result<(), CliAppError> {
             display_name,
             invitation,
         } => {
+            let password = SecretString::from(password);
             run_account_create(
                 &handlers,
                 &database_url,
@@ -231,7 +232,10 @@ async fn run_account(action: AccountAction) -> Result<(), CliAppError> {
             database_url,
             identifier,
             password,
-        } => run_account_sign_in(&handlers, &database_url, &identifier, password).await?,
+        } => {
+            let password = SecretString::from(password);
+            run_account_sign_in(&handlers, &database_url, &identifier, password).await?;
+        }
     }
     Ok(())
 }
@@ -240,13 +244,12 @@ async fn run_account_create(
     handlers: &Handlers,
     database_url: &str,
     identifier: &str,
-    password: String,
+    password: SecretString,
     display_name: String,
     invitation: Option<String>,
 ) -> Result<(), CliAppError> {
     let store = connect_store(database_url).await?;
     let email = parse_identifier_email(identifier)?;
-    let password = SecretString::from(password);
     match invitation {
         None => {
             let response = handlers
@@ -303,11 +306,10 @@ async fn run_account_sign_in(
     handlers: &Handlers,
     database_url: &str,
     identifier: &str,
-    password: String,
+    password: SecretString,
 ) -> Result<(), CliAppError> {
     let store = connect_store(database_url).await?;
     let email = parse_identifier_email(identifier)?;
-    let password = SecretString::from(password);
     let response = handlers
         .sign_in(&store, SignInRequest { email, password })
         .await
