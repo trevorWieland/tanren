@@ -1,8 +1,11 @@
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{CliCommandOutcome, InstallCommandRequest, InstallHarness};
+use tanren_testkit::install_contract::{InstallProofIntegration, InstallProofProfile};
+use tanren_testkit::{
+    CliCommandOutcome, InstallCommandKind, InstallCommandRequest, InstallHarness,
+};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -44,25 +47,25 @@ impl InstallContext {
         level = "debug",
         skip(self, harness),
         fields(
-            command_kind = "install",
+            command_kind = %InstallCommandKind::Install,
             harness_kind = tracing::field::Empty,
-            profile = %profile,
-            integration_selection = integrations.unwrap_or("default")
+            profile = %profile.as_str(),
+            integration_count = integrations.as_ref().map_or(0, |s| s.len())
         )
     )]
     pub(crate) async fn run_install(
         &mut self,
         harness: &mut dyn InstallHarness,
-        profile: &str,
-        integrations: Option<&str>,
+        profile: InstallProofProfile,
+        integrations: Option<&BTreeSet<InstallProofIntegration>>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(harness.kind()));
         let before = RepositorySnapshot::capture(&self.repository_root)?;
         let outcome = harness
             .run_install(InstallCommandRequest {
                 repository_root: self.repository_root.clone(),
-                profile: profile.to_owned(),
-                integrations: integrations.map(ToOwned::to_owned),
+                profile,
+                integrations: integrations.cloned(),
             })
             .await
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
@@ -76,25 +79,25 @@ impl InstallContext {
         level = "debug",
         skip(self, harness),
         fields(
-            command_kind = "drift",
+            command_kind = %InstallCommandKind::Drift,
             harness_kind = tracing::field::Empty,
-            profile = %profile,
-            integration_selection = integrations.unwrap_or("default")
+            profile = %profile.as_str(),
+            integration_count = integrations.as_ref().map_or(0, |s| s.len())
         )
     )]
     pub(crate) async fn run_drift(
         &mut self,
         harness: &mut dyn InstallHarness,
-        profile: &str,
-        integrations: Option<&str>,
+        profile: InstallProofProfile,
+        integrations: Option<&BTreeSet<InstallProofIntegration>>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(harness.kind()));
         let before = RepositorySnapshot::capture(&self.repository_root)?;
         let outcome = harness
             .run_drift(InstallCommandRequest {
                 repository_root: self.repository_root.clone(),
-                profile: profile.to_owned(),
-                integrations: integrations.map(ToOwned::to_owned),
+                profile,
+                integrations: integrations.cloned(),
             })
             .await
             .map_err(|source| InstallStepError::RunDriftCommand { source })?;

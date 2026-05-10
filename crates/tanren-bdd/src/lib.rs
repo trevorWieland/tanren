@@ -17,9 +17,12 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::steps::install::{InstallContext, InstallStepError, InstallStepResult};
+use tanren_testkit::install_contract::{
+    InstallProofIntegration, InstallProofProfile, parse_install_integration_selection,
+};
 use tanren_testkit::{
     ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome, InProcessHarness,
-    InstallHarness, McpHarness, TuiHarness, WebHarness,
+    InstallCommandKind, InstallHarness, McpHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -63,9 +66,9 @@ impl TanrenWorld {
         level = "debug",
         skip(self),
         fields(
-            command_kind = "install",
-            profile = %profile,
-            integration_selection = integrations.unwrap_or("default")
+            command_kind = %InstallCommandKind::Install,
+            profile = tracing::field::Empty,
+            integration_count = tracing::field::Empty
         )
     )]
     pub(crate) async fn run_install(
@@ -73,8 +76,26 @@ impl TanrenWorld {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
+        let typed_profile = profile.parse::<InstallProofProfile>().map_err(|_err| {
+            InstallStepError::ProfileParseFailed {
+                profile: profile.to_owned(),
+            }
+        })?;
+        tracing::Span::current().record("profile", tracing::field::display(typed_profile.as_str()));
+        let typed_integrations = if let Some(csv) = integrations {
+            let set = parse_install_integration_selection(csv).map_err(|_err| {
+                InstallStepError::IntegrationParseFailed {
+                    integrations: csv.to_owned(),
+                }
+            })?;
+            tracing::Span::current().record("integration_count", set.len());
+            Some(set)
+        } else {
+            tracing::Span::current().record("integration_count", 0);
+            None
+        };
         self.require_account_ctx()?
-            .run_install(profile, integrations)
+            .run_install(typed_profile, typed_integrations.as_ref())
             .await
     }
 
@@ -83,9 +104,9 @@ impl TanrenWorld {
         level = "debug",
         skip(self),
         fields(
-            command_kind = "drift",
-            profile = %profile,
-            integration_selection = integrations.unwrap_or("default")
+            command_kind = %InstallCommandKind::Drift,
+            profile = tracing::field::Empty,
+            integration_count = tracing::field::Empty
         )
     )]
     pub(crate) async fn run_drift(
@@ -93,8 +114,26 @@ impl TanrenWorld {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
+        let typed_profile = profile.parse::<InstallProofProfile>().map_err(|_err| {
+            InstallStepError::ProfileParseFailed {
+                profile: profile.to_owned(),
+            }
+        })?;
+        tracing::Span::current().record("profile", tracing::field::display(typed_profile.as_str()));
+        let typed_integrations = if let Some(csv) = integrations {
+            let set = parse_install_integration_selection(csv).map_err(|_err| {
+                InstallStepError::IntegrationParseFailed {
+                    integrations: csv.to_owned(),
+                }
+            })?;
+            tracing::Span::current().record("integration_count", set.len());
+            Some(set)
+        } else {
+            tracing::Span::current().record("integration_count", 0);
+            None
+        };
         self.require_account_ctx()?
-            .run_drift(profile, integrations)
+            .run_drift(typed_profile, typed_integrations.as_ref())
             .await
     }
 
@@ -232,16 +271,16 @@ impl AccountContext {
         level = "debug",
         skip(self),
         fields(
-            command_kind = "install",
+            command_kind = %InstallCommandKind::Install,
             harness_kind = tracing::field::Empty,
-            profile = %profile,
-            integration_selection = integrations.unwrap_or("default")
+            profile = %profile.as_str(),
+            integration_count = integrations.as_ref().map_or(0, |s| s.len())
         )
     )]
     async fn run_install(
         &mut self,
-        profile: &str,
-        integrations: Option<&str>,
+        profile: InstallProofProfile,
+        integrations: Option<&std::collections::BTreeSet<InstallProofIntegration>>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
         let install = self
@@ -258,16 +297,16 @@ impl AccountContext {
         level = "debug",
         skip(self),
         fields(
-            command_kind = "drift",
+            command_kind = %InstallCommandKind::Drift,
             harness_kind = tracing::field::Empty,
-            profile = %profile,
-            integration_selection = integrations.unwrap_or("default")
+            profile = %profile.as_str(),
+            integration_count = integrations.as_ref().map_or(0, |s| s.len())
         )
     )]
     async fn run_drift(
         &mut self,
-        profile: &str,
-        integrations: Option<&str>,
+        profile: InstallProofProfile,
+        integrations: Option<&std::collections::BTreeSet<InstallProofIntegration>>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
         let install = self

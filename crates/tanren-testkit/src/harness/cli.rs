@@ -7,6 +7,7 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
+use std::collections::BTreeSet;
 use std::ffi::OsString;
 use std::path::PathBuf;
 use std::process::Stdio;
@@ -23,10 +24,12 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
+use crate::install_contract::InstallProofIntegration;
+
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession, InstallCommandRequest, InstallHarness,
+    HarnessSession, InstallCommandKind, InstallCommandRequest, InstallHarness,
 };
 
 /// Captured output from a `tanren-cli` subprocess invocation.
@@ -261,11 +264,11 @@ impl InstallHarness for CliHarness {
         level = "debug",
         skip(self, request),
         fields(
-            command_kind = "install",
+            command_kind = %InstallCommandKind::Install,
             harness_kind = "cli",
             binary_path = tracing::field::Empty,
             profile = %request.profile,
-            integration_selection = request.integrations.as_deref().unwrap_or("default")
+            integration_count = request.integrations.as_ref().map_or(0, BTreeSet::len)
         )
     )]
     async fn run_install(
@@ -276,18 +279,20 @@ impl InstallHarness for CliHarness {
             "binary_path",
             tracing::field::display(self.binary.display()),
         );
+        let integrations_csv = format_integrations_csv(request.integrations.as_ref());
         let mut args = vec![
             OsString::from("install"),
             OsString::from("--repo"),
             request.repository_root.as_os_str().to_owned(),
             OsString::from("--profile"),
-            OsString::from(request.profile),
+            OsString::from(request.profile.as_str()),
         ];
-        if let Some(integrations) = request.integrations {
+        if !integrations_csv.is_empty() {
             args.push(OsString::from("--integrations"));
-            args.push(OsString::from(integrations));
+            args.push(OsString::from(integrations_csv));
         }
-        let output = run_binary_command(&self.binary, "install", args).await?;
+        let output =
+            run_binary_command(&self.binary, InstallCommandKind::Install.as_str(), args).await?;
         Ok(CliCommandOutcome::from(output))
     }
 
@@ -296,11 +301,11 @@ impl InstallHarness for CliHarness {
         level = "debug",
         skip(self, request),
         fields(
-            command_kind = "drift",
+            command_kind = %InstallCommandKind::Drift,
             harness_kind = "cli",
             binary_path = tracing::field::Empty,
             profile = %request.profile,
-            integration_selection = request.integrations.as_deref().unwrap_or("default")
+            integration_count = request.integrations.as_ref().map_or(0, BTreeSet::len)
         )
     )]
     async fn run_drift(
@@ -311,19 +316,34 @@ impl InstallHarness for CliHarness {
             "binary_path",
             tracing::field::display(self.binary.display()),
         );
+        let integrations_csv = format_integrations_csv(request.integrations.as_ref());
         let mut args = vec![
             OsString::from("drift"),
             OsString::from("--repo"),
             request.repository_root.as_os_str().to_owned(),
             OsString::from("--profile"),
-            OsString::from(request.profile),
+            OsString::from(request.profile.as_str()),
         ];
-        if let Some(integrations) = request.integrations {
+        if !integrations_csv.is_empty() {
             args.push(OsString::from("--integrations"));
-            args.push(OsString::from(integrations));
+            args.push(OsString::from(integrations_csv));
         }
-        let output = run_binary_command(&self.binary, "drift", args).await?;
+        let output =
+            run_binary_command(&self.binary, InstallCommandKind::Drift.as_str(), args).await?;
         Ok(CliCommandOutcome::from(output))
+    }
+}
+
+/// Format a typed integration set back into the comma-separated CLI
+/// representation. Returns an empty string when the set is absent or empty.
+fn format_integrations_csv(integrations: Option<&BTreeSet<InstallProofIntegration>>) -> String {
+    match integrations {
+        Some(set) if !set.is_empty() => {
+            let mut labels: Vec<&str> = set.iter().map(|i| i.as_str()).collect();
+            labels.sort_unstable();
+            labels.join(",")
+        }
+        _ => String::new(),
     }
 }
 

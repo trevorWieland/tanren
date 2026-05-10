@@ -20,6 +20,12 @@ pub(crate) enum InstallStepError {
     RunInstallCommand { source: HarnessError },
     #[error("failed to execute tanren-cli drift via install harness: {source}")]
     RunDriftCommand { source: HarnessError },
+    #[error("install profile '{profile}' is not a recognized install-proof profile")]
+    ProfileParseFailed { profile: String },
+    #[error(
+        "integration selection '{integrations}' contains unrecognized install-proof integration(s)"
+    )]
+    IntegrationParseFailed { integrations: String },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
     #[error("install command must run before no-write assertion")]

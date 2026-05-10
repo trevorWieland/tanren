@@ -49,7 +49,7 @@ mod mcp;
 mod tui;
 mod web;
 
-use std::collections::HashMap;
+use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
 use std::time::Duration;
 
@@ -62,6 +62,8 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
+
+use crate::install_contract::{InstallProofIntegration, InstallProofProfile};
 
 pub use api::ApiHarness;
 pub use cli::{CliCommandOutcome, CliHarness};
@@ -175,17 +177,52 @@ impl HarnessError {
 /// Convenient alias for harness fallibility.
 pub type HarnessResult<T> = Result<T, HarnessError>;
 
+/// Discriminant for install-family CLI commands. Shared by install and
+/// drift request paths so tracing fields record a validated enum
+/// variant rather than a raw string label.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InstallCommandKind {
+    /// `tanren-cli install` — write assets into the target repository.
+    Install,
+    /// `tanren-cli drift` — read-only drift diagnostic; no writes.
+    Drift,
+}
+
+impl InstallCommandKind {
+    /// Canonical tracing label for this command kind.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Install => "install",
+            Self::Drift => "drift",
+        }
+    }
+}
+
+impl std::fmt::Display for InstallCommandKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
 /// Typed request shape for running installer and drift CLI commands
 /// through the install harness contract.
+///
+/// Profile and integration inputs are parsed into typed install-proof
+/// identifiers at the BDD layer *before* constructing this request, so
+/// downstream tracing fields record validated/redacted labels rather
+/// than raw user-supplied strings.
 #[derive(Debug, Clone)]
 pub struct InstallCommandRequest {
     /// Repository root passed to `--repo`.
     pub repository_root: PathBuf,
-    /// Install profile passed to `--profile`.
-    pub profile: String,
-    /// Optional comma-delimited integration selection passed to
-    /// `--integrations`.
-    pub integrations: Option<String>,
+    /// Typed install profile — parsed from the raw `--profile` string
+    /// at the BDD step boundary.
+    pub profile: InstallProofProfile,
+    /// Typed integration selection — parsed from the raw
+    /// `--integrations` CSV at the BDD step boundary. `None` means
+    /// "all default integrations".
+    pub integrations: Option<BTreeSet<InstallProofIntegration>>,
 }
 
 /// Specification for an invitation seeded into the harness's backing
