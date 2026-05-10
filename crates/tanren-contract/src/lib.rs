@@ -17,10 +17,11 @@ pub use role::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, MAX_ROLE_TEMPLATE_PERMISSIONS,
     PermissionCheckRequest, PermissionCheckResponse, PermissionGrantCursorView,
-    PermissionGrantView, ROLE_READ_MODEL_PAGE_DEFAULT, ROLE_READ_MODEL_PAGE_MAX,
-    ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE, RoleActor, RoleAdminAction, RoleAdminCapabilities,
-    RoleFailureBody, RoleFailureReason, RoleReadModelFreshness, RoleReadModelRequest,
-    RoleReadModelResponse, RoleTemplateCursorView, RoleTemplateView,
+    PermissionGrantView, ROLE_FAILURE_EXTENSION_REASON, ROLE_READ_MODEL_PAGE_DEFAULT,
+    ROLE_READ_MODEL_PAGE_MAX, ROLE_SERVER_FAILURE_REASONS, ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE,
+    RoleActor, RoleAdminAction, RoleAdminCapabilities, RoleFailureBody, RoleFailureReason,
+    RoleReadModelFreshness, RoleReadModelRequest, RoleReadModelResponse, RoleTemplateCursorView,
+    RoleTemplateView, SHARED_INTERFACE_ROLE_FAILURE_REASONS,
 };
 pub use role_adapters::{
     PrincipalKind, RoleAdapterError, RoleScopeKind, format_permission_scope, format_role_scope,

@@ -292,6 +292,32 @@ pub enum RoleFailureReason {
     InternalError,
 }
 
+/// Shared interface error taxonomy used by account + role surfaces.
+///
+/// Role flows extend this base set with
+/// [`RoleFailureReason::RoleAsPrincipalRejected`].
+pub const SHARED_INTERFACE_ROLE_FAILURE_REASONS: [RoleFailureReason; 5] = [
+    RoleFailureReason::ValidationFailed,
+    RoleFailureReason::NotFound,
+    RoleFailureReason::Conflict,
+    RoleFailureReason::PermissionDenied,
+    RoleFailureReason::InternalError,
+];
+
+/// Role-specific failure code extending the shared interface taxonomy.
+pub const ROLE_FAILURE_EXTENSION_REASON: RoleFailureReason =
+    RoleFailureReason::RoleAsPrincipalRejected;
+
+/// Complete role server-side failure taxonomy exposed on the wire.
+pub const ROLE_SERVER_FAILURE_REASONS: [RoleFailureReason; 6] = [
+    RoleFailureReason::ValidationFailed,
+    RoleFailureReason::NotFound,
+    RoleFailureReason::Conflict,
+    RoleFailureReason::PermissionDenied,
+    RoleFailureReason::RoleAsPrincipalRejected,
+    RoleFailureReason::InternalError,
+];
+
 impl RoleFailureReason {
     /// Stable wire `code` for this failure.
     #[must_use]
