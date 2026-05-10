@@ -1,13 +1,11 @@
-//! Axum route handlers + per-handler `#[utoipa::path(...)]` annotations
-//! + the top-level `ApiDoc` struct that the `OpenApi` derive walks.
-//!
-//! Split out of `lib.rs` so the api-app crate stays under the workspace
-//! 500-line line-budget. The wiring (router, openapi-json route,
-//! tower-sessions layer) lives in `lib.rs::build_app`.
+//! Axum route handlers + `#[utoipa::path(...)]` annotations + `ApiDoc`; wiring lives in `lib.rs::build_app`.
 use crate::AppState;
 use crate::auth::require_authoritative_auth;
 use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::errors::{
+    AccountFailureBody, OrganizationValidatedJson, ValidatedJson, map_app_error,
+    map_organization_app_error, session_install_error,
+};
 use crate::organization_tracing::{
     emit_route_auth_denial, emit_route_failure, emit_route_success, organization_route_span,
     record_authenticated_account,
@@ -22,14 +20,13 @@ use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
-    ListOrganizationsApiQuery, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
-    SignUpRequest,
+    ListOrganizationsApiQuery, ListOrganizationsResponse, OrganizationFailureBody, SessionEnvelope,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
-use utoipa_axum::router::OpenApiRouter;
-use utoipa_axum::routes;
+use utoipa_axum::{router::OpenApiRouter, routes};
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct HealthResponse {
@@ -42,9 +39,8 @@ pub struct HealthResponse {
 }
 
 /// Cookie-transport response shape for the api surface. Mirrors
-/// `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
-/// projects the session into [`SessionEnvelope::Cookie`] (no token in
-/// body — it ships in the `Set-Cookie` header).
+/// `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` and projects
+/// the session into [`SessionEnvelope::Cookie`] (body has no token).
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignUpResponseCookie {
     /// View of the freshly created account.
@@ -120,6 +116,7 @@ pub struct AcceptInvitationBody {
         ListOrganizationsResponse,
         CheckOrganizationPermissionResponse,
         AccountFailureBody,
+        OrganizationFailureBody,
         SessionEnvelope,
     )),
     tags(
@@ -305,16 +302,17 @@ pub(crate) async fn accept_invitation_route(
     request_body = CreateOrganizationApiRequest,
     responses(
         (status = 201, body = CreateOrganizationResponse, description = "Organization created"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 409, body = AccountFailureBody, description = "conflict or idempotency_conflict"),
+        (status = 400, body = OrganizationFailureBody, description = "validation_failed"),
+        (status = 401, body = OrganizationFailureBody, description = "auth_required"),
+        (status = 409, body = OrganizationFailureBody, description = "conflict or idempotency_conflict"),
+        (status = 500, body = OrganizationFailureBody, description = "internal_error"),
     ),
     tag = "organizations",
 )]
 pub(crate) async fn create_organization_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(body): ValidatedJson<CreateOrganizationApiRequest>,
+    OrganizationValidatedJson(body): OrganizationValidatedJson<CreateOrganizationApiRequest>,
 ) -> Response {
     let span = organization_route_span("create_organization", None);
     let _span_guard = span.enter();
@@ -347,7 +345,7 @@ pub(crate) async fn create_organization_route(
         }
         Err(err) => {
             emit_route_failure("create_organization", auth.0, None, &err);
-            map_app_error(err)
+            map_organization_app_error(err)
         }
     }
 }
@@ -358,7 +356,9 @@ pub(crate) async fn create_organization_route(
     params(ListOrganizationsApiQuery),
     responses(
         (status = 200, body = ListOrganizationsResponse, description = "Organization list"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
+        (status = 400, body = OrganizationFailureBody, description = "validation_failed"),
+        (status = 401, body = OrganizationFailureBody, description = "auth_required"),
+        (status = 500, body = OrganizationFailureBody, description = "internal_error"),
     ),
     tag = "organizations",
 )]
@@ -394,7 +394,7 @@ pub(crate) async fn list_organizations_route(
         }
         Err(err) => {
             emit_route_failure("list_organizations", auth.0, None, &err);
-            map_app_error(err)
+            map_organization_app_error(err)
         }
     }
 }
@@ -405,15 +405,19 @@ pub(crate) async fn list_organizations_route(
     request_body = CheckOrganizationPermissionApiRequest,
     responses(
         (status = 200, body = CheckOrganizationPermissionResponse, description = "Permission present"),
-        (status = 401, body = AccountFailureBody, description = "auth_required"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
+        (status = 400, body = OrganizationFailureBody, description = "validation_failed"),
+        (status = 401, body = OrganizationFailureBody, description = "auth_required"),
+        (status = 403, body = OrganizationFailureBody, description = "permission_denied"),
+        (status = 500, body = OrganizationFailureBody, description = "internal_error"),
     ),
     tag = "organizations",
 )]
 pub(crate) async fn check_organization_permission_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(body): ValidatedJson<CheckOrganizationPermissionApiRequest>,
+    OrganizationValidatedJson(body): OrganizationValidatedJson<
+        CheckOrganizationPermissionApiRequest,
+    >,
 ) -> Response {
     let span = organization_route_span("check_organization_permission", Some(body.org_id));
     let _span_guard = span.enter();
@@ -447,7 +451,7 @@ pub(crate) async fn check_organization_permission_route(
                 Some(body.org_id),
                 &err,
             );
-            map_app_error(err)
+            map_organization_app_error(err)
         }
     }
 }

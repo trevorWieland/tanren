@@ -57,7 +57,7 @@ export type OrganizationFailureCode =
   | string;
 
 type GeneratedOrganizationErrorResponse =
-  components["schemas"]["AccountFailureBody"];
+  components["schemas"]["OrganizationFailureBody"];
 export type OrganizationErrorResponse = Omit<
   GeneratedOrganizationErrorResponse,
   "code"

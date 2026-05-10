@@ -329,6 +329,25 @@ export interface components {
       | "configure"
       | "set_policy"
       | "delete";
+    /**
+     * @description Closed error-code taxonomy for organization operations across all
+     *     interfaces.
+     * @enum {string}
+     */
+    OrganizationFailureCode:
+      | "conflict"
+      | "idempotency_conflict"
+      | "validation_failed"
+      | "auth_required"
+      | "permission_denied"
+      | "internal_error";
+    /** @description Shared `{code, summary}` body for organization-operation failures. */
+    OrganizationFailureBody: {
+      /** @description Stable error code from the organization taxonomy. */
+      code: components["schemas"]["OrganizationFailureCode"];
+      /** @description Human-readable summary. */
+      summary: string;
+    };
     /** @description Stable reference to behavior proof coverage for organization create. */
     OrganizationProofLink: {
       /** @description Canonical behavior id proving this command contract. */
@@ -591,13 +610,31 @@ export interface operations {
           "application/json": components["schemas"]["ListOrganizationsResponse"];
         };
       };
+      /** @description validation_failed */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
       /** @description auth_required */
       401: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AccountFailureBody"];
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+      /** @description internal_error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
         };
       };
     };
@@ -630,7 +667,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AccountFailureBody"];
+          "application/json": components["schemas"]["OrganizationFailureBody"];
         };
       };
       /** @description auth_required */
@@ -639,7 +676,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AccountFailureBody"];
+          "application/json": components["schemas"]["OrganizationFailureBody"];
         };
       };
       /** @description conflict or idempotency_conflict */
@@ -648,7 +685,16 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AccountFailureBody"];
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+      /** @description internal_error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
         };
       };
     };
@@ -675,13 +721,22 @@ export interface operations {
           "application/json": components["schemas"]["CheckOrganizationPermissionResponse"];
         };
       };
+      /** @description validation_failed */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
       /** @description auth_required */
       401: {
         headers: {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AccountFailureBody"];
+          "application/json": components["schemas"]["OrganizationFailureBody"];
         };
       };
       /** @description permission_denied */
@@ -690,7 +745,16 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          "application/json": components["schemas"]["AccountFailureBody"];
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+      /** @description internal_error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
         };
       };
     };

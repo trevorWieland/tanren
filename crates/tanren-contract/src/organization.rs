@@ -142,13 +142,19 @@ pub enum CreateOrganizationFailureReason {
 }
 
 impl CreateOrganizationFailureReason {
+    /// Organization failure-code taxonomy variant for this reason.
+    #[must_use]
+    pub const fn failure_code(self) -> OrganizationFailureCode {
+        match self {
+            Self::DuplicateName => OrganizationFailureCode::Conflict,
+            Self::IdempotencyConflict => OrganizationFailureCode::IdempotencyConflict,
+        }
+    }
+
     /// Stable wire `code` for this failure.
     #[must_use]
     pub const fn code(self) -> &'static str {
-        match self {
-            Self::DuplicateName => "conflict",
-            Self::IdempotencyConflict => "idempotency_conflict",
-        }
+        self.failure_code().code()
     }
 
     /// Human-readable summary for this failure.
@@ -167,6 +173,61 @@ impl CreateOrganizationFailureReason {
     pub const fn http_status(self) -> u16 {
         409
     }
+}
+
+/// Closed error-code taxonomy for organization operations across all
+/// interfaces.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum OrganizationFailureCode {
+    /// Name uniqueness conflict.
+    Conflict,
+    /// Idempotency key reused with conflicting request fingerprint.
+    IdempotencyConflict,
+    /// Request input failed validation.
+    ValidationFailed,
+    /// Authentication is required.
+    AuthRequired,
+    /// Authenticated actor lacks permission for the operation.
+    PermissionDenied,
+    /// Internal service/store failure.
+    InternalError,
+}
+
+impl OrganizationFailureCode {
+    /// Stable wire `code` for this failure.
+    #[must_use]
+    pub const fn code(self) -> &'static str {
+        match self {
+            Self::Conflict => "conflict",
+            Self::IdempotencyConflict => "idempotency_conflict",
+            Self::ValidationFailed => "validation_failed",
+            Self::AuthRequired => "auth_required",
+            Self::PermissionDenied => "permission_denied",
+            Self::InternalError => "internal_error",
+        }
+    }
+
+    /// Recommended HTTP status for this failure.
+    #[must_use]
+    pub const fn http_status(self) -> u16 {
+        match self {
+            Self::Conflict | Self::IdempotencyConflict => 409,
+            Self::ValidationFailed => 400,
+            Self::AuthRequired => 401,
+            Self::PermissionDenied => 403,
+            Self::InternalError => 500,
+        }
+    }
+}
+
+/// Shared `{code, summary}` body for organization-operation failures.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationFailureBody {
+    /// Stable error code from the organization taxonomy.
+    pub code: OrganizationFailureCode,
+    /// Human-readable summary.
+    pub summary: String,
 }
 
 /// Stable reference to behavior proof coverage for organization create.

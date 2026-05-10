@@ -12,6 +12,7 @@ mod account_queries;
 mod create_organization;
 mod entity;
 mod migration;
+mod organization_constraints;
 mod records;
 mod traits;
 
@@ -31,6 +32,9 @@ pub use traits::{
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+pub(crate) use organization_constraints::{
+    OrganizationCreateConstraint, classify_organization_create_constraint,
+};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
     QueryOrder, QuerySelect, Set,

@@ -15,7 +15,7 @@ use tanren_identity_policy::{
 };
 use uuid::Uuid;
 
-use crate::{account_error, session_path};
+use crate::{organization_error, session_path};
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum OrganizationAction {
@@ -121,7 +121,7 @@ async fn create_organization(
             },
         )
         .await
-        .map_err(account_error)?;
+        .map_err(|err| organization_error(&err))?;
     let granted = response
         .granted_permissions
         .iter()
@@ -172,7 +172,7 @@ async fn list_organizations(
             },
         )
         .await
-        .map_err(account_error)?;
+        .map_err(|err| organization_error(&err))?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let next_cursor = response
@@ -221,9 +221,9 @@ async fn check_permission(
             },
         )
         .await
-        .map_err(account_error)?;
+        .map_err(|err| organization_error(&err))?;
     if !response.allowed {
-        return Err(account_error(AppServiceError::Account(
+        return Err(organization_error(&AppServiceError::Account(
             AccountFailureReason::PermissionDenied,
         )));
     }
@@ -245,7 +245,7 @@ fn read_session_token() -> Result<SessionToken> {
     let token = match fs::read_to_string(&path) {
         Ok(token) => token,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Err(account_error(AppServiceError::Account(
+            return Err(organization_error(&AppServiceError::Account(
                 AccountFailureReason::AuthRequired,
             )));
         }
@@ -255,7 +255,7 @@ fn read_session_token() -> Result<SessionToken> {
     };
     let trimmed = token.trim();
     if trimmed.is_empty() {
-        return Err(account_error(AppServiceError::Account(
+        return Err(organization_error(&AppServiceError::Account(
             AccountFailureReason::AuthRequired,
         )));
     }

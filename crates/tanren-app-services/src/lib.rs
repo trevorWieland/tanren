@@ -8,7 +8,9 @@
 pub mod account;
 pub mod events;
 pub mod organization;
+pub mod organization_errors;
 
+pub use crate::organization_errors::{OrganizationErrorProjection, map_organization_error};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{

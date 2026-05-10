@@ -1,16 +1,11 @@
 //! Tanren MCP (Model Context Protocol) server — runtime library.
-//!
-//! R-0001 (sub-8) promotes the runtime out of `bin/tanren-mcp/src/main.rs`
-//! per the thin-binary-crate profile. The binary shrinks to a wiring shell
-//! that initializes tracing and calls [`serve`]; the rmcp tool surface,
-//! API-key middleware, and host-header allowlist live here so the BDD
-//! harness can exercise this code via the rmcp client crate without
-//! spinning up a child process.
-//!
-//! The MCP surface continues to return bearer-mode `SessionView`
-//! responses — there is no cookie jar between the rmcp client and server.
+//! Runtime moved out of `bin/tanren-mcp/src/main.rs` per thin-binary-crate:
+//! this crate owns the rmcp tool surface, API-key middleware, and host-header
+//! allowlist so the BDD harness can exercise it directly.
+//! The MCP surface returns bearer-mode `SessionView` responses (no cookie jar).
 
 mod auth;
+mod organization_errors;
 
 use anyhow::{Context, Result};
 use axum::Json;
@@ -45,6 +40,7 @@ use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
 
 use crate::auth::{API_KEY_ENV, AuthConfig, require_api_key};
+use crate::organization_errors::{map_organization_failure, organization_auth_required_failure};
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
@@ -185,7 +181,7 @@ impl TanrenMcp {
         Parameters(request): Parameters<CreateOrganizationToolRequest>,
     ) -> Result<CallToolResult, McpError> {
         let Some(session_token) = request.session_token else {
-            return Ok(auth_required_failure());
+            return Ok(organization_auth_required_failure());
         };
         match self
             .handlers
@@ -201,7 +197,7 @@ impl TanrenMcp {
             .await
         {
             Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_organization_failure(&err)),
         }
     }
 
@@ -214,7 +210,7 @@ impl TanrenMcp {
         Parameters(request): Parameters<ListOrganizationsToolRequest>,
     ) -> Result<CallToolResult, McpError> {
         let Some(session_token) = request.session_token else {
-            return Ok(auth_required_failure());
+            return Ok(organization_auth_required_failure());
         };
         match self
             .handlers
@@ -230,7 +226,7 @@ impl TanrenMcp {
             .await
         {
             Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_failure(err)),
+            Err(err) => Ok(map_organization_failure(&err)),
         }
     }
 
@@ -243,7 +239,7 @@ impl TanrenMcp {
         Parameters(request): Parameters<CheckOrganizationPermissionToolRequest>,
     ) -> Result<CallToolResult, McpError> {
         let Some(session_token) = request.session_token else {
-            return Ok(auth_required_failure());
+            return Ok(organization_auth_required_failure());
         };
         match self
             .handlers
@@ -259,10 +255,11 @@ impl TanrenMcp {
             .await
         {
             Ok(response) if response.allowed => Ok(success(&response)),
-            Ok(_) => Ok(map_failure(AppServiceError::Account(
-                AccountFailureReason::PermissionDenied,
-            ))),
-            Err(err) => Ok(map_failure(err)),
+            Ok(_) => {
+                let err = AppServiceError::Account(AccountFailureReason::PermissionDenied);
+                Ok(map_organization_failure(&err))
+            }
+            Err(err) => Ok(map_organization_failure(&err)),
         }
     }
 
@@ -294,10 +291,6 @@ impl ServerHandler for TanrenMcp {
         info.capabilities = ServerCapabilities::builder().enable_tools().build();
         info
     }
-}
-
-fn auth_required_failure() -> CallToolResult {
-    map_failure(AppServiceError::Account(AccountFailureReason::AuthRequired))
 }
 
 /// Encode a successful handler response as a JSON-text `CallToolResult`.

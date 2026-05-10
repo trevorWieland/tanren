@@ -17,7 +17,10 @@ use crate::traits::{
     CreateOrganizationEventContext, CreateOrganizationEventsBuilder,
     LastOrganizationAdminGuardError,
 };
-use crate::{OrganizationRecord, StoreError};
+use crate::{
+    OrganizationCreateConstraint, OrganizationRecord, StoreError,
+    classify_organization_create_constraint,
+};
 
 const ORG_CREATE_IDEMPOTENCY_FINGERPRINT_VERSION: u8 = 1;
 const ORG_CREATE_IDEMPOTENCY_COMMAND: &str = "organization_create";
@@ -205,13 +208,15 @@ async fn insert_organization_in_txn(
 
     let inserted = match model.insert(txn).await {
         Ok(row) => row,
-        Err(err) => {
-            let lower = err.to_string().to_lowercase();
-            if lower.contains("unique") || lower.contains("duplicate") {
-                return Err(CreateOrganizationError::DuplicateName);
-            }
-            return Err(StoreError::from(err).into());
+        Err(err)
+            if matches!(
+                classify_organization_create_constraint(&err),
+                Some(OrganizationCreateConstraint::OrganizationName)
+            ) =>
+        {
+            return Err(CreateOrganizationError::DuplicateName);
         }
+        Err(err) => return Err(StoreError::from(err).into()),
     };
 
     OrganizationRecord::try_from(inserted).map_err(CreateOrganizationError::Store)
@@ -236,13 +241,15 @@ async fn insert_idempotency_claim_in_txn(
     };
     match model.insert(txn).await {
         Ok(_) => Ok(()),
-        Err(err) => {
-            let lower = err.to_string().to_ascii_lowercase();
-            if lower.contains("unique") || lower.contains("duplicate") {
-                return Err(CreateOrganizationError::IdempotencyConflict);
-            }
-            Err(StoreError::from(err).into())
+        Err(err)
+            if matches!(
+                classify_organization_create_constraint(&err),
+                Some(OrganizationCreateConstraint::IdempotencyKey)
+            ) =>
+        {
+            Err(CreateOrganizationError::IdempotencyConflict)
         }
+        Err(err) => Err(StoreError::from(err).into()),
     }
 }
 
