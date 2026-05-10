@@ -3,7 +3,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{AccountHarness, CliCommandOutcome, InstallProofRepositorySnapshot};
+use tanren_testkit::{
+    AccountHarness, CliCommandOutcome, InstallProofUninstallRepositorySnapshotBaseline,
+};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -17,7 +19,8 @@ pub(crate) struct InstallContext {
     pub(super) repository_root: PathBuf,
     pub(super) baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
     pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
-    pub(super) uninstall_snapshot_before_last_run: Option<InstallProofRepositorySnapshot>,
+    pub(super) uninstall_snapshot_before_last_run:
+        Option<InstallProofUninstallRepositorySnapshotBaseline>,
     pub(super) last_run: Option<InstallCommandOutcome>,
 }
 

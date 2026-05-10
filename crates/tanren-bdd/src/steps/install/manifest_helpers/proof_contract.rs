@@ -1,7 +1,7 @@
 use std::path::Path;
 
 use tanren_testkit::{
-    InstallProofRepositorySnapshot,
+    InstallProofUninstallRepositorySnapshotBaseline,
     assert_manifest_rust_cargo_defaults as contract_assert_manifest_rust_cargo_defaults,
     assert_rust_cargo_default_assets_installed as contract_assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed as contract_assert_rust_cargo_standards_installed,
@@ -109,14 +109,14 @@ pub(crate) fn assert_uninstall_preserves_drifted_generated_baseline_file_content
 
 pub(crate) fn capture_uninstall_repository_snapshot(
     repository_root: &Path,
-) -> Result<InstallProofRepositorySnapshot, InstallStepError> {
+) -> Result<InstallProofUninstallRepositorySnapshotBaseline, InstallStepError> {
     contract_capture_uninstall_repository_snapshot(repository_root)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
 
 pub(crate) fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallStepError> {
     contract_assert_uninstall_preview_keeps_repository_snapshot_unchanged(repository_root, baseline)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
@@ -124,7 +124,7 @@ pub(crate) fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
 
 pub(crate) fn assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallStepError> {
     contract_assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
         repository_root,

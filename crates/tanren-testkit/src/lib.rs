@@ -24,7 +24,7 @@ pub use install_contract::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,
     InstallProofContractError, InstallProofError, InstallProofIntegration,
     InstallProofPreservationPolicy, InstallProofProfile, InstallProofRepoRelativePath,
-    InstallProofRepositorySnapshot, RUST_CARGO_PROFILE_ROOT,
+    InstallProofUninstallRepositorySnapshotBaseline, RUST_CARGO_PROFILE_ROOT,
     append_uninstall_stale_generated_manifest_entry, assert_manifest_rust_cargo_defaults,
     assert_rust_cargo_default_assets_installed, assert_rust_cargo_standards_installed,
     assert_selected_integration_command_assets,

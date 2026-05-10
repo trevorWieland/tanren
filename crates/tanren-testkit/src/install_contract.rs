@@ -133,8 +133,9 @@ pub enum InstallProofContractError {
 
 /// Delivery-owned proof failure type surfaced to BDD assertion mapping.
 pub use contract::InstallProofError;
-/// Snapshot type used by uninstall preview/no-op proof assertions.
-pub type InstallProofRepositorySnapshot = contract::InstallProofRepositorySnapshot;
+/// Baseline snapshot type used by uninstall preview/no-op proof assertions.
+pub type InstallProofUninstallRepositorySnapshotBaseline =
+    contract::InstallProofUninstallRepositorySnapshotBaseline;
 /// Delivery-owned repository-relative install path contract type.
 pub type InstallProofRepoRelativePath = RepoRelativePath;
 
@@ -231,15 +232,15 @@ pub fn assert_uninstall_preserves_drifted_generated_baseline_file_content(
 #[cfg(feature = "test-hooks")]
 pub fn capture_uninstall_repository_snapshot(
     repository_root: &Path,
-) -> Result<InstallProofRepositorySnapshot, InstallProofError> {
-    contract::capture_repository_snapshot(repository_root)
+) -> Result<InstallProofUninstallRepositorySnapshotBaseline, InstallProofError> {
+    contract::capture_uninstall_repository_snapshot(repository_root)
 }
 
 /// Assert uninstall preview leaves a repository snapshot unchanged.
 #[cfg(feature = "test-hooks")]
 pub fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallProofError> {
     contract::assert_uninstall_preview_keeps_repository_snapshot_unchanged(
         repository_root,
@@ -251,7 +252,7 @@ pub fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
 #[cfg(feature = "test-hooks")]
 pub fn assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallProofError> {
     contract::assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
         repository_root,

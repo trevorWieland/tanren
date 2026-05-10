@@ -8,25 +8,25 @@ use super::InstallProofError;
 
 /// Snapshot of repository files and bytes used by uninstall proof helpers.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstallProofRepositorySnapshot {
+pub struct InstallProofUninstallRepositorySnapshotBaseline {
     files: BTreeMap<RepoRelativePath, Vec<u8>>,
 }
 
 /// Capture a repository snapshot for uninstall preview/no-op proof assertions.
-pub fn capture_repository_snapshot(
+pub fn capture_uninstall_repository_snapshot(
     repository_root: &Path,
-) -> Result<InstallProofRepositorySnapshot, InstallProofError> {
+) -> Result<InstallProofUninstallRepositorySnapshotBaseline, InstallProofError> {
     let mut files = BTreeMap::new();
     collect_snapshot_files(repository_root, repository_root, &mut files)?;
-    Ok(InstallProofRepositorySnapshot { files })
+    Ok(InstallProofUninstallRepositorySnapshotBaseline { files })
 }
 
 /// Assert the repository snapshot matches a previously recorded baseline snapshot.
-pub fn assert_repository_snapshot_matches_baseline(
+pub fn assert_uninstall_repository_snapshot_matches_baseline(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallProofError> {
-    let observed = capture_repository_snapshot(repository_root)?;
+    let observed = capture_uninstall_repository_snapshot(repository_root)?;
     if observed != *baseline {
         return Err(InstallProofError::ExpectedRepositorySnapshotToMatchBaseline);
     }
@@ -36,17 +36,17 @@ pub fn assert_repository_snapshot_matches_baseline(
 /// Assert uninstall preview leaves the repository snapshot unchanged.
 pub fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallProofError> {
-    assert_repository_snapshot_matches_baseline(repository_root, baseline)
+    assert_uninstall_repository_snapshot_matches_baseline(repository_root, baseline)
 }
 
 /// Assert uninstall no-install runs leave the repository snapshot unchanged.
 pub fn assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
     repository_root: &Path,
-    baseline: &InstallProofRepositorySnapshot,
+    baseline: &InstallProofUninstallRepositorySnapshotBaseline,
 ) -> Result<(), InstallProofError> {
-    assert_repository_snapshot_matches_baseline(repository_root, baseline)
+    assert_uninstall_repository_snapshot_matches_baseline(repository_root, baseline)
 }
 
 fn collect_snapshot_files(

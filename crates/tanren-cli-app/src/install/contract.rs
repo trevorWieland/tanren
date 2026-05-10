@@ -18,9 +18,10 @@ use crate::install::{
 const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
 mod snapshot;
 pub use snapshot::{
-    InstallProofRepositorySnapshot, assert_repository_snapshot_matches_baseline,
+    InstallProofUninstallRepositorySnapshotBaseline,
     assert_uninstall_no_install_keeps_repository_snapshot_unchanged,
-    assert_uninstall_preview_keeps_repository_snapshot_unchanged, capture_repository_snapshot,
+    assert_uninstall_preview_keeps_repository_snapshot_unchanged,
+    assert_uninstall_repository_snapshot_matches_baseline, capture_uninstall_repository_snapshot,
 };
 
 #[cfg(feature = "test-hooks")]
