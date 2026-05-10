@@ -58,7 +58,7 @@ const USER_SETTING_REGISTRY: [UserSettingRegistryEntry; USER_SETTING_DESCRIPTORS
     },
     UserSettingRegistryEntry {
         descriptor: USER_SETTING_DESCRIPTORS[1],
-        validator: validate_editor_setting_value,
+        validator: validate_editor_setting_value_variant,
     },
 ];
 
@@ -230,7 +230,28 @@ fn validate_theme_setting_value(
     }
 }
 
-fn validate_editor_setting_value(
+/// Validate a raw editor setting value string.
+///
+/// # Errors
+///
+/// Returns [`ConfigurationValidationFailure::EditorEmpty`] when the value
+/// is blank after trimming, or [`ConfigurationValidationFailure::EditorTooLong`]
+/// when the value exceeds [`USER_SETTING_EDITOR_MAX_BYTES`].
+pub fn validate_editor_setting_value(raw: &str) -> Result<(), ConfigurationValidationFailure> {
+    if raw.trim().is_empty() {
+        return Err(ConfigurationValidationFailure::EditorEmpty);
+    }
+    let actual_bytes = raw.len();
+    if actual_bytes > USER_SETTING_EDITOR_MAX_BYTES {
+        return Err(ConfigurationValidationFailure::EditorTooLong {
+            max_bytes: USER_SETTING_EDITOR_MAX_BYTES,
+            actual_bytes,
+        });
+    }
+    Ok(())
+}
+
+fn validate_editor_setting_value_variant(
     value: &UserSettingValue,
 ) -> Result<(), ConfigurationValidationFailure> {
     let UserSettingValue::Editor(editor) = value else {
@@ -240,15 +261,5 @@ fn validate_editor_setting_value(
             provided: value.kind(),
         });
     };
-    if editor.trim().is_empty() {
-        return Err(ConfigurationValidationFailure::EditorEmpty);
-    }
-    let actual_bytes = editor.len();
-    if actual_bytes > USER_SETTING_EDITOR_MAX_BYTES {
-        return Err(ConfigurationValidationFailure::EditorTooLong {
-            max_bytes: USER_SETTING_EDITOR_MAX_BYTES,
-            actual_bytes,
-        });
-    }
-    Ok(())
+    validate_editor_setting_value(editor.value())
 }

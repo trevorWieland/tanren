@@ -28,8 +28,8 @@ pub use secret_store::{
 pub use user_registry::{
     USER_CREDENTIAL_KIND_DESCRIPTORS, USER_SETTING_DESCRIPTORS, UserCredentialKindDescriptor,
     UserSettingDescriptor, parse_user_credential_kind, parse_user_setting_key,
-    user_credential_kind_wire_name, user_setting_key_wire_name, validate_user_credential_kind,
-    validate_user_setting,
+    user_credential_kind_wire_name, user_setting_key_wire_name, validate_editor_setting_value,
+    validate_user_credential_kind, validate_user_setting,
 };
 
 /// Maximum byte length allowed for the editor setting value.
@@ -89,6 +89,32 @@ pub enum UserSettingValueKind {
     Editor,
 }
 
+/// Validated, non-empty, size-bounded editor command for a user-tier setting.
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct EditorSetting(String);
+
+impl EditorSetting {
+    /// Validate and construct from raw input. Returns
+    /// [`ConfigurationValidationFailure::EditorEmpty`] if blank or
+    /// [`ConfigurationValidationFailure::EditorTooLong`] if over [`USER_SETTING_EDITOR_MAX_BYTES`].
+    pub fn new(raw: &str) -> Result<Self, ConfigurationValidationFailure> {
+        validate_editor_setting_value(raw)?;
+        Ok(Self(raw.to_owned()))
+    }
+    #[must_use]
+    pub fn from_unvalidated(raw: String) -> Self {
+        Self(raw)
+    }
+    #[must_use]
+    pub fn value(&self) -> &str {
+        &self.0
+    }
+    #[must_use]
+    pub fn into_inner(self) -> String {
+        self.0
+    }
+}
+
 /// Typed value payload for a user-tier setting.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "kind", content = "value", rename_all = "snake_case")]
@@ -96,7 +122,7 @@ pub enum UserSettingValue {
     /// Theme preference value.
     Theme(ThemePreference),
     /// Editor command value (`code`, `vim`, `nvim`, ...).
-    Editor(String),
+    Editor(EditorSetting),
 }
 
 impl UserSettingKey {

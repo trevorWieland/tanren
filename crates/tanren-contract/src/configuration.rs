@@ -6,11 +6,11 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_configuration_secrets::UserCredentialMetadata;
 pub use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, ThemePreference, USER_CREDENTIAL_KIND_DESCRIPTORS,
-    USER_SETTING_DESCRIPTORS, UserCredentialId, UserCredentialKind, UserCredentialKindDescriptor,
-    UserCredentialStatus, UserSettingDescriptor, UserSettingKey, UserSettingValue,
-    parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,
-    user_setting_key_wire_name,
+    ConfigurationValidationFailure, EditorSetting, OwnerScope, ThemePreference,
+    USER_CREDENTIAL_KIND_DESCRIPTORS, USER_SETTING_DESCRIPTORS, UserCredentialId,
+    UserCredentialKind, UserCredentialKindDescriptor, UserCredentialStatus, UserSettingDescriptor,
+    UserSettingKey, UserSettingValue, parse_user_credential_kind, parse_user_setting_key,
+    user_credential_kind_wire_name, user_setting_key_wire_name,
 };
 use tanren_identity_policy::secret_serde;
 use utoipa::ToSchema;

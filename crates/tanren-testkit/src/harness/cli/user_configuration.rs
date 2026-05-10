@@ -5,8 +5,8 @@ use chrono::Utc;
 use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_configuration_secrets::{
-    OwnerScope, ThemePreference, UserCredentialId, UserCredentialKind, UserCredentialStatus,
-    UserSettingKey, UserSettingValue,
+    EditorSetting, OwnerScope, ThemePreference, UserCredentialId, UserCredentialKind,
+    UserCredentialStatus, UserSettingKey, UserSettingValue,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsResponse,
@@ -321,7 +321,9 @@ fn parse_setting_value(raw: &str) -> HarnessResult<UserSettingValue> {
         }));
     }
     if let Some(editor) = raw.strip_prefix("editor:") {
-        return Ok(UserSettingValue::Editor(editor.to_owned()));
+        return Ok(UserSettingValue::Editor(EditorSetting::from_unvalidated(
+            editor.to_owned(),
+        )));
     }
     Err(HarnessError::Transport(format!(
         "unknown setting value from cli output: {raw}"
@@ -363,7 +365,7 @@ fn setting_value_cli_arg(value: &UserSettingValue) -> String {
             ThemePreference::Light => "light".to_owned(),
             ThemePreference::Dark => "dark".to_owned(),
         },
-        UserSettingValue::Editor(editor) => editor.clone(),
+        UserSettingValue::Editor(editor) => editor.value().to_owned(),
     }
 }
 

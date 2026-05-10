@@ -30,10 +30,8 @@ const SETTING_DESCRIPTOR_BY_KEY = {
     key: "editor",
     label: m.config_setting_key_editor,
     placeholder: m.config_settings_placeholder_editor_command,
-    toValue: (raw: string): UpsertUserSettingInput["value"] => ({
-      kind: "editor",
-      value: raw,
-    }),
+    toValue: (raw: string): UpsertUserSettingInput["value"] | null =>
+      validateEditorSetting(raw) ? { kind: "editor", value: raw } : null,
   },
 } as const satisfies Record<UserSettingKey, UserSettingDescriptor>;
 
@@ -69,6 +67,15 @@ export function toUserCredentialKind(value: string): UserCredentialKind | null {
     }
   }
   return null;
+}
+
+const USER_SETTING_EDITOR_MAX_BYTES = 1024;
+
+function validateEditorSetting(raw: string): boolean {
+  const trimmed = raw.trim();
+  if (trimmed.length === 0) return false;
+  if (trimmed.length > USER_SETTING_EDITOR_MAX_BYTES) return false;
+  return true;
 }
 
 function isThemePreference(value: string): value is ThemePreference {

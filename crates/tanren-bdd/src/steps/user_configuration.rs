@@ -7,8 +7,8 @@
 use cucumber::{then, when};
 use secrecy::SecretString;
 use tanren_configuration_secrets::{
-    OwnerScope, ThemePreference, USER_CREDENTIAL_SECRET_MAX_BYTES, USER_SETTING_EDITOR_MAX_BYTES,
-    UserCredentialKind, UserSettingKey, UserSettingValue,
+    EditorSetting, OwnerScope, ThemePreference, USER_CREDENTIAL_SECRET_MAX_BYTES,
+    USER_SETTING_EDITOR_MAX_BYTES, UserCredentialKind, UserSettingKey, UserSettingValue,
 };
 use tanren_contract::{CreateUserCredentialRequest, UpsertUserSettingRequest};
 use tanren_identity_policy::AccountId;
@@ -323,7 +323,9 @@ fn parse_setting_value(key: &str, raw: &str) -> Option<UserSettingValue> {
             "dark" => ThemePreference::Dark,
             _ => return None,
         })),
-        UserSettingKey::Editor => Some(UserSettingValue::Editor(raw.to_owned())),
+        UserSettingKey::Editor => Some(UserSettingValue::Editor(EditorSetting::from_unvalidated(
+            raw.to_owned(),
+        ))),
     }
 }
 

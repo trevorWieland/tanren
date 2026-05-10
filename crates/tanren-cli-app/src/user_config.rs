@@ -6,7 +6,7 @@ use secrecy::SecretString;
 use std::io::Write;
 use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
 use tanren_contract::{
-    CreateUserCredentialRequest, OwnerScope, SUPPORTED_THEME_PREFERENCES,
+    CreateUserCredentialRequest, EditorSetting, OwnerScope, SUPPORTED_THEME_PREFERENCES,
     UpdateUserCredentialRequest, UpsertUserSettingRequest, UserCredentialId, UserCredentialKind,
     UserCredentialView, UserSettingKey, UserSettingValue, parse_theme_preference,
     theme_preference_name, user_credential_kind_name, user_credential_status_name,
@@ -442,13 +442,15 @@ fn parse_setting_value(key: CliUserSettingKey, raw: &str) -> Result<UserSettingV
             })?;
             Ok(UserSettingValue::Theme(value))
         }
-        CliUserSettingKey::Editor => Ok(UserSettingValue::Editor(raw.to_owned())),
+        CliUserSettingKey::Editor => Ok(UserSettingValue::Editor(EditorSetting::from_unvalidated(
+            raw.to_owned(),
+        ))),
     }
 }
 fn setting_value_name(value: UserSettingValue) -> String {
     match value {
         UserSettingValue::Theme(pref) => format!("theme:{}", theme_preference_name(pref)),
-        UserSettingValue::Editor(editor) => format!("editor:{editor}"),
+        UserSettingValue::Editor(editor) => format!("editor:{}", editor.value()),
     }
 }
 fn print_credential_row(prefix: &str, item: &UserCredentialView) -> Result<()> {

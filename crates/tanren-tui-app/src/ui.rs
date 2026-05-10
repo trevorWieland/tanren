@@ -5,7 +5,7 @@ use crate::{FormField, FormState, OutcomeView};
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, EditorSetting,
     SUPPORTED_THEME_PREFERENCES, SUPPORTED_USER_CREDENTIAL_KINDS, SUPPORTED_USER_SETTING_KEYS,
     SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UserCredentialId,
     UserCredentialKind, UserCredentialView, UserSettingKey, UserSettingValue,
@@ -280,7 +280,9 @@ pub(crate) fn parse_setting_value_field(
                     SUPPORTED_THEME_PREFERENCES.join("|")
                 )
             }),
-        UserSettingKey::Editor => Ok(UserSettingValue::Editor(state.value(idx).to_owned())),
+        UserSettingKey::Editor => Ok(UserSettingValue::Editor(EditorSetting::from_unvalidated(
+            state.value(idx).to_owned(),
+        ))),
     }
 }
 pub(crate) fn parse_credential_kind_field(
@@ -409,7 +411,7 @@ fn parse_account_id(raw: &str) -> Result<AccountId, String> {
 fn setting_value(value: &UserSettingValue) -> String {
     match value {
         UserSettingValue::Theme(theme) => theme_preference_name(*theme).to_owned(),
-        UserSettingValue::Editor(editor) => editor.clone(),
+        UserSettingValue::Editor(editor) => editor.value().to_owned(),
     }
 }
 pub(crate) fn parse_sign_in(state: &FormState) -> Result<SignInRequest, String> {
