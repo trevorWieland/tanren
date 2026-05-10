@@ -67,9 +67,6 @@ export default function ConfigurationAccountPage(): ReactNode {
 
   const settingActions = capabilities?.settings.allowed_actions ?? [];
   const itemActions = capabilities?.user_items.allowed_actions ?? [];
-  const canReadSettings = settingActions.includes("read");
-  const canWriteSettings = settingActions.includes("create_or_update");
-  const canDeleteSettings = settingActions.includes("delete");
   const canReadCredentials = itemActions.includes("read");
   const canCreateCredentials = itemActions.includes("create");
   const canUpdateCredentials = itemActions.includes("update");
@@ -256,14 +253,12 @@ export default function ConfigurationAccountPage(): ReactNode {
       <SettingsPanel
         accessError={settingsAccessError ?? sharedAccessError}
         busy={busy}
-        canDeleteSettings={canDeleteSettings}
-        canReadSettings={canReadSettings}
-        canWriteSettings={canWriteSettings}
         capabilitiesLoading={capabilitiesLoading}
         onList={listSettings}
         onRemove={removeUserSetting}
         onSet={setUserSetting}
         readModel={settingsReadModel}
+        settingsAllowedActions={settingActions}
       />
 
       <CredentialsPanel
