@@ -12,6 +12,7 @@ use tanren_contract::{
 };
 use tanren_identity_policy::AccountId;
 use uuid::Uuid;
+use zeroize::Zeroizing;
 const ACCOUNT_ID_ENV: &str = "TANREN_ACCOUNT_ID";
 #[derive(Debug, Subcommand)]
 pub(crate) enum ConfigAction {
@@ -198,8 +199,7 @@ async fn run_user_config_list(
         )
         .await
         .map_err(account_error)?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    let mut handle = std::io::stdout().lock();
     for item in response.items {
         writeln!(
             handle,
@@ -237,8 +237,7 @@ async fn run_user_config_set(
         )
         .await
         .map_err(account_error)?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    let mut handle = std::io::stdout().lock();
     writeln!(
         handle,
         "setting key={} value={} updated_at={}",
@@ -266,8 +265,7 @@ async fn run_user_config_remove(
         )
         .await
         .map_err(account_error)?;
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    let mut handle = std::io::stdout().lock();
     writeln!(
         handle,
         "removed key={} value={} updated_at={}",
@@ -353,8 +351,7 @@ async fn run_credential_list(
         print_credential_row("credential", &item)?;
     }
     if let Some(next_cursor) = response.next_cursor {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
+        let mut handle = std::io::stdout().lock();
         writeln!(handle, "next_cursor={next_cursor}").context("write credential next cursor")?;
     }
     Ok(())
@@ -418,17 +415,19 @@ fn parse_credential_id(raw: &str) -> Result<UserCredentialId> {
     UserCredentialId::parse(raw).with_context(|| format!("parse credential id {raw}"))
 }
 fn read_secret_from_stdin() -> Result<SecretString> {
-    let mut raw = String::new();
+    let mut raw = Zeroizing::new(String::new());
     std::io::stdin()
         .read_line(&mut raw)
         .context("read credential value from stdin")?;
-    let value = raw.trim_end_matches(['\n', '\r']).to_owned();
-    if value.trim().is_empty() {
+    while raw.ends_with('\n') || raw.ends_with('\r') {
+        raw.pop();
+    }
+    if raw.trim().is_empty() {
         return Err(anyhow::anyhow!(
             "credential value from stdin cannot be empty or whitespace"
         ));
     }
-    Ok(SecretString::from(value))
+    Ok(SecretString::from(std::mem::take(&mut *raw)))
 }
 fn parse_setting_value(key: CliUserSettingKey, raw: &str) -> Result<UserSettingValue> {
     match key {
@@ -465,8 +464,7 @@ fn setting_value_name(value: UserSettingValue) -> String {
     }
 }
 fn print_credential_row(prefix: &str, item: &UserCredentialView) -> Result<()> {
-    let stdout = std::io::stdout();
-    let mut handle = stdout.lock();
+    let mut handle = std::io::stdout().lock();
     writeln!(
         handle,
         "{prefix} id={} kind={} scope=user:{} status={} created_at={} updated_at={}",

@@ -21,3 +21,4 @@ tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 tokio = { workspace = true }
 uuid = { workspace = true }
+zeroize = { workspace = true }

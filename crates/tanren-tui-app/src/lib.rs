@@ -31,6 +31,7 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use zeroize::Zeroizing;
 
 /// Configuration for the TUI runtime. R-0001 sub-8 keeps it deliberately
 /// empty — the TUI reads `DATABASE_URL` at startup so this struct exists
@@ -162,6 +163,14 @@ impl FormState {
 
     pub(crate) fn value(&self, idx: usize) -> &str {
         self.fields.get(idx).map_or("", |f| f.value.as_str())
+    }
+
+    pub(crate) fn take_value_zeroizing(&mut self, idx: usize) -> Zeroizing<String> {
+        let value = self
+            .fields
+            .get_mut(idx)
+            .map_or_else(String::new, |field| std::mem::take(&mut field.value));
+        Zeroizing::new(value)
     }
 }
 

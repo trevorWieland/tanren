@@ -4324,6 +4324,7 @@ dependencies = [
  "tanren-identity-policy",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]
@@ -4581,6 +4582,7 @@ dependencies = [
  "tanren-identity-policy",
  "tokio",
  "uuid",
+ "zeroize",
 ]
 
 [[package]]

@@ -303,7 +303,7 @@ impl App {
         }
     }
     fn submit_user_config_add_credential(&mut self, store: &Store, handlers: &Handlers) {
-        let (requested_account_id, kind, secret) = match &mut self.screen {
+        let (requested_account_id, kind, mut secret) = match &mut self.screen {
             Screen::UserConfigAddCredential(state) => {
                 let requested_account_id = match parse_account_id_field(state) {
                     Ok(value) => value,
@@ -313,8 +313,7 @@ impl App {
                     Ok(value) => value,
                     Err(message) => return self.set_active_form_error(message),
                 };
-                let secret = state.value(2).to_owned();
-                state.fields[2].value.clear();
+                let secret = state.take_value_zeroizing(2);
                 (requested_account_id, kind, secret)
             }
             _ => return,
@@ -328,7 +327,7 @@ impl App {
             owner_scope: OwnerScope::User {
                 account_id: requested_account_id,
             },
-            value: SecretString::from(secret),
+            value: SecretString::from(std::mem::take(&mut *secret)),
         };
         let result = self.runtime.block_on(handlers.add_user_credential(
             store,
@@ -348,7 +347,7 @@ impl App {
         }
     }
     fn submit_user_config_update_credential(&mut self, store: &Store, handlers: &Handlers) {
-        let (requested_account_id, item_id, secret) = match &mut self.screen {
+        let (requested_account_id, item_id, mut secret) = match &mut self.screen {
             Screen::UserConfigUpdateCredential(state) => {
                 let requested_account_id = match parse_account_id_field(state) {
                     Ok(value) => value,
@@ -358,8 +357,7 @@ impl App {
                     Ok(value) => value,
                     Err(message) => return self.set_active_form_error(message),
                 };
-                let secret = state.value(2).to_owned();
-                state.fields[2].value.clear();
+                let secret = state.take_value_zeroizing(2);
                 (requested_account_id, item_id, secret)
             }
             _ => return,
@@ -369,7 +367,7 @@ impl App {
             Err(message) => return self.set_active_form_error(message),
         };
         let request = UpdateUserCredentialRequest {
-            value: SecretString::from(secret),
+            value: SecretString::from(std::mem::take(&mut *secret)),
         };
         let result = self.runtime.block_on(handlers.update_user_credential(
             store,
