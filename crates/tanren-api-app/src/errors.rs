@@ -136,6 +136,11 @@ fn project_failure_body(reason: ProjectFailureReason) -> Response {
 #[derive(Debug)]
 pub(crate) struct ValidatedJson<T>(pub T);
 
+/// Project-route JSON extractor that maps all deserialize failures to the
+/// project failure taxonomy with a stable validation summary.
+#[derive(Debug)]
+pub(crate) struct ProjectValidatedJson<T>(pub T);
+
 impl<S, T> FromRequest<S> for ValidatedJson<T>
 where
     T: DeserializeOwned,
@@ -146,24 +151,59 @@ where
     async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
         match Json::<T>::from_request(req, state).await {
             Ok(Json(value)) => Ok(Self(value)),
-            Err(rejection) => Err(map_json_rejection(&rejection)),
+            Err(rejection) => Err(map_account_json_rejection(&rejection)),
         }
     }
 }
 
-fn map_json_rejection(rejection: &JsonRejection) -> Response {
-    let summary = match rejection {
-        JsonRejection::JsonDataError(e) => e.body_text(),
-        JsonRejection::JsonSyntaxError(e) => e.body_text(),
+impl<S, T> FromRequest<S> for ProjectValidatedJson<T>
+where
+    T: DeserializeOwned,
+    S: Send + Sync,
+{
+    type Rejection = Response;
+
+    async fn from_request(req: Request, state: &S) -> Result<Self, Self::Rejection> {
+        match Json::<T>::from_request(req, state).await {
+            Ok(Json(value)) => Ok(Self(value)),
+            Err(rejection) => Err(map_project_json_rejection(&rejection)),
+        }
+    }
+}
+
+fn rejection_summary(rejection: &JsonRejection) -> String {
+    match rejection {
         JsonRejection::MissingJsonContentType(_) => {
             "request body must be application/json".to_owned()
         }
         other => other.body_text(),
-    };
+    }
+}
+
+fn map_account_json_rejection(rejection: &JsonRejection) -> Response {
+    let summary = rejection_summary(rejection);
     (
         StatusCode::BAD_REQUEST,
         Json(AccountFailureBody {
             code: AccountFailureCode::ValidationFailed,
+            summary,
+        }),
+    )
+        .into_response()
+}
+
+fn map_project_json_rejection(rejection: &JsonRejection) -> Response {
+    let reason = ProjectFailureReason::ValidationFailed;
+    let summary = match rejection {
+        JsonRejection::MissingJsonContentType(_) => {
+            "The project request body must use application/json.".to_owned()
+        }
+        _ => reason.summary().to_owned(),
+    };
+    (
+        StatusCode::BAD_REQUEST,
+        Json(ProjectFailureBody {
+            code: ProjectFailureCode::from(reason),
             summary,
         }),
     )

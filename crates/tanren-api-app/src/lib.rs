@@ -39,7 +39,6 @@
 mod cookies;
 mod errors;
 mod openapi_security;
-mod project_auth;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition

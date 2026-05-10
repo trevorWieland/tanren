@@ -22,13 +22,8 @@ pub struct ConnectProjectRepositoryRequest {
 
 /// Cookie-scoped API/web request for connecting an existing repository.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ConnectProjectRepositoryCookieRequest {
-    /// Legacy compatibility shim for pre-session-scoped callers. Not part
-    /// of the `OpenAPI` request schema.
-    #[serde(default)]
-    #[serde(rename = "owning_account_id")]
-    #[schema(ignore)]
-    pub legacy_owning_account_id: Option<AccountId>,
     /// Canonical repository identity (`owner/name`).
     pub repository: RepositoryRef,
     /// Whether the newly connected project should be active immediately.
@@ -57,13 +52,8 @@ pub struct CreateProjectRequest {
 
 /// Cookie-scoped API/web request for creating a project.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateProjectCookieRequest {
-    /// Legacy compatibility shim for pre-session-scoped callers. Not part
-    /// of the `OpenAPI` request schema.
-    #[serde(default)]
-    #[serde(rename = "owning_account_id")]
-    #[schema(ignore)]
-    pub legacy_owning_account_id: Option<AccountId>,
     /// Canonical repository identity (`owner/name`) to create.
     pub repository: RepositoryRef,
     /// Designated host where the repository should be created.
@@ -105,6 +95,7 @@ pub struct ListVisibleProjectsRequest {
 /// Cookie-scoped API/web request for listing projects visible to the
 /// authenticated session account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ListVisibleProjectsCookieRequest {
     /// Pagination controls for this list request.
     #[serde(default)]
@@ -120,6 +111,7 @@ pub struct ActiveProjectRequest {
 
 /// Cookie-scoped API/web request for active-project metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ActiveProjectCookieRequest {}
 
 /// Active-project projection for an account.
@@ -138,6 +130,7 @@ pub const PROJECT_LIST_MAX_PAGE_SIZE: u16 = 100;
 
 /// Pagination controls for project-list queries.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectPageRequest {
     /// Cursor pointing to the last project from the previous page.
     #[serde(default)]
@@ -168,6 +161,7 @@ impl Default for ProjectPageRequest {
 
 /// Explicit filter fields supported by the project-list contract.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectListFilterRequest {
     /// Selection-state filter for visible projects.
     #[serde(default)]
@@ -187,6 +181,7 @@ pub enum ProjectListSelectionFilter {
 
 /// Explicit sort fields supported by the project-list contract.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectListSortRequest {
     /// Deterministic ordering for visible projects.
     #[serde(default)]
@@ -206,6 +201,7 @@ pub enum ProjectListSortOrder {
 
 /// Stable cursor over the deterministic project-list ordering.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ProjectListCursor {
     /// Active-selection timestamp used as the primary sort key.
     pub active_selected_at: Option<DateTime<Utc>>,

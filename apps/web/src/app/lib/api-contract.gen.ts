@@ -673,6 +673,15 @@ export interface operations {
           "application/json": components["schemas"]["ActiveProjectView"];
         };
       };
+      /** @description validation_failed */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectFailureBody"];
+        };
+      };
       /** @description auth_required */
       401: {
         headers: {
@@ -860,6 +869,15 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["ProjectCollectionView"];
+        };
+      };
+      /** @description validation_failed */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectFailureBody"];
         };
       };
       /** @description auth_required */

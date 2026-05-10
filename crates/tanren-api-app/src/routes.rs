@@ -3,18 +3,16 @@
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session, session_account};
 use crate::errors::{
-    AccountFailureBody, ProjectFailureBody, ValidatedJson, auth_required, map_app_error,
-    session_install_error,
+    AccountFailureBody, ProjectFailureBody, ProjectValidatedJson, ValidatedJson, auth_required,
+    map_app_error, session_install_error,
 };
 use crate::openapi_security::ApiSecurity;
-use crate::project_auth::legacy_scope_mismatch;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::AppServiceError;
 use tanren_app_services::Handlers;
 use tanren_app_services::project::{
     ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
@@ -26,7 +24,7 @@ use tanren_contract::{
     ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CookieSessionEnvelope,
     CreateProjectCookieRequest, CreateProjectRequest, CreateProjectResponse,
     ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest, ProjectCollectionView,
-    ProjectFailureReason, SignInRequest, SignUpRequest,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -290,15 +288,12 @@ pub(crate) async fn accept_invitation_route(
 pub(crate) async fn connect_project_repository_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(request): ValidatedJson<ConnectProjectRepositoryCookieRequest>,
+    ProjectValidatedJson(request): ProjectValidatedJson<ConnectProjectRepositoryCookieRequest>,
 ) -> Response {
     let actor_account_id = match session_actor_account_id(&session).await {
         Ok(id) => id,
         Err(response) => return response,
     };
-    if legacy_scope_mismatch(request.legacy_owning_account_id, actor_account_id) {
-        return map_app_error(AppServiceError::Project(ProjectFailureReason::NoAccess));
-    }
     match state
         .handlers
         .connect_project_repository(
@@ -339,15 +334,12 @@ pub(crate) async fn connect_project_repository_route(
 pub(crate) async fn create_project_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(request): ValidatedJson<CreateProjectCookieRequest>,
+    ProjectValidatedJson(request): ProjectValidatedJson<CreateProjectCookieRequest>,
 ) -> Response {
     let actor_account_id = match session_actor_account_id(&session).await {
         Ok(id) => id,
         Err(response) => return response,
     };
-    if legacy_scope_mismatch(request.legacy_owning_account_id, actor_account_id) {
-        return map_app_error(AppServiceError::Project(ProjectFailureReason::NoAccess));
-    }
     match state
         .handlers
         .create_project(
@@ -377,6 +369,7 @@ pub(crate) async fn create_project_route(
     request_body = ListVisibleProjectsCookieRequest,
     responses(
         (status = 200, body = ProjectCollectionView, description = "Project list"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
         (status = 401, body = ProjectFailureBody, description = "auth_required"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
     ),
@@ -385,7 +378,7 @@ pub(crate) async fn create_project_route(
 pub(crate) async fn list_visible_projects_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(request): ValidatedJson<ListVisibleProjectsCookieRequest>,
+    ProjectValidatedJson(request): ProjectValidatedJson<ListVisibleProjectsCookieRequest>,
 ) -> Response {
     let actor_account_id = match session_actor_account_id(&session).await {
         Ok(id) => id,
@@ -417,6 +410,7 @@ pub(crate) async fn list_visible_projects_route(
     request_body = ActiveProjectCookieRequest,
     responses(
         (status = 200, body = ActiveProjectView, description = "Active-project metadata"),
+        (status = 400, body = ProjectFailureBody, description = "validation_failed"),
         (status = 401, body = ProjectFailureBody, description = "auth_required"),
         (status = 403, body = ProjectFailureBody, description = "no_access"),
     ),
@@ -425,7 +419,7 @@ pub(crate) async fn list_visible_projects_route(
 pub(crate) async fn active_project_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(_request): ValidatedJson<ActiveProjectCookieRequest>,
+    ProjectValidatedJson(_request): ProjectValidatedJson<ActiveProjectCookieRequest>,
 ) -> Response {
     let actor_account_id = match session_actor_account_id(&session).await {
         Ok(id) => id,
