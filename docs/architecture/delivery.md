@@ -308,8 +308,7 @@ Manual edits to Tanren-owned projections are drift. Changes should happen
 through Tanren actions, imports, or approved editing surfaces that emit typed
 events and regenerate projections.
 
-For the current `tanren-cli install` repository-local slice (R-0023), the
-generated install artifacts are:
+For the implemented CLI install flow, the generated install artifacts are:
 
 - selected integration command assets under `.claude/commands/`,
   `.codex/skills/`, and `.opencode/commands/`;
@@ -344,41 +343,6 @@ Harness assets may include:
 Harness assets are Tanren-owned controlled projections. Reinstalling or
 regenerating them replaces stale Tanren-owned content while preserving
 unrelated user-owned files according to the declared merge policy.
-
-## Current Local Install Command Surface (R-0023)
-
-The implemented repository-local install command is:
-
-```text
-tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
-```
-
-Current behavior:
-
-- `--profile` is required. Current supported value is `rust-cargo`.
-- `--repo` defaults to the current working directory (`.`).
-- `--integrations` supports `claude`, `codex`, and `open-code`; omitting the
-  flag installs all supported integrations.
-- Selected integration command assets are written to `.claude/commands/`,
-  `.codex/skills/`, and `.opencode/commands/`.
-- Install state is recorded in `.tanren/install-manifest.toml`.
-- Tanren-owned generated command assets use `replace-generated` semantics.
-- Standards profile assets use `preserve-user-edits` semantics; reinstall
-  restores missing tracked standards files and keeps user-edited content.
-- Reinstall cleanup removes stale Tanren-generated command assets that were
-  tracked in the prior install manifest but are no longer selected by the
-  active integration set.
-- Install preview for this command surface is defined in
-  [Install Preview](#install-preview). Preview describes the same manifest
-  ownership and stale-generated cleanup decisions before apply; R-0023 does
-  not add separate install-only preview flags.
-
-This command slice is intentionally limited to install materialization. For
-this node, `tanren-cli install` only writes install assets and updates install
-state; it does not run upgrade or uninstall flows. Upgrade behavior is owned by
-[Upgrades And Migrations](#upgrades-and-migrations). Stack removal is owned by
-[Stack Uninstall](#stack-uninstall). Repository asset removal is owned by
-[Repo Uninstall](#repo-uninstall).
 
 ## Standards Profiles
 
@@ -446,12 +410,15 @@ A preview shows:
 A preview does not create a dev-only path. Applying the preview still happens
 through the control plane or deployment mechanism that owns the real action.
 
-For R-0023 install writes, `.tanren/install-manifest.toml` is a Tanren-owned
-install state record. The install command owns writing and replacing this
-manifest; users do not edit it as canonical input. During reinstall preview and
-apply, stale generated command cleanup is driven by manifest ownership: files
-recorded as Tanren-generated in the prior manifest that are no longer part of
-the selected integration set are scheduled for and then removed.
+For CLI install and uninstall writes, `.tanren/install-manifest.toml` is a
+Tanren-owned install state record. The install command owns writing and
+replacing this manifest; users do not edit it as canonical input. During
+reinstall preview and apply, stale generated command cleanup is driven by
+manifest ownership: files recorded as Tanren-generated in the prior manifest
+that are no longer part of the selected integration set are scheduled for and
+then removed. During uninstall preview and apply, the manifest is read to
+determine which files are Tanren-owned; only manifest-tracked generated files
+are eligible for removal.
 
 ## Upgrades And Migrations
 
@@ -521,6 +488,58 @@ files.
 Repo uninstall does not remove the Tanren stack, database, provider
 connections, accounts, organizations, or project history unless separate
 Tanren actions explicitly do so.
+
+### Implemented command shape
+
+The CLI repo uninstall command is:
+
+```text
+tanren-cli uninstall [--repo <PATH>] [--confirm]
+```
+
+- `--repo` defaults to the current working directory.
+- Omitting `--confirm` runs preview-only: reports what would be removed,
+  preserved, or flagged with warnings, and performs no filesystem writes.
+- Supplying `--confirm` applies the planned removal after preview output.
+
+This follows the same preview/apply contract as install preview (see
+[Install Preview](#install-preview)): the non-confirming invocation is a
+read-only planning step; the confirming invocation applies the plan.
+
+### Manifest ownership rules
+
+Uninstall reads `.tanren/install-manifest.toml` to determine which files are
+Tanren-generated. Only files recorded as Tanren-owned in the manifest are
+eligible for removal. Files not tracked by the manifest are preserved
+regardless of path. This ensures:
+
+- user-owned files (source code, tests, user-edited standards) are never
+  deleted;
+- stale manifest entries from a prior install version are reported as
+  warnings, not silently removed;
+- empty directories left after generated file removal are cleaned up.
+
+The manifest is a Tanren-owned install record. Uninstall reads it but does not
+modify external state.
+
+### Scope boundaries and security implications
+
+Repo uninstall is a local filesystem operation. It does not:
+
+- delete hosted account or project history;
+- remove provider credentials, connections, or secrets;
+- disconnect the project from the Tanren control plane (R-0021 owns that);
+- remove the Tanren stack, containers, images, or database volumes;
+- delete external tracker issues or pull requests.
+
+Destructive actions require explicit `--confirm`. Absolute repository paths are
+redacted in command output. No credential, account, or provider deletion is
+performed.
+
+Executable BDD proof for B-0135 exists in
+`tests/bdd/features/B-0135-uninstall-tanren-assets-without-deleting-user-work.feature`
+with positive and falsification CLI witnesses. The full-repo validation
+expectation is `just ci`.
 
 ## Security And Policy
 
