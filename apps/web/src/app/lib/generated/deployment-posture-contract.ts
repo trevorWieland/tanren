@@ -72,3 +72,252 @@ export interface DeploymentPostureReadModel {
 export interface CurrentDeploymentPostureResponse {
   current: null | DeploymentPostureReadModel;
 }
+
+const DEPLOYMENT_POSTURE_VALUES = [
+  "hosted",
+  "self_hosted",
+  "local_only",
+] as const;
+
+const DEPLOYMENT_POSTURE_FAILURE_CODE_VALUES = [
+  "unsupported_posture",
+  "permission_denied",
+  "scope_not_found",
+  "validation_failed",
+  "unavailable",
+  "internal_error",
+] as const;
+
+const DEPLOYMENT_POSTURE_CAPABILITY_VALUES = [
+  "managed_control_plane",
+  "provider_integrations",
+  "remote_runtime_dispatch",
+  "local_runtime_dispatch",
+] as const;
+
+const DEPLOYMENT_POSTURE_UNAVAILABLE_REASON_VALUES = [
+  "requires_managed_control_plane",
+  "requires_provider_integrations",
+  "requires_remote_runtime_dispatch",
+  "requires_local_runtime_dispatch",
+] as const;
+
+function failDecode(context: string, detail: string): never {
+  throw new Error(
+    `Invalid deployment posture contract for ${context}: ${detail}`,
+  );
+}
+
+function isObjectRecord(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === "object" && raw !== null;
+}
+
+function decodeEnumValue<T extends string>(
+  raw: unknown,
+  values: readonly T[],
+  context: string,
+): T {
+  if (typeof raw !== "string" || !values.includes(raw as T)) {
+    failDecode(context, `expected one of ${values.join(", ")}`);
+  }
+  return raw as T;
+}
+
+function decodeArray<T>(
+  raw: unknown,
+  context: string,
+  decodeItem: (item: unknown, index: number) => T,
+): T[] {
+  if (!Array.isArray(raw)) {
+    failDecode(context, "expected array");
+  }
+  return raw.map((item, index) => decodeItem(item, index));
+}
+
+export function isDeploymentPosture(raw: unknown): raw is DeploymentPosture {
+  return (
+    typeof raw === "string" &&
+    DEPLOYMENT_POSTURE_VALUES.includes(raw as DeploymentPosture)
+  );
+}
+
+export function isDeploymentPostureFailureCode(
+  raw: unknown,
+): raw is DeploymentPostureFailureCode {
+  return (
+    typeof raw === "string" &&
+    DEPLOYMENT_POSTURE_FAILURE_CODE_VALUES.includes(
+      raw as DeploymentPostureFailureCode,
+    )
+  );
+}
+
+export function decodeDeploymentPostureScope(
+  raw: unknown,
+  context = "scope",
+): DeploymentPostureScope {
+  if (!isObjectRecord(raw)) {
+    failDecode(context, "expected object");
+  }
+  const scope = raw["scope"];
+  if (scope === "account") {
+    const accountId = raw["account_id"];
+    if (typeof accountId !== "string" || accountId === "") {
+      failDecode(context, "account scope requires non-empty account_id");
+    }
+    return { scope, account_id: accountId };
+  }
+  if (scope === "project") {
+    const projectId = raw["project_id"];
+    if (typeof projectId !== "string" || projectId === "") {
+      failDecode(context, "project scope requires non-empty project_id");
+    }
+    return { scope, project_id: projectId };
+  }
+  if (scope === "installation") {
+    const installationId = raw["installation_id"];
+    if (typeof installationId !== "string" || installationId === "") {
+      failDecode(
+        context,
+        "installation scope requires non-empty installation_id",
+      );
+    }
+    return { scope, installation_id: installationId };
+  }
+  failDecode(context, "scope must be account, project, or installation");
+}
+
+export function decodeDeploymentPostureCapabilitySummary(
+  raw: unknown,
+  context = "capability_summary",
+): DeploymentPostureCapabilitySummary {
+  if (!isObjectRecord(raw)) {
+    failDecode(context, "expected object");
+  }
+  const available = decodeArray(
+    raw["available"],
+    `${context}.available`,
+    (entry, index) =>
+      decodeEnumValue(
+        entry,
+        DEPLOYMENT_POSTURE_CAPABILITY_VALUES,
+        `${context}.available[${index}]`,
+      ),
+  );
+  const unavailable = decodeArray(
+    raw["unavailable"],
+    `${context}.unavailable`,
+    (entry, index) => {
+      if (!isObjectRecord(entry)) {
+        failDecode(`${context}.unavailable[${index}]`, "expected object");
+      }
+      return {
+        capability: decodeEnumValue(
+          entry["capability"],
+          DEPLOYMENT_POSTURE_CAPABILITY_VALUES,
+          `${context}.unavailable[${index}].capability`,
+        ),
+        reason: decodeEnumValue(
+          entry["reason"],
+          DEPLOYMENT_POSTURE_UNAVAILABLE_REASON_VALUES,
+          `${context}.unavailable[${index}].reason`,
+        ),
+      };
+    },
+  );
+  return { available, unavailable };
+}
+
+export function decodeSupportedDeploymentPosturesResponse(
+  raw: unknown,
+): SupportedDeploymentPosturesResponse {
+  if (!isObjectRecord(raw)) {
+    failDecode("supported postures response", "expected object");
+  }
+  const supported = decodeArray(
+    raw["supported"],
+    "supported postures response.supported",
+    (entry, index) => {
+      if (!isObjectRecord(entry)) {
+        failDecode(
+          `supported postures response.supported[${index}]`,
+          "expected object",
+        );
+      }
+      return {
+        posture: decodeEnumValue(
+          entry["posture"],
+          DEPLOYMENT_POSTURE_VALUES,
+          `supported postures response.supported[${index}].posture`,
+        ),
+        capability_summary: decodeDeploymentPostureCapabilitySummary(
+          entry["capability_summary"],
+          `supported postures response.supported[${index}].capability_summary`,
+        ),
+      };
+    },
+  );
+  return { supported };
+}
+
+export function decodeDeploymentPostureReadModel(
+  raw: unknown,
+  context = "current posture",
+): DeploymentPostureReadModel {
+  if (!isObjectRecord(raw)) {
+    failDecode(context, "expected object");
+  }
+  return {
+    posture: decodeEnumValue(
+      raw["posture"],
+      DEPLOYMENT_POSTURE_VALUES,
+      `${context}.posture`,
+    ),
+    scope: decodeDeploymentPostureScope(raw["scope"], `${context}.scope`),
+    capability_summary: decodeDeploymentPostureCapabilitySummary(
+      raw["capability_summary"],
+      `${context}.capability_summary`,
+    ),
+  };
+}
+
+export function decodeCurrentDeploymentPostureResponse(
+  raw: unknown,
+): CurrentDeploymentPostureResponse {
+  if (!isObjectRecord(raw)) {
+    failDecode("current posture response", "expected object");
+  }
+  const currentRaw = raw["current"];
+  if (currentRaw === null) {
+    return { current: null };
+  }
+  return {
+    current: decodeDeploymentPostureReadModel(
+      currentRaw,
+      "current posture response.current",
+    ),
+  };
+}
+
+export function decodeSetDeploymentPostureResponse(
+  raw: unknown,
+): SetDeploymentPostureResponse {
+  if (!isObjectRecord(raw)) {
+    failDecode("set posture response", "expected object");
+  }
+  return {
+    posture: decodeEnumValue(
+      raw["posture"],
+      DEPLOYMENT_POSTURE_VALUES,
+      "set posture response.posture",
+    ),
+    scope: decodeDeploymentPostureScope(
+      raw["scope"],
+      "set posture response.scope",
+    ),
+    capability_summary: decodeDeploymentPostureCapabilitySummary(
+      raw["capability_summary"],
+      "set posture response.capability_summary",
+    ),
+  };
+}

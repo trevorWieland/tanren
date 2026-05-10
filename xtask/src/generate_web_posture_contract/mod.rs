@@ -169,6 +169,7 @@ fn render_contract_ts(schemas: &serde_json::Map<String, Value>) -> Result<String
             type_schema(schemas, "CurrentDeploymentPostureResponse")?,
         )?,
     );
+    emit_runtime_decoders_from_schemas(&mut out, schemas)?;
 
     Ok(out)
 }
@@ -374,6 +375,297 @@ fn enum_union(items: &[Value]) -> Result<String> {
     Ok(rendered.join(" | "))
 }
 
+fn enum_values(schema: &Value) -> Result<Vec<String>> {
+    let items = schema
+        .get("enum")
+        .and_then(Value::as_array)
+        .context("enum schema missing `enum`")?;
+    let mut values = Vec::with_capacity(items.len());
+    for item in items {
+        values.push(
+            item.as_str()
+                .with_context(|| format!("non-string enum value: {item}"))?
+                .to_owned(),
+        );
+    }
+    Ok(values)
+}
+
+fn emit_runtime_decoders_from_schemas(
+    out: &mut String,
+    schemas: &serde_json::Map<String, Value>,
+) -> Result<()> {
+    let posture_values = enum_values(type_schema(schemas, "DeploymentPosture")?)?;
+    let failure_values = enum_values(type_schema(schemas, "DeploymentPostureFailureReason")?)?;
+    let capability_values = enum_values(type_schema(schemas, "DeploymentPostureCapability")?)?;
+    let unavailable_reason_values = enum_values(type_schema(
+        schemas,
+        "DeploymentPostureCapabilityUnavailableReason",
+    )?)?;
+    emit_runtime_decoders(
+        out,
+        &posture_values,
+        &failure_values,
+        &capability_values,
+        &unavailable_reason_values,
+    )
+}
+
+fn emit_runtime_decoders(
+    out: &mut String,
+    posture_values: &[String],
+    failure_values: &[String],
+    capability_values: &[String],
+    unavailable_reason_values: &[String],
+) -> Result<()> {
+    emit_decoder_value_arrays(
+        out,
+        posture_values,
+        failure_values,
+        capability_values,
+        unavailable_reason_values,
+    )?;
+    emit_decoder_primitives(out);
+    emit_scope_and_summary_decoders(out);
+    emit_response_decoders(out);
+    Ok(())
+}
+
+fn emit_decoder_value_arrays(
+    out: &mut String,
+    posture_values: &[String],
+    failure_values: &[String],
+    capability_values: &[String],
+    unavailable_reason_values: &[String],
+) -> Result<()> {
+    out.push_str("const DEPLOYMENT_POSTURE_VALUES = ");
+    out.push_str(&to_ts_json(posture_values)?);
+    out.push_str(" as const;\n\n");
+
+    out.push_str("const DEPLOYMENT_POSTURE_FAILURE_CODE_VALUES = ");
+    out.push_str(&to_ts_json(failure_values)?);
+    out.push_str(" as const;\n\n");
+
+    out.push_str("const DEPLOYMENT_POSTURE_CAPABILITY_VALUES = ");
+    out.push_str(&to_ts_json(capability_values)?);
+    out.push_str(" as const;\n\n");
+
+    out.push_str("const DEPLOYMENT_POSTURE_UNAVAILABLE_REASON_VALUES = ");
+    out.push_str(&to_ts_json(unavailable_reason_values)?);
+    out.push_str(" as const;\n\n");
+    Ok(())
+}
+
+fn emit_decoder_primitives(out: &mut String) {
+    out.push_str(
+        r#"function failDecode(context: string, detail: string): never {
+  throw new Error(`Invalid deployment posture contract for ${context}: ${detail}`);
+}
+
+function isObjectRecord(raw: unknown): raw is Record<string, unknown> {
+  return typeof raw === "object" && raw !== null;
+}
+
+function decodeEnumValue<T extends string>(
+  raw: unknown,
+  values: readonly T[],
+  context: string,
+): T {
+  if (typeof raw !== "string" || !values.includes(raw as T)) {
+    failDecode(context, `expected one of ${values.join(", ")}`);
+  }
+  return raw as T;
+}
+
+function decodeArray<T>(
+  raw: unknown,
+  context: string,
+  decodeItem: (item: unknown, index: number) => T,
+): T[] {
+  if (!Array.isArray(raw)) {
+    failDecode(context, "expected array");
+  }
+  return raw.map((item, index) => decodeItem(item, index));
+}
+
+export function isDeploymentPosture(raw: unknown): raw is DeploymentPosture {
+  return typeof raw === "string" && DEPLOYMENT_POSTURE_VALUES.includes(raw as DeploymentPosture);
+}
+
+export function isDeploymentPostureFailureCode(
+  raw: unknown,
+): raw is DeploymentPostureFailureCode {
+  return (
+    typeof raw === "string" &&
+    DEPLOYMENT_POSTURE_FAILURE_CODE_VALUES.includes(raw as DeploymentPostureFailureCode)
+  );
+}
+
+"#,
+    );
+}
+
+fn emit_scope_and_summary_decoders(out: &mut String) {
+    out.push_str(
+        r#"export function decodeDeploymentPostureScope(
+  raw: unknown,
+  context = "scope",
+): DeploymentPostureScope {
+  if (!isObjectRecord(raw)) {
+    failDecode(context, "expected object");
+  }
+  const scope = raw["scope"];
+  if (scope === "account") {
+    const accountId = raw["account_id"];
+    if (typeof accountId !== "string" || accountId === "") {
+      failDecode(context, "account scope requires non-empty account_id");
+    }
+    return { scope, account_id: accountId };
+  }
+  if (scope === "project") {
+    const projectId = raw["project_id"];
+    if (typeof projectId !== "string" || projectId === "") {
+      failDecode(context, "project scope requires non-empty project_id");
+    }
+    return { scope, project_id: projectId };
+  }
+  if (scope === "installation") {
+    const installationId = raw["installation_id"];
+    if (typeof installationId !== "string" || installationId === "") {
+      failDecode(context, "installation scope requires non-empty installation_id");
+    }
+    return { scope, installation_id: installationId };
+  }
+  failDecode(context, "scope must be account, project, or installation");
+}
+
+export function decodeDeploymentPostureCapabilitySummary(
+  raw: unknown,
+  context = "capability_summary",
+): DeploymentPostureCapabilitySummary {
+  if (!isObjectRecord(raw)) {
+    failDecode(context, "expected object");
+  }
+  const available = decodeArray(
+    raw["available"],
+    `${context}.available`,
+    (entry, index) =>
+      decodeEnumValue(
+        entry,
+        DEPLOYMENT_POSTURE_CAPABILITY_VALUES,
+        `${context}.available[${index}]`,
+      ),
+  );
+  const unavailable = decodeArray(
+    raw["unavailable"],
+    `${context}.unavailable`,
+    (entry, index) => {
+      if (!isObjectRecord(entry)) {
+        failDecode(`${context}.unavailable[${index}]`, "expected object");
+      }
+      return {
+        capability: decodeEnumValue(
+          entry["capability"],
+          DEPLOYMENT_POSTURE_CAPABILITY_VALUES,
+          `${context}.unavailable[${index}].capability`,
+        ),
+        reason: decodeEnumValue(
+          entry["reason"],
+          DEPLOYMENT_POSTURE_UNAVAILABLE_REASON_VALUES,
+          `${context}.unavailable[${index}].reason`,
+        ),
+      };
+    },
+  );
+  return { available, unavailable };
+}
+
+"#,
+    );
+}
+
+fn emit_response_decoders(out: &mut String) {
+    out.push_str(
+        r#"export function decodeSupportedDeploymentPosturesResponse(
+  raw: unknown,
+): SupportedDeploymentPosturesResponse {
+  if (!isObjectRecord(raw)) {
+    failDecode("supported postures response", "expected object");
+  }
+  const supported = decodeArray(
+    raw["supported"],
+    "supported postures response.supported",
+    (entry, index) => {
+      if (!isObjectRecord(entry)) {
+        failDecode(`supported postures response.supported[${index}]`, "expected object");
+      }
+      return {
+        posture: decodeEnumValue(
+          entry["posture"],
+          DEPLOYMENT_POSTURE_VALUES,
+          `supported postures response.supported[${index}].posture`,
+        ),
+        capability_summary: decodeDeploymentPostureCapabilitySummary(
+          entry["capability_summary"],
+          `supported postures response.supported[${index}].capability_summary`,
+        ),
+      };
+    },
+  );
+  return { supported };
+}
+
+export function decodeDeploymentPostureReadModel(
+  raw: unknown,
+  context = "current posture",
+): DeploymentPostureReadModel {
+  if (!isObjectRecord(raw)) {
+    failDecode(context, "expected object");
+  }
+  return {
+    posture: decodeEnumValue(raw["posture"], DEPLOYMENT_POSTURE_VALUES, `${context}.posture`),
+    scope: decodeDeploymentPostureScope(raw["scope"], `${context}.scope`),
+    capability_summary: decodeDeploymentPostureCapabilitySummary(
+      raw["capability_summary"],
+      `${context}.capability_summary`,
+    ),
+  };
+}
+
+export function decodeCurrentDeploymentPostureResponse(
+  raw: unknown,
+): CurrentDeploymentPostureResponse {
+  if (!isObjectRecord(raw)) {
+    failDecode("current posture response", "expected object");
+  }
+  const currentRaw = raw["current"];
+  if (currentRaw === null) {
+    return { current: null };
+  }
+  return {
+    current: decodeDeploymentPostureReadModel(currentRaw, "current posture response.current"),
+  };
+}
+
+export function decodeSetDeploymentPostureResponse(
+  raw: unknown,
+): SetDeploymentPostureResponse {
+  if (!isObjectRecord(raw)) {
+    failDecode("set posture response", "expected object");
+  }
+  return {
+    posture: decodeEnumValue(raw["posture"], DEPLOYMENT_POSTURE_VALUES, "set posture response.posture"),
+    scope: decodeDeploymentPostureScope(raw["scope"], "set posture response.scope"),
+    capability_summary: decodeDeploymentPostureCapabilitySummary(
+      raw["capability_summary"],
+      "set posture response.capability_summary",
+    ),
+  };
+}
+"#,
+    );
+}
+
 fn inline_object(schema: &Value) -> Result<String> {
     let fields = object_fields(None, schema)?;
     let mut out = String::new();
@@ -394,7 +686,7 @@ fn inline_object(schema: &Value) -> Result<String> {
     Ok(out)
 }
 
-fn to_ts_json<T: serde::Serialize>(value: &T) -> Result<String> {
+fn to_ts_json<T: serde::Serialize + ?Sized>(value: &T) -> Result<String> {
     serde_json::to_string_pretty(value).context("serialize generated JSON literal")
 }
 

@@ -7,15 +7,13 @@
 import { createBdd } from "playwright-bdd";
 import type { Page } from "@playwright/test";
 
-import {
-  type CurrentDeploymentPostureResponse,
-  type SetDeploymentPostureResponse,
-  type SupportedDeploymentPosturesResponse,
-} from "../../../src/app/lib/generated/deployment-posture-contract";
 import { test } from "./account.steps";
 import {
   assertCapabilitySummary,
   assertCanonicalSupportedPostures,
+  decodeCurrentResponse,
+  decodeSetResponse,
+  decodeSupportedResponse,
   isDeploymentPosture,
   type PostureScenarioState,
   unsupportedPostureFailure,
@@ -131,7 +129,7 @@ async function setPosture(
     },
   );
   if (response.ok) {
-    state.lastSet = response.json as SetDeploymentPostureResponse;
+    state.lastSet = decodeSetResponse(response.json);
     delete state.lastFailureSummary;
     postureActor.hasSession = true;
     delete postureActor.lastFailureCode;
@@ -156,6 +154,7 @@ async function readPosture(
     `/deployment-postures/account/${encodeURIComponent(accountId)}`,
   );
   if (response.ok) {
+    decodeCurrentResponse(response.json);
     delete state.lastFailureSummary;
     postureActor.hasSession = true;
     delete postureActor.lastFailureCode;
@@ -275,7 +274,7 @@ When(
         `list supported postures failed with HTTP ${response.status}`,
       );
     }
-    const data = response.json as SupportedDeploymentPosturesResponse;
+    const data = decodeSupportedResponse(response.json);
     if (!Array.isArray(data.supported)) {
       throw new Error("supported posture payload did not include an array");
     }
@@ -386,7 +385,7 @@ Then(
         `get deployment posture failed with HTTP ${response.status}`,
       );
     }
-    const payload = response.json as CurrentDeploymentPostureResponse;
+    const payload = decodeCurrentResponse(response.json);
     if (!payload.current) {
       throw new Error("expected an existing recorded posture");
     }

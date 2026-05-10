@@ -9,6 +9,12 @@ import type {
   SupportedDeploymentPosture,
   SupportedDeploymentPosturesResponse,
 } from "@/app/lib/generated/deployment-posture-contract";
+import {
+  decodeCurrentDeploymentPostureResponse,
+  decodeSetDeploymentPostureResponse,
+  decodeSupportedDeploymentPosturesResponse,
+  isDeploymentPostureFailureCode,
+} from "@/app/lib/generated/deployment-posture-contract";
 
 export interface SignUpInput {
   email: string;
@@ -86,13 +92,46 @@ export type AccountFailureCode =
   | DeploymentPostureFailureCode;
 
 export interface AccountFailure {
-  code: AccountFailureCode | string;
+  code: AccountFailureCode;
   summary: string;
+  unknown_code?: string;
 }
 
 interface FailureBody {
   code?: unknown;
   summary?: unknown;
+}
+
+const CORE_ACCOUNT_FAILURE_CODES = [
+  "duplicate_identifier",
+  "invalid_credential",
+  "invitation_not_found",
+  "invitation_already_consumed",
+  "invitation_expired",
+] as const;
+
+function isCoreAccountFailureCode(
+  raw: unknown,
+): raw is (typeof CORE_ACCOUNT_FAILURE_CODES)[number] {
+  return (
+    typeof raw === "string" &&
+    CORE_ACCOUNT_FAILURE_CODES.includes(
+      raw as (typeof CORE_ACCOUNT_FAILURE_CODES)[number],
+    )
+  );
+}
+
+function normalizeFailureCode(raw: unknown): {
+  code: AccountFailureCode;
+  unknown_code?: string;
+} {
+  if (isCoreAccountFailureCode(raw) || isDeploymentPostureFailureCode(raw)) {
+    return { code: raw };
+  }
+  if (typeof raw === "string" && raw !== "") {
+    return { code: "internal_error", unknown_code: raw };
+  }
+  return { code: "internal_error" };
 }
 
 /**
@@ -127,6 +166,7 @@ async function requestJson<T>(
   method: "GET" | "POST",
   path: string,
   body?: unknown,
+  decode?: (raw: unknown) => T,
 ): Promise<T> {
   let response: Response;
   try {
@@ -155,24 +195,65 @@ async function requestJson<T>(
     } catch {
       parsed = {};
     }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
+    const code = normalizeFailureCode(parsed.code);
     const summary =
       typeof parsed.summary === "string"
         ? parsed.summary
         : `HTTP ${response.status}`;
-    throw new AccountRequestError({ code, summary });
+    if (code.unknown_code) {
+      throw new AccountRequestError({
+        code: code.code,
+        summary,
+        unknown_code: code.unknown_code,
+      });
+    }
+    throw new AccountRequestError({
+      code: code.code,
+      summary,
+    });
   }
 
-  return (await response.json()) as T;
+  let payload: unknown;
+  try {
+    payload = (await response.json()) as unknown;
+  } catch {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: `Invalid JSON body for ${path}`,
+    });
+  }
+
+  if (!decode) {
+    return payload as T;
+  }
+
+  try {
+    return decode(payload);
+  } catch (cause: unknown) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: cause instanceof Error ? cause.message : String(cause),
+    });
+  }
 }
 
 async function postJson<T>(path: string, body: unknown): Promise<T> {
   return requestJson<T>("POST", path, body);
 }
 
-async function getJson<T>(path: string): Promise<T> {
-  return requestJson<T>("GET", path);
+async function postJsonDecoded<T>(
+  path: string,
+  body: unknown,
+  decode: (raw: unknown) => T,
+): Promise<T> {
+  return requestJson<T>("POST", path, body, decode);
+}
+
+async function getJsonDecoded<T>(
+  path: string,
+  decode: (raw: unknown) => T,
+): Promise<T> {
+  return requestJson<T>("GET", path, undefined, decode);
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
@@ -196,7 +277,10 @@ export function acceptInvitation(
 }
 
 export function listDeploymentPostures(): Promise<SupportedDeploymentPosturesResponse> {
-  return getJson<SupportedDeploymentPosturesResponse>("/deployment-postures");
+  return getJsonDecoded<SupportedDeploymentPosturesResponse>(
+    "/deployment-postures",
+    decodeSupportedDeploymentPosturesResponse,
+  );
 }
 
 export function listDeploymentPosturesCached(): Promise<SupportedDeploymentPosturesResponse> {
@@ -214,15 +298,19 @@ export function getDeploymentPosture(
   scopeId: string,
 ): Promise<CurrentDeploymentPostureResponse> {
   const path = `/deployment-postures/${encodeURIComponent(scopeKind)}/${encodeURIComponent(scopeId)}`;
-  return getJson<CurrentDeploymentPostureResponse>(path);
+  return getJsonDecoded<CurrentDeploymentPostureResponse>(
+    path,
+    decodeCurrentDeploymentPostureResponse,
+  );
 }
 
 export function setDeploymentPosture(
   request: SetDeploymentPostureRequest,
 ): Promise<SetDeploymentPostureResponse> {
-  return postJson<SetDeploymentPostureResponse>(
+  return postJsonDecoded<SetDeploymentPostureResponse>(
     "/deployment-postures",
     request,
+    decodeSetDeploymentPostureResponse,
   );
 }
 

@@ -5,14 +5,16 @@ import type { ReactNode } from "react";
 
 import {
   AccountRequestError,
+  describeFailure,
   getDeploymentPosture,
   listDeploymentPosturesCached,
   setDeploymentPosture,
   type DeploymentPosture,
+  type DeploymentPostureGetResponse,
   type DeploymentPostureListResponse,
-  type SetDeploymentPostureResponse,
   type SupportedDeploymentPosture,
 } from "@/app/lib/account-client";
+import { isDeploymentPosture } from "@/app/lib/generated/deployment-posture-contract";
 import * as m from "@/i18n/paraglide/messages";
 
 const DEFAULT_POSTURES: DeploymentPosture[] = [
@@ -23,27 +25,36 @@ const DEFAULT_POSTURES: DeploymentPosture[] = [
 
 export function DeploymentPosturePanel(): ReactNode {
   const [accountId, setAccountId] = useState("");
-  const [selectedPosture, setSelectedPosture] =
-    useState<DeploymentPosture>("hosted");
+  const [selectedPosture, setSelectedPosture] = useState<string>("hosted");
   const [supported, setSupported] = useState<SupportedDeploymentPosture[]>([]);
-  const [current, setCurrent] = useState<SetDeploymentPostureResponse | null>(
-    null,
-  );
+  const [current, setCurrent] =
+    useState<DeploymentPostureGetResponse["current"]>(null);
   const [postureError, setPostureError] = useState<string | null>(null);
   const [postureNotice, setPostureNotice] = useState<string | null>(null);
   const [loadingSupported, setLoadingSupported] = useState(false);
   const [loadingCurrent, setLoadingCurrent] = useState(false);
   const [savingPosture, setSavingPosture] = useState(false);
 
-  const ensureSupported = async (): Promise<boolean> => {
+  const ensureSupported = async (): Promise<
+    SupportedDeploymentPosture[] | null
+  > => {
     if (supported.length > 0) {
-      return true;
+      return supported;
     }
     setLoadingSupported(true);
     try {
       const response = await listDeploymentPosturesCached();
       setSupported(response.supported);
-      return true;
+      setSelectedPosture((currentValue) => {
+        const hasCurrent = response.supported.some(
+          (item) => item.posture === currentValue,
+        );
+        if (hasCurrent) {
+          return currentValue;
+        }
+        return response.supported[0]?.posture ?? "hosted";
+      });
+      return response.supported;
     } catch (reason: unknown) {
       const message =
         reason instanceof AccountRequestError
@@ -52,7 +63,7 @@ export function DeploymentPosturePanel(): ReactNode {
             ? reason.message
             : String(reason);
       setPostureError(message);
-      return false;
+      return null;
     } finally {
       setLoadingSupported(false);
     }
@@ -66,7 +77,7 @@ export function DeploymentPosturePanel(): ReactNode {
     }
     setPostureError(null);
     setPostureNotice(null);
-    if (!(await ensureSupported())) {
+    if ((await ensureSupported()) === null) {
       return;
     }
     setLoadingCurrent(true);
@@ -97,7 +108,20 @@ export function DeploymentPosturePanel(): ReactNode {
     }
     setPostureError(null);
     setPostureNotice(null);
-    if (!(await ensureSupported())) {
+    const supportedPostures = await ensureSupported();
+    if (supportedPostures === null) {
+      return;
+    }
+    if (
+      !isDeploymentPosture(selectedPosture) ||
+      !supportedPostures.some((item) => item.posture === selectedPosture)
+    ) {
+      setPostureError(
+        describeFailure({
+          code: "validation_failed",
+          summary: `Unsupported deployment posture \`${selectedPosture}\`.`,
+        }),
+      );
       return;
     }
     setSavingPosture(true);
@@ -106,7 +130,11 @@ export function DeploymentPosturePanel(): ReactNode {
         scope: { scope: "account", account_id: trimmed },
         posture: selectedPosture,
       });
-      setCurrent(response);
+      setCurrent({
+        posture: response.posture,
+        scope: response.scope,
+        capability_summary: response.capability_summary,
+      });
       setPostureNotice(m.posture_saved());
     } catch (reason: unknown) {
       const message =
@@ -155,9 +183,7 @@ export function DeploymentPosturePanel(): ReactNode {
         />
         <select
           value={selectedPosture}
-          onChange={(event) =>
-            setSelectedPosture(event.target.value as DeploymentPosture)
-          }
+          onChange={(event) => setSelectedPosture(event.target.value)}
           className="rounded border border-[--color-border] bg-transparent px-3 py-2 text-sm"
         >
           {postureOptions.map((posture) => (

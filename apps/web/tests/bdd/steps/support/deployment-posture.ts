@@ -2,11 +2,19 @@ import {
   capabilitySummaryForPosture,
   SUPPORTED_DEPLOYMENT_POSTURES,
 } from "../../../../src/app/lib/generated/deployment-posture-fixtures";
+import {
+  decodeCurrentDeploymentPostureResponse,
+  decodeSetDeploymentPostureResponse,
+  decodeSupportedDeploymentPosturesResponse,
+  isDeploymentPosture as isDeploymentPostureValue,
+} from "../../../../src/app/lib/generated/deployment-posture-contract";
 import type {
+  CurrentDeploymentPostureResponse,
   DeploymentPosture,
   DeploymentPostureCapabilitySummary,
   SetDeploymentPostureResponse,
   SupportedDeploymentPosture,
+  SupportedDeploymentPosturesResponse,
 } from "../../../../src/app/lib/generated/deployment-posture-contract";
 
 import type { NormalizedFailure } from "./web-wire";
@@ -20,7 +28,23 @@ export interface PostureScenarioState {
 }
 
 export function isDeploymentPosture(raw: string): raw is DeploymentPosture {
-  return SUPPORTED_DEPLOYMENT_POSTURES.includes(raw as DeploymentPosture);
+  return isDeploymentPostureValue(raw);
+}
+
+export function decodeSupportedResponse(
+  raw: unknown,
+): SupportedDeploymentPosturesResponse {
+  return decodeSupportedDeploymentPosturesResponse(raw);
+}
+
+export function decodeSetResponse(raw: unknown): SetDeploymentPostureResponse {
+  return decodeSetDeploymentPostureResponse(raw);
+}
+
+export function decodeCurrentResponse(
+  raw: unknown,
+): CurrentDeploymentPostureResponse {
+  return decodeCurrentDeploymentPostureResponse(raw);
 }
 
 export function unsupportedPostureFailure(raw: string): NormalizedFailure {
