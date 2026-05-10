@@ -10,6 +10,7 @@ mod cli;
 pub mod contract;
 mod error;
 mod manifest;
+mod manifest_entry_contract;
 mod path_guard;
 mod plan;
 mod upgrade;

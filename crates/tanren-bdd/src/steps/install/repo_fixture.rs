@@ -122,12 +122,12 @@ impl InstallContext {
                 path: TAMPERED_STALE_PATH.to_owned(),
             });
         }
-        manifest.push_str(
-            format!(
-                "\n[[entries]]\npath = \"{TAMPERED_STALE_PATH}\"\ncontent_hash = \"{INVALID_HASH}\"\nasset_class = \"methodology-command\"\nintegration = \"codex\"\npreservation = \"replace-generated\"\n"
-            )
-            .as_str(),
-        );
+        let stale_path = RepositoryRelativePath::parse(TAMPERED_STALE_PATH.to_owned())?;
+        manifest_helpers::append_stale_generated_manifest_entry(
+            &mut manifest,
+            &stale_path,
+            INVALID_HASH,
+        )?;
         fs::write(&manifest_path, manifest).map_err(|source| InstallStepError::WriteFile {
             path: manifest_path,
             action: "write install manifest with invalid hash entry",

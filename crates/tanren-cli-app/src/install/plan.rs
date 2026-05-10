@@ -13,6 +13,9 @@ use crate::install::manifest::{
     ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries,
     sha256_hex,
 };
+use crate::install::manifest_entry_contract::{
+    ManifestEntryKind, ValidatedManifestEntry, validate_manifest_entry_contract,
+};
 use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallIntegration, InstallProfile};
 
@@ -177,7 +180,7 @@ pub(super) fn build_install_plan(
         &repository_root,
         &desired_generated_paths,
         &trusted_generated_asset_registry,
-        previous_manifest.as_ref(),
+        &previous_entries_by_path,
         &manifest_absolute_path,
     )?;
     let mut preserved = collect_preserved_paths(&writes);
@@ -280,15 +283,23 @@ fn validate_manifest_version(
 fn build_previous_entry_map<'a>(
     _manifest_absolute_path: &Path,
     manifest: Option<&'a InstallManifest>,
-) -> Result<BTreeMap<&'a str, &'a ManifestEntry>, InstallError> {
+) -> Result<BTreeMap<&'a str, ValidatedManifestEntry<'a>>, InstallError> {
     let Some(previous_manifest) = manifest else {
         return Ok(BTreeMap::new());
     };
 
     let mut entries = BTreeMap::new();
     for entry in &previous_manifest.entries {
+        let kind = validate_manifest_entry_contract(
+            entry,
+            previous_manifest.profile,
+            INSTALL_MANIFEST_REPO_PATH,
+        )?;
         let path = entry.path.as_str();
-        if entries.insert(path, entry).is_some() {
+        if entries
+            .insert(path, ValidatedManifestEntry { entry, kind })
+            .is_some()
+        {
             return Err(InstallError::InvalidInstallManifest {
                 path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
                 message: format!("duplicate manifest entry for '{path}'"),
@@ -303,19 +314,16 @@ fn build_write_plan(
     repository_root: &Path,
     assets: &[InstallAssetProjection],
     manifest_entries: &[ManifestEntry],
-    previous_entries_by_path: &BTreeMap<&str, &ManifestEntry>,
+    previous_entries_by_path: &BTreeMap<&str, ValidatedManifestEntry<'_>>,
 ) -> Result<Vec<PlannedAssetAction>, InstallError> {
     let mut actions = Vec::with_capacity(assets.len());
 
     for (asset, manifest_entry) in assets.iter().zip(manifest_entries) {
         let absolute_path = resolve_repo_path(repository_root, &asset.destination_path)?;
-        let previous_entry = previous_entries_by_path.get(asset.destination_path.as_str());
-        let planned = plan_asset_write(
-            absolute_path,
-            asset,
-            manifest_entry,
-            previous_entry.copied(),
-        )?;
+        let previous_entry = previous_entries_by_path
+            .get(asset.destination_path.as_str())
+            .map(|validated| validated.entry);
+        let planned = plan_asset_write(absolute_path, asset, manifest_entry, previous_entry)?;
         actions.push(planned);
     }
 
@@ -385,25 +393,29 @@ fn build_removals(
     repository_root: &Path,
     desired_generated_paths: &BTreeSet<&str>,
     trusted_generated_asset_registry: &BTreeSet<RepoRelativePath>,
-    previous_manifest: Option<&InstallManifest>,
+    previous_entries_by_path: &BTreeMap<&str, ValidatedManifestEntry<'_>>,
     manifest_absolute_path: &Path,
 ) -> Result<StaleRemovalPlan, InstallError> {
-    let Some(manifest) = previous_manifest else {
+    if previous_entries_by_path.is_empty() {
         return Ok(StaleRemovalPlan {
             removals: Vec::new(),
             preserved_paths: Vec::new(),
         });
-    };
+    }
 
-    let mut removals = Vec::with_capacity(manifest.entries.len());
+    let mut removals = Vec::with_capacity(previous_entries_by_path.len());
     let mut preserved_paths = Vec::new();
-    for entry in &manifest.entries {
+    for validated in previous_entries_by_path.values() {
+        let entry = validated.entry;
         let path = entry.path.as_str();
-        if desired_generated_paths.contains(path)
-            || entry.preservation != PreservationPolicy::ReplaceGenerated
-        {
+        if desired_generated_paths.contains(path) {
             continue;
         }
+
+        let ManifestEntryKind::GeneratedMethodologyCommand { integration } = validated.kind else {
+            continue;
+        };
+        let _ = integration;
 
         if !trusted_generated_asset_registry.contains(&entry.path) {
             continue;

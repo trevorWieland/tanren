@@ -177,8 +177,8 @@ pub fn append_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &InstallProofRepoRelativePath,
     content_hash: &str,
-) {
-    contract::append_stale_generated_manifest_entry(manifest, relative_path, content_hash);
+) -> Result<(), InstallProofError> {
+    contract::append_stale_generated_manifest_entry(manifest, relative_path, content_hash)
 }
 
 /// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).

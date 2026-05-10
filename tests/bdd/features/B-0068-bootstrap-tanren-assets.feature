@@ -124,7 +124,7 @@ Feature: Bootstrap Tanren assets into an existing repository
       And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
 
     @falsification @cli
-    Scenario: Reinstall does not remove unrelated files from crafted stale manifest entries
+    Scenario: Reject reinstall when crafted stale manifest entry violates generated destination contract
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
@@ -132,7 +132,9 @@ Feature: Bootstrap Tanren assets into an existing repository
       And repository file "README.md" baseline is recorded
       And previous install manifest tracks stale generated file "README.md"
       When tanren-cli install runs with profile "rust-cargo"
-      Then the install command succeeds
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And no files are written in the repository fixture
       And repository file "README.md" preserves its baseline content
 
     @falsification @cli

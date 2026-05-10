@@ -18,8 +18,8 @@ pub(crate) fn append_stale_generated_manifest_entry(
         manifest,
         &relative_path.as_install_path()?,
         content_hash,
-    );
-    Ok(())
+    )
+    .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
 
 pub(crate) fn tamper_manifest_with_raw_generated_entry(

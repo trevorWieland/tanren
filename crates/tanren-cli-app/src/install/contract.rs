@@ -1,11 +1,14 @@
 //! Delivery-owned install proof contract helpers used by behavior witnesses.
 
 use std::collections::BTreeSet;
-use std::fmt::Write as _;
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use thiserror::Error;
+
+mod legacy_generated_migration;
+
+use legacy_generated_migration::LegacyGeneratedMigrationAdapter;
 
 use crate::install::catalog::generated_integration_destination_roots;
 use crate::install::manifest::{
@@ -68,6 +71,8 @@ pub enum InstallProofError {
         manifest_path: PathBuf,
         source: toml::de::Error,
     },
+    #[error("failed to serialize install manifest fixture entry as TOML: {source}")]
+    InstallManifestTomlSerialize { source: toml::ser::Error },
     #[error("expected repository file to exist: {path}")]
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository path to be absent: {path}")]
@@ -174,14 +179,9 @@ pub fn append_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &RepoRelativePath,
     content_hash: &str,
-) {
-    let _ = write!(
-        manifest,
-        "\n[[entries]]\npath = \"{}\"\ncontent_hash = \"{}\"\nasset_class = \"methodology-command\"\nintegration = \"{}\"\npreservation = \"replace-generated\"\n",
-        relative_path.as_str(),
-        content_hash,
-        InstallIntegration::Codex.as_str()
-    );
+) -> Result<(), InstallProofError> {
+    LegacyGeneratedMigrationAdapter::from_repo_relative_path(relative_path, content_hash)
+        .append_to_manifest(manifest)
 }
 
 /// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
@@ -198,11 +198,8 @@ pub fn tamper_manifest_with_raw_generated_entry(
             path: raw_path.to_owned(),
         });
     }
-    let _ = write!(
-        manifest,
-        "\n[[entries]]\npath = \"{raw_path}\"\ncontent_hash = \"{TAMPERED_ENTRY_SHA256}\"\nasset_class = \"methodology-command\"\nintegration = \"{}\"\npreservation = \"replace-generated\"\n",
-        InstallIntegration::Codex.as_str()
-    );
+    LegacyGeneratedMigrationAdapter::from_raw_path(raw_path, TAMPERED_ENTRY_SHA256)
+        .append_to_manifest(&mut manifest)?;
     fs::write(&manifest_path, manifest).map_err(|source| InstallProofError::WriteFile {
         path: manifest_path,
         action: "write install manifest with tampered raw entry",

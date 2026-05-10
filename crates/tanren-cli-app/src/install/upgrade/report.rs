@@ -4,13 +4,33 @@ use crate::install::InstallPlan;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::plan::PlannedWriteKind;
 
+/// Typed upgrade compatibility concern emitted in previews.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum UpgradeCompatibilityConcern {
+    NoInstallManifest,
+    None,
+    DestructiveAssetChanges,
+}
+
+impl UpgradeCompatibilityConcern {
+    /// Stable concern code rendered in CLI output.
+    #[must_use]
+    pub(super) const fn as_code(self) -> &'static str {
+        match self {
+            Self::NoInstallManifest => "no-install-manifest",
+            Self::None => "none",
+            Self::DestructiveAssetChanges => "destructive-asset-changes",
+        }
+    }
+}
+
 /// Renderable upgrade preview details.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct UpgradePreviewReport {
     changed_paths: Vec<RepoRelativePath>,
     destructive_actions: Vec<RepoRelativePath>,
     preserved_paths: Vec<RepoRelativePath>,
-    compatibility_concerns: Vec<&'static str>,
+    compatibility_concerns: Vec<UpgradeCompatibilityConcern>,
 }
 
 impl UpgradePreviewReport {
@@ -21,7 +41,7 @@ impl UpgradePreviewReport {
             changed_paths: Vec::new(),
             destructive_actions: Vec::new(),
             preserved_paths: Vec::new(),
-            compatibility_concerns: vec!["no-install-manifest"],
+            compatibility_concerns: vec![UpgradeCompatibilityConcern::NoInstallManifest],
         }
     }
 
@@ -58,9 +78,9 @@ impl UpgradePreviewReport {
         preserved_paths.dedup();
 
         let compatibility_concerns = if destructive_actions.is_empty() {
-            vec!["none"]
+            vec![UpgradeCompatibilityConcern::None]
         } else {
-            vec!["destructive-asset-changes"]
+            vec![UpgradeCompatibilityConcern::DestructiveAssetChanges]
         };
 
         Self {
@@ -91,7 +111,7 @@ impl UpgradePreviewReport {
 
     /// Compatibility and migration concern codes.
     #[must_use]
-    pub(super) fn compatibility_concerns(&self) -> &[&'static str] {
+    pub(super) fn compatibility_concerns(&self) -> &[UpgradeCompatibilityConcern] {
         &self.compatibility_concerns
     }
 }
@@ -102,6 +122,16 @@ pub(super) fn format_path_list(paths: &[RepoRelativePath]) -> String {
     paths
         .iter()
         .map(RepoRelativePath::as_str)
+        .collect::<Vec<_>>()
+        .join(",")
+}
+
+/// Join sorted compatibility concern codes for stable CLI output.
+#[must_use]
+pub(super) fn format_concern_list(concerns: &[UpgradeCompatibilityConcern]) -> String {
+    concerns
+        .iter()
+        .map(|concern| concern.as_code())
         .collect::<Vec<_>>()
         .join(",")
 }

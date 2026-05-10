@@ -335,6 +335,38 @@ pub(super) fn build_trusted_generated_asset_registry()
     Ok(registry)
 }
 
+/// Profile destination roots for generated standards profile assets.
+#[must_use]
+pub(super) const fn standards_profile_destination_root(profile: InstallProfile) -> &'static str {
+    match profile {
+        InstallProfile::RustCargo => "profiles/rust-cargo/",
+    }
+}
+
+/// Integration destination roots for generated command assets.
+#[must_use]
+pub(super) const fn generated_integration_destination_root(
+    integration: InstallIntegration,
+) -> &'static str {
+    match integration {
+        InstallIntegration::Claude => CLAUDE_COMMAND_DESTINATION_ROOT,
+        InstallIntegration::Codex => CODEX_COMMAND_DESTINATION_ROOT,
+        InstallIntegration::OpenCode => OPENCODE_COMMAND_DESTINATION_ROOT,
+    }
+}
+
+/// Whether a path matches a generated command destination for an integration.
+#[must_use]
+pub(super) fn is_generated_integration_destination(
+    path: &RepoRelativePath,
+    integration: InstallIntegration,
+) -> bool {
+    matches_generated_command_layout(
+        path.as_str(),
+        generated_integration_destination_root(integration),
+    )
+}
+
 /// Integration destination roots for a selected install invocation.
 #[must_use]
 #[cfg(feature = "test-hooks")]
@@ -343,7 +375,7 @@ pub(super) fn generated_integration_destination_roots(
 ) -> BTreeSet<&'static str> {
     integrations
         .iter()
-        .map(|integration| integration_destination_root(*integration))
+        .map(|integration| generated_integration_destination_root(*integration))
         .collect()
 }
 
@@ -380,19 +412,10 @@ fn install_asset(
 fn integration_destination(integration: InstallIntegration, command_name: &str) -> String {
     format!(
         "{}{command_name}.md",
-        integration_destination_root(integration)
+        generated_integration_destination_root(integration)
     )
 }
 
-const fn integration_destination_root(integration: InstallIntegration) -> &'static str {
-    match integration {
-        InstallIntegration::Claude => CLAUDE_COMMAND_DESTINATION_ROOT,
-        InstallIntegration::Codex => CODEX_COMMAND_DESTINATION_ROOT,
-        InstallIntegration::OpenCode => OPENCODE_COMMAND_DESTINATION_ROOT,
-    }
-}
-
-#[cfg(feature = "test-hooks")]
 fn matches_generated_command_layout(path: &str, destination_root: &str) -> bool {
     let Some(filename) = path.strip_prefix(destination_root) else {
         return false;

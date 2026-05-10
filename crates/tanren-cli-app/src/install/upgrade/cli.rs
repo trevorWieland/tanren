@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use super::UpgradePreview;
-use super::report::{UpgradePreviewReport, format_path_list};
+use super::report::{UpgradePreviewReport, format_concern_list, format_path_list};
 use crate::install::error::UpgradeCommandError;
 use crate::install::upgrade::{apply_upgrade, preview_upgrade};
 
@@ -63,7 +63,7 @@ impl UpgradeCommand {
             format_path_list(preview.changed_paths()),
             format_path_list(preview.destructive_actions()),
             format_path_list(preview.preserved_paths()),
-            preview.compatibility_concerns().join(","),
+            format_concern_list(preview.compatibility_concerns()),
         )
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
         Ok(())
