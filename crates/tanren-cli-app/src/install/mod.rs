@@ -22,8 +22,9 @@ pub use error::InstallError;
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
 pub use upgrade::{
-    MigrationConcern, NothingToUpgrade, UpgradePlan, UpgradePlanOutcome, UpgradePlannedRemoval,
-    UpgradePlannedWrite, UpgradePlannedWriteKind, plan_upgrade,
+    MigrationConcern, NothingToUpgrade, UpgradeCommand, UpgradePlan, UpgradePlanOutcome,
+    UpgradePlannedRemoval, UpgradePlannedWrite, UpgradePlannedWriteKind, UpgradePreviewReport,
+    plan_upgrade,
 };
 pub use writer::InstallReport;
 

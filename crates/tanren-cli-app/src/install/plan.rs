@@ -14,6 +14,7 @@ use crate::install::manifest::{
     sha256_hex,
 };
 use crate::install::path_guard::resolve_repo_path;
+use crate::install::upgrade::{UpgradePlan, UpgradePlannedWriteKind};
 use crate::install::{InstallIntegration, InstallProfile};
 
 /// Planned file-write action category.
@@ -105,34 +106,67 @@ impl InstallPlan {
         &self.writes
     }
 
-    /// Planned generated-file removals.
     #[must_use]
     pub fn removals(&self) -> &[PlannedRemoval] {
         &self.removals
     }
 
-    /// Paths explicitly preserved due to user drift policy.
     #[must_use]
     pub fn preserved(&self) -> &[RepoRelativePath] {
         &self.preserved
     }
 
-    /// Repo-relative manifest path.
     #[must_use]
     pub fn manifest_path(&self) -> &RepoRelativePath {
         &self.manifest_path
     }
 
-    /// Absolute manifest path validated during planning.
     #[must_use]
     pub(crate) fn manifest_absolute_path(&self) -> &Path {
         &self.manifest_absolute_path
     }
 
-    /// Materialized manifest payload.
     #[must_use]
     pub fn manifest(&self) -> &InstallManifest {
         &self.manifest
+    }
+
+    #[must_use]
+    pub(super) fn from_upgrade_plan(plan: &UpgradePlan) -> Self {
+        let writes = plan
+            .writes()
+            .iter()
+            .map(|write| PlannedWrite {
+                path: write.path().clone(),
+                absolute_path: write.absolute_path().to_path_buf(),
+                content: write.content(),
+                kind: match write.kind() {
+                    UpgradePlannedWriteKind::Created => PlannedWriteKind::Created,
+                    UpgradePlannedWriteKind::Updated => PlannedWriteKind::Updated,
+                    UpgradePlannedWriteKind::Restored => PlannedWriteKind::Restored,
+                },
+            })
+            .collect();
+        let removals = plan
+            .removals()
+            .iter()
+            .map(|removal| PlannedRemoval {
+                path: removal.path().clone(),
+                absolute_path: removal.absolute_path().to_path_buf(),
+            })
+            .collect();
+        let mut preserved = plan.preserved().to_vec();
+        preserved.sort();
+        preserved.dedup();
+        Self {
+            repository_root: plan.repository_root().to_path_buf(),
+            writes,
+            removals,
+            preserved,
+            manifest_path: plan.manifest_path().clone(),
+            manifest_absolute_path: plan.manifest_absolute_path().to_path_buf(),
+            manifest: plan.next_manifest().clone(),
+        }
     }
 }
 

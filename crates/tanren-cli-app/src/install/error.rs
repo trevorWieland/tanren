@@ -82,3 +82,47 @@ impl From<InstallError> for InstallCommandError {
         }
     }
 }
+
+/// Typed `tanren-cli upgrade` command failures at the CLI-library boundary.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum UpgradeCommandError {
+    /// Input validation failed before any writes occurred.
+    #[error("error: validation_failed — {source}")]
+    ValidationFailed {
+        #[source]
+        source: InstallError,
+    },
+    /// Upgrade preview was emitted and explicit confirmation is required.
+    #[error(
+        "error: confirmation_required — rerun with --confirm to apply the previewed upgrade plan"
+    )]
+    ConfirmationRequired,
+    /// Upgrade planning or apply failed.
+    #[error("error: upgrade_failed — {source}")]
+    UpgradeFailed {
+        #[source]
+        source: InstallError,
+    },
+    /// Emitting upgrade output to stdout failed.
+    #[error("error: upgrade_failed — write upgrade report to stdout: {source}")]
+    StdoutWriteFailure {
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+impl From<InstallError> for UpgradeCommandError {
+    fn from(source: InstallError) -> Self {
+        match source {
+            InstallError::UnsupportedProfile { .. }
+            | InstallError::UnsupportedIntegration { .. }
+            | InstallError::EmptyIntegrationSelection
+            | InstallError::InvalidRepositoryPath { .. }
+            | InstallError::InvalidInstallManifest { .. }
+            | InstallError::UnsafeRepositoryPath { .. }
+            | InstallError::RepositoryPathNotDirectory { .. } => Self::ValidationFailed { source },
+            _ => Self::UpgradeFailed { source },
+        }
+    }
+}

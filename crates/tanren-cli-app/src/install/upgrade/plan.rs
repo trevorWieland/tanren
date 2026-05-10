@@ -68,6 +68,11 @@ impl UpgradePlannedWrite {
     }
 
     #[must_use]
+    pub const fn content(&self) -> &'static str {
+        self.content
+    }
+
+    #[must_use]
     pub fn content_bytes(&self) -> &'static [u8] {
         self.content.as_bytes()
     }

@@ -68,6 +68,8 @@ enum Command {
     },
     /// Bootstrap Tanren assets into a repository.
     Install(install::InstallCommand),
+    /// Preview or apply a manifest-aware Tanren asset upgrade.
+    Upgrade(install::UpgradeCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -127,6 +129,7 @@ pub fn run(config: Config) -> ExitCode {
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
         Some(Command::Install(command)) => command.run().map_err(anyhow::Error::new),
+        Some(Command::Upgrade(command)) => command.run().map_err(anyhow::Error::new),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
