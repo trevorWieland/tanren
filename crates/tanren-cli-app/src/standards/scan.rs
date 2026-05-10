@@ -3,8 +3,6 @@
 use std::fs;
 use std::path::Path;
 
-use serde::Deserialize;
-
 use super::config::to_repo_relative_path;
 use super::error::{StandardsCommandError, StandardsError, StandardsFrontmatterError};
 
@@ -60,11 +58,6 @@ impl StandardsScanState {
             _ => self.first_standard = Some(parsed),
         }
     }
-}
-
-#[derive(Debug, Deserialize)]
-struct StandardsFrontmatter {
-    name: String,
 }
 
 pub(super) fn scan_standards(
@@ -218,15 +211,44 @@ fn scan_markdown_file(
 
 fn parse_standard_name(content: &str, path: &str) -> Result<StandardName, StandardsError> {
     let frontmatter = extract_frontmatter(content, path)?;
-    let frontmatter: StandardsFrontmatter =
-        serde_yaml::from_str(frontmatter).map_err(|source| StandardsError::FrontmatterParse {
+    let name_value = parse_name_from_frontmatter(frontmatter).map_err(|source| {
+        StandardsError::FrontmatterParse {
             path: path.to_owned(),
-            source: StandardsFrontmatterError::from(source),
-        })?;
-    StandardName::parse(&frontmatter.name).map_err(|source| StandardsError::FrontmatterParse {
+            source,
+        }
+    })?;
+    StandardName::parse(&name_value).map_err(|source| StandardsError::FrontmatterParse {
         path: path.to_owned(),
         source,
     })
+}
+
+/// Extract the `name` value from a simple YAML-like frontmatter block.
+///
+/// This is a strict, bounded parser that handles only flat `key: value` lines.
+/// Unknown keys are tolerated; missing or empty `name` produces a typed error.
+/// No third-party YAML crate is used, avoiding the deprecated `serde_yaml` and
+/// its `unsafe-libyaml` transitive dependency.
+fn parse_name_from_frontmatter(frontmatter: &str) -> Result<String, StandardsFrontmatterError> {
+    let mut name_value: Option<String> = None;
+    for line in frontmatter.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        let Some((key, value)) = trimmed.split_once(':') else {
+            continue;
+        };
+        let key = key.trim();
+        if key == "name" {
+            name_value = Some(value.trim().to_owned());
+        }
+    }
+    match name_value {
+        Some(value) if !value.is_empty() => Ok(value),
+        Some(_) => Err(StandardsFrontmatterError::EmptyName),
+        None => Err(StandardsFrontmatterError::FrontmatterInvalid),
+    }
 }
 
 fn extract_frontmatter<'a>(content: &'a str, path: &str) -> Result<&'a str, StandardsError> {

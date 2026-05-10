@@ -145,11 +145,8 @@ pub(crate) enum StandardsFrontmatterError {
     InvalidByteBounds,
     #[error("frontmatter byte counting overflowed")]
     ByteCountingOverflow,
-    #[error("invalid YAML frontmatter: {source}")]
-    InvalidYaml {
-        #[from]
-        source: serde_yaml::Error,
-    },
+    #[error("invalid YAML frontmatter")]
+    FrontmatterInvalid,
     #[error("frontmatter 'name' must not be empty")]
     EmptyName,
 }
