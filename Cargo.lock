@@ -4253,7 +4253,6 @@ dependencies = [
  "tanren-provider-integrations",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]
@@ -4500,7 +4499,6 @@ dependencies = [
  "tanren-provider-integrations",
  "tokio",
  "tracing",
- "uuid",
 ]
 
 [[package]]

@@ -25,7 +25,7 @@ pub struct SignUpRequest {
     /// calls do not leak the credential.
     #[serde(
         deserialize_with = "secret_serde::deserialize_password",
-        serialize_with = "secret_serde::serialize_password_expose"
+        serialize_with = "secret_serde::serialize_password_redacted"
     )]
     #[schemars(with = "String")]
     #[schema(value_type = String, format = Password)]
@@ -51,7 +51,7 @@ pub struct SignInRequest {
     /// Plaintext password — verified against the stored hash.
     #[serde(
         deserialize_with = "secret_serde::deserialize_password",
-        serialize_with = "secret_serde::serialize_password_expose"
+        serialize_with = "secret_serde::serialize_password_redacted"
     )]
     #[schemars(with = "String")]
     #[schema(value_type = String, format = Password)]
@@ -79,7 +79,7 @@ pub struct AcceptInvitationRequest {
     /// Plaintext password for the new account.
     #[serde(
         deserialize_with = "secret_serde::deserialize_password",
-        serialize_with = "secret_serde::serialize_password_expose"
+        serialize_with = "secret_serde::serialize_password_redacted"
     )]
     #[schemars(with = "String")]
     #[schema(value_type = String, format = Password)]
@@ -119,6 +119,10 @@ pub struct AccountView {
 pub struct SessionView {
     /// Account this session is bound to.
     pub account_id: AccountId,
+    #[serde(
+        serialize_with = "secret_serde::serialize_session_token_redacted",
+        deserialize_with = "secret_serde::deserialize_session_token"
+    )]
     /// Opaque session token.
     pub token: SessionToken,
     /// Wall-clock time at which the session expires.
@@ -185,6 +189,10 @@ pub enum SessionEnvelope {
         account_id: AccountId,
         /// Wall-clock time at which the session expires.
         expires_at: DateTime<Utc>,
+        #[serde(
+            serialize_with = "secret_serde::serialize_session_token_redacted",
+            deserialize_with = "secret_serde::deserialize_session_token"
+        )]
         /// Opaque session token.
         token: SessionToken,
     },
@@ -209,6 +217,96 @@ impl SessionEnvelope {
             account_id: view.account_id,
             expires_at: view.expires_at,
             token: view.token.clone(),
+        }
+    }
+}
+
+/// Bearer-transport session envelope for non-cookie account responses.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct BearerSessionEnvelope {
+    /// Account this session is bound to.
+    pub account_id: AccountId,
+    /// Wall-clock time at which the session expires.
+    pub expires_at: DateTime<Utc>,
+    #[serde(
+        serialize_with = "secret_serde::serialize_session_token_expose",
+        deserialize_with = "secret_serde::deserialize_session_token"
+    )]
+    /// Opaque session token.
+    pub token: SessionToken,
+}
+
+impl BearerSessionEnvelope {
+    /// Project a [`SessionView`] into the bearer envelope.
+    #[must_use]
+    pub fn from_session_view(view: &SessionView) -> Self {
+        Self {
+            account_id: view.account_id,
+            expires_at: view.expires_at,
+            token: view.token.clone(),
+        }
+    }
+}
+
+/// Bearer-transport sign-up response used by `@cli`, `@mcp`, and `@tui`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SignUpResponseBearer {
+    /// View of the freshly created account.
+    pub account: AccountView,
+    /// Explicit bearer envelope (token emitted here only).
+    pub session: BearerSessionEnvelope,
+}
+
+impl SignUpResponseBearer {
+    /// Convert app-service output into an explicit bearer transport payload.
+    #[must_use]
+    pub fn from_sign_up_response(response: &SignUpResponse) -> Self {
+        Self {
+            account: response.account.clone(),
+            session: BearerSessionEnvelope::from_session_view(&response.session),
+        }
+    }
+}
+
+/// Bearer-transport sign-in response used by `@cli`, `@mcp`, and `@tui`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SignInResponseBearer {
+    /// View of the signed-in account.
+    pub account: AccountView,
+    /// Explicit bearer envelope (token emitted here only).
+    pub session: BearerSessionEnvelope,
+}
+
+impl SignInResponseBearer {
+    /// Convert app-service output into an explicit bearer transport payload.
+    #[must_use]
+    pub fn from_sign_in_response(response: &SignInResponse) -> Self {
+        Self {
+            account: response.account.clone(),
+            session: BearerSessionEnvelope::from_session_view(&response.session),
+        }
+    }
+}
+
+/// Bearer-transport invitation-acceptance response for non-cookie clients.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct AcceptInvitationResponseBearer {
+    /// View of the newly created account.
+    pub account: AccountView,
+    /// Explicit bearer envelope (token emitted here only).
+    pub session: BearerSessionEnvelope,
+    /// Organization the new account joined.
+    pub joined_org: OrgId,
+}
+
+impl AcceptInvitationResponseBearer {
+    /// Convert app-service output into an explicit bearer transport payload.
+    #[must_use]
+    pub fn from_accept_invitation_response(response: &AcceptInvitationResponse) -> Self {
+        Self {
+            account: response.account.clone(),
+            session: BearerSessionEnvelope::from_session_view(&response.session),
+            joined_org: response.joined_org,
         }
     }
 }

@@ -106,7 +106,16 @@ pub(super) async fn require_api_key(
         return next.run(request).await;
     }
 
-    let token = SessionToken::from_secret(secrecy::SecretString::from(presented.to_owned()));
+    let Ok(token) = SessionToken::parse(presented) else {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(error_body(
+                "auth_required",
+                "Missing, expired, or malformed MCP session credential.",
+            )),
+        )
+            .into_response();
+    };
     let now = Utc::now();
     match state.store.find_active_session(&token, now).await {
         Ok(Some(session)) => {

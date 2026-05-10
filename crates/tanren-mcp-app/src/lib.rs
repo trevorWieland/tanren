@@ -25,9 +25,9 @@ use tanren_app_services::project::{
 };
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, ActiveProjectRequest, ConnectProjectRepositoryRequest,
-    CreateProjectRequest, ListVisibleProjectsRequest, ProjectFailureReason, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, AcceptInvitationResponseBearer, ActiveProjectRequest,
+    ConnectProjectRepositoryRequest, CreateProjectRequest, ListVisibleProjectsRequest,
+    ProjectFailureReason, SignInRequest, SignInResponseBearer, SignUpRequest, SignUpResponseBearer,
 };
 use tanren_identity_policy::AccountId;
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
@@ -100,8 +100,6 @@ impl TanrenMcp {
         }
     }
 
-    /// Self-signup tool. Mirrors the api `POST /accounts` shape via
-    /// `tanren_contract::SignUpRequest` / `SignUpResponse`.
     #[rmcp::tool(
         name = "account.create",
         description = "Create a new Tanren account via self-signup. Returns the new account view and an opaque session token. Failures use the shared {code, summary} taxonomy: duplicate_identifier, invalid_credential."
@@ -111,13 +109,13 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignUpRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_up(self.store.as_ref(), request).await {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => Ok(success(&SignUpResponseBearer::from_sign_up_response(
+                &response,
+            ))),
             Err(err) => Ok(map_failure(err)),
         }
     }
 
-    /// Sign-in tool. Mirrors the api `POST /sessions` shape via
-    /// `tanren_contract::SignInRequest` / `SignInResponse`.
     #[rmcp::tool(
         name = "account.sign_in",
         description = "Sign in to an existing Tanren account. Returns the account view and an opaque session token. Failure code: invalid_credential."
@@ -127,15 +125,13 @@ impl TanrenMcp {
         Parameters(request): Parameters<SignInRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_in(self.store.as_ref(), request).await {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => Ok(success(&SignInResponseBearer::from_sign_in_response(
+                &response,
+            ))),
             Err(err) => Ok(map_failure(err)),
         }
     }
 
-    /// Invitation-acceptance tool. Mirrors the api
-    /// `POST /invitations/{token}/accept` shape via
-    /// `tanren_contract::AcceptInvitationRequest` /
-    /// `AcceptInvitationResponse`.
     #[rmcp::tool(
         name = "account.accept_invitation",
         description = "Accept an organization invitation and create a Tanren account in the inviting org. Failure codes: invitation_not_found, invitation_already_consumed, invitation_expired, invalid_credential."
@@ -149,7 +145,9 @@ impl TanrenMcp {
             .accept_invitation(self.store.as_ref(), request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
+            Ok(response) => Ok(success(
+                &AcceptInvitationResponseBearer::from_accept_invitation_response(&response),
+            )),
             Err(err) => Ok(map_failure(err)),
         }
     }

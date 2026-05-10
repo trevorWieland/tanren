@@ -9,9 +9,10 @@ pub mod account;
 pub mod project;
 
 pub use account::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureCode, AccountFailureReason,
-    AccountView, CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AcceptInvitationResponseBearer,
+    AccountFailureCode, AccountFailureReason, AccountView, BearerSessionEnvelope,
+    CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest, SignInResponse,
+    SignInResponseBearer, SignUpRequest, SignUpResponse, SignUpResponseBearer,
 };
 pub use project::{
     ActiveProjectCookieRequest, ActiveProjectRequest, ActiveProjectView,

@@ -1,4 +1,3 @@
-use secrecy::SecretString;
 use tanren_app_services::{AccountStore, Clock, Store};
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef, SessionToken};
 use tracing::error;
@@ -25,14 +24,11 @@ pub(super) fn parse_designated_host(raw: &str) -> ProjectCommandResult<Designate
 
 fn parse_session_token(raw: &str) -> ProjectCommandResult<SessionToken> {
     let token = raw.trim();
-    if token.is_empty() {
-        return Err(ProjectFailureBody::validation(
-            "The session_token cannot be empty.",
-        ));
-    }
-    Ok(SessionToken::from_secret(SecretString::from(
-        token.to_owned(),
-    )))
+    SessionToken::parse(token).map_err(|_| {
+        ProjectFailureBody::validation(
+            "The session_token must be a valid base64url-no-pad session bearer.",
+        )
+    })
 }
 
 fn load_default_session_token() -> ProjectCommandResult<Option<SessionToken>> {

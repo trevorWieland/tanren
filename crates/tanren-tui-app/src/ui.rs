@@ -5,10 +5,12 @@
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ActiveProjectView,
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
-    ProjectPageRequest, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AcceptInvitationResponseBearer,
+    AccountFailureReason, ActiveProjectView, ConnectProjectRepositoryRequest,
+    ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason, ProjectPageRequest,
+    SignInRequest, SignInResponse, SignInResponseBearer, SignUpRequest, SignUpResponse,
+    SignUpResponseBearer,
 };
 use tanren_identity_policy::{
     AccountId, DesignatedHost, Email, InvitationToken, RepositoryRef, SessionToken, ValidationError,
@@ -168,32 +170,35 @@ pub(crate) fn active_project_fields() -> Vec<FormField> {
 }
 
 pub(crate) fn sign_up_outcome(response: &SignUpResponse) -> OutcomeView {
+    let bearer = SignUpResponseBearer::from_sign_up_response(response);
     OutcomeView {
         title: "Account created",
         lines: vec![
-            format!("account_id: {}", response.account.id),
-            format!("session token: {}", response.session.token.expose_secret()),
+            format!("account_id: {}", bearer.account.id),
+            format!("session token: {}", bearer.session.token.expose_secret()),
         ],
     }
 }
 
 pub(crate) fn sign_in_outcome(response: &SignInResponse) -> OutcomeView {
+    let bearer = SignInResponseBearer::from_sign_in_response(response);
     OutcomeView {
         title: "Signed in",
         lines: vec![
-            format!("account_id: {}", response.account.id),
-            format!("session token: {}", response.session.token.expose_secret()),
+            format!("account_id: {}", bearer.account.id),
+            format!("session token: {}", bearer.session.token.expose_secret()),
         ],
     }
 }
 
 pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> OutcomeView {
+    let bearer = AcceptInvitationResponseBearer::from_accept_invitation_response(response);
     OutcomeView {
         title: "Invitation accepted",
         lines: vec![
-            format!("account_id: {}", response.account.id),
-            format!("joined org: {}", response.joined_org),
-            format!("session token: {}", response.session.token.expose_secret()),
+            format!("account_id: {}", bearer.account.id),
+            format!("joined org: {}", bearer.joined_org),
+            format!("session token: {}", bearer.session.token.expose_secret()),
         ],
     }
 }
@@ -366,7 +371,7 @@ pub(crate) fn parse_accept_invitation(
 pub(crate) fn parse_connect_repository(
     state: &FormState,
 ) -> Result<AuthenticatedProjectRequest<ConnectProjectRepositoryRequest>, String> {
-    let session_token = parse_optional_session_token(state.value(0));
+    let session_token = parse_optional_session_token(state.value(0))?;
     let owning_account_id = parse_account_id(state.value(1))?;
     let repository = RepositoryRef::parse(state.value(2)).map_err(|e| validation_message(&e))?;
     let select_as_active = parse_select_as_active(state.value(3))?;
@@ -383,7 +388,7 @@ pub(crate) fn parse_connect_repository(
 pub(crate) fn parse_create_project(
     state: &FormState,
 ) -> Result<AuthenticatedProjectRequest<CreateProjectRequest>, String> {
-    let session_token = parse_optional_session_token(state.value(0));
+    let session_token = parse_optional_session_token(state.value(0))?;
     let owning_account_id = parse_account_id(state.value(1))?;
     let repository = RepositoryRef::parse(state.value(2)).map_err(|e| validation_message(&e))?;
     let designated_host =
@@ -403,7 +408,7 @@ pub(crate) fn parse_create_project(
 pub(crate) fn parse_list_projects(
     state: &FormState,
 ) -> Result<AuthenticatedProjectRequest<ListVisibleProjectsRequest>, String> {
-    let session_token = parse_optional_session_token(state.value(0));
+    let session_token = parse_optional_session_token(state.value(0))?;
     let owning_account_id = parse_account_id(state.value(1))?;
     Ok(AuthenticatedProjectRequest {
         session_token,
@@ -417,7 +422,7 @@ pub(crate) fn parse_list_projects(
 pub(crate) fn parse_active_project(
     state: &FormState,
 ) -> Result<AuthenticatedProjectRequest<tanren_contract::ActiveProjectRequest>, String> {
-    let session_token = parse_optional_session_token(state.value(0));
+    let session_token = parse_optional_session_token(state.value(0))?;
     let owning_account_id = parse_account_id(state.value(1))?;
     Ok(AuthenticatedProjectRequest {
         session_token,
@@ -429,14 +434,14 @@ fn parse_account_id(raw: &str) -> Result<AccountId, String> {
     AccountId::parse(raw.trim()).map_err(|err| format!("validation_failed: {err}"))
 }
 
-fn parse_optional_session_token(raw: &str) -> Option<SessionToken> {
+fn parse_optional_session_token(raw: &str) -> Result<Option<SessionToken>, String> {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
-        return None;
+        return Ok(None);
     }
-    Some(SessionToken::from_secret(SecretString::from(
-        trimmed.to_owned(),
-    )))
+    SessionToken::parse(trimmed)
+        .map(Some)
+        .map_err(|err| format!("validation_failed: {err}"))
 }
 
 fn parse_select_as_active(raw: &str) -> Result<bool, String> {

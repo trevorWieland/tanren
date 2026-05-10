@@ -10,7 +10,7 @@
 //!
 //! See `profiles/rust-cargo/architecture/secrets-handling.md`.
 
-use secrecy::{ExposeSecret, SecretString};
+use secrecy::SecretString;
 use serde::{Deserializer, Serializer};
 
 use crate::SessionToken;
@@ -29,35 +29,54 @@ where
     Ok(SecretString::from(raw))
 }
 
-/// Re-serialize a [`SecretString`] by exposing its inner value as a
-/// JSON string.
+/// Serialize a password-shaped field as a fixed redaction marker.
 ///
-/// **Use sparingly.** This exists for outbound contracts that need to
-/// propagate a credential (rare); most consumers should keep secrets
-/// off the wire entirely.
+/// This prevents accidental plaintext exfiltration through ordinary
+/// `serde_json::to_*` calls over request DTOs.
 ///
 /// # Errors
 ///
 /// Returns the serializer's error type if the underlying writer fails.
-pub fn serialize_password_expose<S>(value: &SecretString, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_password_redacted<S>(
+    _value: &SecretString,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
+where
+    S: Serializer,
+{
+    serializer.serialize_str("<redacted>")
+}
+
+/// Serialize a [`SessionToken`] for an outbound contract by exposing
+/// its inner string. This must only be used by explicit bearer
+/// transport wrappers.
+///
+/// # Errors
+///
+/// Returns the serializer's error type if the underlying writer fails.
+pub fn serialize_session_token_expose<S>(
+    value: &SessionToken,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
     serializer.serialize_str(value.expose_secret())
 }
 
-/// Serialize a [`SessionToken`] for an outbound contract by exposing
-/// its inner string. Inbound deserialization is provided by the
-/// type's own `Deserialize` impl.
+/// Serialize a [`SessionToken`] as a fixed redaction marker.
 ///
 /// # Errors
 ///
 /// Returns the serializer's error type if the underlying writer fails.
-pub fn serialize_session_token<S>(value: &SessionToken, serializer: S) -> Result<S::Ok, S::Error>
+pub fn serialize_session_token_redacted<S>(
+    _value: &SessionToken,
+    serializer: S,
+) -> Result<S::Ok, S::Error>
 where
     S: Serializer,
 {
-    serializer.serialize_str(value.expose_secret())
+    serializer.serialize_str("<redacted>")
 }
 
 /// Deserialize a [`SessionToken`] from a JSON string.
@@ -71,5 +90,5 @@ where
     D: Deserializer<'de>,
 {
     let raw = <String as serde::Deserialize>::deserialize(deserializer)?;
-    Ok(SessionToken::from_secret(SecretString::from(raw)))
+    SessionToken::parse(&raw).map_err(serde::de::Error::custom)
 }

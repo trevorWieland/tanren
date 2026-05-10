@@ -24,10 +24,10 @@ use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-const ACCOUNT_ID_VERSION: usize = 7;
+const UUID_V7_VERSION: usize = 7;
 
 /// Stable identifier for a Tanren account (`UUIDv7`).
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct AccountId(Uuid);
@@ -43,13 +43,16 @@ impl AccountId {
         Self(Uuid::now_v7())
     }
 
-    /// Parse an account id from a `UUIDv7` string.
     pub fn parse(raw: &str) -> Result<Self, ValidationError> {
         let parsed = Uuid::parse_str(raw).map_err(|_| ValidationError::AccountIdInvalid)?;
-        if parsed.get_version_num() != ACCOUNT_ID_VERSION {
+        Self::try_from_uuid(parsed)
+    }
+
+    pub fn try_from_uuid(value: Uuid) -> Result<Self, ValidationError> {
+        if value.get_version_num() != UUID_V7_VERSION {
             return Err(ValidationError::AccountIdInvalid);
         }
-        Ok(Self(parsed))
+        Ok(Self(value))
     }
 
     #[must_use]
@@ -75,7 +78,13 @@ impl std::fmt::Display for AccountId {
         self.0.fmt(f)
     }
 }
-/// Stable identifier for a Tanren organization.
+
+impl<'de> Deserialize<'de> for AccountId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = Uuid::deserialize(d)?;
+        Self::try_from_uuid(raw).map_err(serde::de::Error::custom)
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
@@ -115,7 +124,6 @@ impl std::fmt::Display for OrgId {
         self.0.fmt(f)
     }
 }
-/// Stable identifier for a membership row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
@@ -359,8 +367,7 @@ impl std::fmt::Display for InvitationToken {
     }
 }
 
-/// A Tanren account. `org` is `None` for self-signed-up personal accounts;
-/// invitation-based accounts carry the inviting `OrgId`.
+/// A Tanren account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
     /// Stable id.
@@ -373,9 +380,7 @@ pub struct Account {
     pub org: Option<OrgId>,
 }
 
-/// A pending invitation seeded by R-0005's invite flow (or by
-/// `tanren-testkit` fixtures during R-0001 BDD). Carries the invitee's
-/// destination organization plus expiry / consumption state.
+/// A pending invitation with expiry + consumption state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Invitation {
     /// The opaque token shared with the invitee out-of-band.
@@ -388,24 +393,18 @@ pub struct Invitation {
     pub consumed_at: Option<DateTime<Utc>>,
 }
 
-/// An identifier+password credential pair as supplied by the caller.
-/// Hashing is the responsibility of the [`CredentialVerifier`] impl.
+/// An identifier+password credential pair.
 #[derive(Debug, Clone)]
 pub struct PasswordCredential {
     /// User-facing identifier (email, ...).
     pub identifier: Identifier,
-    /// Plaintext password — wrapped so accidental `Debug` / `Serialize`
-    /// calls do not leak the credential. Hashed before storage by the
-    /// `CredentialVerifier`.
+    /// Plaintext password wrapped in `SecretString`.
     pub password: SecretString,
 }
 
-/// A bounded session held by an authenticated account or service identity.
 #[derive(Debug, Clone)]
 pub struct Session {
-    /// The account this session represents.
     pub account: AccountId,
-    /// Opaque session token.
     pub token: SessionToken,
 }
 
@@ -478,6 +477,8 @@ pub enum ValidationError {
     AccountIdInvalid,
     #[error("project id is not a valid uuidv7")]
     ProjectIdInvalid,
+    #[error("session token is not a valid base64url-no-pad 32-byte secret")]
+    SessionTokenInvalid,
     #[error("email is empty")]
     EmptyEmail,
     #[error("email is not in a valid form")]

@@ -23,4 +23,3 @@ tanren-identity-policy = { path = "../tanren-identity-policy" }
 tanren-provider-integrations = { path = "../tanren-provider-integrations" }
 tokio = { workspace = true }
 tracing = { workspace = true }
-uuid = { workspace = true }
