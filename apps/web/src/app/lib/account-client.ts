@@ -412,35 +412,50 @@ function deniedCapabilities(): ConfigurationCapabilities {
  * by the explicit capability contract, not inferred from read success.
  */
 export async function discoverConfigurationAccess(): Promise<ConfigurationDiscoveryResult> {
-  const [capabilitiesResult, settingsResult, credentialsResult] =
-    await Promise.allSettled([
-      getConfigurationCapabilities(),
-      listUserSettings(),
-      listUserCredentials(),
-    ]);
+  let capabilitiesFailure: AccountFailure | null = null;
+  let capabilities: ConfigurationCapabilities = deniedCapabilities();
 
-  const settingsReadModel =
-    settingsResult.status === "fulfilled" ? settingsResult.value : null;
-  const credentialsReadModel =
-    credentialsResult.status === "fulfilled" ? credentialsResult.value : null;
+  try {
+    const capabilityResponse = await getConfigurationCapabilities();
+    capabilities = capabilityResponse.capabilities;
+  } catch (error: unknown) {
+    capabilitiesFailure = failureFromUnknown(error);
+    return {
+      capabilities,
+      settings_read_model: null,
+      credentials_read_model: null,
+      capabilities_failure: capabilitiesFailure,
+      settings_failure: null,
+      credentials_failure: null,
+    };
+  }
 
-  const settingsFailure =
-    settingsResult.status === "rejected"
-      ? failureFromUnknown(settingsResult.reason)
-      : null;
-  const credentialsFailure =
-    credentialsResult.status === "rejected"
-      ? failureFromUnknown(credentialsResult.reason)
-      : null;
+  let settingsReadModel: ListUserSettingsResult | null = null;
+  let credentialsReadModel: ListUserCredentialsResult | null = null;
+  let settingsFailure: AccountFailure | null = null;
+  let credentialsFailure: AccountFailure | null = null;
 
-  const capabilitiesFailure =
-    capabilitiesResult.status === "rejected"
-      ? failureFromUnknown(capabilitiesResult.reason)
-      : null;
-  const capabilities =
-    capabilitiesResult.status === "fulfilled"
-      ? capabilitiesResult.value.capabilities
-      : deniedCapabilities();
+  const canReadSettings =
+    capabilities.settings.allowed_actions.includes("read");
+  const canReadCredentials =
+    capabilities.user_items.allowed_actions.includes("read");
+
+  const [settingsResult, credentialsResult] = await Promise.allSettled([
+    canReadSettings ? listUserSettings() : Promise.resolve(null),
+    canReadCredentials ? listUserCredentials() : Promise.resolve(null),
+  ]);
+
+  if (settingsResult.status === "fulfilled") {
+    settingsReadModel = settingsResult.value;
+  } else {
+    settingsFailure = failureFromUnknown(settingsResult.reason);
+  }
+
+  if (credentialsResult.status === "fulfilled") {
+    credentialsReadModel = credentialsResult.value;
+  } else {
+    credentialsFailure = failureFromUnknown(credentialsResult.reason);
+  }
 
   return {
     capabilities,
