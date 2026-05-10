@@ -14,6 +14,37 @@ pub struct Model {
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
-pub enum Relation {}
+pub enum Relation {
+    #[sea_orm(
+        belongs_to = "super::accounts::Entity",
+        from = "Column::CreatedByAccountId",
+        to = "super::accounts::Column::Id",
+        on_update = "Cascade",
+        on_delete = "Restrict"
+    )]
+    CreatedByAccount,
+    #[sea_orm(has_many = "super::organization_permission_grants::Entity")]
+    PermissionGrants,
+    #[sea_orm(has_many = "super::organization_create_idempotency::Entity")]
+    CreateIdempotencyClaims,
+}
+
+impl Related<super::accounts::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::CreatedByAccount.def()
+    }
+}
+
+impl Related<super::organization_permission_grants::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::PermissionGrants.def()
+    }
+}
+
+impl Related<super::organization_create_idempotency::Entity> for Entity {
+    fn to() -> RelationDef {
+        Relation::CreateIdempotencyClaims.def()
+    }
+}
 
 impl ActiveModelBehavior for ActiveModel {}

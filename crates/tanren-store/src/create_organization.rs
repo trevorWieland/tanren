@@ -284,7 +284,7 @@ async fn insert_creator_admin_grants_in_txn(
             id: Set(Uuid::now_v7()),
             org_id: Set(organization_id.as_uuid()),
             account_id: Set(creator_account_id.as_uuid()),
-            permission: Set(permission.to_string()),
+            permission: Set(permission.as_str().to_owned()),
             granted_by_account_id: Set(creator_account_id.as_uuid()),
             created_at: Set(now),
         };
@@ -316,7 +316,7 @@ pub(crate) async fn has_permission(
     org_id: OrgId,
     permission: OrganizationPermission,
 ) -> Result<bool, StoreError> {
-    let permission_key = permission.to_string();
+    let permission_key = permission.as_str();
     let has_membership = entity::memberships::Entity::find()
         .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
         .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
@@ -348,7 +348,7 @@ pub(crate) async fn enforce_not_last_admin_holder(
         if !has_permission(conn, account_id, org_id, permission).await? {
             continue;
         }
-        let permission_key = permission.to_string();
+        let permission_key = permission.as_str();
 
         let holder_count = entity::organization_permission_grants::Entity::find()
             .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))

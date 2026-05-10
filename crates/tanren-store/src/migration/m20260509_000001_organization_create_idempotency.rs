@@ -20,49 +20,69 @@ impl std::fmt::Debug for Migration {
 #[async_trait::async_trait]
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
-        manager
-            .create_table(
-                Table::create()
-                    .table(OrganizationCreateIdempotency::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(OrganizationCreateIdempotency::AccountId)
-                            .uuid()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OrganizationCreateIdempotency::IdempotencyKey)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OrganizationCreateIdempotency::OrganizationId)
-                            .uuid()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OrganizationCreateIdempotency::OrganizationName)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OrganizationCreateIdempotency::RequestFingerprint)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(OrganizationCreateIdempotency::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .primary_key(
-                        Index::create()
-                            .col(OrganizationCreateIdempotency::AccountId)
-                            .col(OrganizationCreateIdempotency::IdempotencyKey),
-                    )
-                    .to_owned(),
+        let mut table = Table::create();
+        let mut fk_account = ForeignKey::create();
+        fk_account
+            .name("fk_org_create_idempotency_account")
+            .from(
+                OrganizationCreateIdempotency::Table,
+                OrganizationCreateIdempotency::AccountId,
             )
-            .await?;
+            .to(Accounts::Table, Accounts::Id)
+            .on_delete(ForeignKeyAction::Cascade)
+            .on_update(ForeignKeyAction::Cascade);
+        let mut fk_organization = ForeignKey::create();
+        fk_organization
+            .name("fk_org_create_idempotency_org")
+            .from(
+                OrganizationCreateIdempotency::Table,
+                OrganizationCreateIdempotency::OrganizationId,
+            )
+            .to(Organizations::Table, Organizations::Id)
+            .on_delete(ForeignKeyAction::Cascade)
+            .on_update(ForeignKeyAction::Cascade);
+        table
+            .table(OrganizationCreateIdempotency::Table)
+            .if_not_exists()
+            .col(
+                ColumnDef::new(OrganizationCreateIdempotency::AccountId)
+                    .uuid()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(OrganizationCreateIdempotency::IdempotencyKey)
+                    .string()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(OrganizationCreateIdempotency::OrganizationId)
+                    .uuid()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(OrganizationCreateIdempotency::OrganizationName)
+                    .string()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(OrganizationCreateIdempotency::RequestFingerprint)
+                    .string()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(OrganizationCreateIdempotency::CreatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .primary_key(
+                Index::create()
+                    .col(OrganizationCreateIdempotency::AccountId)
+                    .col(OrganizationCreateIdempotency::IdempotencyKey),
+            )
+            .foreign_key(&mut fk_account)
+            .foreign_key(&mut fk_organization);
+
+        manager.create_table(table.clone()).await?;
 
         manager
             .create_index(
@@ -105,4 +125,16 @@ enum OrganizationCreateIdempotency {
     OrganizationName,
     RequestFingerprint,
     CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum Accounts {
+    Table,
+    Id,
+}
+
+#[derive(DeriveIden)]
+enum Organizations {
+    Table,
+    Id,
 }
