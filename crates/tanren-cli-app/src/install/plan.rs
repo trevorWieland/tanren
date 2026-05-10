@@ -176,7 +176,7 @@ pub(super) fn build_install_plan(
     let stale_removal_plan = build_removals(
         &repository_root,
         &desired_generated_paths,
-        &trusted_generated_asset_registry,
+        trusted_generated_asset_registry,
         previous_manifest.as_ref(),
         &manifest_absolute_path,
     )?;

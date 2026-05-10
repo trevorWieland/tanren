@@ -1,10 +1,11 @@
 //! Static install catalog for command and standards assets.
 
 use std::collections::BTreeSet;
+use std::sync::OnceLock;
 
 use crate::install::error::InstallError;
 use crate::install::manifest::{
-    AssetClass, InstallAssetProjection, PreservationPolicy, RepoRelativePath,
+    AssetClass, InstallAssetProjection, ManifestEntry, PreservationPolicy, RepoRelativePath,
 };
 use crate::install::{InstallIntegration, InstallProfile};
 
@@ -278,6 +279,9 @@ const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
 // These paths are no longer emitted by the active catalog but may still exist in
 // older manifests from earlier installer versions.
 const LEGACY_TRUSTED_GENERATED_DESTINATIONS: &[&str] = &[".codex/skills/retired-command.md"];
+static TRUSTED_GENERATED_ASSET_REGISTRY: OnceLock<
+    Result<BTreeSet<RepoRelativePath>, InstallError>,
+> = OnceLock::new();
 
 /// Build the static install asset catalog for a profile + integration selection.
 pub(super) fn build_install_asset_catalog(
@@ -320,7 +324,14 @@ pub(super) fn build_install_asset_catalog(
 
 /// Build a trusted registry of generated asset destinations across all profiles.
 pub(super) fn build_trusted_generated_asset_registry()
--> Result<BTreeSet<RepoRelativePath>, InstallError> {
+-> Result<&'static BTreeSet<RepoRelativePath>, InstallError> {
+    match TRUSTED_GENERATED_ASSET_REGISTRY.get_or_init(compute_trusted_generated_asset_registry) {
+        Ok(registry) => Ok(registry),
+        Err(error) => Err(error.clone()),
+    }
+}
+
+fn compute_trusted_generated_asset_registry() -> Result<BTreeSet<RepoRelativePath>, InstallError> {
     let mut registry = BTreeSet::new();
     for profile in [InstallProfile::RustCargo] {
         for asset in build_install_asset_catalog(profile, &InstallIntegration::all())? {
@@ -333,6 +344,27 @@ pub(super) fn build_trusted_generated_asset_registry()
         registry.insert(RepoRelativePath::parse(path)?);
     }
     Ok(registry)
+}
+
+/// Whether a manifest row is shaped like a trusted generated-command entry.
+#[must_use]
+pub(super) fn is_trusted_generated_manifest_entry(entry: &ManifestEntry) -> bool {
+    if entry.asset_class != AssetClass::MethodologyCommand {
+        return false;
+    }
+
+    let Some(integration) = entry.integration else {
+        return false;
+    };
+
+    if entry.preservation != PreservationPolicy::ReplaceGenerated {
+        return false;
+    }
+
+    matches_generated_command_layout(
+        entry.path.as_str(),
+        integration_destination_root(integration),
+    )
 }
 
 /// Integration destination roots for a selected install invocation.
@@ -349,7 +381,6 @@ pub(super) fn generated_integration_destination_roots(
 
 /// Whether a path matches a selected integration command destination layout.
 #[must_use]
-#[cfg(feature = "test-hooks")]
 pub(super) fn is_current_generated_integration_destination(
     path: &RepoRelativePath,
     destination_roots: &BTreeSet<&'static str>,
@@ -392,7 +423,6 @@ const fn integration_destination_root(integration: InstallIntegration) -> &'stat
     }
 }
 
-#[cfg(feature = "test-hooks")]
 fn matches_generated_command_layout(path: &str, destination_root: &str) -> bool {
     let Some(filename) = path.strip_prefix(destination_root) else {
         return false;

@@ -4,7 +4,9 @@ use std::collections::BTreeSet;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::install::catalog::build_trusted_generated_asset_registry;
+use crate::install::catalog::{
+    build_trusted_generated_asset_registry, is_trusted_generated_manifest_entry,
+};
 use crate::install::error::InstallError;
 use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallManifest, ManifestEntry,
@@ -128,14 +130,14 @@ pub(super) fn build_uninstall_preview(repository: &Path) -> Result<UninstallPrev
     validate_manifest_version(&manifest)?;
     let trusted_generated_assets = build_trusted_generated_asset_registry()?;
     let mut outcomes = PreviewOutcomes::default();
-    let mut seen = BTreeSet::new();
+    let mut seen_paths = BTreeSet::new();
 
     for entry in &manifest.entries {
         plan_manifest_entry(
             entry,
             &repository_root,
-            &trusted_generated_assets,
-            &mut seen,
+            trusted_generated_assets,
+            &mut seen_paths,
             &mut outcomes,
         )?;
     }
@@ -198,15 +200,15 @@ impl PreviewOutcomes {
     }
 }
 
-fn plan_manifest_entry(
-    entry: &ManifestEntry,
+fn plan_manifest_entry<'a>(
+    entry: &'a ManifestEntry,
     repository_root: &Path,
     trusted_generated_assets: &BTreeSet<RepoRelativePath>,
-    seen: &mut BTreeSet<String>,
+    seen_paths: &mut BTreeSet<&'a str>,
     outcomes: &mut PreviewOutcomes,
 ) -> Result<(), InstallError> {
-    let path_key = entry.path.as_str().to_owned();
-    if !seen.insert(path_key.clone()) {
+    let path_key = entry.path.as_str();
+    if !seen_paths.insert(path_key) {
         return Err(InstallError::InvalidInstallManifest {
             path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
             message: format!("duplicate manifest entry for '{path_key}'"),
@@ -221,7 +223,9 @@ fn plan_manifest_entry(
         return Ok(());
     }
 
-    if !trusted_generated_assets.contains(&entry.path) {
+    if !trusted_generated_assets.contains(&entry.path)
+        || !is_trusted_generated_manifest_entry(entry)
+    {
         outcomes.preserve(
             entry.path.clone(),
             UninstallPreserveReason::UntrustedManifestEntry,
