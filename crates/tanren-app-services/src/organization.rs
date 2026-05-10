@@ -10,6 +10,7 @@ use tanren_contract::{
     OrganizationSourceLink, OrganizationView,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission, SessionToken};
+use tanren_policy::{Decision, OrganizationPermissionGate, evaluate_organization_permission_gate};
 use tanren_store::{
     AccountStore, CreateOrganizationAtomicRequest, CreateOrganizationError, SessionRecord,
 };
@@ -93,7 +94,7 @@ pub(crate) async fn check_organization_permission<S>(
 where
     S: AccountStore + ?Sized,
 {
-    require_organization_permission(
+    let gate = require_organization_permission(
         store,
         clock,
         &request.session_token,
@@ -105,7 +106,7 @@ where
     Ok(CheckOrganizationPermissionResponse {
         account_id: request.account_id,
         org_id: request.org_id,
-        permission: request.permission,
+        permission: gate.permission,
         allowed: true,
     })
 }
@@ -117,17 +118,42 @@ pub(crate) async fn require_organization_permission<S>(
     account_id: AccountId,
     org_id: OrgId,
     permission: OrganizationPermission,
-) -> Result<(), AppServiceError>
+) -> Result<OrganizationPermissionGate, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    require_organization_permission_gate(
+        store,
+        clock,
+        session_token,
+        account_id,
+        org_id,
+        OrganizationPermissionGate::from_permission(permission),
+    )
+    .await
+}
+
+pub(crate) async fn require_organization_permission_gate<S>(
+    store: &S,
+    clock: &Clock,
+    session_token: &SessionToken,
+    account_id: AccountId,
+    org_id: OrgId,
+    gate: OrganizationPermissionGate,
+) -> Result<OrganizationPermissionGate, AppServiceError>
 where
     S: AccountStore + ?Sized,
 {
     let now = clock.now();
     resolve_authenticated_account(store, account_id, session_token, now).await?;
-    if store
-        .has_organization_permission(account_id, org_id, permission)
-        .await?
-    {
-        return Ok(());
+    let allowed = store
+        .has_organization_permission(account_id, org_id, gate.permission)
+        .await?;
+    if matches!(
+        evaluate_organization_permission_gate(allowed),
+        Decision::Allow
+    ) {
+        return Ok(gate);
     }
     Err(AppServiceError::Account(
         AccountFailureReason::PermissionDenied,

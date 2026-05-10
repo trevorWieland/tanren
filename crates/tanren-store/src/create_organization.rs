@@ -3,8 +3,9 @@
 
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
-    PaginatorTrait, QueryFilter, Set, TransactionTrait,
+    QueryFilter, QuerySelect, QueryTrait, Set, TransactionTrait,
 };
+use std::collections::{HashMap, HashSet};
 use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationPermission,
 };
@@ -279,17 +280,24 @@ async fn insert_creator_admin_grants_in_txn(
     organization_id: OrgId,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<Vec<OrganizationPermission>, CreateOrganizationError> {
-    for permission in OrganizationPermission::ALL {
-        let model = entity::organization_permission_grants::ActiveModel {
-            id: Set(Uuid::now_v7()),
-            org_id: Set(organization_id.as_uuid()),
-            account_id: Set(creator_account_id.as_uuid()),
-            permission: Set(permission.as_str().to_owned()),
-            granted_by_account_id: Set(creator_account_id.as_uuid()),
-            created_at: Set(now),
-        };
-        model.insert(txn).await.map_err(StoreError::from)?;
-    }
+    let grant_models: Vec<entity::organization_permission_grants::ActiveModel> =
+        OrganizationPermission::ALL
+            .iter()
+            .map(
+                |permission| entity::organization_permission_grants::ActiveModel {
+                    id: Set(Uuid::now_v7()),
+                    org_id: Set(organization_id.as_uuid()),
+                    account_id: Set(creator_account_id.as_uuid()),
+                    permission: Set(permission.as_str().to_owned()),
+                    granted_by_account_id: Set(creator_account_id.as_uuid()),
+                    created_at: Set(now),
+                },
+            )
+            .collect();
+    entity::organization_permission_grants::Entity::insert_many(grant_models)
+        .exec(txn)
+        .await
+        .map_err(StoreError::from)?;
 
     Ok(OrganizationPermission::ALL.to_vec())
 }
@@ -316,21 +324,15 @@ pub(crate) async fn has_permission(
     org_id: OrgId,
     permission: OrganizationPermission,
 ) -> Result<bool, StoreError> {
-    let permission_key = permission.as_str();
-    let has_membership = entity::memberships::Entity::find()
-        .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
-        .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
-        .one(conn)
-        .await?
-        .is_some();
-    if !has_membership {
-        return Ok(false);
-    }
-
+    let permission_key = permission.as_str().to_owned();
     let row = entity::organization_permission_grants::Entity::find()
         .filter(entity::organization_permission_grants::Column::AccountId.eq(account_id.as_uuid()))
         .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
         .filter(entity::organization_permission_grants::Column::Permission.eq(permission_key))
+        .filter(
+            entity::organization_permission_grants::Column::AccountId
+                .in_subquery(membership_account_lookup_subquery(org_id)),
+        )
         .one(conn)
         .await?;
 
@@ -342,21 +344,58 @@ pub(crate) async fn enforce_not_last_admin_holder(
     account_id: AccountId,
     org_id: OrgId,
 ) -> Result<(), LastOrganizationAdminGuardError> {
-    let mut orphaned_permissions = Vec::new();
+    let target_permission_keys: HashSet<String> =
+        entity::organization_permission_grants::Entity::find()
+            .select_only()
+            .column(entity::organization_permission_grants::Column::Permission)
+            .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
+            .filter(
+                entity::organization_permission_grants::Column::AccountId.eq(account_id.as_uuid()),
+            )
+            .filter(
+                entity::organization_permission_grants::Column::AccountId
+                    .in_subquery(membership_account_lookup_subquery(org_id)),
+            )
+            .into_model::<PermissionKeyRow>()
+            .all(conn)
+            .await
+            .map_err(StoreError::from)?
+            .into_iter()
+            .map(|row| row.permission)
+            .collect();
+    if target_permission_keys.is_empty() {
+        return Ok(());
+    }
 
+    let holder_counts: HashMap<String, i64> =
+        entity::organization_permission_grants::Entity::find()
+            .select_only()
+            .column(entity::organization_permission_grants::Column::Permission)
+            .column_as(
+                entity::organization_permission_grants::Column::AccountId.count(),
+                "holder_count",
+            )
+            .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
+            .filter(
+                entity::organization_permission_grants::Column::AccountId
+                    .in_subquery(membership_account_lookup_subquery(org_id)),
+            )
+            .group_by(entity::organization_permission_grants::Column::Permission)
+            .into_model::<PermissionHolderCountRow>()
+            .all(conn)
+            .await
+            .map_err(StoreError::from)?
+            .into_iter()
+            .map(|row| (row.permission, row.holder_count))
+            .collect();
+
+    let mut orphaned_permissions = Vec::new();
     for permission in OrganizationPermission::ALL {
-        if !has_permission(conn, account_id, org_id, permission).await? {
+        let permission_key = permission.as_str();
+        if !target_permission_keys.contains(permission_key) {
             continue;
         }
-        let permission_key = permission.as_str();
-
-        let holder_count = entity::organization_permission_grants::Entity::find()
-            .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
-            .filter(entity::organization_permission_grants::Column::Permission.eq(permission_key))
-            .count(conn)
-            .await
-            .map_err(StoreError::from)?;
-
+        let holder_count = holder_counts.get(permission_key).copied().unwrap_or(0);
         if holder_count <= 1 {
             orphaned_permissions.push(permission);
         }
@@ -369,6 +408,25 @@ pub(crate) async fn enforce_not_last_admin_holder(
     Err(LastOrganizationAdminGuardError::LastAdminHolder {
         permissions: orphaned_permissions,
     })
+}
+
+#[derive(Debug, sea_orm::FromQueryResult)]
+struct PermissionKeyRow {
+    permission: String,
+}
+
+#[derive(Debug, sea_orm::FromQueryResult)]
+struct PermissionHolderCountRow {
+    permission: String,
+    holder_count: i64,
+}
+
+fn membership_account_lookup_subquery(org_id: OrgId) -> sea_orm::sea_query::SelectStatement {
+    entity::memberships::Entity::find()
+        .select_only()
+        .column(entity::memberships::Column::AccountId)
+        .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+        .into_query()
 }
 
 fn map_transaction_error(

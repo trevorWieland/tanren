@@ -19,6 +19,7 @@ use tanren_contract::{
     SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_policy::{OrganizationCapability, OrganizationPermissionGate};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -265,6 +266,45 @@ impl Handlers {
         organization::check_organization_permission(store, &self.clock, request).await
     }
 
+    /// Resolve capability metadata from an organization permission.
+    #[must_use]
+    pub const fn organization_permission_capability(
+        permission: tanren_identity_policy::OrganizationPermission,
+    ) -> OrganizationCapability {
+        tanren_policy::organization_capability(permission)
+    }
+
+    /// Generic policy-owned organization capability guard.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller lacks the requested capability.
+    pub async fn ensure_organization_capability<S>(
+        &self,
+        store: &S,
+        session_token: &tanren_identity_policy::SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+        org_id: tanren_identity_policy::OrgId,
+        gate: OrganizationPermissionGate,
+    ) -> Result<OrganizationCapability, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        let granted_gate = organization::require_organization_permission_gate(
+            store,
+            &self.clock,
+            session_token,
+            account_id,
+            org_id,
+            gate,
+        )
+        .await?;
+        Ok(granted_gate.capability)
+    }
+
     /// Permission guard for invitation issuance flows.
     ///
     /// # Errors
@@ -279,17 +319,18 @@ impl Handlers {
         session_token: &tanren_identity_policy::SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
-    ) -> Result<(), AppServiceError>
+    ) -> Result<OrganizationCapability, AppServiceError>
     where
         S: AccountStore + ?Sized,
     {
-        organization::require_organization_permission(
+        self.ensure_organization_capability(
             store,
-            &self.clock,
             session_token,
             account_id,
             org_id,
-            tanren_identity_policy::OrganizationPermission::Invite,
+            OrganizationPermissionGate::from_permission(
+                tanren_identity_policy::OrganizationPermission::Invite,
+            ),
         )
         .await
     }
@@ -308,17 +349,48 @@ impl Handlers {
         session_token: &tanren_identity_policy::SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
-    ) -> Result<(), AppServiceError>
+    ) -> Result<OrganizationCapability, AppServiceError>
     where
         S: AccountStore + ?Sized,
     {
-        organization::require_organization_permission(
+        self.ensure_organization_capability(
             store,
-            &self.clock,
             session_token,
             account_id,
             org_id,
-            tanren_identity_policy::OrganizationPermission::ManageAccess,
+            OrganizationPermissionGate::from_permission(
+                tanren_identity_policy::OrganizationPermission::ManageAccess,
+            ),
+        )
+        .await
+    }
+
+    /// Permission guard for organization-configuration flows.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::AuthRequired`] when authentication is
+    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller lacks configuration rights.
+    pub async fn ensure_can_configure_organization<S>(
+        &self,
+        store: &S,
+        session_token: &tanren_identity_policy::SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+        org_id: tanren_identity_policy::OrgId,
+    ) -> Result<OrganizationCapability, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        self.ensure_organization_capability(
+            store,
+            session_token,
+            account_id,
+            org_id,
+            OrganizationPermissionGate::from_permission(
+                tanren_identity_policy::OrganizationPermission::Configure,
+            ),
         )
         .await
     }
@@ -337,17 +409,18 @@ impl Handlers {
         session_token: &tanren_identity_policy::SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
-    ) -> Result<(), AppServiceError>
+    ) -> Result<OrganizationCapability, AppServiceError>
     where
         S: AccountStore + ?Sized,
     {
-        organization::require_organization_permission(
+        self.ensure_organization_capability(
             store,
-            &self.clock,
             session_token,
             account_id,
             org_id,
-            tanren_identity_policy::OrganizationPermission::SetPolicy,
+            OrganizationPermissionGate::from_permission(
+                tanren_identity_policy::OrganizationPermission::SetPolicy,
+            ),
         )
         .await
     }
@@ -366,17 +439,18 @@ impl Handlers {
         session_token: &tanren_identity_policy::SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
-    ) -> Result<(), AppServiceError>
+    ) -> Result<OrganizationCapability, AppServiceError>
     where
         S: AccountStore + ?Sized,
     {
-        organization::require_organization_permission(
+        self.ensure_organization_capability(
             store,
-            &self.clock,
             session_token,
             account_id,
             org_id,
-            tanren_identity_policy::OrganizationPermission::Delete,
+            OrganizationPermissionGate::from_permission(
+                tanren_identity_policy::OrganizationPermission::Delete,
+            ),
         )
         .await
     }

@@ -353,6 +353,10 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Check whether an account currently holds the supplied
     /// organization-level permission.
+    ///
+    /// Implementations are expected to answer with a single
+    /// exists-style query that verifies both active membership and the
+    /// permission grant.
     async fn has_organization_permission(
         &self,
         account_id: AccountId,

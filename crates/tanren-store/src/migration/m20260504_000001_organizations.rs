@@ -86,6 +86,7 @@ async fn create_memberships_account_lookup_index(manager: &SchemaManager<'_>) ->
             Index::create()
                 .name("idx_memberships_account_lookup")
                 .table(Memberships::Table)
+                .col(Memberships::OrgId)
                 .col(Memberships::AccountId)
                 .to_owned(),
         )
@@ -266,6 +267,7 @@ enum Accounts {
 #[derive(DeriveIden)]
 enum Memberships {
     Table,
+    OrgId,
     AccountId,
 }
 
