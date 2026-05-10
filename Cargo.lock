@@ -4270,6 +4270,7 @@ dependencies = [
  "secrecy",
  "serde",
  "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]
