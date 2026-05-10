@@ -12,8 +12,11 @@ use tanren_contract::{
     ProjectListCursor, ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView,
     ProjectView,
 };
-use tanren_identity_policy::{AccountId, DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
-use tanren_provider_integrations::{SourceControlError, SourceControlProvider};
+use tanren_identity_policy::{AccountId, ProjectId};
+use tanren_provider_integrations::{
+    SourceControlError, SourceControlProvider, SourceControlRateLimitStatus,
+    SourceControlRemoteIdentity,
+};
 use tanren_store::{
     NewProject, NewProjectRepository, ProjectListCursor as StoreProjectListCursor,
     ProjectSetupRecord, ProjectStore, ProjectStoreError,
@@ -85,14 +88,8 @@ where
     )
     .await?;
 
-    let result = connect_existing_repository_with_reservation(
-        store,
-        provider,
-        clock,
-        command,
-        provider_family,
-    )
-    .await;
+    let result =
+        connect_existing_repository_with_reservation(store, provider, clock, command).await;
     complete_or_fail_reservation(store, &reservation, clock, result).await
 }
 
@@ -101,34 +98,29 @@ async fn connect_existing_repository_with_reservation<S, P>(
     provider: &P,
     clock: &Clock,
     command: ConnectExistingRepositoryCommand,
-    provider_family: ProviderFamily,
 ) -> Result<ConnectProjectRepositoryResponse, AppServiceError>
 where
     S: ProjectStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    provider
-        .ensure_provider_reachable()
+    let preflight = provider
+        .preflight_connect_repository(command.actor_account_id, &command.request.repository)
         .await
         .map_err(map_provider_error)?;
-    let has_repo_access = provider
-        .can_access_repository(command.actor_account_id, &command.request.repository)
-        .await
-        .map_err(map_provider_error)?;
-    if !has_repo_access {
+    if matches!(
+        preflight.rate_limit,
+        SourceControlRateLimitStatus::RateLimited
+    ) {
+        return Err(AppServiceError::Project(ProjectFailureReason::RateLimited));
+    }
+    if !preflight.repository_access {
         return Err(AppServiceError::Project(ProjectFailureReason::NoAccess));
     }
-
-    let designated_host = provider
-        .host_for_repository_binding(&command.request.repository)
-        .map_err(map_provider_error)?;
 
     let setup = register_project_repository(
         store,
         command.request.owning_account_id,
-        provider_family,
-        designated_host,
-        command.request.repository,
+        preflight.remote_identity,
         command.request.select_as_active,
         clock,
     )
@@ -166,8 +158,7 @@ where
     )
     .await?;
 
-    let result =
-        create_new_project_with_reservation(store, provider, clock, command, provider_family).await;
+    let result = create_new_project_with_reservation(store, provider, clock, command).await;
     complete_or_fail_reservation(store, &reservation, clock, result).await
 }
 
@@ -176,35 +167,35 @@ async fn create_new_project_with_reservation<S, P>(
     provider: &P,
     clock: &Clock,
     command: CreateNewProjectCommand,
-    provider_family: ProviderFamily,
 ) -> Result<CreateProjectResponse, AppServiceError>
 where
     S: ProjectStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    let designated_host = command.request.designated_host.clone();
-    provider
-        .ensure_provider_reachable()
+    let preflight = provider
+        .preflight_create_repository(
+            command.actor_account_id,
+            &command.request.designated_host,
+            &command.request.repository,
+        )
         .await
         .map_err(map_provider_error)?;
-    provider
-        .ensure_host_reachable(&designated_host)
-        .await
-        .map_err(map_provider_error)?;
-
-    let can_create = provider
-        .can_create_repository_at_host(command.actor_account_id, &designated_host)
-        .await
-        .map_err(map_provider_error)?;
-    if !can_create {
+    if matches!(
+        preflight.rate_limit,
+        SourceControlRateLimitStatus::RateLimited
+    ) {
+        return Err(AppServiceError::Project(ProjectFailureReason::RateLimited));
+    }
+    if !preflight.host_create_access {
         return Err(AppServiceError::Project(ProjectFailureReason::NoAccess));
     }
+    let designated_host = preflight.remote_identity.designated_host.clone();
 
     let created_repository = provider
         .create_repository(
             command.actor_account_id,
             &designated_host,
-            &command.request.repository,
+            &preflight.remote_identity.repository,
         )
         .await
         .map_err(map_provider_error)?;
@@ -212,9 +203,10 @@ where
     let setup_result = register_project_repository(
         store,
         command.request.owning_account_id,
-        provider_family,
-        designated_host.clone(),
-        created_repository.clone(),
+        SourceControlRemoteIdentity {
+            repository: created_repository.clone(),
+            ..preflight.remote_identity
+        },
         command.request.select_as_active,
         clock,
     )
@@ -329,9 +321,7 @@ where
 async fn register_project_repository<S>(
     store: &S,
     owning_account_id: AccountId,
-    provider_family: ProviderFamily,
-    designated_host: DesignatedHost,
-    repository: RepositoryRef,
+    remote_identity: SourceControlRemoteIdentity,
     select_as_active: bool,
     clock: &Clock,
 ) -> Result<ProjectSetupRecord, AppServiceError>
@@ -351,9 +341,11 @@ where
             NewProjectRepository {
                 project_id,
                 owning_account_id,
-                repository_ref: repository,
-                provider_family,
-                designated_host,
+                repository_ref: remote_identity.repository,
+                provider_family: remote_identity.provider_family,
+                designated_host: remote_identity.designated_host,
+                provider_remote_id: remote_identity.provider_remote_id,
+                provider_remote_url: remote_identity.provider_remote_url,
                 created_at: now,
             },
             select_as_active,
@@ -392,6 +384,15 @@ fn map_provider_error(err: SourceControlError) -> AppServiceError {
     match err {
         SourceControlError::ProviderUnavailable => {
             AppServiceError::Project(ProjectFailureReason::ProviderUnavailable)
+        }
+        SourceControlError::Unauthorized => {
+            AppServiceError::Project(ProjectFailureReason::NoAccess)
+        }
+        SourceControlError::RateLimited => {
+            AppServiceError::Project(ProjectFailureReason::RateLimited)
+        }
+        SourceControlError::Conflict => {
+            AppServiceError::Project(ProjectFailureReason::DuplicateRepository)
         }
         SourceControlError::ProviderUnreachable
         | SourceControlError::HostUnreachable

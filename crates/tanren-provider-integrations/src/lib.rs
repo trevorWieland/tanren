@@ -53,9 +53,78 @@ pub enum SourceControlError {
     /// The designated source-control host is not reachable.
     #[error("designated source-control host unreachable")]
     HostUnreachable,
+    /// The actor does not have permission for the requested operation.
+    #[error("source-control operation unauthorized")]
+    Unauthorized,
+    /// The provider rejected the operation due to rate limiting.
+    #[error("source-control provider rate-limited")]
+    RateLimited,
+    /// The provider rejected the operation because of a conflict.
+    #[error("source-control provider conflict")]
+    Conflict,
     /// Provider call failed for a non-reachability reason.
     #[error("source-control provider operation failed")]
     OperationFailed,
+}
+
+/// Provider-specific rate-limit status surfaced by preflight checks.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SourceControlRateLimitStatus {
+    /// No provider-side rate limit currently blocks this action.
+    NotLimited,
+    /// Provider-side rate limiting currently blocks this action.
+    RateLimited,
+}
+
+/// Typed remote repository identity metadata persisted as canonical Tanren
+/// fields (never raw provider payload blobs).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceControlRemoteIdentity {
+    /// Source-control provider family that owns this remote identity.
+    pub provider_family: ProviderFamily,
+    /// Designated host resolved for this repository.
+    pub designated_host: DesignatedHost,
+    /// Canonical repository identity (`owner/name`).
+    pub repository: RepositoryRef,
+    /// Stable provider remote id/token for this repository.
+    pub provider_remote_id: String,
+    /// Optional stable provider URL for this repository.
+    pub provider_remote_url: Option<String>,
+}
+
+/// Shared provider preflight reachability output.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SourceControlReachabilityStatus {
+    /// Whether the provider endpoint is reachable.
+    pub provider_reachable: bool,
+    /// Whether the designated host endpoint is reachable.
+    pub host_reachable: bool,
+}
+
+/// Batched preflight for "connect existing repository" commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceControlConnectPreflight {
+    /// Reachability state at provider + designated-host layers.
+    pub reachability: SourceControlReachabilityStatus,
+    /// Whether the actor can access the repository.
+    pub repository_access: bool,
+    /// Provider-side rate-limit status for this action.
+    pub rate_limit: SourceControlRateLimitStatus,
+    /// Safe remote repository identity metadata.
+    pub remote_identity: SourceControlRemoteIdentity,
+}
+
+/// Batched preflight for "create new repository" commands.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SourceControlCreatePreflight {
+    /// Reachability state at provider + designated-host layers.
+    pub reachability: SourceControlReachabilityStatus,
+    /// Whether the actor can create repositories at this host.
+    pub host_create_access: bool,
+    /// Provider-side rate-limit status for this action.
+    pub rate_limit: SourceControlRateLimitStatus,
+    /// Safe remote repository identity metadata for the repository to create.
+    pub remote_identity: SourceControlRemoteIdentity,
 }
 
 /// Source-control provider port consumed by `tanren-app-services`.
@@ -67,31 +136,21 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
     /// Source-control provider family identifier.
     fn family(&self) -> ProviderFamily;
 
-    /// Resolve consumer-facing host metadata for a repository binding.
-    fn host_for_repository_binding(
-        &self,
-        repository: &RepositoryRef,
-    ) -> Result<DesignatedHost, SourceControlError>;
-
-    /// Validate that the provider is reachable.
-    async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError>;
-
-    /// Validate that the designated host is reachable.
-    async fn ensure_host_reachable(&self, host: &DesignatedHost) -> Result<(), SourceControlError>;
-
-    /// Validate that the actor can access the repository at the provider.
-    async fn can_access_repository(
+    /// Execute batched preflight checks for a connect-existing-repository
+    /// operation.
+    async fn preflight_connect_repository(
         &self,
         actor_account_id: AccountId,
         repository: &RepositoryRef,
-    ) -> Result<bool, SourceControlError>;
+    ) -> Result<SourceControlConnectPreflight, SourceControlError>;
 
-    /// Validate that the actor can create repositories at the designated host.
-    async fn can_create_repository_at_host(
+    /// Execute batched preflight checks for a create-new-repository operation.
+    async fn preflight_create_repository(
         &self,
         actor_account_id: AccountId,
         host: &DesignatedHost,
-    ) -> Result<bool, SourceControlError>;
+        repository: &RepositoryRef,
+    ) -> Result<SourceControlCreatePreflight, SourceControlError>;
 
     /// Create a repository and return its canonical identity.
     async fn create_repository(
@@ -127,37 +186,20 @@ impl SourceControlProvider for UnavailableSourceControlProvider {
         ProviderFamily::source_control()
     }
 
-    fn host_for_repository_binding(
-        &self,
-        _repository: &RepositoryRef,
-    ) -> Result<DesignatedHost, SourceControlError> {
-        default_source_control_binding_host()
-    }
-
-    async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
-        Err(SourceControlError::ProviderUnavailable)
-    }
-
-    async fn ensure_host_reachable(
-        &self,
-        _host: &DesignatedHost,
-    ) -> Result<(), SourceControlError> {
-        Err(SourceControlError::ProviderUnavailable)
-    }
-
-    async fn can_access_repository(
+    async fn preflight_connect_repository(
         &self,
         _actor_account_id: AccountId,
         _repository: &RepositoryRef,
-    ) -> Result<bool, SourceControlError> {
+    ) -> Result<SourceControlConnectPreflight, SourceControlError> {
         Err(SourceControlError::ProviderUnavailable)
     }
 
-    async fn can_create_repository_at_host(
+    async fn preflight_create_repository(
         &self,
         _actor_account_id: AccountId,
         _host: &DesignatedHost,
-    ) -> Result<bool, SourceControlError> {
+        _repository: &RepositoryRef,
+    ) -> Result<SourceControlCreatePreflight, SourceControlError> {
         Err(SourceControlError::ProviderUnavailable)
     }
 

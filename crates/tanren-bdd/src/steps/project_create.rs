@@ -58,16 +58,8 @@ async fn then_create_provider_check_calls(world: &mut TanrenWorld, expected: u64
         .await
         .expect("source-control provider counters should be available");
     assert_eq!(
-        counters.ensure_provider_reachable, expected,
-        "expected provider reachability checks to run {expected} times"
-    );
-    assert_eq!(
-        counters.ensure_host_reachable, expected,
-        "expected host reachability checks to run {expected} times"
-    );
-    assert_eq!(
-        counters.can_create_repository_at_host, expected,
-        "expected host-create access checks to run {expected} times"
+        counters.preflight_create_repository, expected,
+        "expected create preflight checks to run {expected} times"
     );
     assert_eq!(
         counters.create_repository, expected,

@@ -4,16 +4,28 @@ use std::sync::{Arc, Mutex};
 use tanren_identity_policy::{AccountId, DesignatedHost, ProviderFamily, RepositoryRef};
 use uuid::Uuid;
 
-use crate::{SourceControlError, SourceControlProvider};
+use crate::{
+    SourceControlConnectPreflight, SourceControlCreatePreflight, SourceControlError,
+    SourceControlProvider, SourceControlRateLimitStatus, SourceControlReachabilityStatus,
+    SourceControlRemoteIdentity,
+};
 
 #[derive(Debug, Clone, Default)]
 struct EnvFixtureSourceControlConfig {
-    provider_reachable: bool,
+    preflight_mode: EnvFixturePreflightMode,
     reachable_hosts: HashSet<String>,
     repository_access: HashSet<(AccountId, RepositoryRef)>,
     host_create_access: HashSet<(AccountId, String)>,
     fail_repository_create: bool,
     fail_repository_delete: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+enum EnvFixturePreflightMode {
+    #[default]
+    Ready,
+    ProviderUnreachable,
+    RateLimited,
 }
 
 #[derive(Debug, Clone)]
@@ -28,50 +40,70 @@ impl SourceControlProvider for EnvFixtureSourceControlProvider {
         ProviderFamily::source_control()
     }
 
-    fn host_for_repository_binding(
-        &self,
-        _repository: &RepositoryRef,
-    ) -> Result<DesignatedHost, SourceControlError> {
-        DesignatedHost::parse("source-control.local")
-            .map_err(|_| SourceControlError::OperationFailed)
-    }
-
-    async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
-        if self.config.provider_reachable {
-            Ok(())
-        } else {
-            Err(SourceControlError::ProviderUnreachable)
-        }
-    }
-
-    async fn ensure_host_reachable(&self, host: &DesignatedHost) -> Result<(), SourceControlError> {
-        if self.config.reachable_hosts.contains(host.as_str()) {
-            Ok(())
-        } else {
-            Err(SourceControlError::HostUnreachable)
-        }
-    }
-
-    async fn can_access_repository(
+    async fn preflight_connect_repository(
         &self,
         actor_account_id: AccountId,
         repository: &RepositoryRef,
-    ) -> Result<bool, SourceControlError> {
-        Ok(self
-            .config
-            .repository_access
-            .contains(&(actor_account_id, repository.clone())))
+    ) -> Result<SourceControlConnectPreflight, SourceControlError> {
+        match self.config.preflight_mode {
+            EnvFixturePreflightMode::Ready => {}
+            EnvFixturePreflightMode::ProviderUnreachable => {
+                return Err(SourceControlError::ProviderUnreachable);
+            }
+            EnvFixturePreflightMode::RateLimited => {
+                return Err(SourceControlError::RateLimited);
+            }
+        }
+        let designated_host = DesignatedHost::parse("source-control.local")
+            .map_err(|_| SourceControlError::OperationFailed)?;
+        Ok(SourceControlConnectPreflight {
+            reachability: SourceControlReachabilityStatus {
+                provider_reachable: true,
+                host_reachable: true,
+            },
+            repository_access: self
+                .config
+                .repository_access
+                .contains(&(actor_account_id, repository.clone())),
+            rate_limit: SourceControlRateLimitStatus::NotLimited,
+            remote_identity: env_fixture_remote_identity(
+                self.family(),
+                &designated_host,
+                repository,
+            ),
+        })
     }
 
-    async fn can_create_repository_at_host(
+    async fn preflight_create_repository(
         &self,
         actor_account_id: AccountId,
         host: &DesignatedHost,
-    ) -> Result<bool, SourceControlError> {
-        Ok(self
-            .config
-            .host_create_access
-            .contains(&(actor_account_id, host.as_str().to_owned())))
+        repository: &RepositoryRef,
+    ) -> Result<SourceControlCreatePreflight, SourceControlError> {
+        match self.config.preflight_mode {
+            EnvFixturePreflightMode::Ready => {}
+            EnvFixturePreflightMode::ProviderUnreachable => {
+                return Err(SourceControlError::ProviderUnreachable);
+            }
+            EnvFixturePreflightMode::RateLimited => {
+                return Err(SourceControlError::RateLimited);
+            }
+        }
+        if !self.config.reachable_hosts.contains(host.as_str()) {
+            return Err(SourceControlError::HostUnreachable);
+        }
+        Ok(SourceControlCreatePreflight {
+            reachability: SourceControlReachabilityStatus {
+                provider_reachable: true,
+                host_reachable: true,
+            },
+            host_create_access: self
+                .config
+                .host_create_access
+                .contains(&(actor_account_id, host.as_str().to_owned())),
+            rate_limit: SourceControlRateLimitStatus::NotLimited,
+            remote_identity: env_fixture_remote_identity(self.family(), host, repository),
+        })
     }
 
     async fn create_repository(
@@ -116,10 +148,9 @@ pub(crate) fn env_fixture_source_control_provider(
     if !raw.starts_with(PREFIX) {
         return None;
     }
-    let mut config = EnvFixtureSourceControlConfig {
-        provider_reachable: true,
-        ..EnvFixtureSourceControlConfig::default()
-    };
+    let mut config = EnvFixtureSourceControlConfig::default();
+    let mut provider_reachable = true;
+    let mut rate_limited = false;
     for entry in raw[PREFIX.len()..].split(';') {
         if entry.is_empty() {
             continue;
@@ -129,7 +160,10 @@ pub(crate) fn env_fixture_source_control_provider(
         };
         match key {
             "provider_reachable" => {
-                config.provider_reachable = parse_bool_flag(value, true);
+                provider_reachable = parse_bool_flag(value, true);
+            }
+            "rate_limited" => {
+                rate_limited = parse_bool_flag(value, false);
             }
             "fail_repository_create" => {
                 config.fail_repository_create = parse_bool_flag(value, false);
@@ -161,10 +195,35 @@ pub(crate) fn env_fixture_source_control_provider(
             _ => {}
         }
     }
+    config.preflight_mode = if !provider_reachable {
+        EnvFixturePreflightMode::ProviderUnreachable
+    } else if rate_limited {
+        EnvFixturePreflightMode::RateLimited
+    } else {
+        EnvFixturePreflightMode::Ready
+    };
     Some(Arc::new(EnvFixtureSourceControlProvider {
         config,
         created_repositories: Arc::new(Mutex::new(HashSet::new())),
     }))
+}
+
+fn env_fixture_remote_identity(
+    provider_family: ProviderFamily,
+    designated_host: &DesignatedHost,
+    repository: &RepositoryRef,
+) -> SourceControlRemoteIdentity {
+    SourceControlRemoteIdentity {
+        provider_family,
+        designated_host: designated_host.clone(),
+        repository: repository.clone(),
+        provider_remote_id: format!("fixture:{}:{repository}", designated_host.as_str()),
+        provider_remote_url: Some(format!(
+            "https://{}/{}",
+            designated_host.as_str(),
+            repository.as_str()
+        )),
+    }
 }
 
 fn parse_bool_flag(raw: &str, default: bool) -> bool {

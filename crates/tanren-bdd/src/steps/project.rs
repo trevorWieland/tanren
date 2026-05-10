@@ -220,12 +220,8 @@ async fn then_connect_provider_check_calls(world: &mut TanrenWorld, expected: u6
         .await
         .expect("source-control provider counters should be available");
     assert_eq!(
-        counters.ensure_provider_reachable, expected,
-        "expected provider reachability checks to run {expected} times"
-    );
-    assert_eq!(
-        counters.can_access_repository, expected,
-        "expected repository-access checks to run {expected} times"
+        counters.preflight_connect_repository, expected,
+        "expected connect preflight checks to run {expected} times"
     );
 }
 

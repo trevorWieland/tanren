@@ -150,6 +150,10 @@ pub struct ProjectRepositoryRecord {
     pub provider_family: ProviderFamily,
     /// Designated host key used for repository operations.
     pub designated_host: DesignatedHost,
+    /// Stable provider remote id for this repository identity.
+    pub provider_remote_id: String,
+    /// Stable provider remote URL for this repository identity.
+    pub provider_remote_url: Option<String>,
     /// Wall-clock time the binding was created.
     pub created_at: DateTime<Utc>,
 }
@@ -168,6 +172,8 @@ impl TryFrom<entity::project_repositories::Model> for ProjectRepositoryRecord {
             repository_ref,
             provider_family,
             designated_host,
+            provider_remote_id: model.provider_remote_id,
+            provider_remote_url: model.provider_remote_url,
             created_at: model.created_at,
         })
     }
@@ -314,6 +320,10 @@ pub struct NewProjectRepository {
     pub provider_family: ProviderFamily,
     /// Designated host key used for repository operations.
     pub designated_host: DesignatedHost,
+    /// Stable provider remote id for this repository identity.
+    pub provider_remote_id: String,
+    /// Stable provider remote URL for this repository identity.
+    pub provider_remote_url: Option<String>,
     /// Wall-clock creation time.
     pub created_at: DateTime<Utc>,
 }

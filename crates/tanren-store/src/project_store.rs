@@ -119,6 +119,8 @@ impl ProjectStore for Store {
             repository_ref: Set(new.repository_ref.as_str().to_owned()),
             provider_family: Set(new.provider_family.as_str().to_owned()),
             designated_host: Set(new.designated_host.as_str().to_owned()),
+            provider_remote_id: Set(new.provider_remote_id),
+            provider_remote_url: Set(new.provider_remote_url),
             created_at: Set(new.created_at),
         };
         let inserted = model
@@ -157,6 +159,8 @@ impl ProjectStore for Store {
                         repository_ref: Set(repository.repository_ref.as_str().to_owned()),
                         provider_family: Set(repository.provider_family.as_str().to_owned()),
                         designated_host: Set(repository.designated_host.as_str().to_owned()),
+                        provider_remote_id: Set(repository.provider_remote_id),
+                        provider_remote_url: Set(repository.provider_remote_url),
                         created_at: Set(repository.created_at),
                     })
                     .insert(txn)

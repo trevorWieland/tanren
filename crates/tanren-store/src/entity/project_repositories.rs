@@ -11,6 +11,8 @@ pub struct Model {
     pub repository_ref: String,
     pub provider_family: String,
     pub designated_host: String,
+    pub provider_remote_id: String,
+    pub provider_remote_url: Option<String>,
     pub created_at: DateTimeUtc,
 }
 

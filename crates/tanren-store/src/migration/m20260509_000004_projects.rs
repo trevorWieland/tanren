@@ -15,6 +15,8 @@ pub(super) struct Migration;
 const REPOSITORY_REF_MAX_LEN: u32 = 140;
 const PROVIDER_FAMILY_MAX_LEN: u32 = 48;
 const DESIGNATED_HOST_MAX_LEN: u32 = 253;
+const PROVIDER_REMOTE_ID_MAX_LEN: u32 = 256;
+const PROVIDER_REMOTE_URL_MAX_LEN: u32 = 2048;
 const RESERVATION_STATUS_MAX_LEN: u32 = 24;
 const PROJECTS_LIST_INDEX: &str = "idx_projects_list_by_account";
 const PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX: &str =
@@ -205,6 +207,15 @@ async fn create_project_repositories_table(manager: &SchemaManager<'_>) -> Resul
                     ColumnDef::new(ProjectRepositories::DesignatedHost)
                         .string_len(DESIGNATED_HOST_MAX_LEN)
                         .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::ProviderRemoteId)
+                        .string_len(PROVIDER_REMOTE_ID_MAX_LEN)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectRepositories::ProviderRemoteUrl)
+                        .string_len(PROVIDER_REMOTE_URL_MAX_LEN),
                 )
                 .col(
                     ColumnDef::new(ProjectRepositories::CreatedAt)
@@ -412,6 +423,8 @@ enum ProjectRepositories {
     RepositoryRef,
     ProviderFamily,
     DesignatedHost,
+    ProviderRemoteId,
+    ProviderRemoteUrl,
     CreatedAt,
 }
 
