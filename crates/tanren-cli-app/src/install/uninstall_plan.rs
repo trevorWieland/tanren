@@ -257,14 +257,13 @@ fn plan_manifest_entry<'a>(
         return Ok(());
     }
 
-    let current_hash = hash_current_file(&absolute_path, entry.path.as_str())?;
-    if current_hash != entry.content_hash {
-        outcomes.preserve(entry.path.clone(), UninstallPreserveReason::ContentDrifted);
-        outcomes.warn(UninstallWarningKind::ContentDrifted, entry.path.clone());
-        return Ok(());
+    match classify_removal_candidate(&absolute_path, entry.path.as_str(), &entry.content_hash)? {
+        RemovalCandidateState::Remove => outcomes.remove(entry.path.clone()),
+        RemovalCandidateState::PreserveAsContentDrifted => {
+            outcomes.preserve(entry.path.clone(), UninstallPreserveReason::ContentDrifted);
+            outcomes.warn(UninstallWarningKind::ContentDrifted, entry.path.clone());
+        }
     }
-
-    outcomes.remove(entry.path.clone());
     Ok(())
 }
 
@@ -328,6 +327,33 @@ fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, Insta
         message: err.to_string(),
     })?;
     Ok(sha256_hex(&current))
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RemovalCandidateState {
+    Remove,
+    PreserveAsContentDrifted,
+}
+
+fn classify_removal_candidate(
+    path: &Path,
+    display_path: &str,
+    expected_hash: &Sha256Hex,
+) -> Result<RemovalCandidateState, InstallError> {
+    let metadata = fs::metadata(path).map_err(|err| InstallError::ReadFailure {
+        path: display_path.to_owned(),
+        message: err.to_string(),
+    })?;
+    if !metadata.is_file() {
+        return Ok(RemovalCandidateState::PreserveAsContentDrifted);
+    }
+
+    let current_hash = hash_current_file(path, display_path)?;
+    if current_hash == *expected_hash {
+        return Ok(RemovalCandidateState::Remove);
+    }
+
+    Ok(RemovalCandidateState::PreserveAsContentDrifted)
 }
 
 fn display_repository_argument(path: &Path) -> String {
