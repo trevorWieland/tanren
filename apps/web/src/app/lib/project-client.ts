@@ -7,14 +7,14 @@ import {
   type FailureEnvelope,
 } from "@/app/lib/failure";
 import {
+  activeProjectInputSchema,
   connectProjectRepositoryInputSchema,
-  connectProjectRepositoryResponseSchema,
   createProjectInputSchema,
-  createProjectResponseSchema,
   listVisibleProjectsInputSchema,
   projectApiPaths,
-  projectCollectionViewSchema,
   projectFailureCodes,
+  type ActiveProjectInput,
+  type ActiveProjectResult,
   type ConnectProjectRepositoryInput,
   type ConnectProjectRepositoryResult,
   type CreateProjectInput,
@@ -25,6 +25,26 @@ import {
 } from "@/app/lib/contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+
+const connectProjectRepositoryResponseBoundarySchema = v.strictObject({
+  project: v.object({}),
+});
+
+const createProjectResponseBoundarySchema = v.strictObject({
+  project: v.object({}),
+});
+
+const projectCollectionResponseBoundarySchema = v.strictObject({
+  owning_account_id: v.string(),
+  projects: v.array(v.object({})),
+  pagination: v.object({}),
+  freshness: v.object({}),
+});
+
+const activeProjectResponseBoundarySchema = v.strictObject({
+  owning_account_id: v.string(),
+  active_project: v.optional(v.nullable(v.object({}))),
+});
 
 export function describeProjectFailure(failure: ProjectFailure): string {
   return renderFailureEnvelope(failure);
@@ -41,6 +61,8 @@ export class ProjectRequestError extends Error {
 }
 
 export type {
+  ActiveProjectInput,
+  ActiveProjectResult,
   ConnectProjectRepositoryInput,
   ConnectProjectRepositoryResult,
   CreateProjectInput,
@@ -67,7 +89,7 @@ function parseProjectResponse<T>(
 ): T {
   const result = v.safeParse(schema, payload);
   if (result.success) {
-    return result.output as T;
+    return payload as T;
   }
   throw new ProjectRequestError({
     code: "internal_error",
@@ -125,6 +147,17 @@ async function postJson<T>(
   return parseProjectResponse(schema, payload);
 }
 
+export function activeProject(
+  input: ActiveProjectInput = {},
+): Promise<ActiveProjectResult> {
+  const parsedInput = parseProjectInput(activeProjectInputSchema, input);
+  return postJson<ActiveProjectResult>(
+    projectApiPaths.active,
+    parsedInput,
+    activeProjectResponseBoundarySchema,
+  );
+}
+
 export function connectProjectRepository(
   input: ConnectProjectRepositoryInput,
 ): Promise<ConnectProjectRepositoryResult> {
@@ -135,7 +168,7 @@ export function connectProjectRepository(
   return postJson<ConnectProjectRepositoryResult>(
     projectApiPaths.connectRepository,
     parsedInput,
-    connectProjectRepositoryResponseSchema,
+    connectProjectRepositoryResponseBoundarySchema,
   );
 }
 
@@ -146,7 +179,7 @@ export function createProject(
   return postJson<CreateProjectResult>(
     projectApiPaths.create,
     parsedInput,
-    createProjectResponseSchema,
+    createProjectResponseBoundarySchema,
   );
 }
 
@@ -157,6 +190,6 @@ export function listVisibleProjects(
   return postJson<ProjectCollectionView>(
     projectApiPaths.listVisible,
     parsedInput,
-    projectCollectionViewSchema,
+    projectCollectionResponseBoundarySchema,
   );
 }

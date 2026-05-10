@@ -41,6 +41,9 @@ export const accountApiPaths = {
 } as const satisfies Record<string, keyof paths>;
 
 export type ProjectView = components["schemas"]["ProjectView"];
+export type ActiveProjectInput =
+  components["schemas"]["ActiveProjectCookieRequest"];
+export type ActiveProjectResult = components["schemas"]["ActiveProjectView"];
 export type ConnectProjectRepositoryInput =
   components["schemas"]["ConnectProjectRepositoryCookieRequest"];
 export type CreateProjectInput =
@@ -88,6 +91,7 @@ export type ProjectFailure = Omit<
 };
 
 export const projectApiPaths = {
+  active: "/projects/active",
   connectRepository: "/projects/connect-repository",
   create: "/projects/create",
   listVisible: "/projects/list",
@@ -158,32 +162,8 @@ export const designatedHostSchema = v.pipe(
     });
   }),
 );
+
 export const selectAsActiveSchema = v.boolean();
-
-const projectRepositoryViewSchema = v.strictObject({
-  source_control_host: designatedHostSchema,
-  repository: repositoryRefSchema,
-});
-
-const projectSelectionViewSchema = v.strictObject({
-  is_active: v.boolean(),
-  selected_at: v.optional(v.nullable(v.string())),
-});
-
-const projectCountsViewSchema = v.strictObject({
-  specs: v.number(),
-  milestones: v.number(),
-  initiatives: v.number(),
-});
-
-export const projectViewSchema = v.strictObject({
-  id: v.string(),
-  owning_account_id: v.string(),
-  repository: projectRepositoryViewSchema,
-  selection: projectSelectionViewSchema,
-  counts: projectCountsViewSchema,
-  created_at: v.string(),
-});
 
 export const connectProjectRepositoryInputSchema = v.strictObject({
   repository: repositoryRefSchema,
@@ -196,21 +176,28 @@ export const createProjectInputSchema = v.strictObject({
   select_as_active: selectAsActiveSchema,
 });
 
-const projectListCursorSchema = v.strictObject({
+export const projectListCursorSchema = v.strictObject({
   active_selected_at: v.optional(v.nullable(v.string())),
   created_at: v.string(),
   project_id: v.string(),
 });
 
-const projectListFilterRequestSchema = v.strictObject({
-  selection: v.optional(v.picklist(["all"])),
+export const projectListSelectionFilters = [
+  "all",
+] as const satisfies readonly ProjectListSelectionFilter[];
+export const projectListSortOrders = [
+  "active_selected_then_created_desc",
+] as const satisfies readonly ProjectListSortOrder[];
+
+export const projectListFilterRequestSchema = v.strictObject({
+  selection: v.optional(v.picklist(projectListSelectionFilters)),
 });
 
-const projectListSortRequestSchema = v.strictObject({
-  order: v.optional(v.picklist(["active_selected_then_created_desc"])),
+export const projectListSortRequestSchema = v.strictObject({
+  order: v.optional(v.picklist(projectListSortOrders)),
 });
 
-const projectPageRequestSchema = v.strictObject({
+export const projectPageRequestSchema = v.strictObject({
   cursor: v.optional(v.nullable(projectListCursorSchema)),
   page_size: v.optional(
     v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100)),
@@ -223,25 +210,4 @@ export const listVisibleProjectsInputSchema = v.strictObject({
   page: v.optional(projectPageRequestSchema),
 });
 
-export const connectProjectRepositoryResponseSchema = v.strictObject({
-  project: projectViewSchema,
-});
-
-export const createProjectResponseSchema = v.strictObject({
-  project: projectViewSchema,
-});
-
-export const projectCollectionViewSchema = v.strictObject({
-  owning_account_id: v.string(),
-  projects: v.array(projectViewSchema),
-  pagination: v.strictObject({
-    page_size: v.pipe(v.number(), v.integer(), v.minValue(1)),
-    default_page_size: v.pipe(v.number(), v.integer(), v.minValue(1)),
-    max_page_size: v.pipe(v.number(), v.integer(), v.minValue(1)),
-    has_more: v.boolean(),
-    next_cursor: v.optional(v.nullable(projectListCursorSchema)),
-  }),
-  freshness: v.strictObject({
-    as_of: v.optional(v.nullable(v.string())),
-  }),
-});
+export const activeProjectInputSchema = v.strictObject({});

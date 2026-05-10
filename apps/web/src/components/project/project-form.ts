@@ -1,18 +1,10 @@
-import * as v from "valibot";
-
 import {
-  designatedHostSchema,
-  repositoryRefSchema,
-  selectAsActiveSchema,
+  connectProjectRepositoryInputSchema,
+  createProjectInputSchema,
 } from "@/app/lib/contracts";
 
-export const connectProjectFormSchema = v.strictObject({
-  repository: repositoryRefSchema,
-  select_as_active: selectAsActiveSchema,
-});
+export const connectProjectFormSchema: typeof connectProjectRepositoryInputSchema =
+  connectProjectRepositoryInputSchema;
 
-export const createProjectFormSchema = v.strictObject({
-  repository: repositoryRefSchema,
-  designated_host: designatedHostSchema,
-  select_as_active: selectAsActiveSchema,
-});
+export const createProjectFormSchema: typeof createProjectInputSchema =
+  createProjectInputSchema;
