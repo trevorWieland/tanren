@@ -18,7 +18,8 @@ use tanren_app_services::project::{
     ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
     ListVisibleProjectsQuery,
 };
-use tanren_app_services::{Handlers, Store};
+use tanren_app_services::{AccountStore, Clock, Handlers, Store};
+use tanren_identity_policy::{AccountId, SessionToken};
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use tokio::runtime::Runtime;
 
@@ -26,10 +27,11 @@ use crate::FormState;
 use crate::draw;
 use crate::input::{Effect, FormAction, FormKind, handle_form_key, handle_menu_key};
 use crate::ui::{
-    accept_invitation_outcome, active_project_outcome, connect_repository_outcome,
-    create_project_outcome, list_projects_outcome, parse_accept_invitation, parse_active_project,
-    parse_connect_repository, parse_create_project, parse_list_projects, parse_sign_in,
-    parse_sign_up, render_error, render_project_error, sign_in_outcome, sign_up_outcome,
+    AuthenticatedProjectRequest, accept_invitation_outcome, active_project_outcome,
+    connect_repository_outcome, create_project_outcome, list_projects_outcome,
+    parse_accept_invitation, parse_active_project, parse_connect_repository, parse_create_project,
+    parse_list_projects, parse_sign_in, parse_sign_up, render_error, render_project_error,
+    sign_in_outcome, sign_up_outcome,
 };
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
@@ -60,6 +62,7 @@ pub(crate) struct App {
     source_control: Arc<dyn SourceControlProvider>,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    session_token: Option<SessionToken>,
     screen: Screen,
 }
 
@@ -91,6 +94,7 @@ impl App {
             source_control: production_source_control_provider(),
             store,
             store_error,
+            session_token: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -225,7 +229,10 @@ impl App {
             _ => return,
         };
         match self.runtime.block_on(self.handlers.sign_up(store, request)) {
-            Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
+            Ok(response) => {
+                self.session_token = Some(response.session.token.clone());
+                self.screen = Screen::Outcome(sign_up_outcome(&response));
+            }
             Err(reason) => self.set_form_error(FormKind::SignUp, render_error(reason)),
         }
     }
@@ -239,7 +246,10 @@ impl App {
             _ => return,
         };
         match self.runtime.block_on(self.handlers.sign_in(store, request)) {
-            Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
+            Ok(response) => {
+                self.session_token = Some(response.session.token.clone());
+                self.screen = Screen::Outcome(sign_in_outcome(&response));
+            }
             Err(reason) => self.set_form_error(FormKind::SignIn, render_error(reason)),
         }
     }
@@ -256,20 +266,30 @@ impl App {
             .runtime
             .block_on(self.handlers.accept_invitation(store, request))
         {
-            Ok(response) => self.screen = Screen::Outcome(accept_invitation_outcome(&response)),
+            Ok(response) => {
+                self.session_token = Some(response.session.token.clone());
+                self.screen = Screen::Outcome(accept_invitation_outcome(&response));
+            }
             Err(reason) => self.set_form_error(FormKind::AcceptInvitation, render_error(reason)),
         }
     }
 
     fn submit_connect_repository(&mut self, store: &Store) {
-        let request = match (&self.screen, FormKind::ConnectRepository) {
+        let parsed = match (&self.screen, FormKind::ConnectRepository) {
             (Screen::ConnectRepository(state), _) => match parse_connect_repository(state) {
                 Ok(req) => req,
                 Err(message) => return self.set_form_error(FormKind::ConnectRepository, message),
             },
             _ => return,
         };
-        let actor_account_id = request.owning_account_id;
+        let AuthenticatedProjectRequest {
+            session_token,
+            request,
+        } = parsed;
+        let actor_account_id = match self.resolve_actor_account_id(store, session_token) {
+            Ok(actor_account_id) => actor_account_id,
+            Err(message) => return self.set_form_error(FormKind::ConnectRepository, message),
+        };
         match self
             .runtime
             .block_on(self.handlers.connect_project_repository(
@@ -288,14 +308,21 @@ impl App {
     }
 
     fn submit_create_project(&mut self, store: &Store) {
-        let request = match (&self.screen, FormKind::CreateProject) {
+        let parsed = match (&self.screen, FormKind::CreateProject) {
             (Screen::CreateProject(state), _) => match parse_create_project(state) {
                 Ok(req) => req,
                 Err(message) => return self.set_form_error(FormKind::CreateProject, message),
             },
             _ => return,
         };
-        let actor_account_id = request.owning_account_id;
+        let AuthenticatedProjectRequest {
+            session_token,
+            request,
+        } = parsed;
+        let actor_account_id = match self.resolve_actor_account_id(store, session_token) {
+            Ok(actor_account_id) => actor_account_id,
+            Err(message) => return self.set_form_error(FormKind::CreateProject, message),
+        };
         match self.runtime.block_on(self.handlers.create_project(
             store,
             self.source_control.as_ref(),
@@ -312,14 +339,21 @@ impl App {
     }
 
     fn submit_list_projects(&mut self, store: &Store) {
-        let request = match (&self.screen, FormKind::ListProjects) {
+        let parsed = match (&self.screen, FormKind::ListProjects) {
             (Screen::ListProjects(state), _) => match parse_list_projects(state) {
                 Ok(req) => req,
                 Err(message) => return self.set_form_error(FormKind::ListProjects, message),
             },
             _ => return,
         };
-        let actor_account_id = request.owning_account_id;
+        let AuthenticatedProjectRequest {
+            session_token,
+            request,
+        } = parsed;
+        let actor_account_id = match self.resolve_actor_account_id(store, session_token) {
+            Ok(actor_account_id) => actor_account_id,
+            Err(message) => return self.set_form_error(FormKind::ListProjects, message),
+        };
         match self.runtime.block_on(self.handlers.list_visible_projects(
             store,
             ListVisibleProjectsQuery {
@@ -335,14 +369,21 @@ impl App {
     }
 
     fn submit_active_project(&mut self, store: &Store) {
-        let request = match (&self.screen, FormKind::ActiveProject) {
+        let parsed = match (&self.screen, FormKind::ActiveProject) {
             (Screen::ActiveProject(state), _) => match parse_active_project(state) {
                 Ok(req) => req,
                 Err(message) => return self.set_form_error(FormKind::ActiveProject, message),
             },
             _ => return,
         };
-        let actor_account_id = request.owning_account_id;
+        let AuthenticatedProjectRequest {
+            session_token,
+            request,
+        } = parsed;
+        let actor_account_id = match self.resolve_actor_account_id(store, session_token) {
+            Ok(actor_account_id) => actor_account_id,
+            Err(message) => return self.set_form_error(FormKind::ActiveProject, message),
+        };
         match self.runtime.block_on(self.handlers.active_project(
             store,
             ActiveProjectQuery {
@@ -383,6 +424,31 @@ impl App {
             | Screen::ActiveProject(s) => Some(s),
             _ => None,
         }
+    }
+
+    fn resolve_actor_account_id(
+        &mut self,
+        store: &Store,
+        provided_session_token: Option<SessionToken>,
+    ) -> std::result::Result<AccountId, String> {
+        let token = match provided_session_token {
+            Some(token) => {
+                self.session_token = Some(token.clone());
+                token
+            }
+            None => self
+                .session_token
+                .clone()
+                .ok_or_else(|| "auth_required: sign in or supply a session token".to_owned())?,
+        };
+        let resolved = self
+            .runtime
+            .block_on(store.find_active_session(&token, Clock::default().now()))
+            .map_err(|err| format!("internal_error: failed to resolve session: {err}"))?;
+        let Some(session) = resolved else {
+            return Err("auth_required: supplied session token is missing or expired".to_owned());
+        };
+        Ok(session.account_id)
     }
 
     fn draw(&self, frame: &mut ratatui::Frame<'_>) {

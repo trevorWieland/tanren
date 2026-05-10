@@ -91,11 +91,31 @@ impl ProjectHarness for TuiHarness {
         self.inner.connect_project_repository(req).await
     }
 
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.inner
+            .connect_project_repository_as_actor(actor_account_id, req)
+            .await
+    }
+
     async fn list_visible_projects(
         &mut self,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
         self.inner.list_visible_projects(req).await
+    }
+
+    async fn list_visible_projects_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.inner
+            .list_visible_projects_as_actor(actor_account_id, req)
+            .await
     }
 
     async fn create_project(
@@ -105,11 +125,31 @@ impl ProjectHarness for TuiHarness {
         self.inner.create_project(req).await
     }
 
+    async fn create_project_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.inner
+            .create_project_as_actor(actor_account_id, req)
+            .await
+    }
+
     async fn active_project(
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView> {
         self.inner.active_project(req).await
+    }
+
+    async fn active_project_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.inner
+            .active_project_as_actor(actor_account_id, req)
+            .await
     }
 
     async fn set_repository_access(

@@ -277,17 +277,54 @@ pub trait ProjectHarness: AccountHarness {
         req: CreateProjectRequest,
     ) -> HarnessResult<CreateProjectResponse>;
 
+    /// Create a repository while authenticating as a specific actor account.
+    ///
+    /// Harnesses that do not model bearer project credentials can ignore the
+    /// actor parameter and dispatch to [`ProjectHarness::create_project`].
+    async fn create_project_as_actor(
+        &mut self,
+        _actor_account_id: AccountId,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.create_project(req).await
+    }
+
     /// List visible projects for the owning account.
     async fn list_visible_projects(
         &mut self,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView>;
 
+    /// List visible projects while authenticating as a specific actor account.
+    ///
+    /// Harnesses that do not model bearer project credentials can ignore the
+    /// actor parameter and dispatch to [`ProjectHarness::list_visible_projects`].
+    async fn list_visible_projects_as_actor(
+        &mut self,
+        _actor_account_id: AccountId,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.list_visible_projects(req).await
+    }
+
     /// Read active-project metadata for the owning account.
     async fn active_project(
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView>;
+
+    /// Read active-project metadata while authenticating as a specific actor
+    /// account.
+    ///
+    /// Harnesses that do not model bearer project credentials can ignore the
+    /// actor parameter and dispatch to [`ProjectHarness::active_project`].
+    async fn active_project_as_actor(
+        &mut self,
+        _actor_account_id: AccountId,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.active_project(req).await
+    }
 
     /// Configure whether an actor can access a repository in the fixture
     /// source-control provider.

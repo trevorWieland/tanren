@@ -12,10 +12,13 @@ use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, CreateProjectRequest,
     ListVisibleProjectsRequest, ProjectCollectionView, ProjectPageRequest, ProjectView,
 };
-use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use tracing::error;
-use uuid::Uuid;
+
+mod auth;
+use auth::{
+    parse_account_id, parse_designated_host, parse_repository_ref, resolve_actor_account_id,
+};
 
 #[derive(Debug, Clone, Copy, ValueEnum)]
 pub(super) enum ProjectOutputMode {
@@ -47,6 +50,13 @@ impl ProjectFailureBody {
 
 type ProjectCommandResult<T> = std::result::Result<T, ProjectFailureBody>;
 
+#[derive(Clone, Copy)]
+struct ProjectRequestScope<'a> {
+    database_url: &'a str,
+    owning_account_id: &'a str,
+    session_token: Option<&'a str>,
+}
+
 /// Project setup and visibility subcommands.
 #[derive(Debug, Subcommand)]
 pub(super) enum ProjectAction {
@@ -58,6 +68,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
+        /// Session token for the authenticated actor.
+        #[arg(long)]
+        session_token: Option<String>,
         /// Repository identity (`owner/name`).
         #[arg(long)]
         repository: String,
@@ -76,6 +89,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
+        /// Session token for the authenticated actor.
+        #[arg(long)]
+        session_token: Option<String>,
         /// Repository identity (`owner/name`).
         #[arg(long)]
         repository: String,
@@ -97,6 +113,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
+        /// Session token for the authenticated actor.
+        #[arg(long)]
+        session_token: Option<String>,
         /// Output mode.
         #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
         output: ProjectOutputMode,
@@ -109,6 +128,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
+        /// Session token for the authenticated actor.
+        #[arg(long)]
+        session_token: Option<String>,
         /// Output mode.
         #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
         output: ProjectOutputMode,
@@ -130,6 +152,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::ConnectRepository {
             database_url,
             owning_account_id,
+            session_token,
             repository,
             select_as_active,
             output,
@@ -139,6 +162,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 provider.as_ref(),
                 &database_url,
                 &owning_account_id,
+                session_token.as_deref(),
                 &repository,
                 select_as_active,
             )
@@ -151,6 +175,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::Create {
             database_url,
             owning_account_id,
+            session_token,
             repository,
             designated_host,
             select_as_active,
@@ -159,8 +184,11 @@ async fn run_project(action: ProjectAction) -> Result<()> {
             match run_create_project(
                 &handlers,
                 provider.as_ref(),
-                &database_url,
-                &owning_account_id,
+                ProjectRequestScope {
+                    database_url: &database_url,
+                    owning_account_id: &owning_account_id,
+                    session_token: session_token.as_deref(),
+                },
                 &repository,
                 &designated_host,
                 select_as_active,
@@ -174,16 +202,32 @@ async fn run_project(action: ProjectAction) -> Result<()> {
         ProjectAction::List {
             database_url,
             owning_account_id,
+            session_token,
             output,
-        } => match run_list_projects(&handlers, &database_url, &owning_account_id).await {
+        } => match run_list_projects(
+            &handlers,
+            &database_url,
+            &owning_account_id,
+            session_token.as_deref(),
+        )
+        .await
+        {
             Ok(response) => emit_list_projects_success(output, &response)?,
             Err(failure) => return emit_project_failure(output, &failure),
         },
         ProjectAction::Active {
             database_url,
             owning_account_id,
+            session_token,
             output,
-        } => match run_active_project(&handlers, &database_url, &owning_account_id).await {
+        } => match run_active_project(
+            &handlers,
+            &database_url,
+            &owning_account_id,
+            session_token.as_deref(),
+        )
+        .await
+        {
             Ok(response) => emit_active_project_success(output, &response)?,
             Err(failure) => return emit_project_failure(output, &failure),
         },
@@ -196,18 +240,20 @@ async fn run_connect_repository(
     provider: &dyn SourceControlProvider,
     database_url: &str,
     owning_account_id: &str,
+    session_token: Option<&str>,
     repository: &str,
     select_as_active: bool,
 ) -> ProjectCommandResult<tanren_contract::ConnectProjectRepositoryResponse> {
     let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
+    let actor_account_id = resolve_actor_account_id(&store, session_token).await?;
     let repository = parse_repository_ref(repository)?;
     handlers
         .connect_project_repository(
             &store,
             provider,
             ConnectExistingRepositoryCommand {
-                actor_account_id: owning_account_id,
+                actor_account_id,
                 request: ConnectProjectRepositoryRequest {
                     owning_account_id,
                     repository,
@@ -222,14 +268,14 @@ async fn run_connect_repository(
 async fn run_create_project(
     handlers: &Handlers,
     provider: &dyn SourceControlProvider,
-    database_url: &str,
-    owning_account_id: &str,
+    scope: ProjectRequestScope<'_>,
     repository: &str,
     designated_host: &str,
     select_as_active: bool,
 ) -> ProjectCommandResult<tanren_contract::CreateProjectResponse> {
-    let store = connect_store(database_url).await?;
-    let owning_account_id = parse_account_id(owning_account_id)?;
+    let store = connect_store(scope.database_url).await?;
+    let owning_account_id = parse_account_id(scope.owning_account_id)?;
+    let actor_account_id = resolve_actor_account_id(&store, scope.session_token).await?;
     let repository = parse_repository_ref(repository)?;
     let designated_host = parse_designated_host(designated_host)?;
     handlers
@@ -237,7 +283,7 @@ async fn run_create_project(
             &store,
             provider,
             CreateNewProjectCommand {
-                actor_account_id: owning_account_id,
+                actor_account_id,
                 request: CreateProjectRequest {
                     owning_account_id,
                     repository,
@@ -254,14 +300,16 @@ async fn run_list_projects(
     handlers: &Handlers,
     database_url: &str,
     owning_account_id: &str,
+    session_token: Option<&str>,
 ) -> ProjectCommandResult<ProjectCollectionView> {
     let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
+    let actor_account_id = resolve_actor_account_id(&store, session_token).await?;
     handlers
         .list_visible_projects(
             &store,
             ListVisibleProjectsQuery {
-                actor_account_id: owning_account_id,
+                actor_account_id,
                 request: ListVisibleProjectsRequest {
                     owning_account_id,
                     page: ProjectPageRequest::default(),
@@ -276,14 +324,16 @@ async fn run_active_project(
     handlers: &Handlers,
     database_url: &str,
     owning_account_id: &str,
+    session_token: Option<&str>,
 ) -> ProjectCommandResult<tanren_contract::ActiveProjectView> {
     let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
+    let actor_account_id = resolve_actor_account_id(&store, session_token).await?;
     handlers
         .active_project(
             &store,
             ActiveProjectQuery {
-                actor_account_id: owning_account_id,
+                actor_account_id,
                 request: ActiveProjectRequest { owning_account_id },
             },
         )
@@ -385,25 +435,6 @@ async fn connect_store(database_url: &str) -> ProjectCommandResult<Store> {
         ProjectFailureBody::internal(
             "Tanren encountered an internal error while processing the project request.",
         )
-    })
-}
-
-fn parse_account_id(raw: &str) -> ProjectCommandResult<AccountId> {
-    let id = Uuid::parse_str(raw).map_err(|_| {
-        ProjectFailureBody::validation("The owning_account_id must be a valid UUID.")
-    })?;
-    Ok(AccountId::new(id))
-}
-
-fn parse_repository_ref(raw: &str) -> ProjectCommandResult<RepositoryRef> {
-    RepositoryRef::parse(raw).map_err(|_| {
-        ProjectFailureBody::validation("The repository must be provided as owner/name.")
-    })
-}
-
-fn parse_designated_host(raw: &str) -> ProjectCommandResult<DesignatedHost> {
-    DesignatedHost::parse(raw).map_err(|_| {
-        ProjectFailureBody::validation("The designated_host must be a valid provider host key.")
     })
 }
 

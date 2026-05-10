@@ -11,9 +11,14 @@ use tanren_contract::{
     ProjectPageRequest, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
-    AccountId, DesignatedHost, Email, InvitationToken, RepositoryRef, ValidationError,
+    AccountId, DesignatedHost, Email, InvitationToken, RepositoryRef, SessionToken, ValidationError,
 };
-use uuid::Uuid;
+
+#[derive(Debug, Clone)]
+pub(crate) struct AuthenticatedProjectRequest<T> {
+    pub(crate) session_token: Option<SessionToken>,
+    pub(crate) request: T,
+}
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -80,6 +85,11 @@ pub(crate) fn accept_invitation_fields() -> Vec<FormField> {
 pub(crate) fn connect_repository_fields() -> Vec<FormField> {
     vec![
         FormField {
+            label: "Session token (blank=reuse)",
+            secret: true,
+            value: String::new(),
+        },
+        FormField {
             label: "Owning account id",
             secret: false,
             value: String::new(),
@@ -99,6 +109,11 @@ pub(crate) fn connect_repository_fields() -> Vec<FormField> {
 
 pub(crate) fn create_project_fields() -> Vec<FormField> {
     vec![
+        FormField {
+            label: "Session token (blank=reuse)",
+            secret: true,
+            value: String::new(),
+        },
         FormField {
             label: "Owning account id",
             secret: false,
@@ -123,19 +138,33 @@ pub(crate) fn create_project_fields() -> Vec<FormField> {
 }
 
 pub(crate) fn list_projects_fields() -> Vec<FormField> {
-    vec![FormField {
-        label: "Owning account id",
-        secret: false,
-        value: String::new(),
-    }]
+    vec![
+        FormField {
+            label: "Session token (blank=reuse)",
+            secret: true,
+            value: String::new(),
+        },
+        FormField {
+            label: "Owning account id",
+            secret: false,
+            value: String::new(),
+        },
+    ]
 }
 
 pub(crate) fn active_project_fields() -> Vec<FormField> {
-    vec![FormField {
-        label: "Owning account id",
-        secret: false,
-        value: String::new(),
-    }]
+    vec![
+        FormField {
+            label: "Session token (blank=reuse)",
+            secret: true,
+            value: String::new(),
+        },
+        FormField {
+            label: "Owning account id",
+            secret: false,
+            value: String::new(),
+        },
+    ]
 }
 
 pub(crate) fn sign_up_outcome(response: &SignUpResponse) -> OutcomeView {
@@ -336,50 +365,78 @@ pub(crate) fn parse_accept_invitation(
 
 pub(crate) fn parse_connect_repository(
     state: &FormState,
-) -> Result<ConnectProjectRepositoryRequest, String> {
-    let owning_account_id = parse_account_id(state.value(0))?;
-    let repository = RepositoryRef::parse(state.value(1)).map_err(|e| validation_message(&e))?;
-    let select_as_active = parse_select_as_active(state.value(2))?;
-    Ok(ConnectProjectRepositoryRequest {
-        owning_account_id,
-        repository,
-        select_as_active,
-    })
-}
-
-pub(crate) fn parse_create_project(state: &FormState) -> Result<CreateProjectRequest, String> {
-    let owning_account_id = parse_account_id(state.value(0))?;
-    let repository = RepositoryRef::parse(state.value(1)).map_err(|e| validation_message(&e))?;
-    let designated_host =
-        DesignatedHost::parse(state.value(2)).map_err(|e| validation_message(&e))?;
+) -> Result<AuthenticatedProjectRequest<ConnectProjectRepositoryRequest>, String> {
+    let session_token = parse_optional_session_token(state.value(0));
+    let owning_account_id = parse_account_id(state.value(1))?;
+    let repository = RepositoryRef::parse(state.value(2)).map_err(|e| validation_message(&e))?;
     let select_as_active = parse_select_as_active(state.value(3))?;
-    Ok(CreateProjectRequest {
-        owning_account_id,
-        repository,
-        designated_host,
-        select_as_active,
+    Ok(AuthenticatedProjectRequest {
+        session_token,
+        request: ConnectProjectRepositoryRequest {
+            owning_account_id,
+            repository,
+            select_as_active,
+        },
     })
 }
 
-pub(crate) fn parse_list_projects(state: &FormState) -> Result<ListVisibleProjectsRequest, String> {
-    let owning_account_id = parse_account_id(state.value(0))?;
-    Ok(ListVisibleProjectsRequest {
-        owning_account_id,
-        page: ProjectPageRequest::default(),
+pub(crate) fn parse_create_project(
+    state: &FormState,
+) -> Result<AuthenticatedProjectRequest<CreateProjectRequest>, String> {
+    let session_token = parse_optional_session_token(state.value(0));
+    let owning_account_id = parse_account_id(state.value(1))?;
+    let repository = RepositoryRef::parse(state.value(2)).map_err(|e| validation_message(&e))?;
+    let designated_host =
+        DesignatedHost::parse(state.value(3)).map_err(|e| validation_message(&e))?;
+    let select_as_active = parse_select_as_active(state.value(4))?;
+    Ok(AuthenticatedProjectRequest {
+        session_token,
+        request: CreateProjectRequest {
+            owning_account_id,
+            repository,
+            designated_host,
+            select_as_active,
+        },
+    })
+}
+
+pub(crate) fn parse_list_projects(
+    state: &FormState,
+) -> Result<AuthenticatedProjectRequest<ListVisibleProjectsRequest>, String> {
+    let session_token = parse_optional_session_token(state.value(0));
+    let owning_account_id = parse_account_id(state.value(1))?;
+    Ok(AuthenticatedProjectRequest {
+        session_token,
+        request: ListVisibleProjectsRequest {
+            owning_account_id,
+            page: ProjectPageRequest::default(),
+        },
     })
 }
 
 pub(crate) fn parse_active_project(
     state: &FormState,
-) -> Result<tanren_contract::ActiveProjectRequest, String> {
-    let owning_account_id = parse_account_id(state.value(0))?;
-    Ok(tanren_contract::ActiveProjectRequest { owning_account_id })
+) -> Result<AuthenticatedProjectRequest<tanren_contract::ActiveProjectRequest>, String> {
+    let session_token = parse_optional_session_token(state.value(0));
+    let owning_account_id = parse_account_id(state.value(1))?;
+    Ok(AuthenticatedProjectRequest {
+        session_token,
+        request: tanren_contract::ActiveProjectRequest { owning_account_id },
+    })
 }
 
 fn parse_account_id(raw: &str) -> Result<AccountId, String> {
-    let parsed = Uuid::parse_str(raw.trim())
-        .map_err(|err| format!("validation_failed: invalid account id: {err}"))?;
-    Ok(AccountId::new(parsed))
+    AccountId::parse(raw.trim()).map_err(|err| format!("validation_failed: {err}"))
+}
+
+fn parse_optional_session_token(raw: &str) -> Option<SessionToken> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(SessionToken::from_secret(SecretString::from(
+        trimmed.to_owned(),
+    )))
 }
 
 fn parse_select_as_active(raw: &str) -> Result<bool, String> {

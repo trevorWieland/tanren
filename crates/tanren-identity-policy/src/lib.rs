@@ -24,26 +24,34 @@ use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
+const ACCOUNT_ID_VERSION: usize = 7;
+
+/// Stable identifier for a Tanren account (`UUIDv7`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct AccountId(Uuid);
 
 impl AccountId {
-    /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
 
-    /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The underlying UUID.
+    /// Parse an account id from a `UUIDv7` string.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let parsed = Uuid::parse_str(raw).map_err(|_| ValidationError::AccountIdInvalid)?;
+        if parsed.get_version_num() != ACCOUNT_ID_VERSION {
+            return Err(ValidationError::AccountIdInvalid);
+        }
+        Ok(Self(parsed))
+    }
+
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
@@ -67,7 +75,6 @@ impl std::fmt::Display for AccountId {
         self.0.fmt(f)
     }
 }
-
 /// Stable identifier for a Tanren organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
@@ -75,19 +82,16 @@ impl std::fmt::Display for AccountId {
 pub struct OrgId(Uuid);
 
 impl OrgId {
-    /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
 
-    /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The underlying UUID.
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
@@ -111,27 +115,23 @@ impl std::fmt::Display for OrgId {
         self.0.fmt(f)
     }
 }
-
-/// Stable identifier for a membership row (links an account to an org).
+/// Stable identifier for a membership row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct MembershipId(Uuid);
 
 impl MembershipId {
-    /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
 
-    /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The underlying UUID.
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
@@ -155,7 +155,6 @@ impl std::fmt::Display for MembershipId {
         self.0.fmt(f)
     }
 }
-
 /// Validated email address. Constructed via [`Email::parse`] which:
 /// trims surrounding whitespace, validates against RFC 5322 syntax via
 /// the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
@@ -475,6 +474,8 @@ pub enum IdentityError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
+    #[error("account id is not a valid uuidv7")]
+    AccountIdInvalid,
     #[error("project id is not a valid uuidv7")]
     ProjectIdInvalid,
     #[error("email is empty")]

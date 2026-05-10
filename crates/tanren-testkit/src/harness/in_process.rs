@@ -169,7 +169,15 @@ impl ProjectHarness for InProcessHarness {
         &mut self,
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
-        let actor_account_id = req.owning_account_id;
+        self.connect_project_repository_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
         self.handlers
             .connect_project_repository(
                 &self.store,
@@ -187,7 +195,15 @@ impl ProjectHarness for InProcessHarness {
         &mut self,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
-        let actor_account_id = req.owning_account_id;
+        self.list_visible_projects_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn list_visible_projects_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
         self.handlers
             .list_visible_projects(
                 &self.store,
@@ -204,7 +220,15 @@ impl ProjectHarness for InProcessHarness {
         &mut self,
         req: CreateProjectRequest,
     ) -> HarnessResult<CreateProjectResponse> {
-        let actor_account_id = req.owning_account_id;
+        self.create_project_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn create_project_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
         self.handlers
             .create_project(
                 &self.store,
@@ -222,7 +246,15 @@ impl ProjectHarness for InProcessHarness {
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView> {
-        let actor_account_id = req.owning_account_id;
+        self.active_project_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn active_project_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
         self.handlers
             .active_project(
                 &self.store,

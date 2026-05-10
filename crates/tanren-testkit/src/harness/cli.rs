@@ -5,7 +5,10 @@ mod project;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
-use std::{collections::HashSet, iter};
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -29,12 +32,14 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    session_file: PathBuf,
     provider_reachable: bool,
     reachable_hosts: HashSet<String>,
     repository_access: HashSet<(AccountId, RepositoryRef)>,
     host_create_access: HashSet<(AccountId, String)>,
     fail_repository_create: bool,
     created_repositories: HashSet<(String, RepositoryRef)>,
+    session_tokens: HashMap<AccountId, String>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -60,19 +65,26 @@ impl CliHarness {
         let store = Arc::new(store);
 
         let binary = locate_workspace_binary("tanren-cli")?;
+        let session_file = db_path.with_extension("session");
 
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            session_file,
             provider_reachable: true,
             reachable_hosts: HashSet::new(),
             repository_access: HashSet::new(),
             host_create_access: HashSet::new(),
             fail_repository_create: false,
             created_repositories: HashSet::new(),
+            session_tokens: HashMap::new(),
         })
+    }
+
+    pub(crate) fn session_token_for(&self, account_id: AccountId) -> Option<&str> {
+        self.session_tokens.get(&account_id).map(String::as_str)
     }
 
     pub(crate) fn project_provider_fixture_env_value(&self) -> String {
@@ -168,6 +180,7 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_file);
     }
 }
 
@@ -179,6 +192,7 @@ impl AccountHarness for CliHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "account",
                 "create",
@@ -201,18 +215,24 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
-            HarnessSession {
-                account_id: account.id,
-                account,
-                expires_at: Utc::now() + Duration::days(30),
-                has_token,
-            }
-        })
+        parse_session(&stdout, req.email.as_str(), &req.display_name).map(
+            |(account, has_token, token)| {
+                if let Some(token) = token {
+                    self.session_tokens.insert(account.id, token);
+                }
+                HarnessSession {
+                    account_id: account.id,
+                    account,
+                    expires_at: Utc::now() + Duration::days(30),
+                    has_token,
+                }
+            },
+        )
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "account",
                 "sign-in",
@@ -233,11 +253,16 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token, token)| {
+            if let Some(token) = token {
+                self.session_tokens.insert(account.id, token);
+            }
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -246,6 +271,7 @@ impl AccountHarness for CliHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
             .args([
                 "account",
                 "create",
@@ -270,7 +296,11 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        let (account, has_token, token) =
+            parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        if let Some(token) = token {
+            self.session_tokens.insert(account.id, token);
+        }
         let joined_org = parse_joined_org(&stdout)?;
         let account = AccountView {
             org: Some(joined_org),
@@ -367,17 +397,15 @@ fn parse_session(
     stdout: &str,
     email: &str,
     display_name: &str,
-) -> HarnessResult<(AccountView, bool)> {
+) -> HarnessResult<(AccountView, bool, Option<String>)> {
     let re = Regex::new(r"account_id=([0-9a-fA-F-]+)\s+session=([^\s]+)").expect("constant regex");
     let captures = re
         .captures(stdout)
         .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
     let id_raw = captures.get(1).map_or("", |m| m.as_str());
     let token = captures.get(2).map_or("", |m| m.as_str());
-    let id = AccountId::from(
-        Uuid::parse_str(id_raw)
-            .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?,
-    );
+    let id = AccountId::parse(id_raw)
+        .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?;
     let identifier = Identifier::from_email(
         &tanren_identity_policy::Email::parse(email)
             .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?,
@@ -392,7 +420,12 @@ fn parse_session(
         },
         org: None,
     };
-    Ok((account, !token.is_empty()))
+    let parsed_token = if token.is_empty() {
+        None
+    } else {
+        Some(token.to_owned())
+    };
+    Ok((account, !token.is_empty(), parsed_token))
 }
 
 fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {

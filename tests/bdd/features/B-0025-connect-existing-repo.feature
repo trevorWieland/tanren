@@ -171,6 +171,16 @@ Feature: Connect Tanren to an existing repository
       And alice has exactly 1 connected project records
 
     @falsification @cli
+    Scenario: CLI rejects cross-account repository connection requests
+      Given alice has a project account
+      And bob has a project account
+      And repository fixture "CliTeam/CrossAccount" has fingerprint "repo-fp::cliteam/crossaccount" and 4 prior commits
+      And repository fixture "CliTeam/CrossAccount" is accessible to alice
+      When alice uses their credential to connect existing repository "CliTeam/CrossAccount" for bob as an active project
+      Then the project request fails with code "no_access"
+      And bob has exactly 0 connected project records
+
+    @falsification @cli
     Scenario: CLI does not import prior commits as Tanren activity
       Given alice has a project account
       And repository fixture "CliTeam/History" has fingerprint "repo-fp::cliteam/history" and 11 prior commits
@@ -293,6 +303,16 @@ Feature: Connect Tanren to an existing repository
       When alice connects existing repository "TuiTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
       And alice has exactly 1 connected project records
+
+    @falsification @tui
+    Scenario: TUI rejects cross-account repository connection requests
+      Given alice has a project account
+      And bob has a project account
+      And repository fixture "TuiTeam/CrossAccount" has fingerprint "repo-fp::tuiteam/crossaccount" and 4 prior commits
+      And repository fixture "TuiTeam/CrossAccount" is accessible to alice
+      When alice uses their credential to connect existing repository "TuiTeam/CrossAccount" for bob as an active project
+      Then the project request fails with code "no_access"
+      And bob has exactly 0 connected project records
 
     @falsification @tui
     Scenario: TUI does not import prior commits as Tanren activity
