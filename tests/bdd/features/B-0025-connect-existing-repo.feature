@@ -22,6 +22,18 @@ Feature: Connect Tanren to an existing repository
       And alice has exactly 1 connected project records
       And repository "apiteam/atlas" has zero Tanren activity counts
 
+    @positive @api
+    Scenario: API keeps exactly one active project when a second repository is selected active
+      Given alice has a project account
+      And repository fixture "ApiTeam/Alpha" has fingerprint "repo-fp::apiteam/alpha" and 3 prior commits
+      And repository fixture "ApiTeam/Beta" has fingerprint "repo-fp::apiteam/beta" and 2 prior commits
+      When alice connects existing repository "ApiTeam/Alpha" as an active project
+      Then the connection succeeds
+      When alice connects existing repository "ApiTeam/Beta" as an active project
+      Then the connection succeeds
+      And alice has active project repository "apiteam/beta"
+      And alice has exactly 2 connected project records
+
     @falsification @api
     Scenario: API rejects connecting a repository without access
       Given repository fixture "ApiTeam/Private" has fingerprint "repo-fp::apiteam/private" and 5 prior commits
@@ -59,6 +71,18 @@ Feature: Connect Tanren to an existing repository
       And alice has active project repository "webteam/atlas"
       And alice has exactly 1 connected project records
       And repository "webteam/atlas" has zero Tanren activity counts
+
+    @positive @web
+    Scenario: Web keeps exactly one active project when a second repository is selected active
+      Given alice has a project account
+      And repository fixture "WebTeam/Alpha" has fingerprint "repo-fp::webteam/alpha" and 3 prior commits
+      And repository fixture "WebTeam/Beta" has fingerprint "repo-fp::webteam/beta" and 2 prior commits
+      When alice connects existing repository "WebTeam/Alpha" as an active project
+      Then the connection succeeds
+      When alice connects existing repository "WebTeam/Beta" as an active project
+      Then the connection succeeds
+      And alice has active project repository "webteam/beta"
+      And alice has exactly 2 connected project records
 
     @falsification @web
     Scenario: Web rejects connecting a repository without access
@@ -98,6 +122,18 @@ Feature: Connect Tanren to an existing repository
       And alice has exactly 1 connected project records
       And repository "cliteam/atlas" has zero Tanren activity counts
 
+    @positive @cli
+    Scenario: CLI keeps exactly one active project when a second repository is selected active
+      Given alice has a project account
+      And repository fixture "CliTeam/Alpha" has fingerprint "repo-fp::cliteam/alpha" and 3 prior commits
+      And repository fixture "CliTeam/Beta" has fingerprint "repo-fp::cliteam/beta" and 2 prior commits
+      When alice connects existing repository "CliTeam/Alpha" as an active project
+      Then the connection succeeds
+      When alice connects existing repository "CliTeam/Beta" as an active project
+      Then the connection succeeds
+      And alice has active project repository "cliteam/beta"
+      And alice has exactly 2 connected project records
+
     @falsification @cli
     Scenario: CLI rejects connecting a repository without access
       Given repository fixture "CliTeam/Private" has fingerprint "repo-fp::cliteam/private" and 5 prior commits
@@ -135,6 +171,18 @@ Feature: Connect Tanren to an existing repository
       And alice has active project repository "mcpteam/atlas"
       And alice has exactly 1 connected project records
       And repository "mcpteam/atlas" has zero Tanren activity counts
+
+    @positive @mcp
+    Scenario: MCP keeps exactly one active project when a second repository is selected active
+      Given alice has a project account
+      And repository fixture "McpTeam/Alpha" has fingerprint "repo-fp::mcpteam/alpha" and 3 prior commits
+      And repository fixture "McpTeam/Beta" has fingerprint "repo-fp::mcpteam/beta" and 2 prior commits
+      When alice connects existing repository "McpTeam/Alpha" as an active project
+      Then the connection succeeds
+      When alice connects existing repository "McpTeam/Beta" as an active project
+      Then the connection succeeds
+      And alice has active project repository "mcpteam/beta"
+      And alice has exactly 2 connected project records
 
     @falsification @mcp
     Scenario: MCP rejects connecting a repository without a project actor credential
@@ -182,6 +230,18 @@ Feature: Connect Tanren to an existing repository
       And alice has active project repository "tuiteam/atlas"
       And alice has exactly 1 connected project records
       And repository "tuiteam/atlas" has zero Tanren activity counts
+
+    @positive @tui
+    Scenario: TUI keeps exactly one active project when a second repository is selected active
+      Given alice has a project account
+      And repository fixture "TuiTeam/Alpha" has fingerprint "repo-fp::tuiteam/alpha" and 3 prior commits
+      And repository fixture "TuiTeam/Beta" has fingerprint "repo-fp::tuiteam/beta" and 2 prior commits
+      When alice connects existing repository "TuiTeam/Alpha" as an active project
+      Then the connection succeeds
+      When alice connects existing repository "TuiTeam/Beta" as an active project
+      Then the connection succeeds
+      And alice has active project repository "tuiteam/beta"
+      And alice has exactly 2 connected project records
 
     @falsification @tui
     Scenario: TUI rejects connecting a repository without access

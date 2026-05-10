@@ -307,6 +307,20 @@ pub enum ProjectStoreError {
     Store(#[from] StoreError),
 }
 
+/// Failure taxonomy for active-project selection.
+#[derive(Debug, thiserror::Error)]
+pub enum SetActiveProjectError {
+    /// The project id does not exist.
+    #[error("project not found")]
+    NotFound,
+    /// The project exists but is owned by a different account.
+    #[error("project not accessible to account")]
+    NoAccess,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Deterministic project-list cursor.
 #[derive(Debug, Clone)]
 pub struct ProjectListCursor {
@@ -379,12 +393,16 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         owning_account_id: AccountId,
     ) -> Result<Option<ProjectSetupRecord>, StoreError>;
 
-    /// Mark one project active for an account and clear active selection
-    /// on every other project in that account.
+    /// Mark one visible project active for an account.
+    ///
+    /// Returns:
+    /// - [`SetActiveProjectError::NotFound`] when `project_id` does not exist.
+    /// - [`SetActiveProjectError::NoAccess`] when the project exists but is not
+    ///   owned by `owning_account_id`.
     async fn set_active_project(
         &self,
         owning_account_id: AccountId,
         project_id: ProjectId,
         selected_at: DateTime<Utc>,
-    ) -> Result<(), StoreError>;
+    ) -> Result<(), SetActiveProjectError>;
 }

@@ -1,6 +1,7 @@
 //! R-0019 migration: add project and project-repository persistence tables.
 
 use sea_orm_migration::prelude::*;
+use sea_orm_migration::sea_orm::DatabaseBackend;
 
 #[derive(DeriveMigrationName)]
 pub(super) struct Migration;
@@ -8,6 +9,7 @@ pub(super) struct Migration;
 const REPOSITORY_REF_MAX_LEN: u32 = 140;
 const PROVIDER_FAMILY_MAX_LEN: u32 = 48;
 const DESIGNATED_HOST_MAX_LEN: u32 = 253;
+const PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX: &str = "idx_projects_single_active_per_account";
 
 impl std::fmt::Debug for Migration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -43,6 +45,8 @@ impl MigrationTrait for Migration {
                     .to_owned(),
             )
             .await?;
+
+        drop_projects_single_active_index(manager).await?;
 
         manager
             .drop_table(Table::drop().table(ProjectRepositories::Table).to_owned())
@@ -166,7 +170,39 @@ async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .unique()
                 .to_owned(),
         )
-        .await
+        .await?;
+
+    create_projects_single_active_index(manager).await
+}
+
+async fn create_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let backend = manager.get_database_backend();
+    match backend {
+        DatabaseBackend::Sqlite | DatabaseBackend::Postgres => {
+            manager
+                .get_connection()
+                .execute_unprepared(&format!(
+                    "CREATE UNIQUE INDEX IF NOT EXISTS {PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX} \
+                     ON projects (owning_account_id) WHERE active_selected_at IS NOT NULL"
+                ))
+                .await?;
+            Ok(())
+        }
+        DatabaseBackend::MySql => Ok(()),
+    }
+}
+
+async fn drop_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    let backend = manager.get_database_backend();
+    if matches!(backend, DatabaseBackend::Sqlite | DatabaseBackend::Postgres) {
+        manager
+            .get_connection()
+            .execute_unprepared(&format!(
+                "DROP INDEX IF EXISTS {PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX}"
+            ))
+            .await?;
+    }
+    Ok(())
 }
 
 #[derive(DeriveIden)]

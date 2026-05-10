@@ -24,7 +24,7 @@ pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
     ConsumeInvitationError, ConsumedInvitation, ProjectListCursor, ProjectListPage, ProjectStore,
-    ProjectStoreError,
+    ProjectStoreError, SetActiveProjectError,
 };
 
 use async_trait::async_trait;
