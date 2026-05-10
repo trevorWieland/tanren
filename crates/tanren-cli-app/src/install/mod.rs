@@ -12,6 +12,7 @@ mod error;
 mod manifest;
 mod path_guard;
 mod plan;
+mod uninstall_plan;
 mod writer;
 mod writer_tx;
 
@@ -20,6 +21,10 @@ pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
+pub use uninstall_plan::{
+    UninstallPreserveReason, UninstallPreservedPath, UninstallPreview, UninstallWarning,
+    UninstallWarningKind,
+};
 pub use writer::InstallReport;
 
 /// Calculate a hex SHA-256 digest for test fixture bytes.
@@ -152,4 +157,9 @@ pub fn apply_install(
 ) -> Result<InstallReport, InstallError> {
     let plan = plan_install(repository, profile, integration_selection)?;
     writer::apply_install_plan(&plan)
+}
+
+/// Build a manifest-driven uninstall preview without mutating repository files.
+pub fn plan_uninstall(repository: &Path) -> Result<UninstallPreview, InstallError> {
+    uninstall_plan::build_uninstall_preview(repository)
 }
