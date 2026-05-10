@@ -369,7 +369,7 @@ pub struct ProjectListPage {
     pub has_more: bool,
     /// Cursor for the next page, when available.
     pub next_cursor: Option<ProjectListCursor>,
-    /// Newest row timestamp present in this page (if any).
+    /// Newest project-row timestamp in the account scope (if any).
     pub as_of: Option<DateTime<Utc>>,
 }
 

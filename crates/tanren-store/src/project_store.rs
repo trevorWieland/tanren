@@ -16,7 +16,8 @@ use crate::{
     ProjectStore, ProjectStoreError, SetActiveProjectError, Store, StoreError, parse_db_project_id,
     project_reservations,
     project_store_helpers::{
-        build_project_setup_records, load_active_project_selection, load_repositories_for_projects,
+        build_project_setup_records, load_account_projects_freshness,
+        load_active_project_selection, load_repositories_for_projects,
         map_project_repository_insert_error, map_project_transaction_error,
         map_set_active_transaction_error, project_cursor_filter, project_list_cursor_from_model,
     },
@@ -256,7 +257,7 @@ impl ProjectStore for Store {
         if has_more {
             project_rows.truncate(usize::from(page_size));
         }
-        let as_of = project_rows.first().map(|row| row.created_at);
+        let as_of = load_account_projects_freshness(&self.conn, owning_account_id).await?;
         let next_cursor = if has_more {
             project_rows
                 .last()

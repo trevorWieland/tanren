@@ -19,6 +19,7 @@ const PROVIDER_REMOTE_ID_MAX_LEN: u32 = 256;
 const PROVIDER_REMOTE_URL_MAX_LEN: u32 = 2048;
 const RESERVATION_STATUS_MAX_LEN: u32 = 24;
 const PROJECTS_LIST_INDEX: &str = "idx_projects_list_by_account";
+const PROJECTS_FRESHNESS_INDEX: &str = "idx_projects_freshness_by_account_created_at";
 const PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX: &str =
     "idx_project_repositories_owning_account_project";
 const PROJECT_COMMAND_RESERVATIONS_BLOCKED_LOOKUP_INDEX: &str =
@@ -61,6 +62,14 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
+        manager
+            .drop_index(
+                Index::drop()
+                    .name(PROJECTS_FRESHNESS_INDEX)
+                    .table(Projects::Table)
+                    .to_owned(),
+            )
+            .await?;
         manager
             .drop_index(
                 Index::drop()
@@ -327,6 +336,7 @@ async fn create_project_command_reservations_table(
 
 async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     create_projects_list_index(manager).await?;
+    create_projects_freshness_index(manager).await?;
 
     manager
         .create_index(
@@ -358,6 +368,19 @@ async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .name(PROJECT_COMMAND_RESERVATIONS_BLOCKED_LOOKUP_INDEX)
                 .table(ProjectCommandReservations::Table)
                 .col(ProjectCommandReservations::BlockedUntil)
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_projects_freshness_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_index(
+            Index::create()
+                .name(PROJECTS_FRESHNESS_INDEX)
+                .table(Projects::Table)
+                .col(Projects::OwningAccountId)
+                .col((Projects::CreatedAt, IndexOrder::Desc))
                 .to_owned(),
         )
         .await

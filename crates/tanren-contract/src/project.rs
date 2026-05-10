@@ -173,6 +173,7 @@ pub struct ProjectListFilterRequest {
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema, Default,
 )]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ProjectListSelectionFilter {
     /// Return all visible projects.
     #[default]
@@ -193,6 +194,7 @@ pub struct ProjectListSortRequest {
     Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema, Default,
 )]
 #[serde(rename_all = "snake_case")]
+#[non_exhaustive]
 pub enum ProjectListSortOrder {
     /// Sort by `active_selected_at DESC NULLS LAST, created_at DESC, id DESC`.
     #[default]
@@ -229,7 +231,7 @@ pub struct ProjectPaginationView {
 /// Projection freshness metadata for project lists.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ProjectCollectionFreshnessView {
-    /// The newest row timestamp visible in this page (if any rows exist).
+    /// The newest project-row timestamp visible in the account scope.
     pub as_of: Option<DateTime<Utc>>,
 }
 

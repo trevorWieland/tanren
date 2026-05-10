@@ -9,8 +9,8 @@ use tanren_contract::{
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
     ListVisibleProjectsRequest, PROJECT_LIST_DEFAULT_PAGE_SIZE, PROJECT_LIST_MAX_PAGE_SIZE,
     ProjectCollectionFreshnessView, ProjectCollectionView, ProjectCountsView, ProjectFailureReason,
-    ProjectListCursor, ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView,
-    ProjectView,
+    ProjectListCursor, ProjectListSelectionFilter, ProjectListSortOrder, ProjectPaginationView,
+    ProjectRepositoryView, ProjectSelectionView, ProjectView,
 };
 use tanren_identity_policy::{AccountId, ProjectId};
 use tanren_provider_integrations::{
@@ -250,6 +250,8 @@ where
         query.request.owning_account_id,
     )
     .await?;
+    validate_project_list_filter(query.request.page.filter.selection)?;
+    validate_project_list_sort(query.request.page.sort.order)?;
     let page_size = bounded_page_size(query.request.page.page_size);
     let cursor = query
         .request
@@ -273,6 +275,24 @@ where
         },
         freshness: ProjectCollectionFreshnessView { as_of: page.as_of },
     })
+}
+
+fn validate_project_list_filter(filter: ProjectListSelectionFilter) -> Result<(), AppServiceError> {
+    match filter {
+        ProjectListSelectionFilter::All => Ok(()),
+        _ => Err(AppServiceError::Project(
+            ProjectFailureReason::ValidationFailed,
+        )),
+    }
+}
+
+fn validate_project_list_sort(sort: ProjectListSortOrder) -> Result<(), AppServiceError> {
+    match sort {
+        ProjectListSortOrder::ActiveSelectedThenCreatedDesc => Ok(()),
+        _ => Err(AppServiceError::Project(
+            ProjectFailureReason::ValidationFailed,
+        )),
+    }
 }
 
 pub(crate) async fn active_project<S>(

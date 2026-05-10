@@ -78,6 +78,28 @@ pub(crate) async fn load_active_project_selection(
     }))
 }
 
+pub(crate) async fn load_account_projects_freshness(
+    conn: &sea_orm::DatabaseConnection,
+    owning_account_id: AccountId,
+) -> Result<Option<DateTime<Utc>>, StoreError> {
+    let query = Query::select()
+        .expr_as(
+            Expr::col(Alias::new("created_at")).max(),
+            Alias::new("as_of"),
+        )
+        .from(Alias::new("projects"))
+        .and_where(Expr::col(Alias::new("owning_account_id")).eq(owning_account_id.as_uuid()))
+        .to_owned();
+    let Some(row) = conn
+        .query_one(conn.get_database_backend().build(&query))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let as_of: Option<DateTime<Utc>> = row.try_get("", "as_of")?;
+    Ok(as_of)
+}
+
 pub(crate) async fn load_repositories_for_projects(
     conn: &sea_orm::DatabaseConnection,
     owning_account_id: AccountId,
