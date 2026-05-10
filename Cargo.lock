@@ -4153,6 +4153,7 @@ name = "tanren-api"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "tanren-api-app",
  "tanren-observability",
  "tokio",

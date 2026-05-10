@@ -82,9 +82,6 @@ impl<'de> Deserialize<'de> for ProjectId {
 }
 
 /// Canonical repository identity (`owner/name`) used for project setup.
-///
-/// The value is lower-cased + trimmed during parse so different case
-/// spellings of the same repository map to one canonical key.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(

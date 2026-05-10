@@ -80,6 +80,11 @@ const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 const CORS_ORIGINS_ENV: &str = "TANREN_API_CORS_ORIGINS";
 
+#[must_use]
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
+    <routes::ApiDoc as utoipa::OpenApi>::openapi()
+}
+
 /// Configuration for the tanren-api runtime.
 #[derive(Debug, Clone)]
 pub struct Config {

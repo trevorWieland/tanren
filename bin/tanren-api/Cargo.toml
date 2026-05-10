@@ -21,6 +21,7 @@ test-hooks = ["tanren-api-app/test-hooks"]
 
 [dependencies]
 anyhow = { workspace = true }
+serde_json = { workspace = true }
 tanren-api-app = { path = "../../crates/tanren-api-app" }
 tanren-observability = { path = "../../crates/tanren-observability" }
 tokio = { workspace = true }

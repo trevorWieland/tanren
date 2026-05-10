@@ -1,16 +1,22 @@
 import * as v from "valibot";
 
 import {
+  activeProjectRequestSchema,
+  activeProjectResponseSchema,
+  connectProjectRepositoryRequestSchema,
+  connectProjectRepositoryResponseSchema,
+  createProjectRequestSchema,
+  createProjectResponseSchema,
+  listVisibleProjectsRequestSchema,
+  listVisibleProjectsResponseSchema,
+} from "@/app/lib/api-contract-valibot.gen";
+import {
   parseFailureResponse,
   renderFailureEnvelope,
   unavailableFailure,
   type FailureEnvelope,
 } from "@/app/lib/failure";
 import {
-  activeProjectInputSchema,
-  connectProjectRepositoryInputSchema,
-  createProjectInputSchema,
-  listVisibleProjectsInputSchema,
   projectApiPaths,
   projectFailureCodes,
   type ActiveProjectInput,
@@ -25,26 +31,6 @@ import {
 } from "@/app/lib/contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
-
-const connectProjectRepositoryResponseBoundarySchema = v.strictObject({
-  project: v.object({}),
-});
-
-const createProjectResponseBoundarySchema = v.strictObject({
-  project: v.object({}),
-});
-
-const projectCollectionResponseBoundarySchema = v.strictObject({
-  owning_account_id: v.string(),
-  projects: v.array(v.object({})),
-  pagination: v.object({}),
-  freshness: v.object({}),
-});
-
-const activeProjectResponseBoundarySchema = v.strictObject({
-  owning_account_id: v.string(),
-  active_project: v.optional(v.nullable(v.object({}))),
-});
 
 export function describeProjectFailure(failure: ProjectFailure): string {
   return renderFailureEnvelope(failure);
@@ -83,13 +69,12 @@ function toProjectFailure(failure: FailureEnvelope): ProjectFailure {
   };
 }
 
-function parseProjectResponse<T>(
-  schema: v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
-  payload: unknown,
-): T {
+function parseProjectResponse<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> {
   const result = v.safeParse(schema, payload);
   if (result.success) {
-    return payload as T;
+    return result.output;
   }
   throw new ProjectRequestError({
     code: "internal_error",
@@ -97,13 +82,12 @@ function parseProjectResponse<T>(
   });
 }
 
-function parseProjectInput<T>(
-  schema: v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
-  payload: unknown,
-): T {
+function parseProjectInput<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> {
   const result = v.safeParse(schema, payload);
   if (result.success) {
-    return result.output as T;
+    return result.output;
   }
   throw new ProjectRequestError({
     code: "validation_failed",
@@ -111,11 +95,13 @@ function parseProjectInput<T>(
   });
 }
 
-async function postJson<T>(
+async function postJson<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(
   path: string,
   body: unknown,
-  schema: v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
-): Promise<T> {
+  schema: TSchema,
+): Promise<v.InferOutput<TSchema>> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -150,11 +136,11 @@ async function postJson<T>(
 export function activeProject(
   input: ActiveProjectInput = {},
 ): Promise<ActiveProjectResult> {
-  const parsedInput = parseProjectInput(activeProjectInputSchema, input);
-  return postJson<ActiveProjectResult>(
+  const parsedInput = parseProjectInput(activeProjectRequestSchema, input);
+  return postJson(
     projectApiPaths.active,
     parsedInput,
-    activeProjectResponseBoundarySchema,
+    activeProjectResponseSchema,
   );
 }
 
@@ -162,34 +148,37 @@ export function connectProjectRepository(
   input: ConnectProjectRepositoryInput,
 ): Promise<ConnectProjectRepositoryResult> {
   const parsedInput = parseProjectInput(
-    connectProjectRepositoryInputSchema,
+    connectProjectRepositoryRequestSchema,
     input,
   );
-  return postJson<ConnectProjectRepositoryResult>(
+  return postJson(
     projectApiPaths.connectRepository,
     parsedInput,
-    connectProjectRepositoryResponseBoundarySchema,
+    connectProjectRepositoryResponseSchema,
   );
 }
 
 export function createProject(
   input: CreateProjectInput,
 ): Promise<CreateProjectResult> {
-  const parsedInput = parseProjectInput(createProjectInputSchema, input);
-  return postJson<CreateProjectResult>(
+  const parsedInput = parseProjectInput(createProjectRequestSchema, input);
+  return postJson(
     projectApiPaths.create,
     parsedInput,
-    createProjectResponseBoundarySchema,
+    createProjectResponseSchema,
   );
 }
 
 export function listVisibleProjects(
   input: ListVisibleProjectsInput = {},
 ): Promise<ProjectCollectionView> {
-  const parsedInput = parseProjectInput(listVisibleProjectsInputSchema, input);
-  return postJson<ProjectCollectionView>(
+  const parsedInput = parseProjectInput(
+    listVisibleProjectsRequestSchema,
+    input,
+  );
+  return postJson(
     projectApiPaths.listVisible,
     parsedInput,
-    projectCollectionResponseBoundarySchema,
+    listVisibleProjectsResponseSchema,
   );
 }

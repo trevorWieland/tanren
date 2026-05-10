@@ -17,12 +17,11 @@ use utoipa::ToSchema;
 /// Self-signup request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SignUpRequest {
-    /// Email address that will own the new account. Lower-cased + trimmed
-    /// during validation.
+    /// Email address that will own the new account.
     pub email: Email,
-    /// Plaintext password. Hashed by the handler before persistence.
-    /// Wrapped in `SecretString` so accidental `Debug` / `Serialize`
-    /// calls do not leak the credential.
+    /// Account password.
+    // Hashed by the handler before persistence. Wrapped in SecretString
+    // so accidental Debug / Serialize calls do not leak the credential.
     #[serde(
         deserialize_with = "secret_serde::deserialize_password",
         serialize_with = "secret_serde::serialize_password_redacted"
@@ -48,7 +47,8 @@ pub struct SignUpResponse {
 pub struct SignInRequest {
     /// Email of the account being signed in to.
     pub email: Email,
-    /// Plaintext password — verified against the stored hash.
+    /// Account password.
+    // Verified against the stored hash.
     #[serde(
         deserialize_with = "secret_serde::deserialize_password",
         serialize_with = "secret_serde::serialize_password_redacted"
@@ -72,9 +72,7 @@ pub struct SignInResponse {
 pub struct AcceptInvitationRequest {
     /// Invitation token issued by the inviting organization.
     pub invitation_token: InvitationToken,
-    /// Email the invitee chooses for the new account. (Subsequent PRs
-    /// finalize the email-from-invitation flow; for PR 3 the field is
-    /// already first-class on the wire shape.)
+    /// Email the invitee chooses for the new account.
     pub email: Email,
     /// Plaintext password for the new account.
     #[serde(
@@ -112,9 +110,9 @@ pub struct AccountView {
     pub org: Option<OrgId>,
 }
 
-/// External-facing view of a session token. The token is opaque to all
-/// callers; only the issuer (the api/cli/mcp/tui binary that signed it)
-/// understands its internal shape.
+/// External-facing view of a session token.
+// The token is opaque to all callers; only the issuer understands
+// its internal shape.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SessionView {
     /// Account this session is bound to.
@@ -162,14 +160,8 @@ impl CookieSessionEnvelope {
 /// `HttpOnly + Secure + SameSite=Strict` cookie set by the API; the body
 /// only exposes `account_id` + `expires_at` (`Cookie` variant). The
 /// `@cli`, `@mcp`, and `@tui` surfaces have no cookie jar — they receive
-/// the token in the response body (`Bearer` variant). Subsequent PRs map
-/// `SessionView` → `SessionEnvelope` per surface inside each binary
-/// (cookie session lands in PR 8). The discriminator is the transport,
-/// not the user.
-///
-/// See `docs/architecture/subsystems/interfaces.md` § "Canonical session,
-/// error, `OpenAPI`, and design-token decisions" and
-/// `profiles/rust-cargo/architecture/cookie-session.md`.
+/// the token in the response body (`Bearer` variant). The discriminator
+/// is transport, not identity.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "transport", rename_all = "snake_case")]
 pub enum SessionEnvelope {
@@ -340,9 +332,6 @@ pub enum AccountFailureReason {
 }
 
 /// Wire-visible account failure codes for `{code, summary}` error bodies.
-///
-/// This keeps the API/web contract explicit and closed while allowing
-/// account-specific reasons plus shared transport/session failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
 pub enum AccountFailureCode {

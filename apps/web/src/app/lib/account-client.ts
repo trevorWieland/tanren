@@ -1,3 +1,13 @@
+import * as v from "valibot";
+
+import {
+  signUpRequestSchema,
+  signUpResponseSchema,
+  signInRequestSchema,
+  signInResponseSchema,
+  acceptInvitationRequestSchema,
+  acceptInvitationResponseSchema,
+} from "@/app/lib/api-contract-valibot.gen";
 import {
   accountApiPaths,
   accountFailureCodes,
@@ -66,7 +76,39 @@ function toAccountFailure(failure: FailureEnvelope): AccountFailure {
   };
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+function parseAccountResponse<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> {
+  const result = v.safeParse(schema, payload);
+  if (result.success) {
+    return result.output;
+  }
+  throw new AccountRequestError({
+    code: "internal_error",
+    summary: "Response body does not match account contract.",
+  });
+}
+
+function parseAccountInput<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> {
+  const result = v.safeParse(schema, payload);
+  if (result.success) {
+    return result.output;
+  }
+  throw new AccountRequestError({
+    code: "validation_failed",
+    summary: "Request body does not match account contract.",
+  });
+}
+
+async function postJson<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(
+  path: string,
+  body: unknown,
+  schema: TSchema,
+): Promise<v.InferOutput<TSchema>> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -86,15 +128,26 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
     throw new AccountRequestError(toAccountFailure(failureEnvelope));
   }
 
-  return (await response.json()) as T;
+  let payload: unknown;
+  try {
+    payload = (await response.json()) as unknown;
+  } catch {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: `HTTP ${response.status}`,
+    });
+  }
+  return parseAccountResponse(schema, payload);
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return postJson<SignUpResult>(accountApiPaths.signUp, input);
+  const parsedInput = parseAccountInput(signUpRequestSchema, input);
+  return postJson(accountApiPaths.signUp, parsedInput, signUpResponseSchema);
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return postJson<SignInResult>(accountApiPaths.signIn, input);
+  const parsedInput = parseAccountInput(signInRequestSchema, input);
+  return postJson(accountApiPaths.signIn, parsedInput, signInResponseSchema);
 }
 
 export function acceptInvitation(
@@ -103,11 +156,12 @@ export function acceptInvitation(
 ): Promise<AcceptInvitationResult> {
   const pathTemplate = accountApiPaths.acceptInvitation;
   const path = pathTemplate.replace("{token}", encodeURIComponent(token));
-  return postJson<AcceptInvitationResult>(path, {
+  const parsedInput = parseAccountInput(acceptInvitationRequestSchema, {
     email: input.email,
     password: input.password,
     display_name: input.display_name,
   });
+  return postJson(path, parsedInput, acceptInvitationResponseSchema);
 }
 
 /**

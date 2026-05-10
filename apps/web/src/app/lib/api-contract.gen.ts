@@ -170,7 +170,10 @@ export interface components {
       /** @description Human-readable summary. */
       summary: string;
     };
-    /** @description Wire-visible account failure codes for `{code, summary}` error bodies. */
+    /**
+     * @description Wire-visible account failure codes for `{code, summary}` error bodies.
+     * @enum {string}
+     */
     AccountFailureCode:
       | "duplicate_identifier"
       | "invalid_credential"
@@ -182,7 +185,7 @@ export interface components {
       | "internal_error";
     /**
      * Format: uuid
-     * @description Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
+     * @description Stable identifier for a Tanren account (`UUIDv7`).
      */
     AccountId: string;
     /** @description External-facing view of a Tanren account. */
@@ -215,10 +218,27 @@ export interface components {
       /** @description Newly connected project. */
       project: components["schemas"]["ProjectView"];
     };
+    /**
+     * @description Cookie-transport session envelope for API/web account responses.
+     *
+     *     Session tokens are written to an `HttpOnly` cookie and are never
+     *     returned in these response bodies.
+     */
+    CookieSessionEnvelope: {
+      /** @description Account this session is bound to. */
+      account_id: components["schemas"]["AccountId"];
+      /**
+       * Format: date-time
+       * @description Wall-clock time at which the session expires.
+       */
+      expires_at: string;
+      /** @enum {string} */
+      transport: "cookie";
+    };
     /** @description Cookie-scoped API/web request for creating a project. */
     CreateProjectCookieRequest: {
       /** @description Designated host where the repository should be created. */
-      designated_host: string;
+      designated_host: components["schemas"]["DesignatedHost"];
       /** @description Canonical repository identity (`owner/name`) to create. */
       repository: components["schemas"]["RepositoryRef"];
       /** @description Whether the newly created project should be active immediately. */
@@ -229,29 +249,11 @@ export interface components {
       /** @description Newly created project. */
       project: components["schemas"]["ProjectView"];
     };
+    /** @description Validated designated source-control host key. */
+    DesignatedHost: string;
     /**
      * Format: email
-     * @description Validated email address. Constructed via [`Email::parse`] which:
-     *     trims surrounding whitespace, validates against RFC 5322 syntax via
-     *     the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
-     *     quoted local parts), additionally requires a TLD-style domain (no
-     *     dotless or IP-literal domains), and canonicalises to lower-case so
-     *     case variants of the same address compare equal.
-     *
-     *     # Wire-input contract
-     *
-     *     `Email` does NOT derive `Deserialize` — the custom impl below routes
-     *     every wire input through [`parse`](Self::parse). Without this,
-     *     `#[serde(transparent)]` would let HTTP/MCP/CLI requests carry
-     *     untrimmed/un-lowercased/RFC-invalid addresses, which would persist
-     *     verbatim via `Identifier::from_email` and let two case variants of
-     *     the same logical email register as separate accounts. Codex P1
-     *     review on PR #133.
-     *
-     *     Validation invariants are exercised end-to-end by the @api / @web
-     *     scenarios in `tests/bdd/features/B-0043-create-account.feature` —
-     *     case-variant rejection and malformed-email rejection both run
-     *     through the live wire surface, not through Rust unit tests.
+     * @description Validated email address.
      */
     Email: string;
     HealthResponse: {
@@ -260,21 +262,7 @@ export interface components {
       status: string;
       version: string;
     };
-    /**
-     * @description User-facing identifier for an account. R-0001's chosen mechanism is
-     *     identifier+password where the identifier is the canonical email; the
-     *     type wraps the raw string so future mechanisms can lift constraints
-     *     in one place.
-     *
-     *     `Identifier` does NOT derive `Deserialize` — the custom impl below
-     *     routes every wire input through [`parse`](Self::parse) so untrimmed
-     *     or differently-cased identifiers cannot bypass canonicalisation.
-     *     Validation invariants are exercised end-to-end by the @api / @web
-     *     scenarios in `tests/bdd/features/B-0043-create-account.feature`
-     *     (case-variant rejection, malformed-input rejection); per the
-     *     BDD-only test surface policy there are no Rust unit or doc-tests
-     *     for these rules.
-     */
+    /** @description User-facing identifier for an account. */
     Identifier: string;
     /**
      * @description Cookie-scoped API/web request for listing projects visible to the
@@ -284,11 +272,16 @@ export interface components {
       /** @description Pagination controls for this list request. */
       page?: components["schemas"]["ProjectPageRequest"];
     };
-    /**
-     * Format: uuid
-     * @description Stable identifier for a Tanren organization.
-     */
+    /** Format: uuid */
     OrgId: string;
+    /** @description Projection freshness metadata for project lists. */
+    ProjectCollectionFreshnessView: {
+      /**
+       * Format: date-time
+       * @description The newest project-row timestamp visible in the account scope.
+       */
+      as_of?: string | null;
+    };
     /** @description Wire projection for a project list/read response. */
     ProjectCollectionView: {
       /** @description Projection freshness metadata for this page. */
@@ -299,14 +292,6 @@ export interface components {
       pagination: components["schemas"]["ProjectPaginationView"];
       /** @description Projects currently visible under the account. */
       projects: components["schemas"]["ProjectView"][];
-    };
-    /** @description Projection freshness metadata for project lists. */
-    ProjectCollectionFreshnessView: {
-      /**
-       * Format: date-time
-       * @description The newest row timestamp visible in this page (if any rows exist).
-       */
-      as_of?: string | null;
     };
     /** @description Aggregated counts surfaced alongside project records. */
     ProjectCountsView: {
@@ -333,7 +318,10 @@ export interface components {
       /** @description Human-readable summary. */
       summary: string;
     };
-    /** @description Wire-visible project failure codes for `{code, summary}` error bodies. */
+    /**
+     * @description Wire-visible project failure codes for `{code, summary}` error bodies.
+     * @enum {string}
+     */
     ProjectFailureCode:
       | "auth_required"
       | "duplicate_repository"
@@ -374,27 +362,24 @@ export interface components {
      * @enum {string}
      */
     ProjectListSelectionFilter: "all";
-    /** @description Explicit sort fields supported by the project-list contract. */
-    ProjectListSortRequest: {
-      /** @description Deterministic ordering for visible projects. */
-      order?: components["schemas"]["ProjectListSortOrder"];
-    };
     /**
      * @description Supported deterministic orderings for project-list pagination.
      * @enum {string}
      */
     ProjectListSortOrder: "active_selected_then_created_desc";
+    /** @description Explicit sort fields supported by the project-list contract. */
+    ProjectListSortRequest: {
+      /** @description Deterministic ordering for visible projects. */
+      order?: components["schemas"]["ProjectListSortOrder"];
+    };
     /** @description Pagination controls for project-list queries. */
     ProjectPageRequest: {
-      /** @description Cursor pointing to the last project from the previous page. */
       cursor?: null | components["schemas"]["ProjectListCursor"];
       /** @description Filter controls for this list request. */
       filter?: components["schemas"]["ProjectListFilterRequest"];
       /**
+       * Format: int32
        * @description Requested page size, bounded server-side to `[1, max_page_size]`.
-       * @minimum 1
-       * @maximum 100
-       * @default 25
        */
       page_size?: number;
       /** @description Sort controls for this list request. */
@@ -402,23 +387,31 @@ export interface components {
     };
     /** @description Pagination metadata for a project-list response page. */
     ProjectPaginationView: {
-      /** @description Default server page size when callers omit one. */
+      /**
+       * Format: int32
+       * @description Default server page size when callers omit one.
+       */
       default_page_size: number;
       /** @description Whether another page exists after this one. */
       has_more: boolean;
-      /** @description Maximum server page size. */
+      /**
+       * Format: int32
+       * @description Maximum server page size.
+       */
       max_page_size: number;
-      /** @description Cursor callers should send to request the next page. */
       next_cursor?: null | components["schemas"]["ProjectListCursor"];
-      /** @description The page size that was actually applied after bounding. */
+      /**
+       * Format: int32
+       * @description The page size that was actually applied after bounding.
+       */
       page_size: number;
     };
     /** @description Repository metadata bound to a project. */
     ProjectRepositoryView: {
-      /** @description Source-control host where this repository is bound. */
-      source_control_host: string;
       /** @description Canonical `owner/name` repository identity. */
       repository: components["schemas"]["RepositoryRef"];
+      /** @description Source-control host where this repository is bound. */
+      source_control_host: components["schemas"]["DesignatedHost"];
     };
     /** @description Metadata about active-project selection state. */
     ProjectSelectionView: {
@@ -448,37 +441,15 @@ export interface components {
       /** @description Active-project selection metadata. */
       selection: components["schemas"]["ProjectSelectionView"];
     };
-    /**
-     * @description Canonical repository identity (`owner/name`) used for project setup.
-     *
-     *     The value is lower-cased + trimmed during parse so different case
-     *     spellings of the same repository map to one canonical key.
-     */
+    /** @description Canonical repository identity (`owner/name`) used for project setup. */
     RepositoryRef: string;
-    /**
-     * @description Cookie-transport session envelope for API/web account responses.
-     *
-     *     Session tokens are written to an `HttpOnly` cookie and are never
-     *     returned in these response bodies.
-     */
-    CookieSessionEnvelope: {
-      /** @description Account this session is bound to. */
-      account_id: components["schemas"]["AccountId"];
-      /**
-       * Format: date-time
-       * @description Wall-clock time at which the session expires.
-       */
-      expires_at: string;
-      /** @enum {string} */
-      transport: "cookie";
-    };
     /** @description Sign-in request. */
     SignInRequest: {
       /** @description Email of the account being signed in to. */
       email: components["schemas"]["Email"];
       /**
        * Format: password
-       * @description Plaintext password — verified against the stored hash.
+       * @description Account password.
        */
       password: string;
     };
@@ -490,16 +461,11 @@ export interface components {
     SignUpRequest: {
       /** @description Human-readable display name for the new account. */
       display_name: string;
-      /**
-       * @description Email address that will own the new account. Lower-cased + trimmed
-       *     during validation.
-       */
+      /** @description Email address that will own the new account. */
       email: components["schemas"]["Email"];
       /**
        * Format: password
-       * @description Plaintext password. Hashed by the handler before persistence.
-       *     Wrapped in `SecretString` so accidental `Debug` / `Serialize`
-       *     calls do not leak the credential.
+       * @description Account password.
        */
       password: string;
     };
@@ -513,15 +479,6 @@ export interface components {
   requestBodies: never;
   headers: never;
   pathItems: never;
-  securitySchemes: {
-    tanren_session: {
-      /** @enum {string} */
-      in: "cookie";
-      name: "tanren_session";
-      /** @enum {string} */
-      type: "apiKey";
-    };
-  };
 }
 export type $defs = Record<string, never>;
 export interface operations {
@@ -662,9 +619,6 @@ export interface operations {
         "application/json": components["schemas"]["ActiveProjectCookieRequest"];
       };
     };
-    security: {
-      tanren_session: string[];
-    }[];
     responses: {
       /** @description Active-project metadata */
       200: {
@@ -716,9 +670,6 @@ export interface operations {
         "application/json": components["schemas"]["ConnectProjectRepositoryCookieRequest"];
       };
     };
-    security: {
-      tanren_session: string[];
-    }[];
     responses: {
       /** @description Repository connected as project */
       201: {
@@ -783,6 +734,15 @@ export interface operations {
           "application/json": components["schemas"]["ProjectFailureBody"];
         };
       };
+      /** @description provider_unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectFailureBody"];
+        };
+      };
     };
   };
   create_project_route: {
@@ -797,9 +757,6 @@ export interface operations {
         "application/json": components["schemas"]["CreateProjectCookieRequest"];
       };
     };
-    security: {
-      tanren_session: string[];
-    }[];
     responses: {
       /** @description Project and repository created */
       201: {
@@ -864,6 +821,15 @@ export interface operations {
           "application/json": components["schemas"]["ProjectFailureBody"];
         };
       };
+      /** @description provider_unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectFailureBody"];
+        };
+      };
     };
   };
   list_visible_projects_route: {
@@ -878,9 +844,6 @@ export interface operations {
         "application/json": components["schemas"]["ListVisibleProjectsCookieRequest"];
       };
     };
-    security: {
-      tanren_session: string[];
-    }[];
     responses: {
       /** @description Project list */
       200: {

@@ -163,27 +163,10 @@ impl std::fmt::Display for MembershipId {
         self.0.fmt(f)
     }
 }
-/// Validated email address. Constructed via [`Email::parse`] which:
-/// trims surrounding whitespace, validates against RFC 5322 syntax via
-/// the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
-/// quoted local parts), additionally requires a TLD-style domain (no
-/// dotless or IP-literal domains), and canonicalises to lower-case so
-/// case variants of the same address compare equal.
-///
-/// # Wire-input contract
-///
-/// `Email` does NOT derive `Deserialize` — the custom impl below routes
-/// every wire input through [`parse`](Self::parse). Without this,
-/// `#[serde(transparent)]` would let HTTP/MCP/CLI requests carry
-/// untrimmed/un-lowercased/RFC-invalid addresses, which would persist
-/// verbatim via `Identifier::from_email` and let two case variants of
-/// the same logical email register as separate accounts. Codex P1
-/// review on PR #133.
-///
-/// Validation invariants are exercised end-to-end by the @api / @web
-/// scenarios in `tests/bdd/features/B-0043-create-account.feature` —
-/// case-variant rejection and malformed-email rejection both run
-/// through the live wire surface, not through Rust unit tests.
+/// Validated email address.
+// Constructed via Email::parse which trims whitespace, validates RFC 5322
+// syntax (via email_validator_rfc5322 crate), requires a TLD-style domain,
+// and canonicalises to lower-case.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "email")]
@@ -244,19 +227,7 @@ impl std::fmt::Display for Email {
     }
 }
 
-/// User-facing identifier for an account. R-0001's chosen mechanism is
-/// identifier+password where the identifier is the canonical email; the
-/// type wraps the raw string so future mechanisms can lift constraints
-/// in one place.
-///
-/// `Identifier` does NOT derive `Deserialize` — the custom impl below
-/// routes every wire input through [`parse`](Self::parse) so untrimmed
-/// or differently-cased identifiers cannot bypass canonicalisation.
-/// Validation invariants are exercised end-to-end by the @api / @web
-/// scenarios in `tests/bdd/features/B-0043-create-account.feature`
-/// (case-variant rejection, malformed-input rejection); per the
-/// BDD-only test surface policy there are no Rust unit or doc-tests
-/// for these rules.
+/// User-facing identifier for an account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
@@ -309,18 +280,7 @@ impl std::fmt::Display for Identifier {
 /// Minimum byte length of a valid invitation token.
 const INVITATION_TOKEN_MIN_LEN: usize = 16;
 
-/// Opaque invitation token. R-0001 treats the token as a flat string —
-/// generation/delivery is R-0005's job; here we just verify and consume.
-///
-/// `InvitationToken` does NOT derive `Deserialize` — the custom impl
-/// below routes every wire input through [`parse`](Self::parse) so
-/// short-on-wire tokens are rejected at the contract boundary instead
-/// of reaching the handler. Validation invariants are exercised
-/// end-to-end by the @api / @web scenarios in
-/// `tests/bdd/features/B-0043-create-account.feature` (expired-token
-/// rejection, missing-token rejection, etc.); per the BDD-only test
-/// surface policy there are no Rust unit or doc-tests for these
-/// rules.
+/// Opaque invitation token.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]

@@ -1,0 +1,1195 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Tanren API",
+    "description": "Tanren control plane for agentic software delivery.",
+    "license": {
+      "name": "MIT OR Apache-2.0",
+      "identifier": "MIT OR Apache-2.0"
+    },
+    "version": "0.0.0"
+  },
+  "paths": {
+    "/accounts": {
+      "post": {
+        "tags": ["accounts"],
+        "operationId": "sign_up_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignUpRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Account created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignUpResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "duplicate_identifier",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/health": {
+      "get": {
+        "tags": ["health"],
+        "operationId": "health_route",
+        "responses": {
+          "200": {
+            "description": "Service is live",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HealthResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invitations/{token}/accept": {
+      "post": {
+        "tags": ["accounts"],
+        "operationId": "accept_invitation_route",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "path",
+            "description": "Opaque invitation token",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationBody"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Invitation accepted",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptInvitationResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "invitation_not_found",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "invitation_expired or invitation_already_consumed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/projects/active": {
+      "post": {
+        "tags": ["projects"],
+        "operationId": "active_project_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ActiveProjectCookieRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Active-project metadata",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActiveProjectView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "no_access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "tanren_session": []
+          }
+        ]
+      }
+    },
+    "/projects/connect-repository": {
+      "post": {
+        "tags": ["projects"],
+        "operationId": "connect_project_repository_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConnectProjectRepositoryCookieRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Repository connected as project",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConnectProjectRepositoryResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "no_access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "duplicate_repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "provider_failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "provider_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "tanren_session": []
+          }
+        ]
+      }
+    },
+    "/projects/create": {
+      "post": {
+        "tags": ["projects"],
+        "operationId": "create_project_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateProjectCookieRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Project and repository created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreateProjectResponse"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "no_access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "duplicate_repository",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "rate_limited",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "502": {
+            "description": "provider_failure",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "provider_unavailable",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "tanren_session": []
+          }
+        ]
+      }
+    },
+    "/projects/list": {
+      "post": {
+        "tags": ["projects"],
+        "operationId": "list_visible_projects_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListVisibleProjectsCookieRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Project list",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectCollectionView"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "auth_required",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "no_access",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProjectFailureBody"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "tanren_session": []
+          }
+        ]
+      }
+    },
+    "/sessions": {
+      "post": {
+        "tags": ["accounts"],
+        "operationId": "sign_in_route",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SignInRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Sign-in succeeded",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SignInResponseCookie"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "validation_failed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "invalid_credential",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AccountFailureBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/sessions/revoke": {
+      "post": {
+        "tags": ["accounts"],
+        "operationId": "revoke_route",
+        "responses": {
+          "204": {
+            "description": "Session revoked"
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "AcceptInvitationBody": {
+        "type": "object",
+        "required": ["email", "password", "display_name"],
+        "properties": {
+          "display_name": {
+            "type": "string"
+          },
+          "email": {
+            "$ref": "#/components/schemas/Email"
+          },
+          "password": {
+            "type": "string",
+            "format": "password"
+          }
+        }
+      },
+      "AcceptInvitationResponseCookie": {
+        "type": "object",
+        "required": ["account", "session", "joined_org"],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          "joined_org": {
+            "$ref": "#/components/schemas/OrgId"
+          },
+          "session": {
+            "$ref": "#/components/schemas/CookieSessionEnvelope"
+          }
+        }
+      },
+      "AccountFailureBody": {
+        "type": "object",
+        "description": "Shared `{code, summary}` failure body.",
+        "required": ["code", "summary"],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/AccountFailureCode",
+            "description": "Stable error code from the closed taxonomy."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary."
+          }
+        }
+      },
+      "AccountFailureCode": {
+        "type": "string",
+        "description": "Wire-visible account failure codes for `{code, summary}` error bodies.",
+        "enum": [
+          "duplicate_identifier",
+          "invalid_credential",
+          "validation_failed",
+          "invitation_not_found",
+          "invitation_expired",
+          "invitation_already_consumed",
+          "auth_required",
+          "internal_error"
+        ]
+      },
+      "AccountId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Stable identifier for a Tanren account (`UUIDv7`)."
+      },
+      "AccountView": {
+        "type": "object",
+        "description": "External-facing view of a Tanren account.",
+        "required": ["id", "identifier", "display_name"],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Display name."
+          },
+          "id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Stable account id."
+          },
+          "identifier": {
+            "$ref": "#/components/schemas/Identifier",
+            "description": "User-facing identifier (email)."
+          },
+          "org": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/OrgId",
+                "description": "Owning organization id — `None` for personal (self-signup) accounts."
+              }
+            ]
+          }
+        }
+      },
+      "ActiveProjectCookieRequest": {
+        "type": "object",
+        "description": "Cookie-scoped API/web request for active-project metadata.",
+        "additionalProperties": false
+      },
+      "ActiveProjectView": {
+        "type": "object",
+        "description": "Active-project projection for an account.",
+        "required": ["owning_account_id"],
+        "properties": {
+          "active_project": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectView",
+                "description": "Active project, if one is currently selected."
+              }
+            ]
+          },
+          "owning_account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Account that owns this active-project view."
+          }
+        }
+      },
+      "ConnectProjectRepositoryCookieRequest": {
+        "type": "object",
+        "description": "Cookie-scoped API/web request for connecting an existing repository.",
+        "required": ["repository", "select_as_active"],
+        "properties": {
+          "repository": {
+            "$ref": "#/components/schemas/RepositoryRef",
+            "description": "Canonical repository identity (`owner/name`)."
+          },
+          "select_as_active": {
+            "type": "boolean",
+            "description": "Whether the newly connected project should be active immediately."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ConnectProjectRepositoryResponse": {
+        "type": "object",
+        "description": "Successful repository-connection response.",
+        "required": ["project"],
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/ProjectView",
+            "description": "Newly connected project."
+          }
+        }
+      },
+      "CookieSessionEnvelope": {
+        "oneOf": [
+          {
+            "type": "object",
+            "description": "Cookie-bound session metadata.",
+            "required": ["account_id", "expires_at", "transport"],
+            "properties": {
+              "account_id": {
+                "$ref": "#/components/schemas/AccountId",
+                "description": "Account this session is bound to."
+              },
+              "expires_at": {
+                "type": "string",
+                "format": "date-time",
+                "description": "Wall-clock time at which the session expires."
+              },
+              "transport": {
+                "type": "string",
+                "enum": ["cookie"]
+              }
+            }
+          }
+        ],
+        "description": "Cookie-transport session envelope for API/web account responses.\n\nSession tokens are written to an `HttpOnly` cookie and are never\nreturned in these response bodies."
+      },
+      "CreateProjectCookieRequest": {
+        "type": "object",
+        "description": "Cookie-scoped API/web request for creating a project.",
+        "required": ["repository", "designated_host", "select_as_active"],
+        "properties": {
+          "designated_host": {
+            "$ref": "#/components/schemas/DesignatedHost",
+            "description": "Designated host where the repository should be created."
+          },
+          "repository": {
+            "$ref": "#/components/schemas/RepositoryRef",
+            "description": "Canonical repository identity (`owner/name`) to create."
+          },
+          "select_as_active": {
+            "type": "boolean",
+            "description": "Whether the newly created project should be active immediately."
+          }
+        },
+        "additionalProperties": false
+      },
+      "CreateProjectResponse": {
+        "type": "object",
+        "description": "Successful project-creation response.",
+        "required": ["project"],
+        "properties": {
+          "project": {
+            "$ref": "#/components/schemas/ProjectView",
+            "description": "Newly created project."
+          }
+        }
+      },
+      "DesignatedHost": {
+        "type": "string",
+        "description": "Validated designated source-control host key.",
+        "pattern": "^(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)(?:\\.(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?))*$"
+      },
+      "Email": {
+        "type": "string",
+        "format": "email",
+        "description": "Validated email address."
+      },
+      "HealthResponse": {
+        "type": "object",
+        "required": ["status", "version", "contract_version"],
+        "properties": {
+          "contract_version": {
+            "type": "integer",
+            "format": "int32",
+            "minimum": 0
+          },
+          "status": {
+            "type": "string"
+          },
+          "version": {
+            "type": "string"
+          }
+        }
+      },
+      "Identifier": {
+        "type": "string",
+        "description": "User-facing identifier for an account."
+      },
+      "ListVisibleProjectsCookieRequest": {
+        "type": "object",
+        "description": "Cookie-scoped API/web request for listing projects visible to the\nauthenticated session account.",
+        "properties": {
+          "page": {
+            "$ref": "#/components/schemas/ProjectPageRequest",
+            "description": "Pagination controls for this list request."
+          }
+        },
+        "additionalProperties": false
+      },
+      "OrgId": {
+        "type": "string",
+        "format": "uuid"
+      },
+      "ProjectCollectionFreshnessView": {
+        "type": "object",
+        "description": "Projection freshness metadata for project lists.",
+        "properties": {
+          "as_of": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "The newest project-row timestamp visible in the account scope."
+          }
+        }
+      },
+      "ProjectCollectionView": {
+        "type": "object",
+        "description": "Wire projection for a project list/read response.",
+        "required": [
+          "owning_account_id",
+          "projects",
+          "pagination",
+          "freshness"
+        ],
+        "properties": {
+          "freshness": {
+            "$ref": "#/components/schemas/ProjectCollectionFreshnessView",
+            "description": "Projection freshness metadata for this page."
+          },
+          "owning_account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Account that owns this collection."
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/ProjectPaginationView",
+            "description": "Bounded pagination metadata for this page."
+          },
+          "projects": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/ProjectView"
+            },
+            "description": "Projects currently visible under the account."
+          }
+        }
+      },
+      "ProjectCountsView": {
+        "type": "object",
+        "description": "Aggregated counts surfaced alongside project records.",
+        "required": ["specs", "milestones", "initiatives"],
+        "properties": {
+          "initiatives": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of initiatives in this project.",
+            "minimum": 0
+          },
+          "milestones": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of milestones in this project.",
+            "minimum": 0
+          },
+          "specs": {
+            "type": "integer",
+            "format": "int64",
+            "description": "Number of specs in this project.",
+            "minimum": 0
+          }
+        }
+      },
+      "ProjectFailureBody": {
+        "type": "object",
+        "description": "Shared `{code, summary}` project-failure body.",
+        "required": ["code", "summary"],
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ProjectFailureCode",
+            "description": "Stable error code from the closed taxonomy."
+          },
+          "summary": {
+            "type": "string",
+            "description": "Human-readable summary."
+          }
+        }
+      },
+      "ProjectFailureCode": {
+        "type": "string",
+        "description": "Wire-visible project failure codes for `{code, summary}` error bodies.",
+        "enum": [
+          "auth_required",
+          "duplicate_repository",
+          "in_flight",
+          "rate_limited",
+          "no_access",
+          "validation_failed",
+          "provider_unavailable",
+          "provider_failure",
+          "internal_error"
+        ]
+      },
+      "ProjectId": {
+        "type": "string",
+        "format": "uuid",
+        "description": "Stable identifier for a Tanren project. `UUIDv7` — sortable + unique."
+      },
+      "ProjectListCursor": {
+        "type": "object",
+        "description": "Stable cursor over the deterministic project-list ordering.",
+        "required": ["created_at", "project_id"],
+        "properties": {
+          "active_selected_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Active-selection timestamp used as the primary sort key."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Project creation timestamp used as a secondary sort key."
+          },
+          "project_id": {
+            "$ref": "#/components/schemas/ProjectId",
+            "description": "Project id used as a final deterministic tie-breaker."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectListFilterRequest": {
+        "type": "object",
+        "description": "Explicit filter fields supported by the project-list contract.",
+        "properties": {
+          "selection": {
+            "$ref": "#/components/schemas/ProjectListSelectionFilter",
+            "description": "Selection-state filter for visible projects."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectListSelectionFilter": {
+        "type": "string",
+        "description": "Supported project-list selection filters.",
+        "enum": ["all"]
+      },
+      "ProjectListSortOrder": {
+        "type": "string",
+        "description": "Supported deterministic orderings for project-list pagination.",
+        "enum": ["active_selected_then_created_desc"]
+      },
+      "ProjectListSortRequest": {
+        "type": "object",
+        "description": "Explicit sort fields supported by the project-list contract.",
+        "properties": {
+          "order": {
+            "$ref": "#/components/schemas/ProjectListSortOrder",
+            "description": "Deterministic ordering for visible projects."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectPageRequest": {
+        "type": "object",
+        "description": "Pagination controls for project-list queries.",
+        "properties": {
+          "cursor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectListCursor",
+                "description": "Cursor pointing to the last project from the previous page."
+              }
+            ]
+          },
+          "filter": {
+            "$ref": "#/components/schemas/ProjectListFilterRequest",
+            "description": "Filter controls for this list request."
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Requested page size, bounded server-side to `[1, max_page_size]`.",
+            "maximum": 100,
+            "minimum": 1
+          },
+          "sort": {
+            "$ref": "#/components/schemas/ProjectListSortRequest",
+            "description": "Sort controls for this list request."
+          }
+        },
+        "additionalProperties": false
+      },
+      "ProjectPaginationView": {
+        "type": "object",
+        "description": "Pagination metadata for a project-list response page.",
+        "required": [
+          "page_size",
+          "default_page_size",
+          "max_page_size",
+          "has_more"
+        ],
+        "properties": {
+          "default_page_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Default server page size when callers omit one.",
+            "minimum": 0
+          },
+          "has_more": {
+            "type": "boolean",
+            "description": "Whether another page exists after this one."
+          },
+          "max_page_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "Maximum server page size.",
+            "minimum": 0
+          },
+          "next_cursor": {
+            "oneOf": [
+              {
+                "type": "null"
+              },
+              {
+                "$ref": "#/components/schemas/ProjectListCursor",
+                "description": "Cursor callers should send to request the next page."
+              }
+            ]
+          },
+          "page_size": {
+            "type": "integer",
+            "format": "int32",
+            "description": "The page size that was actually applied after bounding.",
+            "minimum": 0
+          }
+        }
+      },
+      "ProjectRepositoryView": {
+        "type": "object",
+        "description": "Repository metadata bound to a project.",
+        "required": ["source_control_host", "repository"],
+        "properties": {
+          "repository": {
+            "$ref": "#/components/schemas/RepositoryRef",
+            "description": "Canonical `owner/name` repository identity."
+          },
+          "source_control_host": {
+            "$ref": "#/components/schemas/DesignatedHost",
+            "description": "Source-control host where this repository is bound."
+          }
+        }
+      },
+      "ProjectSelectionView": {
+        "type": "object",
+        "description": "Metadata about active-project selection state.",
+        "required": ["is_active"],
+        "properties": {
+          "is_active": {
+            "type": "boolean",
+            "description": "Whether this project is currently active for the owning account."
+          },
+          "selected_at": {
+            "type": ["string", "null"],
+            "format": "date-time",
+            "description": "Wall-clock time this project became active, if active."
+          }
+        }
+      },
+      "ProjectView": {
+        "type": "object",
+        "description": "External-facing project projection.",
+        "required": [
+          "id",
+          "owning_account_id",
+          "repository",
+          "selection",
+          "counts",
+          "created_at"
+        ],
+        "properties": {
+          "counts": {
+            "$ref": "#/components/schemas/ProjectCountsView",
+            "description": "Current aggregate counts for neighboring planning subsystems."
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "description": "Wall-clock time the project was created."
+          },
+          "id": {
+            "$ref": "#/components/schemas/ProjectId",
+            "description": "Stable project id."
+          },
+          "owning_account_id": {
+            "$ref": "#/components/schemas/AccountId",
+            "description": "Account that owns the project."
+          },
+          "repository": {
+            "$ref": "#/components/schemas/ProjectRepositoryView",
+            "description": "Repository connected to the project."
+          },
+          "selection": {
+            "$ref": "#/components/schemas/ProjectSelectionView",
+            "description": "Active-project selection metadata."
+          }
+        }
+      },
+      "RepositoryRef": {
+        "type": "string",
+        "description": "Canonical repository identity (`owner/name`) used for project setup.",
+        "pattern": "^[a-z0-9](?:[a-z0-9-]{0,37}[a-z0-9])?/[a-z0-9](?:[a-z0-9._-]{0,98}[a-z0-9])?$"
+      },
+      "SignInRequest": {
+        "type": "object",
+        "description": "Sign-in request.",
+        "required": ["email", "password"],
+        "properties": {
+          "email": {
+            "$ref": "#/components/schemas/Email",
+            "description": "Email of the account being signed in to."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "Account password."
+          }
+        }
+      },
+      "SignInResponseCookie": {
+        "type": "object",
+        "required": ["account", "session"],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          "session": {
+            "$ref": "#/components/schemas/CookieSessionEnvelope"
+          }
+        }
+      },
+      "SignUpRequest": {
+        "type": "object",
+        "description": "Self-signup request.",
+        "required": ["email", "password", "display_name"],
+        "properties": {
+          "display_name": {
+            "type": "string",
+            "description": "Human-readable display name for the new account."
+          },
+          "email": {
+            "$ref": "#/components/schemas/Email",
+            "description": "Email address that will own the new account."
+          },
+          "password": {
+            "type": "string",
+            "format": "password",
+            "description": "Account password."
+          }
+        }
+      },
+      "SignUpResponseCookie": {
+        "type": "object",
+        "required": ["account", "session"],
+        "properties": {
+          "account": {
+            "$ref": "#/components/schemas/AccountView"
+          },
+          "session": {
+            "$ref": "#/components/schemas/CookieSessionEnvelope"
+          }
+        }
+      }
+    },
+    "securitySchemes": {
+      "tanren_session": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "tanren_session"
+      }
+    }
+  },
+  "tags": [
+    {
+      "name": "health",
+      "description": "Liveness probe."
+    },
+    {
+      "name": "accounts",
+      "description": "Account flow: self-signup, sign-in, accept-invitation, sign-out."
+    },
+    {
+      "name": "projects",
+      "description": "Project setup and project visibility flow."
+    }
+  ]
+}
