@@ -22,11 +22,11 @@ use utoipa_axum::routes;
 
 use crate::AppState;
 use crate::cookies::{
-    SessionWrite, install_cookie_session, read_session_account_context,
-    write_active_account_for_window,
+    SessionWrite, clear_session_window_context, install_cookie_session,
+    read_session_account_context, write_active_account_for_window,
 };
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
-use crate::window_context::resolve_window_context;
+use crate::window_context::{WINDOW_CONTEXT_ERROR_CODE, resolve_window_context};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -141,7 +141,10 @@ pub(crate) async fn sign_up_route(
 ) -> Response {
     let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
-        Err(err) => return window_id_validation_error(err.summary()),
+        Err(err) => {
+            tracing::warn!(target: "tanren_api", error = %err.summary(), "window context rejected during sign-up");
+            return window_id_validation_error(err.client_summary());
+        }
     };
     match state.handlers.sign_up(state.store.as_ref(), request).await {
         Ok(response) => {
@@ -184,7 +187,10 @@ pub(crate) async fn sign_in_route(
 ) -> Response {
     let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
-        Err(err) => return window_id_validation_error(err.summary()),
+        Err(err) => {
+            tracing::warn!(target: "tanren_api", error = %err.summary(), "window context rejected during sign-in");
+            return window_id_validation_error(err.client_summary());
+        }
     };
     match state.handlers.sign_in(state.store.as_ref(), request).await {
         Ok(response) => {
@@ -232,7 +238,10 @@ pub(crate) async fn accept_invitation_route(
 ) -> Response {
     let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
-        Err(err) => return window_id_validation_error(err.summary()),
+        Err(err) => {
+            tracing::warn!(target: "tanren_api", error = %err.summary(), "window context rejected during invitation acceptance");
+            return window_id_validation_error(err.client_summary());
+        }
     };
     let invitation_token = match InvitationToken::parse(&token) {
         Ok(t) => t,
@@ -297,7 +306,10 @@ pub(crate) async fn list_active_accounts_route(
 ) -> Response {
     let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
-        Err(err) => return window_id_validation_error(err.summary()),
+        Err(err) => {
+            tracing::warn!(target: "tanren_api", error = %err.summary(), "window context rejected during active-account listing");
+            return window_id_validation_error(err.client_summary());
+        }
     };
     let session_context = match read_session_account_context(&session, window_context).await {
         Ok(Some(context)) => context,
@@ -347,7 +359,10 @@ pub(crate) async fn switch_active_account_route(
 ) -> Response {
     let window_context = match resolve_window_context(&headers) {
         Ok(value) => value,
-        Err(err) => return window_id_validation_error(err.summary()),
+        Err(err) => {
+            tracing::warn!(target: "tanren_api", error = %err.summary(), "window context rejected during active-account switch");
+            return window_id_validation_error(err.client_summary());
+        }
     };
     let session_context = match read_session_account_context(&session, window_context).await {
         Ok(Some(context)) => context,
@@ -393,6 +408,13 @@ pub(crate) async fn switch_active_account_route(
     tag = "accounts",
 )]
 pub(crate) async fn revoke_route(session: Session) -> Response {
+    if let Err(err) = clear_session_window_context(&session).await {
+        tracing::warn!(
+            target: "tanren_api",
+            error = %err,
+            "failed to clear window context during sign-out; continuing with session flush"
+        );
+    }
     if let Err(err) = session.flush().await {
         tracing::error!(target: "tanren_api", error = %err, "session flush");
         let projected = AccountErrorProjection::internal();
@@ -432,11 +454,14 @@ fn missing_session_response() -> Response {
         .into_response()
 }
 
+/// Render a normalized window-context validation failure with a stable
+/// machine code (`validation_failed`) and a client-safe summary that
+/// avoids leaking internal header structure to unauthenticated callers.
 fn window_id_validation_error(summary: &str) -> Response {
     (
         StatusCode::BAD_REQUEST,
         Json(AccountFailureBody {
-            code: AccountFailureReason::ValidationFailed.code().to_owned(),
+            code: WINDOW_CONTEXT_ERROR_CODE.to_owned(),
             summary: summary.to_owned(),
         }),
     )

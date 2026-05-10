@@ -225,6 +225,17 @@ pub(crate) async fn write_active_account_for_window(
     Ok(())
 }
 
+/// Clear all window-context state from the session row. Called during
+/// sign-out so that stale window contexts cannot be reused after the
+/// session is invalidated.
+pub(crate) async fn clear_session_window_context(session: &Session) -> Result<()> {
+    session
+        .remove::<BTreeMap<String, AccountId>>(SESSION_KEY_ACTIVE_ACCOUNT_BY_WINDOW)
+        .await
+        .context("remove active_account_by_window from session")?;
+    Ok(())
+}
+
 fn normalize_window_key(window_context: WindowContextId) -> String {
     window_context.to_string()
 }
