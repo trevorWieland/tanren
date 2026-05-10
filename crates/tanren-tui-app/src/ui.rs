@@ -7,8 +7,8 @@ use tanren_app_services::AppServiceError;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ActiveProjectView,
     ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
-    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectPageRequest,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
+    ProjectPageRequest, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     AccountId, DesignatedHost, Email, InvitationToken, RepositoryRef, ValidationError,
@@ -260,6 +260,35 @@ pub(crate) fn render_error(err: AppServiceError) -> String {
         AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
         AppServiceError::Store(err) => format!("internal_error: {err}"),
         _ => "internal_error: unknown app-service failure".to_owned(),
+    }
+}
+
+pub(crate) fn render_project_error(err: AppServiceError) -> String {
+    match err {
+        AppServiceError::Project(reason) => format_project_failure(reason),
+        AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
+        AppServiceError::Store(err) => {
+            tracing::error!(error = ?err, "tui project request failed due to store error");
+            "internal_error: Tanren encountered an internal project error.".to_owned()
+        }
+        other => {
+            tracing::error!(error = ?other, "tui project request failed unexpectedly");
+            "internal_error: Tanren encountered an internal project error.".to_owned()
+        }
+    }
+}
+
+fn format_project_failure(reason: ProjectFailureReason) -> String {
+    match reason {
+        ProjectFailureReason::AuthRequired
+        | ProjectFailureReason::DuplicateRepository
+        | ProjectFailureReason::NoAccess
+        | ProjectFailureReason::ValidationFailed
+        | ProjectFailureReason::ProviderUnavailable
+        | ProjectFailureReason::ProviderFailure => {
+            format!("{}: {}", reason.code(), reason.summary())
+        }
+        _ => format!("{}: {}", reason.code(), reason.summary()),
     }
 }
 

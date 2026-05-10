@@ -37,6 +37,7 @@ use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
+use tracing::error;
 
 mod http;
 
@@ -314,16 +315,22 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
             reason.http_status(),
         ),
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message, 400),
-        AppServiceError::Store(err) => (
-            "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
-            500,
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
-            500,
-        ),
+        AppServiceError::Store(err) => {
+            error!(error = ?err, "mcp tool call failed due to store error");
+            (
+                "internal_error".to_owned(),
+                "Tanren encountered an internal error while processing the request.".to_owned(),
+                500,
+            )
+        }
+        other => {
+            error!(error = ?other, "mcp tool call failed due to unexpected app-service error");
+            (
+                "internal_error".to_owned(),
+                "Tanren encountered an internal error while processing the request.".to_owned(),
+                500,
+            )
+        }
     };
     let body = json!({
         "code": code,

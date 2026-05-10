@@ -29,7 +29,7 @@ use crate::ui::{
     accept_invitation_outcome, active_project_outcome, connect_repository_outcome,
     create_project_outcome, list_projects_outcome, parse_accept_invitation, parse_active_project,
     parse_connect_repository, parse_create_project, parse_list_projects, parse_sign_in,
-    parse_sign_up, render_error, sign_in_outcome, sign_up_outcome,
+    parse_sign_up, render_error, render_project_error, sign_in_outcome, sign_up_outcome,
 };
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
@@ -72,7 +72,13 @@ impl App {
         let (store, store_error) = match env::var(DATABASE_URL_ENV) {
             Ok(url) if !url.is_empty() => match runtime.block_on(Store::connect(&url)) {
                 Ok(store) => (Some(Arc::new(store)), None),
-                Err(err) => (None, Some(format!("store unavailable: {err}"))),
+                Err(err) => {
+                    tracing::error!(error = ?err, "tui failed to connect store at startup");
+                    (
+                        None,
+                        Some("internal_error: Tanren store is unavailable.".to_owned()),
+                    )
+                }
             },
             _ => (
                 None,
@@ -275,7 +281,9 @@ impl App {
                 },
             )) {
             Ok(response) => self.screen = Screen::Outcome(connect_repository_outcome(&response)),
-            Err(reason) => self.set_form_error(FormKind::ConnectRepository, render_error(reason)),
+            Err(reason) => {
+                self.set_form_error(FormKind::ConnectRepository, render_project_error(reason));
+            }
         }
     }
 
@@ -297,7 +305,9 @@ impl App {
             },
         )) {
             Ok(response) => self.screen = Screen::Outcome(create_project_outcome(&response)),
-            Err(reason) => self.set_form_error(FormKind::CreateProject, render_error(reason)),
+            Err(reason) => {
+                self.set_form_error(FormKind::CreateProject, render_project_error(reason));
+            }
         }
     }
 
@@ -318,7 +328,9 @@ impl App {
             },
         )) {
             Ok(response) => self.screen = Screen::Outcome(list_projects_outcome(&response)),
-            Err(reason) => self.set_form_error(FormKind::ListProjects, render_error(reason)),
+            Err(reason) => {
+                self.set_form_error(FormKind::ListProjects, render_project_error(reason));
+            }
         }
     }
 
@@ -339,7 +351,9 @@ impl App {
             },
         )) {
             Ok(response) => self.screen = Screen::Outcome(active_project_outcome(&response)),
-            Err(reason) => self.set_form_error(FormKind::ActiveProject, render_error(reason)),
+            Err(reason) => {
+                self.set_form_error(FormKind::ActiveProject, render_project_error(reason));
+            }
         }
     }
 

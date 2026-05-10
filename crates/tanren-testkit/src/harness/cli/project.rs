@@ -1,21 +1,24 @@
 use std::process::Stdio;
 
 use async_trait::async_trait;
-use chrono::Utc;
-use regex::Regex;
+use serde::Deserialize;
+use serde::de::DeserializeOwned;
 use tanren_contract::{
     ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
-    ListVisibleProjectsRequest, PROJECT_LIST_DEFAULT_PAGE_SIZE, PROJECT_LIST_MAX_PAGE_SIZE,
-    ProjectCollectionFreshnessView, ProjectCollectionView, ProjectCountsView,
-    ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView, ProjectView,
+    ListVisibleProjectsRequest, ProjectCollectionView,
 };
-use tanren_identity_policy::{AccountId, ProjectId, ProviderFamily, RepositoryRef};
 use tokio::process::Command;
-use uuid::Uuid;
 
+use super::super::api::project_code_to_reason;
 use super::super::{HarnessError, HarnessResult, ProjectHarness};
 use super::{CliHarness, translate_cli_error};
+
+#[derive(Debug, Deserialize)]
+struct CliProjectFailure {
+    code: String,
+    summary: String,
+}
 
 #[async_trait]
 impl ProjectHarness for CliHarness {
@@ -23,7 +26,6 @@ impl ProjectHarness for CliHarness {
         &mut self,
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
-        let owning_account_id = req.owning_account_id;
         let output = Command::new(&self.binary)
             .env("TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE", "allow_all")
             .args([
@@ -32,9 +34,11 @@ impl ProjectHarness for CliHarness {
                 "--database-url",
                 &self.db_url,
                 "--owning-account-id",
-                &owning_account_id.to_string(),
+                &req.owning_account_id.to_string(),
                 "--repository",
                 req.repository.as_str(),
+                "--output",
+                "json",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -43,18 +47,15 @@ impl ProjectHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
         if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
+            return Err(project_failure_from_output(&output.stdout, &output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let project = parse_project_line(&stdout, owning_account_id)?;
-        Ok(ConnectProjectRepositoryResponse { project })
+        decode_project_json(&output.stdout, "decode connect project response")
     }
 
     async fn list_visible_projects(
         &mut self,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
-        let owning_account_id = req.owning_account_id;
         let output = Command::new(&self.binary)
             .args([
                 "project",
@@ -62,7 +63,9 @@ impl ProjectHarness for CliHarness {
                 "--database-url",
                 &self.db_url,
                 "--owning-account-id",
-                &owning_account_id.to_string(),
+                &req.owning_account_id.to_string(),
+                "--output",
+                "json",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -71,10 +74,9 @@ impl ProjectHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
         if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
+            return Err(project_failure_from_output(&output.stdout, &output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_project_collection(&stdout, owning_account_id)
+        decode_project_json(&output.stdout, "decode list projects response")
     }
 
     async fn create_project(
@@ -86,7 +88,6 @@ impl ProjectHarness for CliHarness {
                 "cli harness currently expects select_as_active=true".to_owned(),
             ));
         }
-        let owning_account_id = req.owning_account_id;
         let output = Command::new(&self.binary)
             .env("TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE", "allow_all")
             .args([
@@ -95,11 +96,13 @@ impl ProjectHarness for CliHarness {
                 "--database-url",
                 &self.db_url,
                 "--owning-account-id",
-                &owning_account_id.to_string(),
+                &req.owning_account_id.to_string(),
                 "--repository",
                 req.repository.as_str(),
                 "--designated-host",
                 req.designated_host.as_str(),
+                "--output",
+                "json",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -108,18 +111,15 @@ impl ProjectHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
         if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
+            return Err(project_failure_from_output(&output.stdout, &output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let project = parse_project_line(&stdout, owning_account_id)?;
-        Ok(CreateProjectResponse { project })
+        decode_project_json(&output.stdout, "decode create project response")
     }
 
     async fn active_project(
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView> {
-        let owning_account_id = req.owning_account_id;
         let output = Command::new(&self.binary)
             .args([
                 "project",
@@ -127,7 +127,9 @@ impl ProjectHarness for CliHarness {
                 "--database-url",
                 &self.db_url,
                 "--owning-account-id",
-                &owning_account_id.to_string(),
+                &req.owning_account_id.to_string(),
+                "--output",
+                "json",
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -136,122 +138,39 @@ impl ProjectHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
         if !output.status.success() {
-            return Err(translate_cli_error(&output.stderr));
+            return Err(project_failure_from_output(&output.stdout, &output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_active_project(&stdout, owning_account_id)
+        decode_project_json(&output.stdout, "decode active project response")
     }
 }
 
-fn parse_project_collection(
-    stdout: &str,
-    owning_account_id: AccountId,
-) -> HarnessResult<ProjectCollectionView> {
-    let mut projects = Vec::new();
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("project_id=") {
-            projects.push(parse_project_line(trimmed, owning_account_id)?);
-        }
-    }
-    Ok(ProjectCollectionView {
-        owning_account_id,
-        projects,
-        pagination: ProjectPaginationView {
-            page_size: PROJECT_LIST_DEFAULT_PAGE_SIZE,
-            default_page_size: PROJECT_LIST_DEFAULT_PAGE_SIZE,
-            max_page_size: PROJECT_LIST_MAX_PAGE_SIZE,
-            has_more: false,
-            next_cursor: None,
-        },
-        freshness: ProjectCollectionFreshnessView { as_of: None },
+fn decode_project_json<T: DeserializeOwned>(stdout: &[u8], context: &str) -> HarnessResult<T> {
+    let payload = extract_last_output_line(stdout);
+    serde_json::from_str(&payload).map_err(|e| {
+        HarnessError::Transport(format!(
+            "{context}: {e}; payload={payload}; stdout={}",
+            String::from_utf8_lossy(stdout),
+        ))
     })
 }
 
-fn parse_active_project(
-    stdout: &str,
-    owning_account_id: AccountId,
-) -> HarnessResult<ActiveProjectView> {
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("project_id=") {
-            let project = parse_project_line(trimmed, owning_account_id)?;
-            return Ok(ActiveProjectView {
-                owning_account_id,
-                active_project: Some(project),
-            });
+fn project_failure_from_output(stdout: &[u8], stderr: &[u8]) -> HarnessError {
+    let payload = extract_last_output_line(stdout);
+    if let Ok(failure) = serde_json::from_str::<CliProjectFailure>(&payload) {
+        if let Some(reason) = project_code_to_reason(&failure.code) {
+            return HarnessError::Project(reason, failure.summary);
         }
-        if trimmed.contains("active_project=none") {
-            return Ok(ActiveProjectView {
-                owning_account_id,
-                active_project: None,
-            });
-        }
+        return HarnessError::Transport(format!("{}: {}", failure.code, failure.summary));
     }
-    Err(HarnessError::Transport(format!(
-        "could not parse active project from cli stdout: {stdout}"
-    )))
+    translate_cli_error(stderr)
 }
 
-fn parse_project_line(stdout: &str, owning_account_id: AccountId) -> HarnessResult<ProjectView> {
-    let re = Regex::new(
-        r"project_id=([0-9a-fA-F-]+)\s+repository=([a-zA-Z0-9._/-]+)\s+active=(true|false)\s+specs=(\d+)\s+milestones=(\d+)\s+initiatives=(\d+)",
-    )
-    .expect("constant regex");
-    let captures = re
-        .captures(stdout)
-        .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
-    let project_id_raw = captures.get(1).map_or("", |m| m.as_str());
-    let repository_raw = captures.get(2).map_or("", |m| m.as_str());
-    let active_raw = captures.get(3).map_or("", |m| m.as_str());
-    let specs_raw = captures.get(4).map_or("", |m| m.as_str());
-    let milestones_raw = captures.get(5).map_or("", |m| m.as_str());
-    let initiatives_raw = captures.get(6).map_or("", |m| m.as_str());
-
-    let id = ProjectId::try_from_uuid(
-        Uuid::parse_str(project_id_raw)
-            .map_err(|e| HarnessError::Transport(format!("parse project id: {e}")))?,
-    )
-    .map_err(|e| HarnessError::Transport(format!("parse project id: {e}")))?;
-    let repository = RepositoryRef::parse(repository_raw)
-        .map_err(|e| HarnessError::Transport(format!("parse repository ref: {e}")))?;
-    let is_active = parse_bool(active_raw)?;
-    let specs = specs_raw
-        .parse::<u64>()
-        .map_err(|e| HarnessError::Transport(format!("parse specs count: {e}")))?;
-    let milestones = milestones_raw
-        .parse::<u64>()
-        .map_err(|e| HarnessError::Transport(format!("parse milestones count: {e}")))?;
-    let initiatives = initiatives_raw
-        .parse::<u64>()
-        .map_err(|e| HarnessError::Transport(format!("parse initiatives count: {e}")))?;
-    let now = Utc::now();
-    Ok(ProjectView {
-        id,
-        owning_account_id,
-        repository: ProjectRepositoryView {
-            provider_family: ProviderFamily::source_control(),
-            repository,
-        },
-        selection: ProjectSelectionView {
-            is_active,
-            selected_at: if is_active { Some(now) } else { None },
-        },
-        counts: ProjectCountsView {
-            specs,
-            milestones,
-            initiatives,
-        },
-        created_at: now,
-    })
-}
-
-fn parse_bool(value: &str) -> HarnessResult<bool> {
-    match value {
-        "true" => Ok(true),
-        "false" => Ok(false),
-        other => Err(HarnessError::Transport(format!(
-            "parse boolean value from cli output: {other}"
-        ))),
-    }
+fn extract_last_output_line(stdout: &[u8]) -> String {
+    let text = String::from_utf8_lossy(stdout);
+    text.lines()
+        .rev()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .map(str::to_owned)
+        .unwrap_or_default()
 }

@@ -1,7 +1,8 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use clap::Subcommand;
+use clap::{Subcommand, ValueEnum};
+use serde::Serialize;
 use tanren_app_services::project::{
     ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
     ListVisibleProjectsQuery,
@@ -9,11 +10,42 @@ use tanren_app_services::project::{
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, CreateProjectRequest,
-    ListVisibleProjectsRequest, ProjectPageRequest, ProjectView,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectPageRequest, ProjectView,
 };
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
+use tracing::error;
 use uuid::Uuid;
+
+#[derive(Debug, Clone, Copy, ValueEnum)]
+pub(super) enum ProjectOutputMode {
+    Text,
+    Json,
+}
+
+#[derive(Debug, Serialize)]
+struct ProjectFailureBody {
+    code: String,
+    summary: String,
+}
+
+impl ProjectFailureBody {
+    fn validation(summary: impl Into<String>) -> Self {
+        Self {
+            code: "validation_failed".to_owned(),
+            summary: summary.into(),
+        }
+    }
+
+    fn internal(summary: impl Into<String>) -> Self {
+        Self {
+            code: "internal_error".to_owned(),
+            summary: summary.into(),
+        }
+    }
+}
+
+type ProjectCommandResult<T> = std::result::Result<T, ProjectFailureBody>;
 
 /// Project setup and visibility subcommands.
 #[derive(Debug, Subcommand)]
@@ -32,6 +64,9 @@ pub(super) enum ProjectAction {
         /// Whether to select this project as active.
         #[arg(long, default_value_t = true)]
         select_as_active: bool,
+        /// Output mode.
+        #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
+        output: ProjectOutputMode,
     },
     /// Create a repository at a designated host and register the project.
     Create {
@@ -50,6 +85,9 @@ pub(super) enum ProjectAction {
         /// Whether to select this project as active.
         #[arg(long, default_value_t = true)]
         select_as_active: bool,
+        /// Output mode.
+        #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
+        output: ProjectOutputMode,
     },
     /// List visible projects for an account.
     List {
@@ -59,6 +97,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
+        /// Output mode.
+        #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
+        output: ProjectOutputMode,
     },
     /// Show active-project metadata for an account.
     Active {
@@ -68,6 +109,9 @@ pub(super) enum ProjectAction {
         /// Owning account id.
         #[arg(long)]
         owning_account_id: String,
+        /// Output mode.
+        #[arg(long, value_enum, default_value_t = ProjectOutputMode::Text)]
+        output: ProjectOutputMode,
     },
 }
 
@@ -88,8 +132,9 @@ async fn run_project(action: ProjectAction) -> Result<()> {
             owning_account_id,
             repository,
             select_as_active,
+            output,
         } => {
-            run_connect_repository(
+            match run_connect_repository(
                 &handlers,
                 provider.as_ref(),
                 &database_url,
@@ -97,7 +142,11 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 &repository,
                 select_as_active,
             )
-            .await?;
+            .await
+            {
+                Ok(response) => emit_connect_repository_success(output, &response)?,
+                Err(failure) => return emit_project_failure(output, &failure),
+            }
         }
         ProjectAction::Create {
             database_url,
@@ -105,8 +154,9 @@ async fn run_project(action: ProjectAction) -> Result<()> {
             repository,
             designated_host,
             select_as_active,
+            output,
         } => {
-            run_create_project(
+            match run_create_project(
                 &handlers,
                 provider.as_ref(),
                 &database_url,
@@ -115,16 +165,28 @@ async fn run_project(action: ProjectAction) -> Result<()> {
                 &designated_host,
                 select_as_active,
             )
-            .await?;
+            .await
+            {
+                Ok(response) => emit_create_project_success(output, &response)?,
+                Err(failure) => return emit_project_failure(output, &failure),
+            }
         }
         ProjectAction::List {
             database_url,
             owning_account_id,
-        } => run_list_projects(&handlers, &database_url, &owning_account_id).await?,
+            output,
+        } => match run_list_projects(&handlers, &database_url, &owning_account_id).await {
+            Ok(response) => emit_list_projects_success(output, &response)?,
+            Err(failure) => return emit_project_failure(output, &failure),
+        },
         ProjectAction::Active {
             database_url,
             owning_account_id,
-        } => run_active_project(&handlers, &database_url, &owning_account_id).await?,
+            output,
+        } => match run_active_project(&handlers, &database_url, &owning_account_id).await {
+            Ok(response) => emit_active_project_success(output, &response)?,
+            Err(failure) => return emit_project_failure(output, &failure),
+        },
     }
     Ok(())
 }
@@ -136,13 +198,11 @@ async fn run_connect_repository(
     owning_account_id: &str,
     repository: &str,
     select_as_active: bool,
-) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+) -> ProjectCommandResult<tanren_contract::ConnectProjectRepositoryResponse> {
+    let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
     let repository = parse_repository_ref(repository)?;
-    let response = handlers
+    handlers
         .connect_project_repository(
             &store,
             provider,
@@ -156,9 +216,7 @@ async fn run_connect_repository(
             },
         )
         .await
-        .map_err(project_error)?;
-    print_project_line(&response.project)?;
-    Ok(())
+        .map_err(project_error)
 }
 
 async fn run_create_project(
@@ -169,14 +227,12 @@ async fn run_create_project(
     repository: &str,
     designated_host: &str,
     select_as_active: bool,
-) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+) -> ProjectCommandResult<tanren_contract::CreateProjectResponse> {
+    let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
     let repository = parse_repository_ref(repository)?;
     let designated_host = parse_designated_host(designated_host)?;
-    let response = handlers
+    handlers
         .create_project(
             &store,
             provider,
@@ -191,21 +247,17 @@ async fn run_create_project(
             },
         )
         .await
-        .map_err(project_error)?;
-    print_project_line(&response.project)?;
-    Ok(())
+        .map_err(project_error)
 }
 
 async fn run_list_projects(
     handlers: &Handlers,
     database_url: &str,
     owning_account_id: &str,
-) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
+) -> ProjectCommandResult<ProjectCollectionView> {
+    let store = connect_store(database_url).await?;
     let owning_account_id = parse_account_id(owning_account_id)?;
-    let response = handlers
+    handlers
         .list_visible_projects(
             &store,
             ListVisibleProjectsQuery {
@@ -217,7 +269,80 @@ async fn run_list_projects(
             },
         )
         .await
-        .map_err(project_error)?;
+        .map_err(project_error)
+}
+
+async fn run_active_project(
+    handlers: &Handlers,
+    database_url: &str,
+    owning_account_id: &str,
+) -> ProjectCommandResult<tanren_contract::ActiveProjectView> {
+    let store = connect_store(database_url).await?;
+    let owning_account_id = parse_account_id(owning_account_id)?;
+    handlers
+        .active_project(
+            &store,
+            ActiveProjectQuery {
+                actor_account_id: owning_account_id,
+                request: ActiveProjectRequest { owning_account_id },
+            },
+        )
+        .await
+        .map_err(project_error)
+}
+
+fn emit_connect_repository_success(
+    mode: ProjectOutputMode,
+    response: &tanren_contract::ConnectProjectRepositoryResponse,
+) -> Result<()> {
+    match mode {
+        ProjectOutputMode::Text => print_project_line(&response.project),
+        ProjectOutputMode::Json => write_json(response),
+    }
+}
+
+fn emit_create_project_success(
+    mode: ProjectOutputMode,
+    response: &tanren_contract::CreateProjectResponse,
+) -> Result<()> {
+    match mode {
+        ProjectOutputMode::Text => print_project_line(&response.project),
+        ProjectOutputMode::Json => write_json(response),
+    }
+}
+
+fn emit_list_projects_success(
+    mode: ProjectOutputMode,
+    response: &ProjectCollectionView,
+) -> Result<()> {
+    match mode {
+        ProjectOutputMode::Text => print_project_collection(response),
+        ProjectOutputMode::Json => write_json(response),
+    }
+}
+
+fn emit_active_project_success(
+    mode: ProjectOutputMode,
+    response: &tanren_contract::ActiveProjectView,
+) -> Result<()> {
+    match mode {
+        ProjectOutputMode::Text => print_active_project(response),
+        ProjectOutputMode::Json => write_json(response),
+    }
+}
+
+fn emit_project_failure(mode: ProjectOutputMode, failure: &ProjectFailureBody) -> Result<()> {
+    if matches!(mode, ProjectOutputMode::Json) {
+        write_json(&failure).context("write project failure json")?;
+    }
+    Err(anyhow::anyhow!(
+        "error: {} — {}",
+        failure.code,
+        failure.summary
+    ))
+}
+
+fn print_project_collection(response: &ProjectCollectionView) -> Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(
@@ -233,25 +358,7 @@ async fn run_list_projects(
     Ok(())
 }
 
-async fn run_active_project(
-    handlers: &Handlers,
-    database_url: &str,
-    owning_account_id: &str,
-) -> Result<()> {
-    let store = Store::connect(database_url)
-        .await
-        .context("connect to store")?;
-    let owning_account_id = parse_account_id(owning_account_id)?;
-    let response = handlers
-        .active_project(
-            &store,
-            ActiveProjectQuery {
-                actor_account_id: owning_account_id,
-                request: ActiveProjectRequest { owning_account_id },
-            },
-        )
-        .await
-        .map_err(project_error)?;
+fn print_active_project(response: &tanren_contract::ActiveProjectView) -> Result<()> {
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     match response.active_project.as_ref() {
@@ -272,17 +379,32 @@ async fn run_active_project(
     Ok(())
 }
 
-fn parse_account_id(raw: &str) -> Result<AccountId> {
-    let id = Uuid::parse_str(raw).context("parse --owning-account-id as uuid")?;
+async fn connect_store(database_url: &str) -> ProjectCommandResult<Store> {
+    Store::connect(database_url).await.map_err(|err| {
+        error!(error = ?err, "project command failed to connect store");
+        ProjectFailureBody::internal(
+            "Tanren encountered an internal error while processing the project request.",
+        )
+    })
+}
+
+fn parse_account_id(raw: &str) -> ProjectCommandResult<AccountId> {
+    let id = Uuid::parse_str(raw).map_err(|_| {
+        ProjectFailureBody::validation("The owning_account_id must be a valid UUID.")
+    })?;
     Ok(AccountId::new(id))
 }
 
-fn parse_repository_ref(raw: &str) -> Result<RepositoryRef> {
-    RepositoryRef::parse(raw).context("parse --repository as owner/name")
+fn parse_repository_ref(raw: &str) -> ProjectCommandResult<RepositoryRef> {
+    RepositoryRef::parse(raw).map_err(|_| {
+        ProjectFailureBody::validation("The repository must be provided as owner/name.")
+    })
 }
 
-fn parse_designated_host(raw: &str) -> Result<DesignatedHost> {
-    DesignatedHost::parse(raw).context("parse --designated-host as host key")
+fn parse_designated_host(raw: &str) -> ProjectCommandResult<DesignatedHost> {
+    DesignatedHost::parse(raw).map_err(|_| {
+        ProjectFailureBody::validation("The designated_host must be a valid provider host key.")
+    })
 }
 
 fn print_project_line(project: &ProjectView) -> Result<()> {
@@ -305,15 +427,31 @@ fn write_project_line(mut out: impl Write, project: &ProjectView) -> Result<()> 
     .context("write project line")
 }
 
-fn project_error(err: AppServiceError) -> anyhow::Error {
+fn project_error(err: AppServiceError) -> ProjectFailureBody {
     match err {
-        AppServiceError::Project(reason) => {
-            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
+        AppServiceError::Project(reason) => ProjectFailureBody {
+            code: reason.code().to_owned(),
+            summary: reason.summary().to_owned(),
+        },
+        AppServiceError::InvalidInput(message) => ProjectFailureBody::validation(message),
+        AppServiceError::Store(err) => {
+            error!(error = ?err, "project command store failure");
+            ProjectFailureBody::internal(
+                "Tanren encountered an internal error while processing the project request.",
+            )
         }
-        AppServiceError::InvalidInput(message) => {
-            anyhow::anyhow!("error: validation_failed — {message}")
+        other => {
+            error!(error = ?other, "project command unexpected app-service failure");
+            ProjectFailureBody::internal(
+                "Tanren encountered an internal error while processing the project request.",
+            )
         }
-        AppServiceError::Store(err) => anyhow::anyhow!("error: internal_error — {err}"),
-        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }
+}
+
+fn write_json<T: Serialize>(value: &T) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    serde_json::to_writer(&mut handle, value).context("serialize project output as json")?;
+    writeln!(handle).context("terminate project json output line")
 }
