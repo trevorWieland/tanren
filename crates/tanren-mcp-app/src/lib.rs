@@ -24,12 +24,12 @@ use rmcp::transport::streamable_http_server::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::json;
+use std::collections::HashMap;
 use std::env;
 use std::sync::Arc;
 use tanren_app_services::{Handlers, Store};
 use tanren_identity_policy::AccountId;
 use tokio::net::TcpListener;
-use tokio::sync::RwLock;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
 use tower_http::cors::{Any, CorsLayer};
@@ -64,15 +64,15 @@ impl Config {
 /// cli / tui surfaces all resolve to the same logic per the
 /// equivalent-operations rule in
 /// `docs/architecture/subsystems/interfaces.md`.
-#[derive(Clone)]
 pub(crate) struct TanrenMcp {
     handlers: Handlers,
     store: Arc<Store>,
-    authenticated_actor: Arc<RwLock<Option<AccountId>>>,
     /// Cached tool router built from the `#[rmcp::tool]` methods on this
     /// type. Read by the macro-generated `ServerHandler` impl below.
     tool_router: ToolRouter<Self>,
 }
+
+pub(crate) type SessionActorStore = Arc<tokio::sync::RwLock<HashMap<String, AccountId>>>;
 
 impl std::fmt::Debug for TanrenMcp {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -204,6 +204,7 @@ fn build_router(
     store: Arc<Store>,
     cancellation: CancellationToken,
 ) -> Router {
+    let actor_store: SessionActorStore = Arc::new(tokio::sync::RwLock::new(HashMap::new()));
     let config = streamable_http_config(cancellation);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
         StreamableHttpService::new(
@@ -213,6 +214,7 @@ fn build_router(
         );
 
     let mcp_with_auth = ServiceBuilder::new()
+        .layer(axum::Extension(actor_store))
         .layer(middleware::from_fn_with_state(auth_config, require_api_key))
         .service(mcp_service);
 

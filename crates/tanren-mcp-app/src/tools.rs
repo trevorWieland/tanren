@@ -1,9 +1,11 @@
 use anyhow::Result;
 use rmcp::ErrorData as McpError;
+use rmcp::RoleServer;
 use rmcp::ServerHandler;
 use rmcp::handler::server::router::tool::ToolRouter;
 use rmcp::handler::server::wrapper::Parameters;
 use rmcp::model::{CallToolResult, Content, ServerCapabilities, ServerInfo};
+use rmcp::service::RequestContext;
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde::Serialize;
@@ -15,9 +17,11 @@ use tanren_contract::{
     EditRoleRequest, PermissionCheckRequest, RoleActor, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
-use tokio::sync::RwLock;
 
-use crate::TanrenMcp;
+use crate::{SessionActorStore, TanrenMcp};
+
+const INTERNAL_ERROR_SUMMARY: &str = "Tanren encountered an internal error.";
+const MCP_SESSION_ID_HEADER: &str = "mcp-session-id";
 
 #[rmcp::tool_router]
 impl TanrenMcp {
@@ -25,7 +29,6 @@ impl TanrenMcp {
         Self {
             handlers,
             store,
-            authenticated_actor: Arc::new(RwLock::new(None)),
             tool_router: Self::tool_router(),
         }
     }
@@ -36,14 +39,16 @@ impl TanrenMcp {
     )]
     async fn account_create(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<SignUpRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_up(self.store.as_ref(), request).await {
             Ok(response) => {
-                self.set_authenticated_actor(response.account.id).await;
-                Ok(success(&response))
+                self.set_authenticated_actor(&request_context, response.account.id)
+                    .await;
+                success(&response)
             }
-            Err(err) => Ok(map_account_failure(err)),
+            Err(err) => map_account_failure(err),
         }
     }
 
@@ -53,14 +58,16 @@ impl TanrenMcp {
     )]
     async fn account_sign_in(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<SignInRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self.handlers.sign_in(self.store.as_ref(), request).await {
             Ok(response) => {
-                self.set_authenticated_actor(response.account.id).await;
-                Ok(success(&response))
+                self.set_authenticated_actor(&request_context, response.account.id)
+                    .await;
+                success(&response)
             }
-            Err(err) => Ok(map_account_failure(err)),
+            Err(err) => map_account_failure(err),
         }
     }
 
@@ -70,6 +77,7 @@ impl TanrenMcp {
     )]
     async fn account_accept_invitation(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<AcceptInvitationRequest>,
     ) -> Result<CallToolResult, McpError> {
         match self
@@ -78,10 +86,11 @@ impl TanrenMcp {
             .await
         {
             Ok(response) => {
-                self.set_authenticated_actor(response.account.id).await;
-                Ok(success(&response))
+                self.set_authenticated_actor(&request_context, response.account.id)
+                    .await;
+                success(&response)
             }
-            Err(err) => Ok(map_account_failure(err)),
+            Err(err) => map_account_failure(err),
         }
     }
 
@@ -91,18 +100,19 @@ impl TanrenMcp {
     )]
     async fn role_create(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<CreateRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(actor) = self.require_authenticated_actor().await else {
-            return Ok(unauthenticated_role_failure());
+        let Some(actor) = self.require_authenticated_actor(&request_context).await else {
+            return unauthenticated_role_failure();
         };
         match self
             .handlers
             .create_role(self.store.as_ref(), actor, request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_role_failure(err)),
+            Ok(response) => success(&response),
+            Err(err) => map_role_failure(err),
         }
     }
 
@@ -112,18 +122,19 @@ impl TanrenMcp {
     )]
     async fn role_edit(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<EditRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(actor) = self.require_authenticated_actor().await else {
-            return Ok(unauthenticated_role_failure());
+        let Some(actor) = self.require_authenticated_actor(&request_context).await else {
+            return unauthenticated_role_failure();
         };
         match self
             .handlers
             .edit_role(self.store.as_ref(), actor, request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_role_failure(err)),
+            Ok(response) => success(&response),
+            Err(err) => map_role_failure(err),
         }
     }
 
@@ -133,18 +144,19 @@ impl TanrenMcp {
     )]
     async fn role_delete(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<DeleteRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(actor) = self.require_authenticated_actor().await else {
-            return Ok(unauthenticated_role_failure());
+        let Some(actor) = self.require_authenticated_actor(&request_context).await else {
+            return unauthenticated_role_failure();
         };
         match self
             .handlers
             .delete_role(self.store.as_ref(), actor, request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_role_failure(err)),
+            Ok(response) => success(&response),
+            Err(err) => map_role_failure(err),
         }
     }
 
@@ -154,18 +166,19 @@ impl TanrenMcp {
     )]
     async fn role_apply(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<ApplyRoleRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(actor) = self.require_authenticated_actor().await else {
-            return Ok(unauthenticated_role_failure());
+        let Some(actor) = self.require_authenticated_actor(&request_context).await else {
+            return unauthenticated_role_failure();
         };
         match self
             .handlers
             .apply_role(self.store.as_ref(), actor, request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_role_failure(err)),
+            Ok(response) => success(&response),
+            Err(err) => map_role_failure(err),
         }
     }
 
@@ -175,18 +188,19 @@ impl TanrenMcp {
     )]
     async fn permission_check(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(request): Parameters<PermissionCheckRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(actor) = self.require_authenticated_actor().await else {
-            return Ok(unauthenticated_role_failure());
+        let Some(actor) = self.require_authenticated_actor(&request_context).await else {
+            return unauthenticated_role_failure();
         };
         match self
             .handlers
             .check_permission(self.store.as_ref(), actor, request)
             .await
         {
-            Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_role_failure(err)),
+            Ok(response) => success(&response),
+            Err(err) => map_role_failure(err),
         }
     }
 
@@ -196,18 +210,19 @@ impl TanrenMcp {
     )]
     async fn role_capabilities(
         &self,
+        request_context: RequestContext<RoleServer>,
         Parameters(_): Parameters<RoleCapabilitiesRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let Some(actor) = self.require_authenticated_actor().await else {
-            return Ok(unauthenticated_role_failure());
+        let Some(actor) = self.require_authenticated_actor(&request_context).await else {
+            return unauthenticated_role_failure();
         };
         match self
             .handlers
             .role_admin_capabilities(self.store.as_ref(), actor)
             .await
         {
-            Ok(response) => Ok(success(&response)),
-            Err(err) => Ok(map_role_failure(err)),
+            Ok(response) => success(&response),
+            Err(err) => map_role_failure(err),
         }
     }
 
@@ -215,14 +230,40 @@ impl TanrenMcp {
         &self.tool_router
     }
 
-    async fn set_authenticated_actor(&self, account_id: AccountId) {
-        let mut actor = self.authenticated_actor.write().await;
-        *actor = Some(account_id);
+    async fn set_authenticated_actor(
+        &self,
+        request_context: &RequestContext<RoleServer>,
+        account_id: AccountId,
+    ) {
+        let Some(session_id) = session_id(request_context) else {
+            tracing::warn!(
+                target: "tanren_mcp",
+                "missing MCP session id while binding authenticated actor"
+            );
+            return;
+        };
+        let Some(store) = session_actor_store(request_context) else {
+            tracing::error!(
+                target: "tanren_mcp",
+                "missing session actor store while binding authenticated actor"
+            );
+            return;
+        };
+        let mut actors = store.write().await;
+        actors.insert(session_id, account_id);
     }
 
-    async fn require_authenticated_actor(&self) -> Option<RoleActor> {
-        let actor = self.authenticated_actor.read().await;
-        (*actor).map(|account_id| RoleActor { account_id })
+    async fn require_authenticated_actor(
+        &self,
+        request_context: &RequestContext<RoleServer>,
+    ) -> Option<RoleActor> {
+        let session_id = session_id(request_context)?;
+        let store = session_actor_store(request_context)?;
+        let actors = store.read().await;
+        actors
+            .get(&session_id)
+            .copied()
+            .map(|account_id| RoleActor { account_id })
     }
 }
 
@@ -240,12 +281,16 @@ impl ServerHandler for TanrenMcp {
     }
 }
 
-fn success<T: Serialize>(value: &T) -> CallToolResult {
-    let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::success(vec![Content::text(text)])
+fn success<T: Serialize>(value: &T) -> Result<CallToolResult, McpError> {
+    serde_json::to_string(value)
+        .map(|text| CallToolResult::success(vec![Content::text(text)]))
+        .map_err(|err| {
+            tracing::error!(target: "tanren_mcp", error = %err, "encode tool success payload");
+            internal_error_mcp_failure()
+        })
 }
 
-fn map_account_failure(err: AppServiceError) -> CallToolResult {
+fn map_account_failure(err: AppServiceError) -> Result<CallToolResult, McpError> {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
@@ -253,18 +298,18 @@ fn map_account_failure(err: AppServiceError) -> CallToolResult {
             tracing::error!(target: "tanren_mcp", error = %err, "store error");
             (
                 "internal_error".to_owned(),
-                "Tanren encountered an internal error.".to_owned(),
+                INTERNAL_ERROR_SUMMARY.to_owned(),
             )
         }
         _ => (
             "internal_error".to_owned(),
-            "Tanren encountered an internal error.".to_owned(),
+            INTERNAL_ERROR_SUMMARY.to_owned(),
         ),
     };
     failure(&code, &summary)
 }
 
-fn map_role_failure(err: RoleServiceError) -> CallToolResult {
+fn map_role_failure(err: RoleServiceError) -> Result<CallToolResult, McpError> {
     let (code, summary) = match err {
         RoleServiceError::Role(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
         RoleServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
@@ -272,28 +317,61 @@ fn map_role_failure(err: RoleServiceError) -> CallToolResult {
             tracing::error!(target: "tanren_mcp", error = %err, "store error");
             (
                 "internal_error".to_owned(),
-                "Tanren encountered an internal error.".to_owned(),
+                INTERNAL_ERROR_SUMMARY.to_owned(),
             )
         }
         _ => (
             "internal_error".to_owned(),
-            "Tanren encountered an internal error.".to_owned(),
+            INTERNAL_ERROR_SUMMARY.to_owned(),
         ),
     };
     failure(&code, &summary)
 }
 
-fn failure(code: &str, summary: &str) -> CallToolResult {
+fn failure(code: &str, summary: &str) -> Result<CallToolResult, McpError> {
     let body = json!({ "code": code, "summary": summary });
-    let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
-    CallToolResult::error(vec![Content::text(text)])
+    serde_json::to_string(&body)
+        .map(|text| CallToolResult::error(vec![Content::text(text)]))
+        .map_err(|err| {
+            tracing::error!(target: "tanren_mcp", error = %err, "encode tool error payload");
+            internal_error_mcp_failure()
+        })
 }
 
-fn unauthenticated_role_failure() -> CallToolResult {
+fn unauthenticated_role_failure() -> Result<CallToolResult, McpError> {
     failure(
         "permission_denied",
-        "Authentication is required for role operations. Call account.sign_in, account.create, or account.accept_invitation first.",
+        "Authentication is required for role operations. Call account.sign_in, account.create, or account.accept_invitation first in this MCP session.",
     )
+}
+
+fn internal_error_mcp_failure() -> McpError {
+    McpError::internal_error(
+        INTERNAL_ERROR_SUMMARY,
+        Some(json!({
+            "code": "internal_error",
+            "summary": INTERNAL_ERROR_SUMMARY,
+        })),
+    )
+}
+
+fn session_id(request_context: &RequestContext<RoleServer>) -> Option<String> {
+    let parts = request_context
+        .extensions
+        .get::<axum::http::request::Parts>()?;
+    let session_id = parts.headers.get(MCP_SESSION_ID_HEADER)?;
+    let session_id = session_id.to_str().ok()?.trim();
+    if session_id.is_empty() {
+        return None;
+    }
+    Some(session_id.to_owned())
+}
+
+fn session_actor_store(request_context: &RequestContext<RoleServer>) -> Option<SessionActorStore> {
+    let parts = request_context
+        .extensions
+        .get::<axum::http::request::Parts>()?;
+    parts.extensions.get::<SessionActorStore>().cloned()
 }
 
 #[derive(Debug, Clone, Deserialize, JsonSchema)]

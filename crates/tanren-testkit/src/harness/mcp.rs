@@ -256,7 +256,6 @@ impl RoleHarness for McpHarness {
         &mut self,
         req: CreateRoleRequest,
     ) -> RoleHarnessResult<CreateRoleResponse> {
-        self.ensure_role_actor()?;
         let payload = self
             .call_role_tool("role.create", serde_json::json!(req))
             .await?;
@@ -264,7 +263,6 @@ impl RoleHarness for McpHarness {
     }
 
     async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse> {
-        self.ensure_role_actor()?;
         let payload = self
             .call_role_tool("role.edit", serde_json::json!(req))
             .await?;
@@ -275,7 +273,6 @@ impl RoleHarness for McpHarness {
         &mut self,
         req: DeleteRoleRequest,
     ) -> RoleHarnessResult<DeleteRoleResponse> {
-        self.ensure_role_actor()?;
         let payload = self
             .call_role_tool("role.delete", serde_json::json!(req))
             .await?;
@@ -283,7 +280,6 @@ impl RoleHarness for McpHarness {
     }
 
     async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse> {
-        self.ensure_role_actor()?;
         let payload = self
             .call_role_tool("role.apply", serde_json::json!(req))
             .await?;
@@ -294,7 +290,6 @@ impl RoleHarness for McpHarness {
         &mut self,
         req: PermissionCheckRequest,
     ) -> RoleHarnessResult<PermissionCheckResponse> {
-        self.ensure_role_actor()?;
         let payload = self
             .call_role_tool("permission.check", serde_json::json!(req))
             .await?;
@@ -345,13 +340,6 @@ impl RoleHarness for McpHarness {
     ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
         let grants = super::read_all_direct_grants(self.store.as_ref(), principal).await?;
         Ok(grants.into_iter().map(permission_grant_view).collect())
-    }
-}
-
-impl McpHarness {
-    fn ensure_role_actor(&self) -> RoleHarnessResult<AccountId> {
-        self.role_actor
-            .ok_or_else(|| RoleHarnessError::Transport("missing role actor".to_owned()))
     }
 }
 
