@@ -142,6 +142,12 @@ Subsystem architecture records own the exact setting vocabulary for their
 domain. This document owns the scoping, resolution, history, and secret-safety
 rules.
 
+For project methodology settings, `standards_root` is non-secret project
+configuration. It is stored as typed project-scope state and may be projected
+to repo-local methodology configuration files such as
+`.tanren/project-methodology.toml`. That projection carries methodology fields
+like profile and standards root, never credential or secret values.
+
 ## Credential And Secret Ownership
 
 Credential and secret ownership is explicit and type-specific.

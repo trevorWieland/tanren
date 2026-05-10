@@ -147,6 +147,19 @@ directly into local application services as a bypass. When a CLI command
 changes Tanren state, it sends a typed API command that is authenticated,
 authorized, idempotent where required, audited, and recorded as events.
 
+The CLI also includes local diagnostic surfaces that inspect Tanren-managed
+repo projections without mutating canon. `tanren-cli standards inspect --repo
+<PATH>` reports standards metadata from the configured standards root in
+`.tanren/project-methodology.toml` using a single-line success shape beginning
+`status=ok command=standards.inspect`.
+
+When the configured standards root is missing, the command exits nonzero and
+stderr begins with `error: standards_missing -`, including
+`configured standards root is missing: '<path>'`. When standards frontmatter
+cannot be parsed, the command exits nonzero and stderr begins with
+`error: standards_parse_failed -`, including
+`failed to parse standards frontmatter in '<path>': <reason>`.
+
 ### TUI
 
 The TUI is a terminal client for live operational workflows. It communicates

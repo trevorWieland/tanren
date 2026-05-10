@@ -15,19 +15,26 @@ supersedes: []
 
 A `solo-builder` or `team-builder` can rely on Tanren commands to use the standards
 installed for the repository so that checks and guidance reflect the project's
-chosen way of working.
+chosen way of working. This behavior is witnessed through
+`tanren-cli standards inspect`.
 
 ## Preconditions
 
 - The repository has Tanren support files installed.
-- The repository has a configured standards location.
+- The repository has a configured standards location in
+  `.tanren/project-methodology.toml`.
 
 ## Observable outcomes
 
-- Commands that need standards succeed when the configured standards are
+- `tanren-cli standards inspect` succeeds with
+  `status=ok command=standards.inspect` output when configured standards are
   present.
-- Commands that need standards fail explicitly when the configured standards are
-  missing.
+- `tanren-cli standards inspect` fails explicitly with
+  `error: standards_missing -` when the configured standards root is missing.
+- `tanren-cli standards inspect` fails explicitly with
+  `error: standards_parse_failed -` and
+  `failed to parse standards frontmatter in '<path>': <reason>` when
+  standards frontmatter parsing fails.
 - Missing standards are not silently replaced with unrelated fallback content
   during command execution.
 

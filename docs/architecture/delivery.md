@@ -313,6 +313,8 @@ generated install artifacts are:
 
 - selected integration command assets under `.claude/commands/`,
   `.codex/skills/`, and `.opencode/commands/`;
+- repo-local project methodology config projection at
+  `.tanren/project-methodology.toml` (profile + standards root);
 - standards profile assets tracked by the install manifest;
 - install metadata at `.tanren/install-manifest.toml`.
 
@@ -321,6 +323,10 @@ the selected integration set is regenerated from canonical command sources, and
 stale Tanren-generated command files tracked in the prior manifest are removed.
 Standards profile assets use preserve-user-edits semantics: reinstall restores
 missing tracked files while keeping user-edited content.
+The projected methodology config is a runtime bridge artifact consumed by
+standards-facing diagnostics. A representative consumer is
+`tanren-cli standards inspect`, which reads standards metadata from
+`.tanren/project-methodology.toml` and the configured standards root.
 
 ## Harness Asset Generation
 
