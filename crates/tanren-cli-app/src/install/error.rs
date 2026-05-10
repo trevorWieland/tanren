@@ -1,9 +1,10 @@
 //! Installer domain errors.
 
+use tanren_configuration_secrets::ConfigSecretsError;
 use thiserror::Error;
 
 /// Typed install-input and catalog validation errors.
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum InstallError {
     /// The requested standards profile is not supported.
@@ -43,8 +44,11 @@ pub enum InstallError {
     #[error("failed removing '{path}': {message}")]
     RemoveFailure { path: String, message: String },
     /// Project methodology config projection construction failed.
-    #[error("invalid project methodology config projection: {message}")]
-    InvalidProjectMethodologyConfig { message: String },
+    #[error("invalid project methodology config projection: {source}")]
+    InvalidProjectMethodologyConfig {
+        #[source]
+        source: ConfigSecretsError,
+    },
 }
 
 /// Typed `tanren-cli install` command failures at the CLI-library boundary.

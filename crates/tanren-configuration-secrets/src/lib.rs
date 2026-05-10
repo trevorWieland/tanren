@@ -5,6 +5,7 @@
 //! recorded in event payloads, projection files, or proof artifacts; only
 //! non-secret metadata is event-replayable.
 
+use std::fmt;
 use std::path::{Component, Path};
 
 use secrecy::SecretString;
@@ -66,10 +67,57 @@ pub enum ConfigSecretsError {
     /// TOML deserialization failed.
     #[error("failed to parse project methodology configuration from TOML: {0}")]
     ProjectMethodologyTomlDeserialize(#[from] toml::de::Error),
+    /// Config schema version is not supported by this runtime.
+    #[error(
+        "unsupported project methodology schema version {actual}; supported version is {supported}"
+    )]
+    UnsupportedProjectMethodologySchemaVersion {
+        actual: ProjectMethodologySchemaVersion,
+        supported: ProjectMethodologySchemaVersion,
+    },
 }
 
 /// Project methodology contract schema version.
-pub const PROJECT_METHODOLOGY_SCHEMA_VERSION: u32 = 1;
+pub const PROJECT_METHODOLOGY_SCHEMA_VERSION: ProjectMethodologySchemaVersion =
+    ProjectMethodologySchemaVersion::new(1);
+
+/// Project methodology contract schema version wrapper.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct ProjectMethodologySchemaVersion(u32);
+
+impl ProjectMethodologySchemaVersion {
+    /// Construct a schema version from a raw number.
+    #[must_use]
+    pub const fn new(version: u32) -> Self {
+        Self(version)
+    }
+
+    /// Borrow this schema version as a raw integer.
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+
+    /// Validate compatibility with this runtime's supported schema version.
+    pub fn ensure_supported(self) -> Result<(), ConfigSecretsError> {
+        if self == PROJECT_METHODOLOGY_SCHEMA_VERSION {
+            return Ok(());
+        }
+        Err(
+            ConfigSecretsError::UnsupportedProjectMethodologySchemaVersion {
+                actual: self,
+                supported: PROJECT_METHODOLOGY_SCHEMA_VERSION,
+            },
+        )
+    }
+}
+
+impl fmt::Display for ProjectMethodologySchemaVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
 
 /// Setting families for typed effective-configuration resolution metadata.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -189,6 +237,16 @@ pub enum MethodologyProfile {
     RustCargo,
 }
 
+impl MethodologyProfile {
+    /// Canonical methodology profile identifier.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::RustCargo => "rust-cargo",
+        }
+    }
+}
+
 /// Strict repository-relative standards root (no absolute roots, no `..` traversal).
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct StandardsRoot(String);
@@ -273,7 +331,7 @@ impl<'de> Deserialize<'de> for StandardsRoot {
 #[serde(deny_unknown_fields)]
 pub struct ProjectMethodologyConfig {
     /// Contract schema version for compatibility checks.
-    pub schema_version: u32,
+    pub schema_version: ProjectMethodologySchemaVersion,
     /// Standards methodology profile selected for this project.
     pub profile: MethodologyProfile,
     /// Repository-relative root directory containing adopted standards.
@@ -283,7 +341,7 @@ pub struct ProjectMethodologyConfig {
 impl ProjectMethodologyConfig {
     /// Build a typed project methodology config from raw inputs.
     pub fn new(
-        schema_version: u32,
+        schema_version: ProjectMethodologySchemaVersion,
         profile: MethodologyProfile,
         standards_root: &str,
     ) -> Result<Self, ConfigSecretsError> {

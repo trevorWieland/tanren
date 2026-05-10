@@ -1,9 +1,8 @@
 use std::path::Path;
 
-use tanren_configuration_secrets::{
-    MethodologyProfile, PROJECT_METHODOLOGY_SCHEMA_VERSION, ProjectMethodologyConfig,
-};
+use tanren_configuration_secrets::{PROJECT_METHODOLOGY_SCHEMA_VERSION, ProjectMethodologyConfig};
 
+use crate::install::InstallProfile;
 use crate::install::manifest::{AssetClass, PROJECT_METHODOLOGY_CONFIG_REPO_PATH};
 
 use super::{
@@ -70,7 +69,7 @@ pub(super) fn assert_project_methodology_config_for_rust_cargo(
             ),
         ));
     }
-    if config.profile != MethodologyProfile::RustCargo {
+    if config.profile != InstallProfile::RustCargo.methodology_profile() {
         return Err(manifest_contract_error(
             manifest,
             "project methodology config profile must be 'rust-cargo'",

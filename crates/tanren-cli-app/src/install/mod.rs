@@ -3,6 +3,7 @@
 use std::collections::BTreeSet;
 use std::path::Path;
 use std::str::FromStr;
+use tanren_configuration_secrets::MethodologyProfile;
 
 mod catalog;
 mod cli;
@@ -44,9 +45,21 @@ impl InstallProfile {
     /// Canonical profile identifier.
     #[must_use]
     pub const fn as_str(self) -> &'static str {
+        self.methodology_profile().as_str()
+    }
+
+    /// Canonical methodology profile paired with this install profile.
+    #[must_use]
+    pub const fn methodology_profile(self) -> MethodologyProfile {
         match self {
-            Self::RustCargo => "rust-cargo",
+            Self::RustCargo => MethodologyProfile::RustCargo,
         }
+    }
+}
+
+impl From<InstallProfile> for MethodologyProfile {
+    fn from(value: InstallProfile) -> Self {
+        value.methodology_profile()
     }
 }
 

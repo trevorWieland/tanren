@@ -104,7 +104,7 @@ fn scan_standards_recursive(
         fs::read_dir(directory).map_err(|source| StandardsCommandError::StandardsMissing {
             source: StandardsError::ReadFailure {
                 path: directory_path.clone(),
-                message: source.to_string(),
+                source,
             },
         })?;
 
@@ -112,7 +112,7 @@ fn scan_standards_recursive(
         let entry = entry_result.map_err(|source| StandardsCommandError::StandardsMissing {
             source: StandardsError::ReadFailure {
                 path: directory_path.clone(),
-                message: source.to_string(),
+                source,
             },
         })?;
         let path = entry.path();
@@ -124,7 +124,7 @@ fn scan_standards_recursive(
                 .map_err(|source| StandardsCommandError::StandardsMissing {
                     source: StandardsError::ReadFailure {
                         path: path_relative.clone(),
-                        message: source.to_string(),
+                        source,
                     },
                 })?;
 
@@ -162,7 +162,7 @@ fn scan_markdown_file(
         .map_err(|source| StandardsCommandError::StandardsParseFailed {
             source: StandardsError::ReadFailure {
                 path: standard_path_relative.clone(),
-                message: source.to_string(),
+                source,
             },
         })?
         .len();
@@ -200,7 +200,7 @@ fn scan_markdown_file(
         fs::read_to_string(path).map_err(|source| StandardsCommandError::StandardsParseFailed {
             source: StandardsError::ReadFailure {
                 path: standard_path_relative.clone(),
-                message: source.to_string(),
+                source,
             },
         })?;
     let standard_name = parse_standard_name(&raw, &standard_path_relative)

@@ -2,9 +2,7 @@
 
 use std::collections::BTreeSet;
 
-use tanren_configuration_secrets::{
-    MethodologyProfile, PROJECT_METHODOLOGY_SCHEMA_VERSION, ProjectMethodologyConfig,
-};
+use tanren_configuration_secrets::{PROJECT_METHODOLOGY_SCHEMA_VERSION, ProjectMethodologyConfig};
 
 use crate::install::error::InstallError;
 use crate::install::manifest::{
@@ -169,23 +167,13 @@ fn install_asset(
 fn methodology_config_projection(profile: InstallProfile) -> Result<String, InstallError> {
     let config = ProjectMethodologyConfig::new(
         PROJECT_METHODOLOGY_SCHEMA_VERSION,
-        methodology_profile(profile),
+        profile.methodology_profile(),
         standards_root(profile),
     )
-    .map_err(|source| InstallError::InvalidProjectMethodologyConfig {
-        message: source.to_string(),
-    })?;
+    .map_err(|source| InstallError::InvalidProjectMethodologyConfig { source })?;
     config
         .to_toml()
-        .map_err(|source| InstallError::InvalidProjectMethodologyConfig {
-            message: source.to_string(),
-        })
-}
-
-const fn methodology_profile(profile: InstallProfile) -> MethodologyProfile {
-    match profile {
-        InstallProfile::RustCargo => MethodologyProfile::RustCargo,
-    }
+        .map_err(|source| InstallError::InvalidProjectMethodologyConfig { source })
 }
 
 const fn standards_root(profile: InstallProfile) -> &'static str {

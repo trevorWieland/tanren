@@ -7,12 +7,12 @@ use std::path::{Path, PathBuf};
 use clap::{Args, Subcommand};
 use serde::Serialize;
 use tanren_configuration_secrets::{
-    EffectiveConfigurationMetadata, EffectiveConfigurationSettingFamily, MethodologyProfile,
+    ConfigSecretsError, EffectiveConfigurationMetadata, EffectiveConfigurationSettingFamily,
     ProjectMethodologyConfig, StandardsRoot,
 };
 use thiserror::Error;
 
-use crate::install::resolve_repo_relative_path;
+use crate::install::{InstallError, resolve_repo_relative_path};
 use scanner::scan_standards;
 
 const PROJECT_METHODOLOGY_CONFIG_REPO_PATH: &str = ".tanren/project-methodology.toml";
@@ -159,12 +159,30 @@ pub(crate) enum StandardsError {
     InvalidRepositoryPath { path: String },
     #[error("repository path does not exist or is not a directory: '{path}'")]
     RepositoryPathNotDirectory { path: String },
-    #[error("failed reading '{path}': {message}")]
-    ReadFailure { path: String, message: String },
-    #[error("failed to parse project methodology config '{path}' as TOML: {message}")]
-    ProjectMethodologyConfigParse { path: String, message: String },
-    #[error("configured standards root '{path}' is invalid: {message}")]
-    InvalidConfiguredStandardsRoot { path: String, message: String },
+    #[error("failed reading '{path}': {source}")]
+    ReadFailure {
+        path: String,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("failed to parse project methodology config '{path}' as TOML: {source}")]
+    ProjectMethodologyConfigParse {
+        path: String,
+        #[source]
+        source: ConfigSecretsError,
+    },
+    #[error("project methodology config '{path}' is not compatible with this runtime: {source}")]
+    ProjectMethodologyConfigIncompatible {
+        path: String,
+        #[source]
+        source: ConfigSecretsError,
+    },
+    #[error("configured standards root '{path}' is invalid: {source}")]
+    InvalidConfiguredStandardsRoot {
+        path: String,
+        #[source]
+        source: InstallError,
+    },
     #[error("path is not repository-relative: '{path}'")]
     NonRepositoryRelativePath { path: String },
     #[error("configured standards root is missing: '{path}'")]
@@ -225,7 +243,7 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
         StandardsCommandError::ValidationFailed {
             source: StandardsError::ReadFailure {
                 path: PROJECT_METHODOLOGY_CONFIG_REPO_PATH.to_owned(),
-                message: source.to_string(),
+                source,
             },
         }
     })?;
@@ -234,10 +252,11 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
         StandardsCommandError::ValidationFailed {
             source: StandardsError::ProjectMethodologyConfigParse {
                 path: PROJECT_METHODOLOGY_CONFIG_REPO_PATH.to_owned(),
-                message: source.to_string(),
+                source,
             },
         }
     })?;
+    validate_project_methodology_config_schema(&config)?;
 
     let standards_root_relative = config.standards_root.as_str().to_owned();
     let standards_root =
@@ -245,7 +264,7 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
             |source| StandardsCommandError::ValidationFailed {
                 source: StandardsError::InvalidConfiguredStandardsRoot {
                     path: standards_root_relative.clone(),
-                    message: source.to_string(),
+                    source,
                 },
             },
         )?;
@@ -272,7 +291,7 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
     };
 
     Ok(StandardsInspectReport {
-        profile: methodology_profile_name(config.profile).to_owned(),
+        profile: config.profile.as_str().to_owned(),
         standards_root: config.standards_root,
         standards_count: scan_summary.standards_count,
         first_standard_name,
@@ -288,10 +307,17 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
     })
 }
 
-const fn methodology_profile_name(profile: MethodologyProfile) -> &'static str {
-    match profile {
-        MethodologyProfile::RustCargo => "rust-cargo",
-    }
+fn validate_project_methodology_config_schema(
+    config: &ProjectMethodologyConfig,
+) -> Result<(), StandardsCommandError> {
+    config.schema_version.ensure_supported().map_err(|source| {
+        StandardsCommandError::ValidationFailed {
+            source: StandardsError::ProjectMethodologyConfigIncompatible {
+                path: PROJECT_METHODOLOGY_CONFIG_REPO_PATH.to_owned(),
+                source,
+            },
+        }
+    })
 }
 
 fn to_repo_relative_path(repository_root: &Path, path: &Path) -> Result<String, StandardsError> {
