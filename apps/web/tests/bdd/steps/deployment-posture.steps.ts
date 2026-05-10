@@ -5,7 +5,13 @@
 // page workflow and assert against the resulting wire responses.
 
 import { createBdd } from "playwright-bdd";
-import type { Page, Request, Response, Route } from "@playwright/test";
+import {
+  expect,
+  type Page,
+  type Request,
+  type Response,
+  type Route,
+} from "@playwright/test";
 
 import { test } from "./account.steps";
 import {
@@ -80,38 +86,37 @@ async function parseJsonResponse(response: Response): Promise<{
   };
 }
 
-interface JsonResponse {
-  ok: boolean;
-  status: number;
-  json: unknown;
-}
-
 async function openPosturePageForScope(
   page: Page,
   accountId: string,
-): Promise<JsonResponse> {
-  const listResponsePromise = page.waitForResponse(isListPostureResponse);
-  await page.goto("/");
-  await page.evaluate((scopeId) => {
-    window.localStorage.setItem("tanren.active-account-scope-id", scopeId);
-  }, accountId);
+): Promise<void> {
+  await page.addInitScript(
+    `window.localStorage.setItem("tanren.active-account-scope-id", ${JSON.stringify(accountId)});`,
+  );
   await page.goto("/deployment-posture");
   await page
     .getByRole("heading", { name: /deployment posture operations/i })
     .waitFor();
-  return parseJsonResponse(await listResponsePromise);
 }
 
-async function discoverCapabilitiesFromUi(
-  page: Page,
-  listResponse: JsonResponse,
-): Promise<unknown> {
+async function discoverCapabilitiesFromUi(page: Page): Promise<unknown> {
+  const listResponsePromise = page.waitForResponse(isListPostureResponse);
   await page
     .getByRole("button", { name: /discover capabilities/i })
     .first()
     .click();
+  const listResponse = await parseJsonResponse(await listResponsePromise);
+  const operationalScopeSelect = page.locator("#posture-operational-scope");
   const postureSelect = page.locator("#posture-value");
+  const loadButton = page.getByRole("button", { name: /load/i }).first();
+  const saveButton = page.getByRole("button", { name: /save/i }).first();
+
+  await operationalScopeSelect.waitFor();
   await postureSelect.waitFor();
+  await expect(operationalScopeSelect).toBeEnabled();
+  await expect(postureSelect).toBeEnabled();
+  await expect(loadButton).toBeEnabled();
+  await expect(saveButton).toBeEnabled();
   await page.waitForFunction(
     () => {
       const element =
@@ -138,8 +143,8 @@ async function setPostureViaUi(
   const postureActor = actor(world, "actor");
   const state = stateFor(world);
 
-  const listResponse = await openPosturePageForScope(page, scopeAccountId);
-  const supportedPayload = await discoverCapabilitiesFromUi(page, listResponse);
+  await openPosturePageForScope(page, scopeAccountId);
+  const supportedPayload = await discoverCapabilitiesFromUi(page);
   const supported = decodeSupportedResponse(supportedPayload);
   state.lastSupported = supported.supported;
 
@@ -225,8 +230,8 @@ async function readPostureViaUi(
   const postureActor = actor(world, "actor");
   const state = stateFor(world);
 
-  const listResponse = await openPosturePageForScope(page, scopeAccountId);
-  const supportedPayload = await discoverCapabilitiesFromUi(page, listResponse);
+  await openPosturePageForScope(page, scopeAccountId);
+  const supportedPayload = await discoverCapabilitiesFromUi(page);
   const supported = decodeSupportedResponse(supportedPayload);
   state.lastSupported = supported.supported;
 
@@ -411,8 +416,8 @@ When(
     if (!accountId) {
       throw new Error("actor account id missing before listing postures");
     }
-    const listResponse = await openPosturePageForScope(page, accountId);
-    const payload = await discoverCapabilitiesFromUi(page, listResponse);
+    await openPosturePageForScope(page, accountId);
+    const payload = await discoverCapabilitiesFromUi(page);
     const data = decodeSupportedResponse(payload);
     if (!Array.isArray(data.supported)) {
       throw new Error("supported posture payload did not include an array");
@@ -524,11 +529,8 @@ Then(
     if (!state.actorAccountId) {
       throw new Error("actor account id missing before readback");
     }
-    const listResponse = await openPosturePageForScope(
-      page,
-      state.actorAccountId,
-    );
-    await discoverCapabilitiesFromUi(page, listResponse);
+    await openPosturePageForScope(page, state.actorAccountId);
+    await discoverCapabilitiesFromUi(page);
     const getResponsePromise = page.waitForResponse(isGetPostureResponse);
     await page.getByRole("button", { name: /load/i }).first().click();
     const getResponse = await parseJsonResponse(await getResponsePromise);
