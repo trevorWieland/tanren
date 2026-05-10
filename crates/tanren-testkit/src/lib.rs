@@ -17,8 +17,8 @@ pub mod install_contract;
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliCommandOutcome, CliHarness,
     ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, McpHarness, TuiHarness,
-    WebHarness, event_kinds, execute_tanren_cli, locate_workspace_binary, record_failure,
+    HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, InstallCommandRequest,
+    InstallHarness, McpHarness, TuiHarness, WebHarness, event_kinds, record_failure,
 };
 pub use install_contract::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,

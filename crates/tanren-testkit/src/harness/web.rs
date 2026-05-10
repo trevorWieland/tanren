@@ -27,7 +27,7 @@ use tanren_store::EventEnvelope;
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InstallHarness,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -81,3 +81,6 @@ impl AccountHarness for WebHarness {
         self.inner.recent_events(limit).await
     }
 }
+
+#[async_trait]
+impl InstallHarness for WebHarness {}

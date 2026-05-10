@@ -26,7 +26,7 @@ use tokio::task::JoinHandle;
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InstallHarness,
 };
 
 /// `@api` wire harness.
@@ -371,6 +371,9 @@ impl AccountHarness for ApiHarness {
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
 }
+
+#[async_trait]
+impl InstallHarness for ApiHarness {}
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
     let mut p = std::env::temp_dir();

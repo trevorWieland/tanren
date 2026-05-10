@@ -50,7 +50,7 @@ mod tui;
 mod web;
 
 use std::collections::HashMap;
-use std::ffi::OsString;
+use std::path::PathBuf;
 use std::time::Duration;
 
 use anyhow::Result;
@@ -64,7 +64,7 @@ use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
-pub use cli::{CliCommandOutcome, CliHarness, execute_tanren_cli, locate_workspace_binary};
+pub use cli::{CliCommandOutcome, CliHarness};
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
 pub use tui::TuiHarness;
@@ -175,6 +175,19 @@ impl HarnessError {
 /// Convenient alias for harness fallibility.
 pub type HarnessResult<T> = Result<T, HarnessError>;
 
+/// Typed request shape for running installer and drift CLI commands
+/// through the install harness contract.
+#[derive(Debug, Clone)]
+pub struct InstallCommandRequest {
+    /// Repository root passed to `--repo`.
+    pub repository_root: PathBuf,
+    /// Install profile passed to `--profile`.
+    pub profile: String,
+    /// Optional comma-delimited integration selection passed to
+    /// `--integrations`.
+    pub integrations: Option<String>,
+}
+
 /// Specification for an invitation seeded into the harness's backing
 /// store. Per-harness implementations translate this into the shape
 /// their underlying `Store` requires.
@@ -199,20 +212,6 @@ pub struct HarnessInvitation {
 pub trait AccountHarness: Send + std::fmt::Debug {
     /// Identifier for diagnostic output.
     fn kind(&self) -> HarnessKind;
-
-    /// Execute a raw `tanren-cli` command through this harness.
-    /// CLI-specific BDD flows (for example install) use this to ensure
-    /// command execution routes through the active scenario harness
-    /// selected by interface tags.
-    async fn execute_cli_command(
-        &mut self,
-        _args: Vec<OsString>,
-    ) -> HarnessResult<CliCommandOutcome> {
-        Err(HarnessError::Transport(format!(
-            "{:?} harness cannot execute tanren-cli commands",
-            self.kind()
-        )))
-    }
 
     /// Self-signup against the underlying surface.
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession>;
@@ -253,6 +252,34 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+}
+
+/// Install/drift wire-harness seam used by BDD install scenarios.
+/// Command execution is typed as explicit install/drift requests rather
+/// than raw argv escape hatches.
+#[async_trait]
+pub trait InstallHarness: AccountHarness {
+    /// Run `tanren-cli install` for the provided request.
+    async fn run_install(
+        &mut self,
+        _request: InstallCommandRequest,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(HarnessError::Transport(format!(
+            "{:?} harness cannot run tanren-cli install",
+            self.kind()
+        )))
+    }
+
+    /// Run `tanren-cli drift` for the provided request.
+    async fn run_drift(
+        &mut self,
+        _request: InstallCommandRequest,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(HarnessError::Transport(format!(
+            "{:?} harness cannot run tanren-cli drift",
+            self.kind()
+        )))
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.

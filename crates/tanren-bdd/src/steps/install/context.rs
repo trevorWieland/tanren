@@ -1,9 +1,8 @@
 use std::collections::BTreeMap;
-use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{AccountHarness, CliCommandOutcome};
+use tanren_testkit::{CliCommandOutcome, InstallCommandRequest, InstallHarness};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -42,24 +41,17 @@ impl InstallContext {
 
     pub(crate) async fn run_install(
         &mut self,
-        harness: &mut dyn AccountHarness,
+        harness: &mut dyn InstallHarness,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
         let before = RepositorySnapshot::capture(&self.repository_root)?;
-        let mut args = vec![
-            OsString::from("install"),
-            OsString::from("--repo"),
-            self.repository_root.as_os_str().to_owned(),
-            OsString::from("--profile"),
-            OsString::from(profile),
-        ];
-        if let Some(selected) = integrations {
-            args.push(OsString::from("--integrations"));
-            args.push(OsString::from(selected));
-        }
         let outcome = harness
-            .execute_cli_command(args)
+            .run_install(InstallCommandRequest {
+                repository_root: self.repository_root.clone(),
+                profile: profile.to_owned(),
+                integrations: integrations.map(ToOwned::to_owned),
+            })
             .await
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
         self.fixture_proof_snapshot_before_last_run = Some(before);
@@ -69,24 +61,17 @@ impl InstallContext {
 
     pub(crate) async fn run_drift(
         &mut self,
-        harness: &mut dyn AccountHarness,
+        harness: &mut dyn InstallHarness,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
         let before = RepositorySnapshot::capture(&self.repository_root)?;
-        let mut args = vec![
-            OsString::from("drift"),
-            OsString::from("--repo"),
-            self.repository_root.as_os_str().to_owned(),
-            OsString::from("--profile"),
-            OsString::from(profile),
-        ];
-        if let Some(selected) = integrations {
-            args.push(OsString::from("--integrations"));
-            args.push(OsString::from(selected));
-        }
         let outcome = harness
-            .execute_cli_command(args)
+            .run_drift(InstallCommandRequest {
+                repository_root: self.repository_root.clone(),
+                profile: profile.to_owned(),
+                integrations: integrations.map(ToOwned::to_owned),
+            })
             .await
             .map_err(|source| InstallStepError::RunDriftCommand { source })?;
         self.fixture_proof_snapshot_before_last_run = Some(before);

@@ -15,7 +15,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InstallHarness,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -142,6 +142,9 @@ impl AccountHarness for InProcessHarness {
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
 }
+
+#[async_trait]
+impl InstallHarness for InProcessHarness {}
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;

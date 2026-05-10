@@ -16,9 +16,9 @@ pub(crate) enum InstallStepError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
+    #[error("failed to execute tanren-cli install via install harness: {source}")]
     RunInstallCommand { source: HarnessError },
-    #[error("failed to execute tanren-cli drift via CLI harness adapter: {source}")]
+    #[error("failed to execute tanren-cli drift via install harness: {source}")]
     RunDriftCommand { source: HarnessError },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,

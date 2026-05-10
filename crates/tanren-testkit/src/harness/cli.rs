@@ -26,7 +26,7 @@ use uuid::Uuid;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InstallCommandRequest, InstallHarness,
 };
 
 /// Captured output from a `tanren-cli` subprocess invocation.
@@ -112,14 +112,6 @@ impl Drop for CliHarness {
 impl AccountHarness for CliHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Cli
-    }
-
-    async fn execute_cli_command(
-        &mut self,
-        args: Vec<OsString>,
-    ) -> HarnessResult<CliCommandOutcome> {
-        let output = run_binary_command(&self.binary, args).await?;
-        Ok(CliCommandOutcome::from(output))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
@@ -246,22 +238,51 @@ impl AccountHarness for CliHarness {
     }
 }
 
-/// Execute `tanren-cli` via the CLI harness adapter and return the
-/// captured process output.
-pub async fn execute_tanren_cli<I, S>(args: I) -> HarnessResult<CliCommandOutcome>
-where
-    I: IntoIterator<Item = S>,
-    S: AsRef<std::ffi::OsStr>,
-{
-    let binary = locate_workspace_binary("tanren-cli")?;
-    let output = run_binary_command(&binary, args).await?;
-    Ok(CliCommandOutcome::from(output))
+#[async_trait]
+impl InstallHarness for CliHarness {
+    async fn run_install(
+        &mut self,
+        request: InstallCommandRequest,
+    ) -> HarnessResult<CliCommandOutcome> {
+        let mut args = vec![
+            OsString::from("install"),
+            OsString::from("--repo"),
+            request.repository_root.as_os_str().to_owned(),
+            OsString::from("--profile"),
+            OsString::from(request.profile),
+        ];
+        if let Some(integrations) = request.integrations {
+            args.push(OsString::from("--integrations"));
+            args.push(OsString::from(integrations));
+        }
+        let output = run_binary_command(&self.binary, args).await?;
+        Ok(CliCommandOutcome::from(output))
+    }
+
+    async fn run_drift(
+        &mut self,
+        request: InstallCommandRequest,
+    ) -> HarnessResult<CliCommandOutcome> {
+        let mut args = vec![
+            OsString::from("drift"),
+            OsString::from("--repo"),
+            request.repository_root.as_os_str().to_owned(),
+            OsString::from("--profile"),
+            OsString::from(request.profile),
+        ];
+        if let Some(integrations) = request.integrations {
+            args.push(OsString::from("--integrations"));
+            args.push(OsString::from(integrations));
+        }
+        let output = run_binary_command(&self.binary, args).await?;
+        Ok(CliCommandOutcome::from(output))
+    }
 }
 
 /// Locate a workspace binary by name. The BDD runner is at
 /// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
 /// the same directory.
-pub fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
+pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if let Ok(explicit) = std::env::var(format!(
         "TANREN_BIN_{}",
         name.replace('-', "_").to_uppercase()

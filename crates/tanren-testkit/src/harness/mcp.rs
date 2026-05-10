@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InstallHarness,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -203,6 +203,9 @@ impl AccountHarness for McpHarness {
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
 }
+
+#[async_trait]
+impl InstallHarness for McpHarness {}
 
 fn first_text(content: &[Content]) -> Option<String> {
     for item in content {

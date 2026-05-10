@@ -3,7 +3,7 @@
 //! This is the only crate in the workspace permitted to define `#[test]`
 //! items — `xtask check-rust-test-surface` mechanically rejects them
 //! anywhere else. R-0001 sub-9 rewires the step bodies to dispatch
-//! through the per-interface [`AccountHarness`] trait in
+//! through the per-interface [`tanren_testkit::InstallHarness`] trait in
 //! `tanren-testkit`, so the surface under proof matches the scenario's
 //! interface tag — `@api` drives reqwest, `@cli` drives the binary,
 //! `@mcp` drives the rmcp client, etc. `xtask check-bdd-wire-coverage`
@@ -18,8 +18,8 @@ use std::path::PathBuf;
 
 use crate::steps::install::{InstallContext, InstallStepError, InstallStepResult};
 use tanren_testkit::{
-    AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome, InProcessHarness,
+    InstallHarness, McpHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -118,7 +118,7 @@ impl TanrenWorld {
 /// state lives inside the harness implementation.
 pub struct AccountContext {
     /// Active wire harness for the current scenario.
-    pub harness: Box<dyn AccountHarness>,
+    pub harness: Box<dyn InstallHarness>,
     /// Registry of actors by display name.
     pub actors: HashMap<String, ActorState>,
     /// The most recent action's outcome.
@@ -159,7 +159,7 @@ impl AccountContext {
     /// so it surfaces during the first step rather than blocking
     /// scenario discovery.
     pub async fn new_for(kind: HarnessKind) -> Self {
-        let harness: Box<dyn AccountHarness> = match kind {
+        let harness: Box<dyn InstallHarness> = match kind {
             HarnessKind::InProcess => Box::new(
                 InProcessHarness::new(kind)
                     .await

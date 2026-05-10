@@ -22,7 +22,7 @@ use tanren_store::EventEnvelope;
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InstallHarness,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -75,3 +75,6 @@ impl AccountHarness for TuiHarness {
         self.inner.recent_events(limit).await
     }
 }
+
+#[async_trait]
+impl InstallHarness for TuiHarness {}
