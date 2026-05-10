@@ -4459,15 +4459,16 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "sha2",
  "tanren-api-app",
  "tanren-app-services",
- "tanren-cli-app",
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-mcp-app",
  "tanren-store",
  "thiserror 2.0.18",
  "tokio",
+ "toml",
  "uuid",
 ]
 

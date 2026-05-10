@@ -1,12 +1,13 @@
 //! Typed install-proof contract helpers shared by BDD assertions.
 
 use std::collections::BTreeSet;
-use std::path::Path;
+use std::fmt::Write as _;
+use std::fs;
+use std::path::{Component, Path, PathBuf};
 use std::str::FromStr;
 
-use serde::{Deserialize, Serialize};
-use tanren_cli_app::test_hooks::install::contract;
-use tanren_cli_app::test_hooks::install::{RepoRelativePath, sha256_hex};
+use serde::{Deserialize, Deserializer, Serialize, Serializer};
+use sha2::{Digest, Sha256};
 use thiserror::Error;
 
 /// Install manifest schema version asserted by the BDD install proofs.
@@ -137,23 +138,230 @@ pub enum InstallProofContractError {
     EmptyIntegrationSelection,
 }
 
+/// Parse failure for install proof repository-relative paths.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("install proof path must be a non-empty repository-relative path without traversal")]
+pub struct InstallProofRepoRelativePathParseError;
+
+/// Strict repository-relative path for install-proof fixtures.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct InstallProofRepoRelativePath(String);
+
+impl InstallProofRepoRelativePath {
+    /// Validate and construct a repository-relative path.
+    pub fn parse(path: &str) -> Result<Self, InstallProofRepoRelativePathParseError> {
+        if path.is_empty() {
+            return Err(InstallProofRepoRelativePathParseError);
+        }
+        let candidate = Path::new(path);
+        if candidate.is_absolute() {
+            return Err(InstallProofRepoRelativePathParseError);
+        }
+        let is_valid = candidate
+            .components()
+            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
+        if !is_valid {
+            return Err(InstallProofRepoRelativePathParseError);
+        }
+        Ok(Self(path.to_owned()))
+    }
+
+    /// Borrow the validated path string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl Serialize for InstallProofRepoRelativePath {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for InstallProofRepoRelativePath {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        InstallProofRepoRelativePath::parse(raw.as_str()).map_err(serde::de::Error::custom)
+    }
+}
+
 /// Delivery-owned proof failure type surfaced to BDD assertion mapping.
-pub use contract::InstallProofError;
-/// Delivery-owned repository-relative install path contract type.
-pub type InstallProofRepoRelativePath = RepoRelativePath;
+#[derive(Debug, Error, Clone, PartialEq, Eq)]
+#[error("{message}")]
+pub struct InstallProofError {
+    message: String,
+}
+
+#[derive(Debug, Error)]
+enum InstallProofFailure {
+    #[error("invalid integration assertion selection '{selection}': {source}")]
+    InvalidIntegrationSelection {
+        selection: String,
+        source: InstallProofContractError,
+    },
+    #[error("failed to canonicalize workspace root while {action}: {source}")]
+    CanonicalizeWorkspaceRoot {
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("failed to read file '{path}' while {action}: {source}")]
+    ReadFile {
+        path: PathBuf,
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("failed to write file '{path}' while {action}: {source}")]
+    WriteFile {
+        path: PathBuf,
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("failed to read directory '{path}' while {action}: {source}")]
+    ReadDirectory {
+        path: PathBuf,
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("failed to inspect directory entry under '{path}' while {action}: {source}")]
+    ReadDirectoryEntry {
+        path: PathBuf,
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("failed to inspect file type for '{path}' while {action}: {source}")]
+    InspectFileType {
+        path: PathBuf,
+        action: &'static str,
+        source: std::io::Error,
+    },
+    #[error("failed to parse install manifest '{manifest_path}' as TOML: {source}")]
+    InstallManifestTomlParse {
+        manifest_path: PathBuf,
+        source: toml::de::Error,
+    },
+    #[error("expected repository file to exist: {path}")]
+    ExpectedFileToExist { path: PathBuf },
+    #[error("expected repository path to be absent: {path}")]
+    ExpectedFileToBeAbsent { path: PathBuf },
+    #[error("expected fixture path to be absent before manifest injection: {path}")]
+    StaleManifestPathAlreadyPresent { path: String },
+    #[error(
+        "install manifest '{manifest_path}' violated proof contract: {expected}\nmanifest:\n{manifest}"
+    )]
+    ManifestContractViolation {
+        expected: String,
+        manifest_path: PathBuf,
+        manifest: String,
+    },
+}
+
+impl From<InstallProofFailure> for InstallProofError {
+    fn from(source: InstallProofFailure) -> Self {
+        Self {
+            message: source.to_string(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum InstallProofPreservation {
+    ReplaceGenerated,
+    PreserveUserEdits,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Sha256Hex(String);
+
+impl Sha256Hex {
+    const LENGTH: usize = 64;
+
+    fn parse(value: &str) -> Result<Self, &'static str> {
+        if value.len() != Self::LENGTH
+            || !value
+                .bytes()
+                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
+        {
+            return Err("content hash must be exactly 64 lowercase hex characters");
+        }
+        Ok(Self(value.to_owned()))
+    }
+
+    fn as_str(&self) -> &str {
+        self.0.as_str()
+    }
+}
+
+impl Serialize for Sha256Hex {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for Sha256Hex {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        let raw = String::deserialize(deserializer)?;
+        Sha256Hex::parse(raw.as_str()).map_err(serde::de::Error::custom)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct InstallManifestEntry {
+    path: InstallProofRepoRelativePath,
+    content_hash: Sha256Hex,
+    asset_class: InstallProofAssetClass,
+    integration: Option<InstallProofIntegration>,
+    preservation: InstallProofPreservation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct InstallManifest {
+    manifest_version: u32,
+    profile: InstallProofProfile,
+    integrations: Vec<InstallProofIntegration>,
+    entries: Vec<InstallManifestEntry>,
+}
+
+#[derive(Debug)]
+struct ObservedInstallManifest {
+    path: PathBuf,
+    raw: String,
+    parsed: InstallManifest,
+}
+
+fn as_public<T>(result: Result<T, InstallProofFailure>) -> Result<T, InstallProofError> {
+    result.map_err(InstallProofError::from)
+}
 
 /// Assert the default rust-cargo install writes both command and standards assets.
 pub fn assert_rust_cargo_default_assets_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    contract::assert_rust_cargo_default_assets_installed(repository_root)
+    as_public(proof::assert_rust_cargo_default_assets_installed_inner(
+        repository_root,
+    ))
 }
 
 /// Assert rust-cargo standards profile assets are installed.
 pub fn assert_rust_cargo_standards_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    contract::assert_rust_cargo_standards_installed(repository_root)
+    as_public(proof::assert_rust_cargo_standards_installed_inner(
+        repository_root,
+    ))
 }
 
 /// Assert only the selected integration command assets are installed.
@@ -161,14 +369,19 @@ pub fn assert_selected_integration_command_assets(
     repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
-    contract::assert_selected_integration_command_assets(repository_root, selected_integrations)
+    as_public(proof::assert_selected_integration_command_assets_inner(
+        repository_root,
+        selected_integrations,
+    ))
 }
 
 /// Assert install manifest defaults for rust-cargo profile installs.
 pub fn assert_manifest_rust_cargo_defaults(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    contract::assert_manifest_rust_cargo_defaults(repository_root)
+    as_public(proof::assert_manifest_rust_cargo_defaults_inner(
+        repository_root,
+    ))
 }
 
 /// Append a stale generated-manifest row for mutation-flow fixtures.
@@ -178,7 +391,13 @@ pub fn append_stale_generated_manifest_entry(
     relative_path: &InstallProofRepoRelativePath,
     content_hash: &str,
 ) {
-    contract::append_stale_generated_manifest_entry(manifest, relative_path, content_hash);
+    let _ = write!(
+        manifest,
+        "\n[[entries]]\npath = \"{}\"\ncontent_hash = \"{}\"\nasset_class = \"methodology-command\"\nintegration = \"{}\"\npreservation = \"replace-generated\"\n",
+        relative_path.as_str(),
+        content_hash,
+        InstallProofIntegration::Codex.as_str()
+    );
 }
 
 /// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
@@ -187,7 +406,10 @@ pub fn tamper_manifest_with_raw_generated_entry(
     repository_root: &Path,
     raw_path: &str,
 ) -> Result<(), InstallProofError> {
-    contract::tamper_manifest_with_raw_generated_entry(repository_root, raw_path)
+    as_public(proof::tamper_manifest_with_raw_generated_entry_inner(
+        repository_root,
+        raw_path,
+    ))
 }
 
 /// Read a workspace catalog file for fixture seeding.
@@ -195,12 +417,15 @@ pub fn tamper_manifest_with_raw_generated_entry(
 pub fn read_workspace_catalog_file(
     relative_path: &InstallProofRepoRelativePath,
 ) -> Result<String, InstallProofError> {
-    contract::read_workspace_catalog_file(relative_path)
+    as_public(proof::read_workspace_catalog_file_inner(relative_path))
 }
 
 /// Calculate a hex SHA-256 digest for fixture bytes.
 #[must_use]
 #[cfg(feature = "test-hooks")]
 pub fn sha256_hex_string(bytes: &[u8]) -> String {
-    sha256_hex(bytes)
+    let digest = Sha256::digest(bytes);
+    format!("{digest:x}")
 }
+
+mod proof;
