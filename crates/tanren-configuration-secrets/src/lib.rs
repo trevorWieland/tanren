@@ -17,8 +17,9 @@ use uuid::Uuid;
 mod secret_store;
 mod user_registry;
 pub use secret_store::{
-    CREDENTIAL_SEAL_PASSPHRASE_ENV, CredentialSealScheme, CredentialSealingFailure,
-    SealedUserCredentialValue, UserCredentialSealContext, seal_user_credential_value_from_env,
+    CREDENTIAL_SEAL_PASSPHRASE_ENV, CredentialSealScheme, CredentialSealVersion,
+    CredentialSealingFailure, CredentialValueSealer, SealedUserCredentialValue,
+    UserCredentialSealContext, seal_user_credential_value_from_env,
 };
 pub use user_registry::{
     parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,

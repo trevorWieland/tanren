@@ -6,23 +6,22 @@
 //! they do not import domain, store, or runtime crates directly.
 
 pub mod account;
+mod credential_sealer;
 pub mod events;
+mod handlers_user_configuration;
 pub mod user_configuration;
 mod user_configuration_pagination;
 mod user_configuration_support;
 use chrono::{DateTime, Utc};
+use credential_sealer::CredentialSealerState;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{CredentialSealingFailure, CredentialValueSealer};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    CreateUserCredentialRequest, CreateUserCredentialResponse, GetAuthenticatedAccountResponse,
-    ListUserCredentialsRequest, ListUserCredentialsResponse, ListUserSettingsRequest,
-    ListUserSettingsResponse, OwnerScope, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UpdateUserCredentialRequest,
-    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserConfigurationFailureReason, UserCredentialId, UserSettingKey,
+    GetAuthenticatedAccountResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    UserConfigurationFailureReason,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier, SessionToken};
-use tanren_store::UserConfigurationStore;
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -87,6 +86,7 @@ impl Clock {
 pub struct Handlers {
     clock: Clock,
     verifier: Arc<dyn CredentialVerifier>,
+    value_sealing_state: CredentialSealerState,
 }
 
 impl Default for Handlers {
@@ -94,11 +94,24 @@ impl Default for Handlers {
         Self {
             clock: Clock::default(),
             verifier: Arc::new(Argon2idVerifier::production()),
+            value_sealing_state: CredentialSealerState::from_env(),
         }
     }
 }
 
 impl Handlers {
+    fn from_parts(
+        clock: Clock,
+        verifier: Arc<dyn CredentialVerifier>,
+        value_sealing_state: CredentialSealerState,
+    ) -> Self {
+        Self {
+            clock,
+            verifier,
+            value_sealing_state,
+        }
+    }
+
     #[must_use]
     pub fn new() -> Self {
         Self::default()
@@ -106,15 +119,62 @@ impl Handlers {
 
     #[must_use]
     pub fn with_clock(clock: Clock) -> Self {
-        Self {
+        Self::from_parts(
             clock,
-            verifier: Arc::new(Argon2idVerifier::production()),
-        }
+            Arc::new(Argon2idVerifier::production()),
+            CredentialSealerState::from_env(),
+        )
     }
 
     #[must_use]
     pub fn with_verifier(clock: Clock, verifier: Arc<dyn CredentialVerifier>) -> Self {
-        Self { clock, verifier }
+        Self::from_parts(clock, verifier, CredentialSealerState::from_env())
+    }
+
+    #[must_use]
+    pub fn with_credential_sealer_result(
+        credential_sealer: Result<CredentialValueSealer, CredentialSealingFailure>,
+    ) -> Self {
+        Self::from_parts(
+            Clock::default(),
+            Arc::new(Argon2idVerifier::production()),
+            CredentialSealerState::from_result(credential_sealer),
+        )
+    }
+
+    #[must_use]
+    pub fn with_verifier_and_credential_sealer_result(
+        clock: Clock,
+        verifier: Arc<dyn CredentialVerifier>,
+        credential_sealer: Result<CredentialValueSealer, CredentialSealingFailure>,
+    ) -> Self {
+        Self::from_parts(
+            clock,
+            verifier,
+            CredentialSealerState::from_result(credential_sealer),
+        )
+    }
+
+    #[must_use]
+    pub fn with_credential_sealer(credential_sealer: CredentialValueSealer) -> Self {
+        Self::from_parts(
+            Clock::default(),
+            Arc::new(Argon2idVerifier::production()),
+            CredentialSealerState::Ready(credential_sealer),
+        )
+    }
+
+    #[must_use]
+    pub fn with_verifier_and_credential_sealer(
+        clock: Clock,
+        verifier: Arc<dyn CredentialVerifier>,
+        credential_sealer: CredentialValueSealer,
+    ) -> Self {
+        Self::from_parts(
+            clock,
+            verifier,
+            CredentialSealerState::Ready(credential_sealer),
+        )
     }
 
     #[must_use]
@@ -195,280 +255,6 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
-    }
-
-    pub async fn list_user_settings<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        requested_account_id: AccountId,
-    ) -> Result<ListUserSettingsResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.list_user_settings_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_account(
-                authenticated_account_id,
-                requested_account_id,
-            ),
-            ListUserSettingsRequest::default(),
-        )
-        .await
-    }
-
-    pub async fn list_user_settings_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        request: ListUserSettingsRequest,
-    ) -> Result<ListUserSettingsResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::list_user_settings(store, &self.clock, context, request).await
-    }
-
-    pub async fn list_user_settings_page<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        requested_account_id: AccountId,
-        request: ListUserSettingsRequest,
-    ) -> Result<ListUserSettingsResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.list_user_settings_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_account(
-                authenticated_account_id,
-                requested_account_id,
-            ),
-            request,
-        )
-        .await
-    }
-
-    pub async fn upsert_user_setting<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        requested_account_id: AccountId,
-        request: UpsertUserSettingRequest,
-    ) -> Result<UpsertUserSettingResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.upsert_user_setting_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_account(
-                authenticated_account_id,
-                requested_account_id,
-            ),
-            request,
-        )
-        .await
-    }
-
-    pub async fn upsert_user_setting_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        request: UpsertUserSettingRequest,
-    ) -> Result<UpsertUserSettingResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::upsert_user_setting(store, &self.clock, context, request).await
-    }
-
-    pub async fn remove_user_setting<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        requested_account_id: AccountId,
-        key: UserSettingKey,
-    ) -> Result<RemoveUserSettingResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.remove_user_setting_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_account(
-                authenticated_account_id,
-                requested_account_id,
-            ),
-            key,
-        )
-        .await
-    }
-
-    pub async fn remove_user_setting_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        key: UserSettingKey,
-    ) -> Result<RemoveUserSettingResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::remove_user_setting(store, &self.clock, context, key).await
-    }
-
-    pub async fn add_user_credential<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        request: CreateUserCredentialRequest,
-    ) -> Result<CreateUserCredentialResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.add_user_credential_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_owner_scope(
-                authenticated_account_id,
-                request.owner_scope,
-            ),
-            request,
-        )
-        .await
-    }
-
-    pub async fn add_user_credential_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        request: CreateUserCredentialRequest,
-    ) -> Result<CreateUserCredentialResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::add_user_credential(store, &self.clock, context, request).await
-    }
-
-    pub async fn update_user_credential<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        item_id: UserCredentialId,
-        owner_scope: OwnerScope,
-        request: UpdateUserCredentialRequest,
-    ) -> Result<UpdateUserCredentialResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.update_user_credential_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_owner_scope(
-                authenticated_account_id,
-                owner_scope,
-            ),
-            item_id,
-            request,
-        )
-        .await
-    }
-
-    pub async fn update_user_credential_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        item_id: UserCredentialId,
-        request: UpdateUserCredentialRequest,
-    ) -> Result<UpdateUserCredentialResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::update_user_credential(store, &self.clock, context, item_id, request)
-            .await
-    }
-
-    pub async fn list_user_credentials<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        owner_scope: OwnerScope,
-    ) -> Result<ListUserCredentialsResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.list_user_credentials_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_owner_scope(
-                authenticated_account_id,
-                owner_scope,
-            ),
-            ListUserCredentialsRequest::default(),
-        )
-        .await
-    }
-
-    pub async fn list_user_credentials_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        request: ListUserCredentialsRequest,
-    ) -> Result<ListUserCredentialsResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::list_user_credentials(store, &self.clock, context, request).await
-    }
-
-    pub async fn list_user_credentials_page<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        owner_scope: OwnerScope,
-        request: ListUserCredentialsRequest,
-    ) -> Result<ListUserCredentialsResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.list_user_credentials_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_owner_scope(
-                authenticated_account_id,
-                owner_scope,
-            ),
-            request,
-        )
-        .await
-    }
-
-    pub async fn remove_user_credential<S>(
-        &self,
-        store: &S,
-        authenticated_account_id: AccountId,
-        item_id: UserCredentialId,
-        owner_scope: OwnerScope,
-    ) -> Result<RemoveUserCredentialResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        self.remove_user_credential_with_context(
-            store,
-            AuthenticatedConfigurationContext::for_requested_owner_scope(
-                authenticated_account_id,
-                owner_scope,
-            ),
-            item_id,
-        )
-        .await
-    }
-
-    pub async fn remove_user_credential_with_context<S>(
-        &self,
-        store: &S,
-        context: AuthenticatedConfigurationContext,
-        item_id: UserCredentialId,
-    ) -> Result<RemoveUserCredentialResponse, AppServiceError>
-    where
-        S: UserConfigurationStore + AccountStore + ?Sized,
-    {
-        user_configuration::remove_user_credential(store, &self.clock, context, item_id).await
     }
 }
 

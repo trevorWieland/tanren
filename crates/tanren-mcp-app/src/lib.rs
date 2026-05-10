@@ -24,6 +24,7 @@ use rmcp::model::{
 use rmcp::service::RequestContext;
 use std::sync::Arc;
 use tanren_app_services::{Handlers, Store};
+use tanren_configuration_secrets::{CredentialSealingFailure, CredentialValueSealer};
 use tanren_contract::{
     AcceptInvitationRequest, CreateUserCredentialRequest, ListUserCredentialsRequest,
     ListUserSettingsRequest, OwnerScope, SignInRequest, SignUpRequest, UpdateUserCredentialRequest,
@@ -58,15 +59,20 @@ pub use crate::server::serve;
 /// Configuration for the tanren-mcp runtime. R-0001 sub-8 keeps it
 /// env-driven; downstream PRs may swap in a typed config crate without
 /// changing the [`serve`] signature.
-#[derive(Debug, Default)]
-pub struct Config;
+#[derive(Debug, Clone)]
+pub struct Config {
+    /// Credential sealing adapter initialized once from environment config.
+    pub credential_sealer: Result<CredentialValueSealer, CredentialSealingFailure>,
+}
 
 impl Config {
     /// Construct the default config; bind address, allowed hosts, and
     /// API key continue to come from environment variables.
     #[must_use]
-    pub const fn from_env() -> Self {
-        Self
+    pub fn from_env() -> Self {
+        Self {
+            credential_sealer: CredentialValueSealer::from_env(),
+        }
     }
 }
 

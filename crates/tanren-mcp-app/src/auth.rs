@@ -27,6 +27,7 @@ pub(crate) struct AuthConfig {
 #[derive(Debug, Clone)]
 pub(crate) struct AuthState {
     pub(crate) config: Arc<AuthConfig>,
+    pub(crate) handlers: Handlers,
     pub(crate) store: Arc<Store>,
 }
 
@@ -138,7 +139,8 @@ pub(crate) async fn require_authenticated_principal(
             .into_response();
     };
 
-    let principal = match Handlers::new()
+    let principal = match state
+        .handlers
         .authenticate_session(
             state.store.as_ref(),
             SessionAuthenticationRequest {

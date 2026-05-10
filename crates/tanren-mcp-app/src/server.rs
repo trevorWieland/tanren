@@ -12,6 +12,7 @@ use rmcp::transport::streamable_http_server::{
 };
 use serde::{Deserialize, Serialize};
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::ContractVersion;
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
@@ -31,11 +32,10 @@ struct HealthResponse {
 }
 
 async fn health() -> Json<HealthResponse> {
-    let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
     Json(HealthResponse {
-        status: report.status.to_owned(),
-        version: report.version.to_owned(),
-        contract_version: report.contract_version.value(),
+        status: "ok".to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        contract_version: ContractVersion::CURRENT.value(),
     })
 }
 
@@ -125,16 +125,20 @@ pub fn build_router_with_store(
     store: Arc<Store>,
     api_key: secrecy::SecretString,
 ) -> (Router, CancellationToken) {
+    let handlers = Handlers::with_credential_sealer_result(
+        tanren_configuration_secrets::CredentialValueSealer::from_env(),
+    );
     let auth_state = AuthState {
         config: Arc::new(AuthConfig {
             bootstrap_key: Some(api_key),
         }),
+        handlers: handlers.clone(),
         store: store.clone(),
     };
     let cancellation = CancellationToken::new();
     let router = build_router(
         auth_state,
-        Handlers::new(),
+        handlers,
         store,
         cancellation.clone(),
         CorsMode::TestHooksPermissive,
@@ -150,7 +154,7 @@ pub fn build_router_with_store(
 ///
 /// Returns an error if the database connection cannot be established,
 /// the listener cannot bind, or `axum::serve` returns an error.
-pub async fn serve(_config: Config) -> Result<()> {
+pub async fn serve(config: Config) -> Result<()> {
     let bind = env::var(BIND_ADDRESS_ENV).unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned());
     let auth_config = Arc::new(AuthConfig::from_env());
     if auth_config.bootstrap_key.is_none() {
@@ -170,9 +174,10 @@ pub async fn serve(_config: Config) -> Result<()> {
             .await
             .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
     );
-    let handlers = Handlers::new();
+    let handlers = Handlers::with_credential_sealer_result(config.credential_sealer);
     let auth_state = AuthState {
         config: auth_config,
+        handlers: handlers.clone(),
         store: store.clone(),
     };
 

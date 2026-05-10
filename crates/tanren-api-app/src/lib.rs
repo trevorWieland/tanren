@@ -54,6 +54,7 @@ use axum::Json;
 use axum::http::{HeaderValue, header};
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
+use tanren_configuration_secrets::{CredentialSealingFailure, CredentialValueSealer};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -87,6 +88,8 @@ pub struct Config {
     /// Allowed `Origin` values for the CORS layer. `tower_http::cors::Any`
     /// is denied workspace-wide — set this explicitly.
     pub cors_allow_origins: Vec<HeaderValue>,
+    /// Credential sealing adapter initialized once from environment config.
+    pub credential_sealer: Result<CredentialValueSealer, CredentialSealingFailure>,
 }
 
 impl Config {
@@ -111,6 +114,7 @@ impl Config {
             bind,
             database_url: SecretString::from(database_url),
             cors_allow_origins,
+            credential_sealer: CredentialValueSealer::from_env(),
         })
     }
 }
@@ -158,7 +162,7 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
             .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
     );
     let state = AppState {
-        handlers: Handlers::new(),
+        handlers: Handlers::with_credential_sealer_result(config.credential_sealer.clone()),
         store: store.clone(),
     };
 
@@ -246,7 +250,7 @@ pub async fn build_app_with_store(
     secure_cookie: bool,
 ) -> Result<axum::Router> {
     let state = AppState {
-        handlers: Handlers::new(),
+        handlers: Handlers::with_credential_sealer_result(CredentialValueSealer::from_env()),
         store: store.clone(),
     };
 

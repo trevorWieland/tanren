@@ -11,9 +11,8 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, CreateUserCredentialRequest,
+    AcceptInvitationRequest, AccountView, ContractVersion, CreateUserCredentialRequest,
     CreateUserCredentialResponse, GetAuthenticatedAccountResponse,
     GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
     ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
@@ -195,11 +194,10 @@ pub(crate) struct ApiDoc;
     tag = "health",
 )]
 pub(crate) async fn health_route() -> Json<HealthResponse> {
-    let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
     Json(HealthResponse {
-        status: report.status.to_owned(),
-        version: report.version.to_owned(),
-        contract_version: report.contract_version.value(),
+        status: "ok".to_owned(),
+        version: env!("CARGO_PKG_VERSION").to_owned(),
+        contract_version: ContractVersion::CURRENT.value(),
     })
 }
 
