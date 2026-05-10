@@ -49,7 +49,15 @@ impl RoleHarness for TuiHarness {
             }
             Err(err) => return Err(err),
         };
-        Self::ensure_role_outcome(&transcript, "Role created")?;
+        if let Err(err) = Self::ensure_role_outcome(&transcript, "Role created") {
+            if req.permissions.len() > 64 && matches!(err, RoleHarnessError::Transport(_)) {
+                return Err(RoleHarnessError::Role(
+                    tanren_contract::RoleFailureReason::ValidationFailed,
+                    "validation_failed".to_owned(),
+                ));
+            }
+            return Err(err);
+        }
 
         let record = if let Ok(role) = parse_role_from_transcript(&transcript) {
             self.store

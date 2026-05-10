@@ -22,6 +22,7 @@ mod in_process;
 mod mcp;
 mod role_utils;
 mod tui;
+mod tui_binary;
 mod tui_codec;
 mod tui_driver;
 mod tui_errors;

@@ -1,13 +1,18 @@
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use std::process::Command;
 use std::time::{Duration, Instant};
 
 use expectrl::Session;
+use expectrl::{Signal, WaitStatus};
 use portable_pty::{PtySize, native_pty_system};
 
 use super::HarnessError;
 
 const MENU_PROMPT: &str = "Choose an action";
+const MENU_ITEM_COUNT: usize = 8;
+const QUIET_TICK_MILLIS: u64 = 30;
+const QUIET_TICKS_AFTER_OUTCOME: u8 = 4;
+const QUIET_TICKS_WITHOUT_OUTCOME: u8 = 67;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TuiMenuChoice {
@@ -88,14 +93,18 @@ impl TuiDriver {
     ) -> Result<TuiTranscript, HarnessError> {
         self.ensure_pty_available()?;
         let mut session = self.spawn_session()?;
-
-        let text =
-            self.submit_form_in_session(&mut session, choice, form_title, values, true, false)?;
-
-        session
-            .send("qq")
-            .map_err(|e| HarnessError::Transport(format!("quit tui after submit: {e}")))?;
-
+        let mut selected_index = 0_usize;
+        let result = self.submit_form_in_session(
+            &mut session,
+            choice,
+            form_title,
+            values,
+            &mut selected_index,
+            true,
+            false,
+        );
+        self.finish_session(&mut session, "submit_form")?;
+        let text = result?;
         Ok(TuiTranscript {
             text: sanitize_terminal_text(&text),
         })
@@ -111,20 +120,30 @@ impl TuiDriver {
     ) -> Result<TuiTranscript, HarnessError> {
         self.ensure_pty_available()?;
         let mut session = self.spawn_session()?;
-        self.submit_form_in_session(
+        let mut selected_index = 0_usize;
+        let sign_in_result = self.submit_form_in_session(
             &mut session,
             TuiMenuChoice::SignIn,
             "Sign in",
             &[email.to_owned(), password.to_owned()],
+            &mut selected_index,
             true,
             true,
-        )?;
-        let text =
-            self.submit_form_in_session(&mut session, choice, form_title, values, false, false)?;
-
-        session
-            .send("qq")
-            .map_err(|e| HarnessError::Transport(format!("quit tui after submit: {e}")))?;
+        );
+        let form_result = match sign_in_result {
+            Ok(_) => self.submit_form_in_session(
+                &mut session,
+                choice,
+                form_title,
+                values,
+                &mut selected_index,
+                true,
+                false,
+            ),
+            Err(err) => Err(err),
+        };
+        self.finish_session(&mut session, "submit_form_with_sign_in")?;
+        let text = form_result?;
 
         Ok(TuiTranscript {
             text: sanitize_terminal_text(&text),
@@ -135,10 +154,84 @@ impl TuiDriver {
         self.ensure_pty_available()?;
         let mut session = self.spawn_session()?;
         std::thread::sleep(Duration::from_millis(150));
-        session
-            .send("qq")
-            .map_err(|e| HarnessError::Transport(format!("quit tui after startup probe: {e}")))?;
-        Ok(())
+        self.finish_session(&mut session, "probe_startup")
+    }
+
+    fn finish_session(&self, session: &mut Session, context: &str) -> Result<(), HarnessError> {
+        let _ = session.send("\u{3}");
+        let _ = session.send("qq");
+        let grace_deadline = Instant::now() + Duration::from_millis(400);
+        loop {
+            match session.get_process_mut().status() {
+                Ok(status) => {
+                    if process_has_exited(status) {
+                        return Ok(());
+                    }
+                    if Instant::now() >= grace_deadline {
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(err) => {
+                    if process_is_gone(&err) {
+                        return Ok(());
+                    }
+                    return Err(HarnessError::Transport(format!(
+                        "check tui child status while finishing `{context}`: {err}"
+                    )));
+                }
+            }
+        }
+
+        let _ = session.get_process_mut().kill(Signal::SIGTERM);
+        let force_deadline = Instant::now() + Duration::from_millis(800);
+        loop {
+            match session.get_process_mut().status() {
+                Ok(status) => {
+                    if process_has_exited(status) {
+                        return Ok(());
+                    }
+                    if Instant::now() >= force_deadline {
+                        let _ = session.get_process_mut().kill(Signal::SIGKILL);
+                        break;
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(err) => {
+                    if process_is_gone(&err) {
+                        return Ok(());
+                    }
+                    return Err(HarnessError::Transport(format!(
+                        "check tui child status after SIGTERM for `{context}`: {err}"
+                    )));
+                }
+            }
+        }
+
+        let reap_deadline = Instant::now() + Duration::from_millis(800);
+        loop {
+            match session.get_process_mut().status() {
+                Ok(status) => {
+                    if process_has_exited(status) {
+                        return Ok(());
+                    }
+                    if Instant::now() >= reap_deadline {
+                        return Err(HarnessError::Transport(format!(
+                            "tui child is still alive after SIGKILL in `{context}`"
+                        )));
+                    }
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(err) => {
+                    if process_is_gone(&err) {
+                        return Ok(());
+                    }
+                    return Err(HarnessError::Transport(format!(
+                        "check tui child status after SIGKILL in `{context}`: {err}"
+                    )));
+                }
+            }
+        }
     }
 
     fn ensure_pty_available(&self) -> Result<(), HarnessError> {
@@ -161,8 +254,14 @@ impl TuiDriver {
         Ok(session)
     }
 
-    fn move_to_choice(session: &mut Session, choice: TuiMenuChoice) -> Result<(), HarnessError> {
-        for _ in 0..choice as usize {
+    fn move_to_choice(
+        session: &mut Session,
+        selected_index: usize,
+        choice: TuiMenuChoice,
+    ) -> Result<(), HarnessError> {
+        let target = choice as usize;
+        let delta = (target + MENU_ITEM_COUNT - selected_index) % MENU_ITEM_COUNT;
+        for _ in 0..delta {
             session
                 .send("\x1b[B")
                 .map_err(|e| HarnessError::Transport(format!("send arrow-down: {e}")))?;
@@ -176,14 +275,15 @@ impl TuiDriver {
         choice: TuiMenuChoice,
         form_title: &str,
         values: &[String],
+        selected_index: &mut usize,
         wait_for_menu: bool,
         return_to_menu_after_submit: bool,
     ) -> Result<String, HarnessError> {
         if wait_for_menu {
-            self.wait_for_any_fragment(session, &[MENU_PROMPT, "Sign up", "Sign in"])
-                .map_err(|e| HarnessError::Transport(format!("wait menu prompt: {e}")))?;
+            std::thread::sleep(Duration::from_millis(200));
         }
-        Self::move_to_choice(session, choice)?;
+        Self::move_to_choice(session, *selected_index, choice)?;
+        *selected_index = choice as usize;
         session
             .send("\r")
             .map_err(|e| HarnessError::Transport(format!("open menu choice: {e}")))?;
@@ -213,6 +313,9 @@ impl TuiDriver {
             session.send("\r").map_err(|e| {
                 HarnessError::Transport(format!("return to menu from outcome: {e}"))
             })?;
+            self.wait_for_any_fragment(session, &[MENU_PROMPT, "Sign up", "Sign in"])
+                .map_err(|e| HarnessError::Transport(format!("wait menu after outcome: {e}")))?;
+            *selected_index = 0;
         }
         Ok(text)
     }
@@ -231,7 +334,17 @@ impl TuiDriver {
 
             match session.try_read(&mut scratch) {
                 Ok(0) => {
-                    std::thread::sleep(Duration::from_millis(30));
+                    std::thread::sleep(Duration::from_millis(QUIET_TICK_MILLIS));
+                    quiet_ticks = quiet_ticks.saturating_add(1);
+                    if saw_outcome && quiet_ticks >= QUIET_TICKS_AFTER_OUTCOME {
+                        break;
+                    }
+                    if !saw_outcome
+                        && !combined.is_empty()
+                        && quiet_ticks >= QUIET_TICKS_WITHOUT_OUTCOME
+                    {
+                        break;
+                    }
                 }
                 Ok(read) => {
                     let chunk = String::from_utf8_lossy(&scratch[..read]);
@@ -242,12 +355,16 @@ impl TuiDriver {
                     }
                 }
                 Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                    std::thread::sleep(Duration::from_millis(30));
-                    if saw_outcome {
-                        quiet_ticks = quiet_ticks.saturating_add(1);
-                        if quiet_ticks >= 4 {
-                            break;
-                        }
+                    std::thread::sleep(Duration::from_millis(QUIET_TICK_MILLIS));
+                    quiet_ticks = quiet_ticks.saturating_add(1);
+                    if saw_outcome && quiet_ticks >= QUIET_TICKS_AFTER_OUTCOME {
+                        break;
+                    }
+                    if !saw_outcome
+                        && !combined.is_empty()
+                        && quiet_ticks >= QUIET_TICKS_WITHOUT_OUTCOME
+                    {
+                        break;
                     }
                 }
                 Err(err) => {
@@ -312,89 +429,6 @@ impl TuiDriver {
     }
 }
 
-pub(crate) fn locate_or_build_tui_binary() -> Result<PathBuf, HarnessError> {
-    match locate_workspace_binary("tanren-tui") {
-        Ok(path) => Ok(path),
-        Err(initial) => {
-            build_workspace_binary("tanren-tui")?;
-            locate_workspace_binary("tanren-tui").map_err(|final_err| {
-                HarnessError::Transport(format!(
-                    "{initial}; attempted `cargo build --bin tanren-tui` but binary is still missing: {final_err}"
-                ))
-            })
-        }
-    }
-}
-
-fn locate_workspace_binary(name: &str) -> Result<PathBuf, HarnessError> {
-    if let Ok(explicit) = std::env::var(format!(
-        "TANREN_BIN_{}",
-        name.replace('-', "_").to_uppercase()
-    )) {
-        let path = PathBuf::from(explicit);
-        if path.exists() {
-            return Ok(path);
-        }
-    }
-
-    let exe = std::env::current_exe()
-        .map_err(|e| HarnessError::Transport(format!("current exe: {e}")))?;
-    let dir = exe
-        .parent()
-        .ok_or_else(|| HarnessError::Transport("current exe has no parent".to_owned()))?;
-
-    let mut candidate = dir.join(name);
-    if cfg!(windows) {
-        candidate.set_extension("exe");
-    }
-    if candidate.exists() {
-        return Ok(candidate);
-    }
-
-    let mut cursor = dir;
-    while let Some(parent) = cursor.parent() {
-        for profile in ["debug", "release"] {
-            let mut probe = parent.join("target").join(profile).join(name);
-            if cfg!(windows) {
-                probe.set_extension("exe");
-            }
-            if probe.exists() {
-                return Ok(probe);
-            }
-        }
-        cursor = parent;
-    }
-
-    Err(HarnessError::Transport(format!(
-        "binary `{name}` not found alongside test executable {} — run `cargo build --workspace`",
-        exe.display()
-    )))
-}
-
-fn build_workspace_binary(name: &str) -> Result<(), HarnessError> {
-    let output = Command::new("cargo")
-        .args(["build", "-q", "--locked", "--bin", name])
-        .current_dir(workspace_root())
-        .output()
-        .map_err(|e| HarnessError::Transport(format!("spawn cargo build for `{name}`: {e}")))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    Err(HarnessError::Transport(format!(
-        "cargo build --bin {name} failed: {stderr}"
-    )))
-}
-
-fn workspace_root() -> &'static Path {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .ancestors()
-        .nth(2)
-        .expect("workspace root must exist")
-}
-
 fn contains_terminal_outcome(raw: &str) -> bool {
     let clean = sanitize_terminal_text(raw);
     [
@@ -420,6 +454,15 @@ fn contains_terminal_outcome(raw: &str) -> bool {
     ]
     .iter()
     .any(|needle| clean.contains(needle))
+}
+
+fn process_is_gone(err: &impl std::fmt::Display) -> bool {
+    let message = err.to_string();
+    message.contains("ECHILD") || message.contains("ESRCH")
+}
+
+fn process_has_exited(status: WaitStatus) -> bool {
+    matches!(status, WaitStatus::Exited(..) | WaitStatus::Signaled(..))
 }
 
 fn sanitize_terminal_text(raw: &str) -> String {

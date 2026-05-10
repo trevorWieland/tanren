@@ -2,7 +2,8 @@
 use std::sync::Arc;
 
 use super::api::{scenario_db_path, sqlite_url};
-use super::tui_driver::{TuiDriver, TuiMenuChoice, TuiTranscript, locate_or_build_tui_binary};
+use super::tui_binary::locate_or_build_tui_binary;
+use super::tui_driver::{TuiDriver, TuiMenuChoice, TuiTranscript};
 use super::tui_errors::{parse_account_failure, parse_role_failure};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
