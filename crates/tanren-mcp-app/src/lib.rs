@@ -25,7 +25,7 @@ use std::env;
 use std::sync::Arc;
 use tanren_app_services::{AccountStore, AppServiceError, Handlers, MyPermissionsContext, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, MyPermissionsRequest, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, InterfaceError, MyPermissionsRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, SessionToken};
 use tokio::net::TcpListener;
@@ -211,25 +211,8 @@ fn success<T: Serialize>(value: &T) -> CallToolResult {
 }
 
 fn map_failure(err: AppServiceError) -> CallToolResult {
-    let (code, summary) = match err {
-        AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
-        AppServiceError::Permissions(reason) => {
-            (reason.code().to_owned(), reason.summary().to_owned())
-        }
-        AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(_err) => (
-            "internal_error".to_owned(),
-            "Tanren encountered an internal error.".to_owned(),
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Tanren encountered an internal error.".to_owned(),
-        ),
-    };
-    let body = json!({
-        "code": code,
-        "summary": summary,
-    });
+    let interface_error = err.into_interface_error();
+    let body = interface_error_json(&interface_error);
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
 }
@@ -241,6 +224,13 @@ fn auth_required_failure(summary: &str) -> CallToolResult {
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
+}
+
+fn interface_error_json(interface_error: &InterfaceError) -> serde_json::Value {
+    json!({
+        "code": interface_error.code.as_str(),
+        "summary": interface_error.summary,
+    })
 }
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
 struct MyPermissionsToolRequest {

@@ -213,6 +213,34 @@ pub enum InterfaceErrorCode {
     InvitationAlreadyConsumed,
 }
 
+impl InterfaceErrorCode {
+    /// Stable wire `code` string used across every interface.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::AuthRequired => "auth_required",
+            Self::PermissionDenied => "permission_denied",
+            Self::ValidationFailed => "validation_failed",
+            Self::NotFound => "not_found",
+            Self::Conflict => "conflict",
+            Self::IdempotencyConflict => "idempotency_conflict",
+            Self::StaleProjection => "stale_projection",
+            Self::DriftDetected => "drift_detected",
+            Self::RateLimited => "rate_limited",
+            Self::Unavailable => "unavailable",
+            Self::UnsupportedAction => "unsupported_action",
+            Self::ProviderFailure => "provider_failure",
+            Self::ExecutionFailure => "execution_failure",
+            Self::InternalError => "internal_error",
+            Self::DuplicateIdentifier => "duplicate_identifier",
+            Self::InvalidCredential => "invalid_credential",
+            Self::InvitationNotFound => "invitation_not_found",
+            Self::InvitationExpired => "invitation_expired",
+            Self::InvitationAlreadyConsumed => "invitation_already_consumed",
+        }
+    }
+}
+
 /// Closed taxonomy of self-permission query failures.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]

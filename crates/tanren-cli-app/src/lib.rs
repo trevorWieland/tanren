@@ -362,21 +362,12 @@ async fn run_account_my_permissions(
 }
 
 fn account_error(err: AppServiceError) -> anyhow::Error {
-    match err {
-        AppServiceError::Account(reason) => {
-            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
-        }
-        AppServiceError::InvalidInput(message) => {
-            anyhow::anyhow!("error: validation_failed — {message}")
-        }
-        AppServiceError::Permissions(reason) => {
-            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
-        }
-        AppServiceError::Store(err) => {
-            anyhow::anyhow!("error: internal_error — {err}")
-        }
-        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
-    }
+    let interface_error = err.into_interface_error();
+    anyhow::anyhow!(
+        "error: {} — {}",
+        interface_error.code.as_str(),
+        interface_error.summary
+    )
 }
 
 fn session_path() -> PathBuf {

@@ -5,8 +5,8 @@
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, MyPermissionEntry,
-    MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, MyPermissionEntry, MyPermissionsResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     Email, InvitationToken, PermissionGrantSource, PolicyConstraintSource, ValidationError,
@@ -180,20 +180,13 @@ fn format_constraint_source(source: PolicyConstraintSource) -> String {
     }
 }
 
-pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
-    format!("{}: {}", reason.code(), reason.summary())
-}
-
 pub(crate) fn render_error(err: AppServiceError) -> String {
-    match err {
-        AppServiceError::Account(reason) => format_failure(reason),
-        AppServiceError::Permissions(reason) => {
-            format!("{}: {}", reason.code(), reason.summary())
-        }
-        AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
-        AppServiceError::Store(err) => format!("internal_error: {err}"),
-        _ => "internal_error: unknown app-service failure".to_owned(),
-    }
+    let interface_error = err.into_interface_error();
+    format!(
+        "{}: {}",
+        interface_error.code.as_str(),
+        interface_error.summary
+    )
 }
 
 fn validation_message(err: &ValidationError) -> String {

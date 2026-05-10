@@ -13,8 +13,9 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    MyAccountCapabilitiesResponse, MyPermissionsFailureReason, MyPermissionsRequest,
-    MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    InterfaceError, InterfaceErrorCode, MyAccountCapabilitiesResponse, MyPermissionsFailureReason,
+    MyPermissionsRequest, MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
 use tanren_identity_policy::AccountId;
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
@@ -306,4 +307,27 @@ pub enum AppServiceError {
     /// A self-permission query failed taxonomy checks.
     #[error("permissions: {}", .0.code())]
     Permissions(MyPermissionsFailureReason),
+}
+
+impl AppServiceError {
+    /// Convert an app-service failure into the canonical cross-interface
+    /// `{code, summary}` body.
+    #[must_use]
+    pub fn into_interface_error(self) -> InterfaceError {
+        match self {
+            Self::Account(reason) => {
+                InterfaceError::new(reason.interface_error_code(), reason.summary())
+            }
+            Self::Permissions(reason) => {
+                InterfaceError::new(reason.interface_error_code(), reason.summary())
+            }
+            Self::InvalidInput(message) => {
+                InterfaceError::new(InterfaceErrorCode::ValidationFailed, message)
+            }
+            Self::Store(_) => InterfaceError::new(
+                InterfaceErrorCode::InternalError,
+                "Tanren encountered an internal error.",
+            ),
+        }
+    }
 }

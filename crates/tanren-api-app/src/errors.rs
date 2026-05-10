@@ -11,7 +11,7 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
 use tanren_app_services::AppServiceError;
-use tanren_contract::{AccountFailureReason, InterfaceError, InterfaceErrorCode};
+use tanren_contract::{InterfaceError, InterfaceErrorCode};
 
 /// Render the standard `internal_error` body for failed cookie-session
 /// writes. Shared between the sign-up / sign-in / accept-invitation
@@ -46,43 +46,39 @@ pub(crate) fn internal_error_response() -> (StatusCode, Json<InterfaceError>) {
 
 /// Map an [`AppServiceError`] to the matching HTTP response.
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
-    match err {
-        AppServiceError::Account(reason) => failure_body(reason),
-        AppServiceError::Permissions(reason) => (
-            StatusCode::FORBIDDEN,
-            Json(InterfaceError::new(
-                reason.interface_error_code(),
-                reason.summary(),
-            )),
-        )
-            .into_response(),
-        AppServiceError::InvalidInput(message) => (
-            StatusCode::BAD_REQUEST,
-            Json(InterfaceError::new(
-                InterfaceErrorCode::ValidationFailed,
-                message,
-            )),
-        )
-            .into_response(),
-        AppServiceError::Store(err) => {
-            tracing::error!(target: "tanren_api", error = %err, "store error");
-            internal_error_response().into_response()
-        }
-        _ => internal_error_response().into_response(),
+    if let AppServiceError::Store(store_error) = &err {
+        tracing::error!(target: "tanren_api", error = %store_error, "store error");
     }
+    let body = err.into_interface_error();
+    (status_for_interface_error(body.code), Json(body)).into_response()
 }
 
-fn failure_body(reason: AccountFailureReason) -> Response {
-    let status =
-        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(InterfaceError::new(
-            reason.interface_error_code(),
-            reason.summary(),
-        )),
-    )
-        .into_response()
+fn status_for_interface_error(code: InterfaceErrorCode) -> StatusCode {
+    match code {
+        InterfaceErrorCode::AuthRequired | InterfaceErrorCode::InvalidCredential => {
+            StatusCode::UNAUTHORIZED
+        }
+        InterfaceErrorCode::PermissionDenied => StatusCode::FORBIDDEN,
+        InterfaceErrorCode::ValidationFailed => StatusCode::BAD_REQUEST,
+        InterfaceErrorCode::NotFound | InterfaceErrorCode::InvitationNotFound => {
+            StatusCode::NOT_FOUND
+        }
+        InterfaceErrorCode::Conflict
+        | InterfaceErrorCode::IdempotencyConflict
+        | InterfaceErrorCode::DuplicateIdentifier
+        | InterfaceErrorCode::DriftDetected => StatusCode::CONFLICT,
+        InterfaceErrorCode::StaleProjection => StatusCode::PRECONDITION_FAILED,
+        InterfaceErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+        InterfaceErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        InterfaceErrorCode::UnsupportedAction => StatusCode::NOT_IMPLEMENTED,
+        InterfaceErrorCode::ProviderFailure | InterfaceErrorCode::ExecutionFailure => {
+            StatusCode::BAD_GATEWAY
+        }
+        InterfaceErrorCode::InvitationExpired | InterfaceErrorCode::InvitationAlreadyConsumed => {
+            StatusCode::GONE
+        }
+        InterfaceErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 /// Custom `Json` extractor that maps any deserialize-time failure
