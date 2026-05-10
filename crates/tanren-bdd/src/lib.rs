@@ -35,6 +35,12 @@ pub struct TanrenWorld {
 
 impl TanrenWorld {
     /// Construct (or return) the lazy account context.
+    #[tracing::instrument(
+        name = "bdd_world_ensure_account_ctx",
+        level = "debug",
+        skip(self),
+        fields(command_kind = "bdd.account.ensure_context")
+    )]
     pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
         match &mut self.account {
             Some(account) => account,
@@ -52,6 +58,16 @@ impl TanrenWorld {
         self.require_account_ctx()?.reset_install_ctx()
     }
 
+    #[tracing::instrument(
+        name = "bdd_world_run_install",
+        level = "debug",
+        skip(self),
+        fields(
+            command_kind = "install",
+            profile = %profile,
+            integration_selection = integrations.unwrap_or("default")
+        )
+    )]
     pub(crate) async fn run_install(
         &mut self,
         profile: &str,
@@ -62,6 +78,16 @@ impl TanrenWorld {
             .await
     }
 
+    #[tracing::instrument(
+        name = "bdd_world_run_drift",
+        level = "debug",
+        skip(self),
+        fields(
+            command_kind = "drift",
+            profile = %profile,
+            integration_selection = integrations.unwrap_or("default")
+        )
+    )]
     pub(crate) async fn run_drift(
         &mut self,
         profile: &str,
@@ -85,6 +111,12 @@ impl TanrenWorld {
     /// supplied scenario tags. Cucumber-rs does not give step bodies
     /// access to the active scenario's tags, so the BDD bin invokes
     /// this from a `Before` hook.
+    #[tracing::instrument(
+        name = "bdd_world_install_harness_for_tags",
+        level = "debug",
+        skip(self, tags),
+        fields(command_kind = "bdd.harness.select", harness_kind = tracing::field::Empty)
+    )]
     pub(crate) async fn install_harness_for_tags<I, S>(&mut self, tags: I) -> InstallStepResult<()>
     where
         I: IntoIterator<Item = S>,
@@ -96,6 +128,7 @@ impl TanrenWorld {
             .map(|tag| tag.as_ref().to_owned())
             .collect();
         let kind = HarnessKind::from_tags(tags.iter().map(String::as_str));
+        tracing::Span::current().record("harness_kind", tracing::field::debug(kind));
         let mut ctx = AccountContext::new_for(kind).await;
         if tags
             .iter()
@@ -194,11 +227,23 @@ impl AccountContext {
         Ok(())
     }
 
+    #[tracing::instrument(
+        name = "bdd_account_ctx_run_install",
+        level = "debug",
+        skip(self),
+        fields(
+            command_kind = "install",
+            harness_kind = tracing::field::Empty,
+            profile = %profile,
+            integration_selection = integrations.unwrap_or("default")
+        )
+    )]
     async fn run_install(
         &mut self,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
+        tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
         let install = self
             .install
             .as_mut()
@@ -208,11 +253,23 @@ impl AccountContext {
             .await
     }
 
+    #[tracing::instrument(
+        name = "bdd_account_ctx_run_drift",
+        level = "debug",
+        skip(self),
+        fields(
+            command_kind = "drift",
+            harness_kind = tracing::field::Empty,
+            profile = %profile,
+            integration_selection = integrations.unwrap_or("default")
+        )
+    )]
     async fn run_drift(
         &mut self,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
+        tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
         let install = self
             .install
             .as_mut()

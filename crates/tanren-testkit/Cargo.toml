@@ -47,4 +47,5 @@ tanren-store = { path = "../tanren-store", features = ["test-hooks"] }
 thiserror = { workspace = true }
 tokio = { workspace = true, features = ["process"] }
 toml = { workspace = true }
+tracing = { workspace = true }
 uuid = { workspace = true }

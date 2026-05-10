@@ -39,12 +39,24 @@ impl InstallContext {
         })
     }
 
+    #[tracing::instrument(
+        name = "bdd_install_ctx_run_install",
+        level = "debug",
+        skip(self, harness),
+        fields(
+            command_kind = "install",
+            harness_kind = tracing::field::Empty,
+            profile = %profile,
+            integration_selection = integrations.unwrap_or("default")
+        )
+    )]
     pub(crate) async fn run_install(
         &mut self,
         harness: &mut dyn InstallHarness,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
+        tracing::Span::current().record("harness_kind", tracing::field::debug(harness.kind()));
         let before = RepositorySnapshot::capture(&self.repository_root)?;
         let outcome = harness
             .run_install(InstallCommandRequest {
@@ -59,12 +71,24 @@ impl InstallContext {
         Ok(())
     }
 
+    #[tracing::instrument(
+        name = "bdd_install_ctx_run_drift",
+        level = "debug",
+        skip(self, harness),
+        fields(
+            command_kind = "drift",
+            harness_kind = tracing::field::Empty,
+            profile = %profile,
+            integration_selection = integrations.unwrap_or("default")
+        )
+    )]
     pub(crate) async fn run_drift(
         &mut self,
         harness: &mut dyn InstallHarness,
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
+        tracing::Span::current().record("harness_kind", tracing::field::debug(harness.kind()));
         let before = RepositorySnapshot::capture(&self.repository_root)?;
         let outcome = harness
             .run_drift(InstallCommandRequest {

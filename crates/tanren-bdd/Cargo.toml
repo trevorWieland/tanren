@@ -24,6 +24,7 @@ tanren-identity-policy = { path = "../tanren-identity-policy", features = [
 ] }
 tanren-testkit = { path = "../tanren-testkit" }
 tokio = { workspace = true }
+tracing = { workspace = true }
 
 [[bin]]
 name = "tanren-bdd-runner"

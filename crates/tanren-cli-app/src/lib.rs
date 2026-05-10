@@ -207,6 +207,12 @@ fn dispatch_account(action: AccountAction) -> Result<(), CliAppError> {
     runtime.block_on(run_account(action))
 }
 
+#[tracing::instrument(
+    name = "cli_account_dispatch_async",
+    level = "debug",
+    skip(action),
+    fields(command_kind = "account.dispatch")
+)]
 async fn run_account(action: AccountAction) -> Result<(), CliAppError> {
     let handlers = Handlers::new();
     match action {
@@ -240,6 +246,12 @@ async fn run_account(action: AccountAction) -> Result<(), CliAppError> {
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "cli_account_create",
+    level = "debug",
+    skip(handlers, database_url, identifier, password, display_name, invitation),
+    fields(command_kind = "account.create", has_invitation = invitation.is_some())
+)]
 async fn run_account_create(
     handlers: &Handlers,
     database_url: &str,
@@ -302,6 +314,12 @@ async fn run_account_create(
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "cli_account_sign_in",
+    level = "debug",
+    skip(handlers, database_url, identifier, password),
+    fields(command_kind = "account.sign_in")
+)]
 async fn run_account_sign_in(
     handlers: &Handlers,
     database_url: &str,
@@ -326,6 +344,12 @@ async fn run_account_sign_in(
     Ok(())
 }
 
+#[tracing::instrument(
+    name = "cli_account_connect_store",
+    level = "debug",
+    skip(database_url),
+    fields(command_kind = "account.connect_store")
+)]
 async fn connect_store(database_url: &str) -> Result<Store, CliAppError> {
     Store::connect(database_url)
         .await

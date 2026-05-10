@@ -130,6 +130,7 @@ impl AccountHarness for CliHarness {
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let output = run_binary_command(
             &self.binary,
+            "account.sign_up",
             [
                 "account",
                 "create",
@@ -161,6 +162,7 @@ impl AccountHarness for CliHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let output = run_binary_command(
             &self.binary,
+            "account.sign_in",
             [
                 "account",
                 "sign-in",
@@ -191,6 +193,7 @@ impl AccountHarness for CliHarness {
     ) -> HarnessResult<HarnessAcceptance> {
         let output = run_binary_command(
             &self.binary,
+            "account.accept_invitation",
             [
                 "account",
                 "create",
@@ -253,10 +256,26 @@ impl AccountHarness for CliHarness {
 
 #[async_trait]
 impl InstallHarness for CliHarness {
+    #[tracing::instrument(
+        name = "cli_harness_run_install",
+        level = "debug",
+        skip(self, request),
+        fields(
+            command_kind = "install",
+            harness_kind = "cli",
+            binary_path = tracing::field::Empty,
+            profile = %request.profile,
+            integration_selection = request.integrations.as_deref().unwrap_or("default")
+        )
+    )]
     async fn run_install(
         &mut self,
         request: InstallCommandRequest,
     ) -> HarnessResult<CliCommandOutcome> {
+        tracing::Span::current().record(
+            "binary_path",
+            tracing::field::display(self.binary.display()),
+        );
         let mut args = vec![
             OsString::from("install"),
             OsString::from("--repo"),
@@ -268,14 +287,30 @@ impl InstallHarness for CliHarness {
             args.push(OsString::from("--integrations"));
             args.push(OsString::from(integrations));
         }
-        let output = run_binary_command(&self.binary, args).await?;
+        let output = run_binary_command(&self.binary, "install", args).await?;
         Ok(CliCommandOutcome::from(output))
     }
 
+    #[tracing::instrument(
+        name = "cli_harness_run_drift",
+        level = "debug",
+        skip(self, request),
+        fields(
+            command_kind = "drift",
+            harness_kind = "cli",
+            binary_path = tracing::field::Empty,
+            profile = %request.profile,
+            integration_selection = request.integrations.as_deref().unwrap_or("default")
+        )
+    )]
     async fn run_drift(
         &mut self,
         request: InstallCommandRequest,
     ) -> HarnessResult<CliCommandOutcome> {
+        tracing::Span::current().record(
+            "binary_path",
+            tracing::field::display(self.binary.display()),
+        );
         let mut args = vec![
             OsString::from("drift"),
             OsString::from("--repo"),
@@ -287,7 +322,7 @@ impl InstallHarness for CliHarness {
             args.push(OsString::from("--integrations"));
             args.push(OsString::from(integrations));
         }
-        let output = run_binary_command(&self.binary, args).await?;
+        let output = run_binary_command(&self.binary, "drift", args).await?;
         Ok(CliCommandOutcome::from(output))
     }
 }
@@ -338,8 +373,19 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     )))
 }
 
+#[tracing::instrument(
+    name = "cli_harness_run_binary_command",
+    level = "debug",
+    skip(args),
+    fields(
+        harness_kind = "cli",
+        command_kind = command_kind,
+        binary_path = %binary.display()
+    )
+)]
 async fn run_binary_command<I, S>(
     binary: &std::path::Path,
+    command_kind: &'static str,
     args: I,
 ) -> HarnessResult<std::process::Output>
 where
