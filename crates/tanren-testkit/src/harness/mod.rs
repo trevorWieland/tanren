@@ -22,6 +22,9 @@ mod in_process;
 mod mcp;
 mod role_utils;
 mod tui;
+mod tui_codec;
+mod tui_driver;
+mod tui_errors;
 mod web;
 
 use std::collections::HashMap;
@@ -67,8 +70,7 @@ pub enum HarnessKind {
     /// Spawns the `tanren-mcp` server on an ephemeral port; rmcp
     /// streamable-HTTP client.
     Mcp,
-    /// Drives the `tanren-tui` binary inside a pty (deferred — falls
-    /// back to in-process for PR 9).
+    /// Drives the `tanren-tui` binary inside a pseudo-terminal.
     Tui,
     /// Drives the web frontend via Playwright (deferred to PR 11 —
     /// falls back to in-process).
