@@ -5,7 +5,10 @@ import type {
   RoleFailureCode,
   RoleScope,
 } from "../../../src/app/lib/generated/role-contract";
-import { asOrgId } from "../../../src/app/lib/generated/role-contract";
+import {
+  asOrgId,
+  isRoleServerFailureCode,
+} from "../../../src/app/lib/generated/role-contract";
 
 interface PrincipalAccount {
   accountId: string;
@@ -728,9 +731,13 @@ function parseRoleErrorCode(
     return "transport_error";
   }
   const code = rest.slice(0, firstColon).trim();
-  return code.length === 0
-    ? "transport_error"
-    : (code as RoleFailureCode | "transport_error");
+  if (code.length === 0) {
+    return "transport_error";
+  }
+  if (code === "transport_error" || isRoleServerFailureCode(code)) {
+    return code;
+  }
+  return "transport_error";
 }
 
 async function readOperationSummary(

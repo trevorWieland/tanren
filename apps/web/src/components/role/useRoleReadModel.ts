@@ -9,6 +9,7 @@ import type {
   RoleTemplateView,
 } from "@/app/lib/generated/role-contract";
 import {
+  buildRoleReadModelRequest,
   permissionScopeFromRoleScope,
   readRoleModel,
   requireRoleActionSnapshot,
@@ -144,15 +145,15 @@ export function useRoleReadModel(
           "read_roles",
         );
         const next = await readRoleModel(
-          {
-            role_scope: context.roleScope,
-            role_cursor: roleCursor,
-            role_limit: ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE,
-            grant_principal: context.grantPrincipal,
-            grant_scope: context.grantScope,
-            grant_cursor: grantCursor,
-            grant_limit: ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE,
-          },
+          buildRoleReadModelRequest({
+            roleScope: context.roleScope,
+            roleCursor,
+            roleLimit: ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE,
+            grantPrincipal: context.grantPrincipal,
+            grantScope: context.grantScope,
+            grantCursor,
+            grantLimit: ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE,
+          }),
           snapshot,
           controller.signal,
         );

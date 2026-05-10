@@ -13,11 +13,6 @@ export type ProjectId = Branded<string, "ProjectId">;
 export type ScopeId = AccountId | OrgId | ProjectId;
 export type PermissionName = Branded<string, "PermissionName">;
 export type PermissionGrantId = Branded<string, "PermissionGrantId">;
-export type RoleTemplateCursorId = Branded<string, "RoleTemplateCursorId">;
-export type PermissionGrantCursorId = Branded<
-  string,
-  "PermissionGrantCursorId"
->;
 
 export type RoleScope =
   | { scope: "account"; account_id: AccountId }
@@ -82,12 +77,12 @@ export interface ApplyRoleResponse {
 
 export interface RoleTemplateCursorView {
   name: string;
-  id: RoleTemplateCursorId;
+  id: RoleId;
 }
 
 export interface PermissionGrantCursorView {
   granted_at: string;
-  id: PermissionGrantCursorId;
+  id: PermissionGrantId;
 }
 
 export interface RoleReadModelRequest {
@@ -145,6 +140,9 @@ export interface RoleAdminCapabilities {
   actor: RoleActor;
   actions: RoleAdminAction[];
 }
+
+export const ROLE_READ_MODEL_PAGE_MAX = 200;
+export const ROLE_READ_MODEL_PAGE_DEFAULT = 50;
 
 export interface RoleTemplateView {
   id: RoleId;
@@ -219,37 +217,27 @@ const ROLE_ADMIN_ACTIONS: readonly RoleAdminAction[] = [
 ];
 
 export function asRoleId(value: string): RoleId {
-  return value as RoleId;
+  return parseUuidString(value, "role id") as RoleId;
 }
 
 export function asAccountId(value: string): AccountId {
-  return value as AccountId;
+  return parseUuidString(value, "account id") as AccountId;
 }
 
 export function asOrgId(value: string): OrgId {
-  return value as OrgId;
+  return parseUuidString(value, "organization id") as OrgId;
 }
 
 export function asProjectId(value: string): ProjectId {
-  return value as ProjectId;
+  return parseUuidString(value, "project id") as ProjectId;
 }
 
 export function asPermissionName(value: string): PermissionName {
-  return value as PermissionName;
+  return parsePermissionNameString(value, "permission name") as PermissionName;
 }
 
 export function asPermissionGrantId(value: string): PermissionGrantId {
-  return value as PermissionGrantId;
-}
-
-export function asRoleTemplateCursorId(value: string): RoleTemplateCursorId {
-  return value as RoleTemplateCursorId;
-}
-
-export function asPermissionGrantCursorId(
-  value: string,
-): PermissionGrantCursorId {
-  return value as PermissionGrantCursorId;
+  return parseUuidString(value, "permission grant id") as PermissionGrantId;
 }
 
 export function parseRoleScopeKind(raw: string): RoleScope["scope"] {
@@ -638,7 +626,7 @@ function parseRoleTemplateCursorView(
   const data = expectRecord(value, context);
   return {
     name: parseString(data["name"], `${context}.name`),
-    id: parseRoleTemplateCursorIdValue(data["id"], `${context}.id`),
+    id: parseRoleIdValue(data["id"], `${context}.id`),
   };
 }
 
@@ -649,7 +637,7 @@ function parsePermissionGrantCursorView(
   const data = expectRecord(value, context);
   return {
     granted_at: parseString(data["granted_at"], `${context}.granted_at`),
-    id: parsePermissionGrantCursorIdValue(data["id"], `${context}.id`),
+    id: parsePermissionGrantIdValue(data["id"], `${context}.id`),
   };
 }
 
@@ -766,20 +754,6 @@ function parsePermissionGrantIdValue(
   return asPermissionGrantId(parseString(value, context));
 }
 
-function parseRoleTemplateCursorIdValue(
-  value: unknown,
-  context: string,
-): RoleTemplateCursorId {
-  return asRoleTemplateCursorId(parseString(value, context));
-}
-
-function parsePermissionGrantCursorIdValue(
-  value: unknown,
-  context: string,
-): PermissionGrantCursorId {
-  return asPermissionGrantCursorId(parseString(value, context));
-}
-
 function parseString(value: unknown, context: string): string {
   if (typeof value !== "string") {
     throw new Error(`${context} must be a string`);
@@ -835,4 +809,67 @@ function expectRecord(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+const UUID_CANONICAL_PATTERN =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const PERMISSION_NAME_MAX_LEN = 120;
+
+function parseUuidString(value: string, context: string): string {
+  if (!UUID_CANONICAL_PATTERN.test(value)) {
+    throw new Error(`${context} must be a valid UUID`);
+  }
+  return value.toLowerCase();
+}
+
+function parsePermissionNameString(value: string, context: string): string {
+  const trimmed = value.trim();
+  if (trimmed.length === 0) {
+    throw new Error(`${context} must be non-empty`);
+  }
+  if (trimmed.length > PERMISSION_NAME_MAX_LEN) {
+    throw new Error(
+      `${context} must be at most ${String(PERMISSION_NAME_MAX_LEN)} characters`,
+    );
+  }
+
+  let canonical = "";
+  let sawNamespaceSeparator = false;
+  let previous: string | null = null;
+  for (const rawChar of trimmed) {
+    const ch = rawChar.toLowerCase();
+    if (!isValidPermissionNameChar(ch)) {
+      throw new Error(`${context} contains an invalid character`);
+    }
+    if (isPermissionSeparator(ch) && previous === null) {
+      throw new Error(`${context} contains an invalid character`);
+    }
+    if ((previous === "." && ch === ".") || (previous === ":" && ch === ":")) {
+      throw new Error(`${context} contains an invalid character`);
+    }
+    if (ch === "." || ch === ":") {
+      sawNamespaceSeparator = true;
+    }
+    canonical += ch;
+    previous = ch;
+  }
+
+  if (previous === null) {
+    throw new Error(`${context} must be non-empty`);
+  }
+  if (isPermissionSeparator(previous)) {
+    throw new Error(`${context} contains an invalid character`);
+  }
+  if (!sawNamespaceSeparator) {
+    throw new Error(`${context} must include a namespace separator`);
+  }
+  return canonical;
+}
+
+function isValidPermissionNameChar(ch: string): boolean {
+  return /^[a-z0-9._:-]$/.test(ch);
+}
+
+function isPermissionSeparator(ch: string): boolean {
+  return ch === "." || ch === ":" || ch === "-";
 }

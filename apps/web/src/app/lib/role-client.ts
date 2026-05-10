@@ -1,3 +1,8 @@
+import {
+  ROLE_READ_MODEL_PAGE_DEFAULT,
+  ROLE_READ_MODEL_PAGE_MAX,
+} from "./generated/role-contract";
+
 export {
   type RoleCapabilitySnapshot,
   fetchRoleCapabilities,
@@ -39,12 +44,19 @@ export {
   buildCreateRoleRequest,
   buildDeleteRoleRequest,
   buildEditRoleRequest,
+  buildPermissionCheckRolePrincipalRejectionRequest,
   buildPermissionCheckRequest,
+  buildRoleReadModelRequest,
   type ApplyRoleFormSubmission,
+  type ApplyRoleAccountPrincipalRequest,
   type CreateRoleFormSubmission,
   type DeleteRoleFormSubmission,
   type EditRoleFormSubmission,
+  type PermissionCheckAccountPrincipalRequest,
   type PermissionCheckFormSubmission,
+  type PermissionCheckRolePrincipalRejectionFormSubmission,
+  type RoleReadModelAccountPrincipalRequest,
+  type RoleReadModelRequestInput,
   permissionScopeFromRoleScope,
   type RoleRequestContextInput,
   roleScopeFromPermissionScope,
@@ -52,5 +64,8 @@ export {
 
 export { ROLE_REQUEST_TIMEOUT_MS } from "./role-client/transport";
 
-export const ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE = 50;
-export const ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE = 50;
+export const ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE =
+  ROLE_READ_MODEL_PAGE_DEFAULT;
+export const ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE =
+  ROLE_READ_MODEL_PAGE_DEFAULT;
+export const ROLE_READ_MODEL_MAX_PAGE_SIZE = ROLE_READ_MODEL_PAGE_MAX;

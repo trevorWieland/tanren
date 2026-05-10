@@ -14,8 +14,8 @@ use std::path::Path;
 use std::process::{Command, Stdio};
 use syn::{Fields, GenericArgument, Item, LitStr, PathArguments, Type};
 use tanren_contract::{
-    ROLE_FAILURE_EXTENSION_REASON, ROLE_SERVER_FAILURE_REASONS,
-    SHARED_INTERFACE_ROLE_FAILURE_REASONS,
+    ROLE_FAILURE_EXTENSION_REASON, ROLE_READ_MODEL_PAGE_DEFAULT, ROLE_READ_MODEL_PAGE_MAX,
+    ROLE_SERVER_FAILURE_REASONS, SHARED_INTERFACE_ROLE_FAILURE_REASONS,
 };
 
 const TARGET: &str = "apps/web/src/app/lib/generated/role-contract.ts";
@@ -203,6 +203,10 @@ fn insert_failure_and_support_tokens(
     shape: &ContractShape,
     replacements: &mut BTreeMap<&'static str, String>,
 ) -> Result<()> {
+    replacements.insert(
+        "__ROLE_READ_MODEL_LIMITS__",
+        render_role_read_model_limits(),
+    );
     replacements.insert(
         "__PERMISSION_GRANT_SUPPORT_TYPES__",
         format!(
@@ -548,7 +552,7 @@ fn render_struct_field_line(
         "{}{}: {};",
         " ".repeat(indent),
         field.name,
-        render_ts_type(struct_name, &field.name, &field.ty)?
+        render_ts_type(&field.ty)?
     ))
 }
 
@@ -557,12 +561,7 @@ fn render_struct_interface(shape: &ContractShape, struct_name: &str) -> Result<S
     let mut out = String::new();
     let _ = writeln!(out, "export interface {struct_name} {{");
     for field in &struct_def.fields {
-        let _ = writeln!(
-            out,
-            "  {}: {};",
-            field.name,
-            render_ts_type(struct_name, &field.name, &field.ty)?
-        );
+        let _ = writeln!(out, "  {}: {};", field.name, render_ts_type(&field.ty)?);
     }
     out.push('}');
     Ok(out)
@@ -658,18 +657,15 @@ fn render_parser_expr(
     }
 }
 
-fn parser_function_name(struct_name: &str, field_name: &str, ty: &TypeRef) -> Result<&'static str> {
+fn parser_function_name(
+    _struct_name: &str,
+    _field_name: &str,
+    ty: &TypeRef,
+) -> Result<&'static str> {
     let simple = match ty {
         TypeRef::Simple(s) => s.as_str(),
         _ => bail!("parser function requires simple inner type"),
     };
-
-    if struct_name == "RoleTemplateCursorView" && field_name == "id" {
-        return Ok("parseRoleTemplateCursorIdValue");
-    }
-    if struct_name == "PermissionGrantCursorView" && field_name == "id" {
-        return Ok("parsePermissionGrantCursorIdValue");
-    }
 
     let parser = match simple {
         "String" | "RoleName" | "DateTime" => "parseString",
@@ -696,23 +692,11 @@ fn parser_function_name(struct_name: &str, field_name: &str, ty: &TypeRef) -> Re
     Ok(parser)
 }
 
-fn render_ts_type(struct_name: &str, field_name: &str, ty: &TypeRef) -> Result<String> {
+fn render_ts_type(ty: &TypeRef) -> Result<String> {
     match ty {
-        TypeRef::Option(inner) => Ok(format!(
-            "{} | null",
-            render_ts_type(struct_name, field_name, inner)?
-        )),
-        TypeRef::Vec(inner) => Ok(format!(
-            "{}[]",
-            render_ts_type(struct_name, field_name, inner)?
-        )),
+        TypeRef::Option(inner) => Ok(format!("{} | null", render_ts_type(inner)?)),
+        TypeRef::Vec(inner) => Ok(format!("{}[]", render_ts_type(inner)?)),
         TypeRef::Simple(simple) => {
-            if struct_name == "RoleTemplateCursorView" && field_name == "id" {
-                return Ok("RoleTemplateCursorId".to_owned());
-            }
-            if struct_name == "PermissionGrantCursorView" && field_name == "id" {
-                return Ok("PermissionGrantCursorId".to_owned());
-            }
             let rendered = match simple.as_str() {
                 "String" | "RoleName" | "DateTime" => "string",
                 "u64" => "number",
@@ -731,11 +715,7 @@ fn render_tagged_enum_type(shape: &ContractShape, enum_name: &str) -> Result<Str
     for variant in &def.variants {
         let mut fields = vec![format!("{}: \"{}\"", def.tag, variant.wire_name)];
         for field in &variant.fields {
-            fields.push(format!(
-                "{}: {}",
-                field.name,
-                render_ts_type(enum_name, &field.name, &field.ty)?
-            ));
+            fields.push(format!("{}: {}", field.name, render_ts_type(&field.ty)?));
         }
         let _ = writeln!(out, "  | {{ {} }}", fields.join("; "));
     }
@@ -820,6 +800,12 @@ fn render_role_failure_summaries() -> String {
     }
     out.push_str("  };\n");
     out
+}
+
+fn render_role_read_model_limits() -> String {
+    format!(
+        "export const ROLE_READ_MODEL_PAGE_MAX = {ROLE_READ_MODEL_PAGE_MAX};\nexport const ROLE_READ_MODEL_PAGE_DEFAULT = {ROLE_READ_MODEL_PAGE_DEFAULT};"
+    )
 }
 
 fn render_role_failure_summary_any_function() -> String {

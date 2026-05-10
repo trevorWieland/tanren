@@ -6,22 +6,24 @@ import type {
   EditRoleRequest,
   PermissionCheckRequest,
   PermissionScope,
+  RoleReadModelRequest,
   RoleScope,
 } from "../generated/role-contract";
 import type { PermissionCheckRolePrincipalRejectionRequest } from "./operations";
+import { ROLE_READ_MODEL_PAGE_MAX as ROLE_READ_MODEL_PAGE_MAX_VALUE } from "../generated/role-contract";
 import {
   permissionScopeFromRoleScope,
   readAccountPrincipalRef,
   readPermissionBundle,
   readPermissionNameField,
   readPermissionScope,
-  readPrincipalKindField,
   readRoleIdField,
   readRoleNameField,
   readRolePrincipalRejectionRef,
   readRoleScope,
   roleScopeFromPermissionScope,
 } from "./form-parsing";
+import { toRoleValidationError } from "./errors";
 
 export interface RoleRequestContextInput {
   roleScope: RoleScope;
@@ -45,21 +47,50 @@ export interface DeleteRoleFormSubmission {
 }
 
 export interface ApplyRoleFormSubmission {
-  request: ApplyRoleRequest;
+  request: ApplyRoleAccountPrincipalRequest;
   context: RoleRequestContextInput;
 }
 
-export type PermissionCheckFormSubmission =
-  | {
-      principalKind: "account";
-      request: PermissionCheckRequest;
-      context: RoleRequestContextInput;
-    }
-  | {
-      principalKind: "role";
-      request: PermissionCheckRolePrincipalRejectionRequest;
-      context: RoleRequestContextInput;
-    };
+export interface PermissionCheckFormSubmission {
+  request: PermissionCheckAccountPrincipalRequest;
+  context: RoleRequestContextInput;
+}
+
+export interface PermissionCheckRolePrincipalRejectionFormSubmission {
+  request: PermissionCheckRolePrincipalRejectionRequest;
+  context: Omit<RoleRequestContextInput, "grantPrincipal">;
+}
+
+export interface RoleReadModelRequestInput {
+  roleScope: RoleScope;
+  roleCursor: RoleReadModelRequest["role_cursor"];
+  roleLimit: number | null;
+  grantPrincipal: AccountPrincipalRef;
+  grantScope: PermissionScope;
+  grantCursor: RoleReadModelRequest["grant_cursor"];
+  grantLimit: number | null;
+}
+
+export type ApplyRoleAccountPrincipalRequest = Omit<
+  ApplyRoleRequest,
+  "principal"
+> & {
+  principal: AccountPrincipalRef;
+};
+
+export type PermissionCheckAccountPrincipalRequest = Omit<
+  PermissionCheckRequest,
+  "principal"
+> & {
+  principal: AccountPrincipalRef;
+};
+
+export type RoleReadModelAccountPrincipalRequest = Omit<
+  RoleReadModelRequest,
+  "grant_principal"
+> & {
+  grant_principal: AccountPrincipalRef;
+};
 
 export function buildCreateRoleRequest(
   form: FormData,
@@ -140,44 +171,68 @@ export function buildPermissionCheckRequest(
 ): PermissionCheckFormSubmission {
   const scope = readPermissionScope(form, "scope_");
   const permission = readPermissionNameField(form, "permission");
-  const principalKind = readPrincipalKindField(form, "principal_");
-  switch (principalKind) {
-    case "role":
-      return {
-        principalKind: "role",
-        request: {
-          principal: readRolePrincipalRejectionRef(form, "principal_"),
-          permission,
-          scope,
-        },
-        context: {
-          roleScope: roleScopeFromPermissionScope(scope),
-          grantScope: scope,
-        },
-      };
-    case "account": {
-      const principal = readAccountPrincipalRef(form, "principal_");
-      return {
-        principalKind: "account",
-        request: {
-          principal,
-          permission,
-          scope,
-        },
-        context: {
-          roleScope: roleScopeFromPermissionScope(scope),
-          grantPrincipal: principal,
-          grantScope: scope,
-        },
-      };
-    }
-    default:
-      return assertNever(principalKind, "permission check principal kind");
-  }
+  const principal = readAccountPrincipalRef(form, "principal_");
+  return {
+    request: {
+      principal,
+      permission,
+      scope,
+    },
+    context: {
+      roleScope: roleScopeFromPermissionScope(scope),
+      grantPrincipal: principal,
+      grantScope: scope,
+    },
+  };
 }
 
-function assertNever(value: never, context: string): never {
-  throw new Error(`${context} received unsupported variant: ${String(value)}`);
+export function buildPermissionCheckRolePrincipalRejectionRequest(
+  form: FormData,
+): PermissionCheckRolePrincipalRejectionFormSubmission {
+  const scope = readPermissionScope(form, "scope_");
+  return {
+    request: {
+      principal: readRolePrincipalRejectionRef(form, "principal_"),
+      permission: readPermissionNameField(form, "permission"),
+      scope,
+    },
+    context: {
+      roleScope: roleScopeFromPermissionScope(scope),
+      grantScope: scope,
+    },
+  };
+}
+
+export function buildRoleReadModelRequest(
+  input: RoleReadModelRequestInput,
+): RoleReadModelAccountPrincipalRequest {
+  return {
+    role_scope: input.roleScope,
+    role_cursor: input.roleCursor,
+    role_limit: validateRoleReadModelLimit(input.roleLimit, "role_limit"),
+    grant_principal: input.grantPrincipal,
+    grant_scope: input.grantScope,
+    grant_cursor: input.grantCursor,
+    grant_limit: validateRoleReadModelLimit(input.grantLimit, "grant_limit"),
+  };
+}
+
+function validateRoleReadModelLimit(
+  value: number | null,
+  field: "role_limit" | "grant_limit",
+): number | null {
+  if (value === null) {
+    return null;
+  }
+  if (!Number.isInteger(value) || value <= 0) {
+    throw toRoleValidationError(`${field} must be a positive integer`);
+  }
+  if (value > ROLE_READ_MODEL_PAGE_MAX_VALUE) {
+    throw toRoleValidationError(
+      `${field} must be less than or equal to ${String(ROLE_READ_MODEL_PAGE_MAX_VALUE)}`,
+    );
+  }
+  return value;
 }
 
 export { permissionScopeFromRoleScope, roleScopeFromPermissionScope };

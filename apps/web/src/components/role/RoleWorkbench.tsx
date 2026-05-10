@@ -10,6 +10,7 @@ import {
   buildCreateRoleRequest,
   buildDeleteRoleRequest,
   buildEditRoleRequest,
+  buildPermissionCheckRolePrincipalRejectionRequest,
   buildPermissionCheckRequest,
   checkPermission,
   checkPermissionRolePrincipalRejection,
@@ -232,21 +233,34 @@ export function RoleWorkbench(): ReactNode {
         capabilitySnapshot,
         descriptor.capability,
       );
-      const submission = buildPermissionCheckRequest(
-        new FormData(event.currentTarget),
-      );
+      const form = new FormData(event.currentTarget);
+      const principalKind = form.get("principal_kind");
+      if (principalKind === "role") {
+        const submission =
+          buildPermissionCheckRolePrincipalRejectionRequest(form);
+        const context = resolveRoleReadContext(
+          readContext,
+          snapshot.capabilities.actor.account_id,
+          submission.context,
+        );
+        const response = await checkPermissionRolePrincipalRejection(
+          submission.request,
+          snapshot,
+        );
+        setOperationSummary(descriptor.buildSummary(response));
+        if (shouldRefreshReadModel(readContext, context)) {
+          await refreshReadModel(context);
+        }
+        return;
+      }
+
+      const submission = buildPermissionCheckRequest(form);
       const context = resolveRoleReadContext(
         readContext,
         snapshot.capabilities.actor.account_id,
         submission.context,
       );
-      const response =
-        submission.principalKind === "role"
-          ? await checkPermissionRolePrincipalRejection(
-              submission.request,
-              snapshot,
-            )
-          : await checkPermission(submission.request, snapshot);
+      const response = await checkPermission(submission.request, snapshot);
       setOperationSummary(descriptor.buildSummary(response));
       if (shouldRefreshReadModel(readContext, context)) {
         await refreshReadModel(context);
