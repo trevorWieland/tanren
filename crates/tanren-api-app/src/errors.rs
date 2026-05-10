@@ -14,7 +14,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
 use tanren_app_services::deployment_posture::SetDeploymentPostureError;
-use tanren_contract::{AccountFailureReason, DeploymentPostureFailureReason};
+use tanren_contract::{
+    AccountFailureReason, DeploymentPostureFailureBody, DeploymentPostureFailureReason,
+};
 
 /// Shared `{code, summary}` failure body.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -74,13 +76,13 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
 /// Map deployment-posture app-service failures to the shared
 /// `{code, summary}` body.
 pub(crate) fn map_posture_error(err: &SetDeploymentPostureError) -> Response {
+    if let Some(failure) = err.contract_failure() {
+        return posture_failure_body_response(failure.render());
+    }
     if let SetDeploymentPostureError::Store { source } = err {
         tracing::error!(target: "tanren_api", error = %source, "store error");
     }
-    let rendered = err.render();
-    let reason = DeploymentPostureFailureReason::from_code(rendered.code.as_str())
-        .unwrap_or(DeploymentPostureFailureReason::InternalError);
-    posture_failure_response(reason, Some(rendered.summary.as_str()))
+    posture_failure_response(DeploymentPostureFailureReason::InternalError, None)
 }
 
 /// Build a posture failure response using the shared contract taxonomy.
@@ -88,22 +90,21 @@ pub(crate) fn posture_failure_response(
     reason: DeploymentPostureFailureReason,
     detail: Option<&str>,
 ) -> Response {
-    let status =
-        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    let body = reason.render(detail);
-    (
-        status,
-        Json(AccountFailureBody {
-            code: body.code,
-            summary: body.summary,
-        }),
-    )
-        .into_response()
+    posture_failure_body_response(reason.render(detail))
 }
 
 /// Shared posture internal-error response.
 pub(crate) fn posture_internal_error_response() -> Response {
     posture_failure_response(DeploymentPostureFailureReason::InternalError, None)
+}
+
+/// Map a typed posture failure body to the wire response.
+pub(crate) fn posture_failure_body_response(body: DeploymentPostureFailureBody) -> Response {
+    let reason = DeploymentPostureFailureReason::from_code(&body.code)
+        .unwrap_or(DeploymentPostureFailureReason::InternalError);
+    let status =
+        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
+    (status, Json(body)).into_response()
 }
 
 fn failure_body(reason: AccountFailureReason) -> Response {

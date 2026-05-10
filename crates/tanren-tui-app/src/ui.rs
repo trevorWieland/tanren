@@ -3,6 +3,7 @@
 //! workspace 500-line budget.
 
 use secrecy::SecretString;
+use std::str::FromStr;
 use tanren_app_services::AppServiceError;
 use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_contract::{
@@ -185,8 +186,12 @@ pub(crate) fn render_error(err: AppServiceError) -> String {
 }
 
 pub(crate) fn render_posture_error(err: &SetDeploymentPostureError) -> String {
-    let rendered = err.render();
-    format!("{}: {}", rendered.code, rendered.summary)
+    if let Some(failure) = err.contract_failure() {
+        let body = failure.render();
+        return render_posture_failure(&body);
+    }
+    let body = tanren_contract::DeploymentPostureFailureReason::InternalError.render(None);
+    render_posture_failure(&body)
 }
 
 fn validation_message(err: &ValidationError) -> String {
@@ -235,15 +240,22 @@ pub(crate) fn parse_posture(
     state: &FormState,
     active_account: AccountId,
 ) -> Result<SetDeploymentPostureRequest, String> {
+    let raw_posture = state.value(1);
+    let posture = DeploymentPosture::from_str(raw_posture).map_err(|failure| {
+        let body = failure.render();
+        format!("{}: {}", body.code, body.summary)
+    })?;
     let request = SetDeploymentPostureRequest {
         scope: tanren_contract::DeploymentPostureScope::Account {
             account_id: active_account,
         },
-        posture: DeploymentPosture::from_wire_value(state.value(1)).ok_or_else(|| {
-            "unsupported_posture: supported values are hosted, self_hosted, local_only".to_owned()
-        })?,
+        posture,
     };
     Ok(request)
+}
+
+fn render_posture_failure(body: &tanren_contract::DeploymentPostureFailureBody) -> String {
+    format!("{}: {}", body.code, body.summary)
 }
 
 fn format_caps(caps: &[DeploymentPostureCapability]) -> String {

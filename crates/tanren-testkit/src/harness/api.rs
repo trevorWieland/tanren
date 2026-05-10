@@ -1,5 +1,3 @@
-//! `@api` harness — drives `tanren-api-app` over HTTP.
-
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -24,13 +22,11 @@ use super::{
     HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
-/// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
-    /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
 }
 
@@ -44,7 +40,6 @@ impl std::fmt::Debug for ApiHarness {
 }
 
 impl ApiHarness {
-    /// Spawn a fresh `tanren-api-app` on an ephemeral port.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -247,14 +242,28 @@ impl AccountHarness for ApiHarness {
 
     async fn set_deployment_posture(
         &mut self,
-        _actor: AccountId,
+        actor: AccountId,
         request: SetDeploymentPostureRequest,
     ) -> HarnessResult<HarnessPostureView> {
+        self.set_deployment_posture_raw(actor, request.scope, request.posture.as_wire_value())
+            .await
+    }
+
+    async fn set_deployment_posture_raw(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
         let url = format!("{}/deployment-postures", self.base_url);
+        let body = serde_json::json!({
+            "scope": scope,
+            "posture": posture_raw,
+        });
         let response = self
             .client
             .post(&url)
-            .json(&request)
+            .json(&body)
             .send()
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /deployment-postures: {e}")))?;

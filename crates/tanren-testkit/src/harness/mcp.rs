@@ -235,11 +235,25 @@ impl AccountHarness for McpHarness {
 
     async fn set_deployment_posture(
         &mut self,
-        _actor: AccountId,
+        actor: AccountId,
         request: SetDeploymentPostureRequest,
     ) -> HarnessResult<HarnessPostureView> {
-        let body = serde_json::to_value(request)
-            .map_err(|e| HarnessError::Transport(format!("encode posture request: {e}")))?;
+        self.set_deployment_posture_raw(actor, request.scope, request.posture.as_wire_value())
+            .await
+    }
+
+    async fn set_deployment_posture_raw(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let scope_json = serde_json::to_value(scope)
+            .map_err(|e| HarnessError::Transport(format!("encode posture scope: {e}")))?;
+        let body = serde_json::json!({
+            "scope": scope_json,
+            "posture": posture_raw,
+        });
         let payload = self.call_tool("deployment_posture.set", body).await?;
         let response: SetDeploymentPostureResponse = serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;

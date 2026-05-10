@@ -17,8 +17,8 @@ pub use deployment_posture::{
     DeploymentPostureCapabilitySummary, DeploymentPostureCapabilityUnavailableReason,
     DeploymentPostureContractFailure, DeploymentPostureFailureBody, DeploymentPostureFailureReason,
     DeploymentPostureReadModel, DeploymentPostureScope, DeploymentPostureUnavailableCapability,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SupportedDeploymentPosture,
-    SupportedDeploymentPosturesResponse,
+    RawSetDeploymentPostureRequest, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
 };
 
 use serde::{Deserialize, Serialize};

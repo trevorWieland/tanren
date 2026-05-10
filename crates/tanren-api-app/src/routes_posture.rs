@@ -1,12 +1,14 @@
 //! Deployment-posture HTTP routes and `OpenAPI` schemas.
 
 use axum::Json;
+use axum::extract::rejection::JsonRejection;
 use axum::extract::{Path, State};
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use tanren_contract::{
-    CurrentDeploymentPostureResponse, DeploymentPostureFailureReason, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SupportedDeploymentPosturesResponse,
+    CurrentDeploymentPostureResponse, DeploymentPostureFailureBody, DeploymentPostureFailureReason,
+    DeploymentPostureScope, RawSetDeploymentPostureRequest, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::{AccountId, InstallationId, ProjectId};
 use tower_sessions::Session;
@@ -15,7 +17,7 @@ use uuid::Uuid;
 use crate::AppState;
 use crate::cookies::session_actor;
 use crate::errors::{
-    AccountFailureBody, ValidatedJson, map_posture_error, posture_failure_response,
+    map_posture_error, posture_failure_body_response, posture_failure_response,
     posture_internal_error_response,
 };
 
@@ -44,10 +46,10 @@ pub(crate) async fn list_deployment_postures_route(
     ),
     responses(
         (status = 200, body = CurrentDeploymentPostureResponse, description = "Current posture for the scope"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 404, body = AccountFailureBody, description = "scope_not_found"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 500, body = AccountFailureBody, description = "internal_error"),
+        (status = 403, body = DeploymentPostureFailureBody, description = "permission_denied"),
+        (status = 404, body = DeploymentPostureFailureBody, description = "scope_not_found"),
+        (status = 400, body = DeploymentPostureFailureBody, description = "validation_failed"),
+        (status = 500, body = DeploymentPostureFailureBody, description = "internal_error"),
     ),
     tag = "posture",
 )]
@@ -101,21 +103,39 @@ pub(crate) async fn get_deployment_posture_route(
     request_body = SetDeploymentPostureRequest,
     responses(
         (status = 200, body = SetDeploymentPostureResponse, description = "Posture set"),
-        (status = 400, body = AccountFailureBody, description = "unsupported_posture or validation_failed"),
-        (status = 403, body = AccountFailureBody, description = "permission_denied"),
-        (status = 404, body = AccountFailureBody, description = "scope_not_found"),
-        (status = 500, body = AccountFailureBody, description = "internal_error"),
+        (status = 400, body = DeploymentPostureFailureBody, description = "unsupported_posture or validation_failed"),
+        (status = 403, body = DeploymentPostureFailureBody, description = "permission_denied"),
+        (status = 404, body = DeploymentPostureFailureBody, description = "scope_not_found"),
+        (status = 500, body = DeploymentPostureFailureBody, description = "internal_error"),
     ),
     tag = "posture",
 )]
 pub(crate) async fn set_deployment_posture_route(
     State(state): State<AppState>,
     session: Session,
-    ValidatedJson(request): ValidatedJson<SetDeploymentPostureRequest>,
+    request: Result<Json<RawSetDeploymentPostureRequest>, JsonRejection>,
 ) -> Response {
     let actor = match actor_from_session(&session).await {
         Ok(actor) => actor,
         Err(response) => return response,
+    };
+    let raw_request = match request {
+        Ok(Json(request)) => request,
+        Err(rejection) => {
+            tracing::warn!(
+                target: "tanren_api",
+                error = %rejection,
+                "deployment posture request rejected at transport decode"
+            );
+            return posture_failure_response(
+                DeploymentPostureFailureReason::ValidationFailed,
+                None,
+            );
+        }
+    };
+    let request = match SetDeploymentPostureRequest::try_from(raw_request) {
+        Ok(request) => request,
+        Err(failure) => return posture_failure_body_response(failure.render()),
     };
 
     match state

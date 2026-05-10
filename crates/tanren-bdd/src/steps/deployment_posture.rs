@@ -7,10 +7,10 @@ use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
     DeploymentPosture, DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
-    DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
+    DeploymentPostureScope, SignInRequest,
 };
 use tanren_identity_policy::{AccountId, Email};
-use tanren_testkit::{HarnessError, HarnessKind, HarnessOutcome, record_failure};
+use tanren_testkit::{HarnessKind, HarnessOutcome, record_failure};
 
 use super::{poll_until, retry_on_transport, sign_up_actor_with_duplicate_sign_in_fallback};
 use crate::TanrenWorld;
@@ -50,45 +50,29 @@ async fn when_list_supported(world: &mut TanrenWorld, interface: String) {
 #[when(expr = "the actor sets deployment posture {string} for their account scope over {word}")]
 async fn when_set_for_their_scope(world: &mut TanrenWorld, posture: String, interface: String) {
     let actor_id = ensure_signed_in_actor(world, "actor").await;
-    let Some(posture) = parse_requested_posture(world, "actor", &posture).await else {
-        return;
+    let scope = DeploymentPostureScope::Account {
+        account_id: actor_id,
     };
-    let request = SetDeploymentPostureRequest {
-        scope: DeploymentPostureScope::Account {
-            account_id: actor_id,
-        },
-        posture,
-    };
-    execute_set(world, &interface, "actor", actor_id, request).await;
+    execute_set(world, &interface, "actor", actor_id, scope, &posture).await;
 }
 
 #[when(expr = "the actor sets deployment posture {string} for another account scope over {word}")]
 async fn when_set_for_another_scope(world: &mut TanrenWorld, posture: String, interface: String) {
     let actor_id = ensure_signed_in_actor(world, "actor").await;
-    let Some(posture) = parse_requested_posture(world, "actor", &posture).await else {
-        return;
-    };
     let other_id = account_id_for(world, "other").await;
     let scope = DeploymentPostureScope::Account {
         account_id: other_id,
     };
-    let request = SetDeploymentPostureRequest { scope, posture };
-    execute_set(world, &interface, "actor", actor_id, request).await;
+    execute_set(world, &interface, "actor", actor_id, scope, &posture).await;
 }
 
 #[when(expr = "the actor sets deployment posture {string} for a missing account scope over {word}")]
 async fn when_set_for_missing_scope(world: &mut TanrenWorld, posture: String, interface: String) {
     let actor_id = ensure_signed_in_actor(world, "actor").await;
-    let Some(posture) = parse_requested_posture(world, "actor", &posture).await else {
-        return;
+    let scope = DeploymentPostureScope::Account {
+        account_id: AccountId::fresh(),
     };
-    let request = SetDeploymentPostureRequest {
-        scope: DeploymentPostureScope::Account {
-            account_id: AccountId::fresh(),
-        },
-        posture,
-    };
-    execute_set(world, &interface, "actor", actor_id, request).await;
+    execute_set(world, &interface, "actor", actor_id, scope, &posture).await;
 }
 
 #[when(expr = "the actor reads deployment posture for another account scope over {word}")]
@@ -353,11 +337,15 @@ async fn execute_set(
     interface: &str,
     actor_label: &str,
     actor_id: AccountId,
-    request: SetDeploymentPostureRequest,
+    scope: DeploymentPostureScope,
+    posture_raw: &str,
 ) {
     let ctx = world.ensure_account_ctx().await;
     assert_interface(ctx.harness.kind(), interface);
-    let result = ctx.harness.set_deployment_posture(actor_id, request).await;
+    let result = ctx
+        .harness
+        .set_deployment_posture_raw(actor_id, scope, posture_raw)
+        .await;
     let entry = ctx.actors.entry(actor_label.to_owned()).or_default();
     match result {
         Ok(response) => {
@@ -447,28 +435,6 @@ async fn account_id_for(world: &mut TanrenWorld, actor_label: &str) -> AccountId
 
 fn parse_posture(raw: &str) -> DeploymentPosture {
     DeploymentPosture::from_wire_value(raw).expect("invalid posture in scenario")
-}
-
-async fn parse_requested_posture(
-    world: &mut TanrenWorld,
-    actor_label: &str,
-    raw: &str,
-) -> Option<DeploymentPosture> {
-    if let Some(posture) = DeploymentPosture::from_wire_value(raw) {
-        return Some(posture);
-    }
-    let ctx = world.ensure_account_ctx().await;
-    let entry = ctx.actors.entry(actor_label.to_owned()).or_default();
-    ctx.last_outcome = Some(record_failure(
-        HarnessError::FailureCode {
-            code: "unsupported_posture".to_owned(),
-            summary: format!(
-                "Unsupported deployment posture `{raw}`. Supported values: hosted, self_hosted, local_only."
-            ),
-        },
-        entry,
-    ));
-    None
 }
 
 fn assert_interface(kind: HarnessKind, interface: &str) {

@@ -60,8 +60,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPosture,
-    DeploymentPostureCapabilitySummary, DeploymentPostureReadModel, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    DeploymentPostureCapabilitySummary, DeploymentPostureContractFailure,
+    DeploymentPostureReadModel, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 use tanren_store::EventEnvelope;
@@ -278,6 +279,29 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         actor: AccountId,
         request: SetDeploymentPostureRequest,
     ) -> HarnessResult<HarnessPostureView>;
+
+    /// Set deployment posture using a raw posture string as received by
+    /// transport boundaries.
+    ///
+    /// API and MCP harnesses override this to exercise transport-level
+    /// decoding semantics. Other harnesses reuse the typed setter.
+    async fn set_deployment_posture_raw(
+        &mut self,
+        actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let posture = DeploymentPosture::from_wire_value(posture_raw).ok_or_else(|| {
+            let failure = DeploymentPostureContractFailure::unsupported_posture(posture_raw);
+            let body = failure.render();
+            HarnessError::FailureCode {
+                code: body.code,
+                summary: body.summary,
+            }
+        })?;
+        self.set_deployment_posture(actor, SetDeploymentPostureRequest { scope, posture })
+            .await
+    }
 
     /// Read the currently recorded deployment posture for `scope`.
     ///

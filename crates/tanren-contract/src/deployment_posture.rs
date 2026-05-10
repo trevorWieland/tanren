@@ -105,6 +105,35 @@ pub struct SetDeploymentPostureRequest {
     pub posture: DeploymentPosture,
 }
 
+/// Transport request shape that preserves the raw posture string for
+/// interface-layer decoding.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct RawSetDeploymentPostureRequest {
+    /// Scope the posture change targets.
+    pub scope: DeploymentPostureScope,
+    /// Raw posture value from the transport payload.
+    pub posture: String,
+}
+
+impl TryFrom<RawSetDeploymentPostureRequest> for SetDeploymentPostureRequest {
+    type Error = DeploymentPostureContractFailure;
+
+    fn try_from(value: RawSetDeploymentPostureRequest) -> Result<Self, Self::Error> {
+        let scope = value.scope;
+        let posture = DeploymentPosture::from_str(&value.posture)?;
+        Ok(Self { scope, posture })
+    }
+}
+
+impl From<SetDeploymentPostureRequest> for RawSetDeploymentPostureRequest {
+    fn from(value: SetDeploymentPostureRequest) -> Self {
+        Self {
+            scope: value.scope,
+            posture: value.posture.as_wire_value().to_owned(),
+        }
+    }
+}
+
 /// Capability vocabulary explained alongside each posture.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]

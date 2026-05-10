@@ -16,6 +16,7 @@ use std::env;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand, ValueEnum};
@@ -378,10 +379,8 @@ async fn resolve_actor_from_session(handlers: &Handlers, store: &Store) -> Resul
 
 fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureScope> {
     let parsed_uuid = Uuid::parse_str(scope_id).map_err(|_| {
-        anyhow::anyhow!(
-            "error: validation_failed — {}",
-            DeploymentPostureFailureReason::ValidationFailed.summary()
-        )
+        let body = DeploymentPostureFailureReason::ValidationFailed.render(None);
+        posture_cli_error(&body)
     })?;
     let scope = match kind {
         ScopeKindArg::Account => DeploymentPostureScope::Account {
@@ -398,11 +397,9 @@ fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureSc
 }
 
 fn parse_posture_value(raw: &str) -> Result<DeploymentPosture> {
-    DeploymentPosture::from_wire_value(raw).ok_or_else(|| {
-        anyhow::anyhow!(
-            "error: unsupported_posture — {}",
-            DeploymentPostureFailureReason::UnsupportedPosture.summary()
-        )
+    DeploymentPosture::from_str(raw).map_err(|failure| {
+        let body = failure.render();
+        posture_cli_error(&body)
     })
 }
 
@@ -422,8 +419,16 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
 }
 
 fn posture_error(err: &SetDeploymentPostureError) -> anyhow::Error {
-    let rendered = err.render();
-    anyhow::anyhow!("error: {} — {}", rendered.code, rendered.summary)
+    if let Some(failure) = err.contract_failure() {
+        let body = failure.render();
+        return posture_cli_error(&body);
+    }
+    let body = DeploymentPostureFailureReason::InternalError.render(None);
+    posture_cli_error(&body)
+}
+
+fn posture_cli_error(body: &tanren_contract::DeploymentPostureFailureBody) -> anyhow::Error {
+    anyhow::anyhow!("error: {} — {}", body.code, body.summary)
 }
 
 fn load_persisted_session_token() -> Result<SessionToken> {

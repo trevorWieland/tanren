@@ -35,7 +35,8 @@ use tanren_app_services::deployment_posture::SetDeploymentPostureError;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, DeploymentPostureFailureReason, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    RawSetDeploymentPostureRequest, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    SignInRequest, SignUpRequest,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -159,9 +160,7 @@ impl TanrenMcp {
         Parameters(scope): Parameters<DeploymentPostureScope>,
     ) -> Result<CallToolResult, McpError> {
         let Some(actor) = actor_from_principal(&request_context) else {
-            return Ok(permission_denied_result(
-                DeploymentPostureFailureReason::PermissionDenied.summary(),
-            ));
+            return Ok(permission_denied_result());
         };
         match self
             .handlers
@@ -199,12 +198,17 @@ impl TanrenMcp {
     async fn deployment_posture_set(
         &self,
         request_context: RequestContext<rmcp::RoleServer>,
-        Parameters(request): Parameters<SetDeploymentPostureRequest>,
+        Parameters(raw_request): Parameters<RawSetDeploymentPostureRequest>,
     ) -> Result<CallToolResult, McpError> {
         let Some(actor) = actor_from_principal(&request_context) else {
-            return Ok(permission_denied_result(
-                DeploymentPostureFailureReason::PermissionDenied.summary(),
-            ));
+            return Ok(permission_denied_result());
+        };
+        let request = match SetDeploymentPostureRequest::try_from(raw_request) {
+            Ok(request) => request,
+            Err(failure) => {
+                let body = failure.render();
+                return Ok(posture_failure_body_result(&body));
+            }
         };
         match self
             .handlers
@@ -270,18 +274,16 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
 }
 
 fn map_posture_failure(err: &SetDeploymentPostureError) -> CallToolResult {
+    if let Some(failure) = err.contract_failure() {
+        let body = failure.render();
+        return posture_failure_body_result(&body);
+    }
     if let SetDeploymentPostureError::Store { source } = err {
         tracing::error!(target: "tanren_mcp", error = %source, "store error");
-    } else if err.contract_failure().is_none() {
+    } else {
         tracing::error!(target: "tanren_mcp", error = %err, "posture internal error");
     }
-    let rendered = err.render();
-    let reason = DeploymentPostureFailureReason::from_code(rendered.code.as_str())
-        .unwrap_or(DeploymentPostureFailureReason::InternalError);
-    if reason == DeploymentPostureFailureReason::InternalError {
-        return internal_error_result();
-    }
-    failure_result(reason, Some(rendered.summary.as_str()))
+    internal_error_result()
 }
 
 fn internal_error_result() -> CallToolResult {
@@ -297,18 +299,21 @@ fn actor_from_principal(
     auth::principal_from_request(parts).map(|principal| principal.account_id)
 }
 
-fn permission_denied_result(summary: &str) -> CallToolResult {
-    failure_result(
-        DeploymentPostureFailureReason::PermissionDenied,
-        Some(summary),
-    )
+fn permission_denied_result() -> CallToolResult {
+    failure_result(DeploymentPostureFailureReason::PermissionDenied, None)
 }
 
 fn failure_result(reason: DeploymentPostureFailureReason, detail: Option<&str>) -> CallToolResult {
-    let rendered = reason.render(detail);
+    let body = reason.render(detail);
+    posture_failure_body_result(&body)
+}
+
+fn posture_failure_body_result(
+    body: &tanren_contract::DeploymentPostureFailureBody,
+) -> CallToolResult {
     let body = json!({
-        "code": rendered.code,
-        "summary": rendered.summary,
+        "code": body.code.as_str(),
+        "summary": body.summary.as_str(),
     });
     let text = serde_json::to_string(&body).unwrap_or_else(|_| "{}".to_owned());
     CallToolResult::error(vec![Content::text(text)])
