@@ -73,7 +73,7 @@ fn given_user_owned_spec_file_contains(
     path: String,
     content: String,
 ) -> InstallStepResult<()> {
-    given_repository_file_contains(world, path, content)
+    given_repository_file_contains_and_record_baseline(world, path, content)
 }
 
 #[given(expr = "user-owned source file {string} contains {string}")]
@@ -82,7 +82,7 @@ fn given_user_owned_source_file_contains(
     path: String,
     content: String,
 ) -> InstallStepResult<()> {
-    given_repository_file_contains(world, path, content)
+    given_repository_file_contains_and_record_baseline(world, path, content)
 }
 
 #[given(expr = "standards file {string} contains {string}")]
@@ -91,7 +91,18 @@ fn given_standards_file_contains(
     path: String,
     content: String,
 ) -> InstallStepResult<()> {
-    given_repository_file_contains(world, path, content)
+    given_repository_file_contains_and_record_baseline(world, path, content)
+}
+
+fn given_repository_file_contains_and_record_baseline(
+    world: &mut TanrenWorld,
+    path: String,
+    content: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    ctx.write_fixture_file(&relative_path, content)?;
+    ctx.record_baseline(relative_path)
 }
 
 #[given(expr = "repository file {string} is seeded from workspace catalog")]
