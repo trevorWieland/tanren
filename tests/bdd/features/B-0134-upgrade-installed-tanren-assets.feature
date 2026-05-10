@@ -10,14 +10,14 @@ Feature: Upgrade installed Tanren assets
     Scenario: Preview reports migration concern and performs no writes before confirmation
       Given a clean repository fixture
       And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
-      And legacy standards path "profiles/rust-cargo/legacy/renamed-standard.md" is marked as a migration concern
+      And legacy standards path ".codex/skills/retired-command.md" is marked as a migration concern
       And repository snapshot "pre-preview" is captured
       When tanren-cli upgrade preview runs
       Then the upgrade preview command succeeds
       And the upgrade preview is reported
       And the upgrade command requests confirmation
       And the upgrade preview lists compatibility concern "destructive-asset-changes"
-      And the upgrade preview lists path "profiles/rust-cargo/legacy/renamed-standard.md"
+      And the upgrade preview lists path ".codex/skills/retired-command.md"
       And no files are written in the repository fixture
       And the repository matches snapshot "pre-preview"
 
@@ -40,7 +40,7 @@ Feature: Upgrade installed Tanren assets
     Scenario: Preview reports migration concern before apply for CLI-first MCP coverage
       Given a clean repository fixture
       And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
-      And legacy standards path "profiles/rust-cargo/legacy/renamed-standard.md" is marked as a migration concern
+      And legacy standards path ".codex/skills/retired-command.md" is marked as a migration concern
       When tanren-cli upgrade preview runs
       Then the upgrade preview command succeeds
       And the upgrade preview is reported
@@ -51,10 +51,10 @@ Feature: Upgrade installed Tanren assets
     Scenario: Confirmed apply can proceed after migration concern preview
       Given a clean repository fixture
       And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
-      And legacy standards path "profiles/rust-cargo/legacy/renamed-standard.md" is marked as a migration concern
+      And legacy standards path ".codex/skills/retired-command.md" is marked as a migration concern
       When tanren-cli upgrade apply runs with confirmation
       Then the upgrade apply command succeeds
-      And repository file "profiles/rust-cargo/legacy/renamed-standard.md" does not exist
+      And repository file ".codex/skills/retired-command.md" does not exist
 
     # rationale: CLI is the command under proof while web-tag falsification evidence shares the same behavior text.
     @falsification @cli @web
@@ -81,14 +81,16 @@ Feature: Upgrade installed Tanren assets
 
     # rationale: CLI is the command under proof while mcp-tag falsification evidence shares the same behavior text.
     @falsification @cli @mcp
-    Scenario: No-confirm upgrade leaves repository unchanged without prior install
+    Scenario: No-confirm preview preserves user-owned standards files
       Given a clean repository fixture
-      And repository snapshot "empty" is captured
+      And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
+      And repository file "profiles/rust-cargo/global/dependency-management.md" contains "team-owned dependency policy"
+      And repository file "profiles/rust-cargo/global/dependency-management.md" baseline is recorded
       When tanren-cli upgrade preview runs
       Then the upgrade preview command succeeds
       And the upgrade command requests confirmation
       And no files are written in the repository fixture
-      And the repository matches snapshot "empty"
+      And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
 
     # rationale: CLI is the command under proof while tui-tag falsification evidence shares the same behavior text.
     @falsification @cli @tui
