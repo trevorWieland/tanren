@@ -2,69 +2,104 @@ import * as m from "@/i18n/paraglide/messages";
 import type {
   InterfaceError,
   MyAccountCapabilitiesResponse,
-  MyPermissionsResponse,
   MyPermissionEntry,
+  MyPermissionsResponse,
   PermissionConstraintView,
   PermissionGrantSource,
+  operations,
+  paths,
 } from "@/app/lib/generated-interface-contracts";
 import { isInterfaceErrorCode } from "@/app/lib/generated-interface-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
-export interface SignUpInput {
-  email: string;
-  password: string;
-  display_name: string;
-}
+type OperationShape = {
+  parameters: {
+    query?: unknown;
+  };
+  responses: Record<number, unknown>;
+  requestBody?: {
+    content: {
+      "application/json": unknown;
+    };
+  };
+};
 
-export interface SignInInput {
-  email: string;
-  password: string;
+type JsonRequestBody<T extends OperationShape> = T extends {
+  requestBody: {
+    content: {
+      "application/json": infer Body;
+    };
+  };
 }
+  ? Body
+  : never;
 
-export interface AcceptInvitationInput {
-  email: string;
-  invitation_token: string;
-  password: string;
-  display_name: string;
+type JsonResponseBody<
+  T extends OperationShape,
+  Status extends keyof T["responses"],
+> = T["responses"][Status] extends {
+  content: {
+    "application/json": infer Body;
+  };
 }
+  ? Body
+  : never;
 
-export interface AccountView {
-  id: string;
-  identifier: string;
-  display_name: string;
-  org: string | null;
-}
+type SuccessStatusCode<T extends OperationShape> = Extract<
+  keyof T["responses"],
+  200 | 201 | 202 | 203 | 204 | 205 | 206 | 207 | 208 | 226
+>;
+
+type ErrorStatusCode<T extends OperationShape> = Exclude<
+  Extract<keyof T["responses"], number>,
+  SuccessStatusCode<T>
+>;
+
+type OperationSuccessBody<T extends OperationShape> = JsonResponseBody<
+  T,
+  SuccessStatusCode<T>
+>;
+
+type OperationErrorBody<T extends OperationShape> = {
+  [Status in ErrorStatusCode<T>]: JsonResponseBody<T, Status>;
+}[ErrorStatusCode<T>];
+
+type SignUpOperation = operations["sign_up_route"];
+type SignInOperation = operations["sign_in_route"];
+type AcceptInvitationOperation = operations["accept_invitation_route"];
+type RevokeOperation = operations["revoke_route"];
+type MyPermissionsOperation = paths["/me/permissions"]["get"];
+type MyCapabilitiesOperation = paths["/me/capabilities"]["get"];
+
+export type SignUpInput = JsonRequestBody<SignUpOperation>;
+export type SignInInput = JsonRequestBody<SignInOperation>;
+export type AcceptInvitationInput =
+  JsonRequestBody<AcceptInvitationOperation> & {
+    invitation_token: string;
+  };
+
+export type SignUpResult = OperationSuccessBody<SignUpOperation>;
+export type SignInResult = OperationSuccessBody<SignInOperation>;
+export type AcceptInvitationResult =
+  OperationSuccessBody<AcceptInvitationOperation>;
+
+export type AccountView = SignInResult["account"];
 
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
  * sign-up/sign-in/accept-invitation. The body carries metadata only —
  * the session token itself is never readable from JavaScript.
  */
-export interface SessionView {
-  account_id: string;
-  expires_at: string;
-}
+export type SessionView = SignInResult["session"];
 
-export interface SignUpResult {
-  account: AccountView;
-  session: SessionView;
-}
+export type MyPermissionsQuery = NonNullable<
+  MyPermissionsOperation["parameters"]["query"]
+>;
+export type MyCapabilitiesQuery = NonNullable<
+  MyCapabilitiesOperation["parameters"]["query"]
+>;
 
-export interface SignInResult {
-  account: AccountView;
-  session: SessionView;
-}
-
-export interface AcceptInvitationResult {
-  account: AccountView;
-  session: SessionView;
-  joined_org: string;
-}
-export interface MyPermissionsQuery {
-  limit?: number;
-  cursor?: null | string;
-}
 export type PermissionScopeView =
   | {
       kind: "organization";
@@ -92,7 +127,17 @@ export interface InterfaceContractDriftFailure {
   summary: string;
 }
 
-export type AccountFailure = InterfaceError | InterfaceContractDriftFailure;
+type AccountOperationError =
+  | OperationErrorBody<SignUpOperation>
+  | OperationErrorBody<SignInOperation>
+  | OperationErrorBody<AcceptInvitationOperation>
+  | OperationErrorBody<MyPermissionsOperation>
+  | OperationErrorBody<MyCapabilitiesOperation>
+  | OperationErrorBody<RevokeOperation>;
+
+export type AccountFailure =
+  | AccountOperationError
+  | InterfaceContractDriftFailure;
 
 export function isInterfaceContractDriftFailure(
   failure: AccountFailure,
@@ -215,8 +260,18 @@ function normalizeInterfaceError(
   };
 }
 
+type RouteTemplate = Extract<keyof paths, string>;
+type ConcreteRoutePath<Path extends RouteTemplate> =
+  Path extends "/invitations/{token}/accept"
+    ? `/invitations/${string}/accept`
+    : Path;
+type RoutePath = {
+  [Path in RouteTemplate]: ConcreteRoutePath<Path>;
+}[RouteTemplate];
+type RequestPath = RoutePath | `${RoutePath}?${string}`;
+
 async function requestJson<T>(
-  path: string,
+  path: RequestPath,
   method: "GET" | "POST",
   body?: unknown,
 ): Promise<T> {
@@ -260,57 +315,14 @@ async function requestJson<T>(
   return (await response.json()) as T;
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+async function postJson<T>(path: RoutePath, body: unknown): Promise<T> {
   return requestJson<T>(path, "POST", body);
 }
 
-export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return postJson<SignUpResult>("/accounts", input);
-}
-
-export function signIn(input: SignInInput): Promise<SignInResult> {
-  return postJson<SignInResult>("/sessions", input);
-}
-
-export function acceptInvitation(
-  token: string,
-  input: Omit<AcceptInvitationInput, "invitation_token">,
-): Promise<AcceptInvitationResult> {
-  const path = `/invitations/${encodeURIComponent(token)}/accept`;
-  return postJson<AcceptInvitationResult>(path, {
-    email: input.email,
-    password: input.password,
-    display_name: input.display_name,
-  });
-}
-
-export function myPermissions(
-  query: MyPermissionsQuery = {},
-): Promise<MyPermissionsResponse> {
-  const params = new URLSearchParams();
-  if (query.limit !== undefined) {
-    params.set("limit", String(query.limit));
-  }
-  if (query.cursor && query.cursor.trim() !== "") {
-    params.set("cursor", query.cursor);
-  }
-  const search = params.toString();
-  const path = search === "" ? "/me/permissions" : `/me/permissions?${search}`;
-  return requestJson<MyPermissionsResponse>(path, "GET");
-}
-
-export function myAccountCapabilities(): Promise<MyAccountCapabilitiesResponse> {
-  return requestJson<MyAccountCapabilitiesResponse>("/me/capabilities", "GET");
-}
-
-/**
- * Sign-out clears the session row server-side and the cookie via
- * `Set-Cookie: tanren_session=; Max-Age=0`.
- */
-export async function signOut(): Promise<void> {
+async function postNoContent(path: RoutePath): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/sessions/revoke`, {
+    response = await fetch(`${API_URL}${path}`, {
       method: "POST",
       credentials: "include",
     });
@@ -321,10 +333,100 @@ export async function signOut(): Promise<void> {
     };
     throw new AccountRequestError(failure);
   }
+
   if (!response.ok) {
     throw new AccountRequestError({
       code: "internal_error",
       summary: `HTTP ${response.status}`,
     });
   }
+}
+
+const SIGN_UP_PATH: Extract<keyof paths, "/accounts"> = "/accounts";
+const SIGN_IN_PATH: Extract<keyof paths, "/sessions"> = "/sessions";
+const INVITATION_ACCEPT_TEMPLATE: Extract<
+  keyof paths,
+  "/invitations/{token}/accept"
+> = "/invitations/{token}/accept";
+const MY_PERMISSIONS_PATH: Extract<keyof paths, "/me/permissions"> =
+  "/me/permissions";
+const MY_PERMISSIONS_METHOD = "GET" as const;
+const MY_CAPABILITIES_PATH: Extract<keyof paths, "/me/capabilities"> =
+  "/me/capabilities";
+const MY_CAPABILITIES_METHOD = "GET" as const;
+const SIGN_OUT_PATH: Extract<keyof paths, "/sessions/revoke"> =
+  "/sessions/revoke";
+
+function acceptInvitationPath(
+  token: string,
+): ConcreteRoutePath<typeof INVITATION_ACCEPT_TEMPLATE> {
+  return `/invitations/${encodeURIComponent(token)}/accept`;
+}
+
+function queryPath<Path extends RoutePath>(
+  path: Path,
+  query: URLSearchParams,
+): Path | `${Path}?${string}` {
+  const search = query.toString();
+  if (search === "") {
+    return path;
+  }
+  return `${path}?${search}`;
+}
+
+export function signUp(input: SignUpInput): Promise<SignUpResult> {
+  return postJson<SignUpResult>(SIGN_UP_PATH, input);
+}
+
+export function signIn(input: SignInInput): Promise<SignInResult> {
+  return postJson<SignInResult>(SIGN_IN_PATH, input);
+}
+
+export function acceptInvitation(
+  token: string,
+  input: Omit<AcceptInvitationInput, "invitation_token">,
+): Promise<AcceptInvitationResult> {
+  const path = acceptInvitationPath(token);
+  return postJson<AcceptInvitationResult>(path, {
+    email: input.email,
+    password: input.password,
+    display_name: input.display_name,
+  });
+}
+
+export function myPermissions(
+  query: MyPermissionsQuery = {},
+): Promise<OperationSuccessBody<MyPermissionsOperation>> {
+  const params = new URLSearchParams();
+  if (query.limit !== undefined) {
+    params.set("limit", String(query.limit));
+  }
+  if (query.cursor && query.cursor.trim() !== "") {
+    params.set("cursor", query.cursor);
+  }
+  return requestJson<OperationSuccessBody<MyPermissionsOperation>>(
+    queryPath(MY_PERMISSIONS_PATH, params),
+    MY_PERMISSIONS_METHOD,
+  );
+}
+
+export function myAccountCapabilities(
+  query: MyCapabilitiesQuery = {},
+): Promise<OperationSuccessBody<MyCapabilitiesOperation>> {
+  const params = new URLSearchParams();
+  if (query.account_id && query.account_id.trim() !== "") {
+    params.set("account_id", query.account_id);
+  }
+  return requestJson<OperationSuccessBody<MyCapabilitiesOperation>>(
+    queryPath(MY_CAPABILITIES_PATH, params),
+    MY_CAPABILITIES_METHOD,
+  );
+}
+
+/**
+ * Sign-out clears the session row server-side and the cookie via
+ * `Set-Cookie: tanren_session=; Max-Age=0`.
+ */
+export async function signOut(): Promise<void> {
+  return postNoContent(SIGN_OUT_PATH);
 }
