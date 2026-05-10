@@ -130,6 +130,35 @@ function toRoleValidationError(summary: string): RoleRequestError {
   return new RoleRequestError(toRoleValidationFailure(summary));
 }
 
+function assertNever(value: never, context: string): never {
+  throw new Error(`${context} received unsupported variant: ${String(value)}`);
+}
+
+function toRoleTransportError(
+  cause: unknown,
+  fallbackSummary: string,
+): RoleRequestError {
+  return new RoleRequestError(
+    toRoleTransportFailure(
+      cause instanceof Error ? cause.message : fallbackSummary,
+    ),
+  );
+}
+
+function parseRoleFailurePayload(payload: unknown): RoleFailureBody {
+  try {
+    return parseRoleFailure(payload);
+  } catch {
+    return toRoleTransportFailure("unexpected failure payload");
+  }
+}
+
+function toRoleRequestErrorFromFailurePayload(
+  payload: unknown,
+): RoleRequestError {
+  return new RoleRequestError(parseRoleFailurePayload(payload));
+}
+
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -205,11 +234,7 @@ async function postRoleEndpoint<K extends RolePostPath>(
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new RoleRequestError(
-      toRoleTransportFailure(
-        cause instanceof Error ? cause.message : String(cause),
-      ),
-    );
+    throw toRoleTransportError(cause, String(cause));
   }
 
   let payload: unknown = undefined;
@@ -220,20 +245,14 @@ async function postRoleEndpoint<K extends RolePostPath>(
   }
 
   if (!response.ok) {
-    throw new RoleRequestError(parseRoleFailure(payload));
+    throw toRoleRequestErrorFromFailurePayload(payload);
   }
 
   const decode = ROLE_POST_DECODERS[path];
   try {
     return decode(payload);
   } catch (cause: unknown) {
-    throw new RoleRequestError(
-      toRoleTransportFailure(
-        cause instanceof Error
-          ? cause.message
-          : `unexpected ${path} response payload`,
-      ),
-    );
+    throw toRoleTransportError(cause, `unexpected ${path} response payload`);
   }
 }
 
@@ -292,11 +311,7 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new RoleRequestError(
-      toRoleTransportFailure(
-        cause instanceof Error ? cause.message : String(cause),
-      ),
-    );
+    throw toRoleTransportError(cause, String(cause));
   }
 
   let payload: unknown = undefined;
@@ -307,7 +322,7 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
   }
 
   if (!response.ok) {
-    throw new RoleRequestError(parseRoleFailure(payload));
+    throw toRoleRequestErrorFromFailurePayload(payload);
   }
 
   try {
@@ -317,13 +332,7 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
       csrfToken: snapshot.csrf_token,
     };
   } catch (cause: unknown) {
-    throw new RoleRequestError(
-      toRoleTransportFailure(
-        cause instanceof Error
-          ? cause.message
-          : "unexpected capability payload",
-      ),
-    );
+    throw toRoleTransportError(cause, "unexpected capability payload");
   }
 }
 
@@ -453,59 +462,69 @@ export function buildPermissionCheckRequest(
   const scope = readPermissionScope(form, "scope_");
   const permission = readPermissionNameField(form, "permission");
   const principalKind = readPrincipalKindField(form, "principal_");
-  if (principalKind === "role") {
-    return {
-      principalKind: "role",
-      request: {
-        principal: readRolePrincipalRejectionRef(form, "principal_"),
-        permission,
-        scope,
-      },
-      context: {
-        roleScope: roleScopeFromPermissionScope(scope),
-        grantScope: scope,
-      },
-    };
+  switch (principalKind) {
+    case "role":
+      return {
+        principalKind: "role",
+        request: {
+          principal: readRolePrincipalRejectionRef(form, "principal_"),
+          permission,
+          scope,
+        },
+        context: {
+          roleScope: roleScopeFromPermissionScope(scope),
+          grantScope: scope,
+        },
+      };
+    case "account": {
+      const principal = readAccountPrincipalRef(form, "principal_");
+      return {
+        principalKind: "account",
+        request: {
+          principal,
+          permission,
+          scope,
+        },
+        context: {
+          roleScope: roleScopeFromPermissionScope(scope),
+          grantPrincipal: principal,
+          grantScope: scope,
+        },
+      };
+    }
+    default:
+      return assertNever(principalKind, "permission check principal kind");
   }
-
-  const principal = readAccountPrincipalRef(form, "principal_");
-  return {
-    principalKind: "account",
-    request: {
-      principal,
-      permission,
-      scope,
-    },
-    context: {
-      roleScope: roleScopeFromPermissionScope(scope),
-      grantPrincipal: principal,
-      grantScope: scope,
-    },
-  };
 }
 
 export function permissionScopeFromRoleScope(
   scope: RoleScope,
 ): PermissionScope {
-  if (scope.scope === "organization") {
-    return { scope: "organization", org_id: scope.org_id };
+  switch (scope.scope) {
+    case "organization":
+      return { scope: "organization", org_id: scope.org_id };
+    case "project":
+      return { scope: "project", project_id: scope.project_id };
+    case "account":
+      return { scope: "account", account_id: scope.account_id };
+    default:
+      return assertNever(scope, "role scope");
   }
-  if (scope.scope === "project") {
-    return { scope: "project", project_id: scope.project_id };
-  }
-  return { scope: "account", account_id: scope.account_id };
 }
 
 export function roleScopeFromPermissionScope(
   scope: PermissionScope,
 ): RoleScope {
-  if (scope.scope === "organization") {
-    return { scope: "organization", org_id: scope.org_id };
+  switch (scope.scope) {
+    case "organization":
+      return { scope: "organization", org_id: scope.org_id };
+    case "project":
+      return { scope: "project", project_id: scope.project_id };
+    case "account":
+      return { scope: "account", account_id: scope.account_id };
+    default:
+      return assertNever(scope, "permission scope");
   }
-  if (scope.scope === "project") {
-    return { scope: "project", project_id: scope.project_id };
-  }
-  return { scope: "account", account_id: scope.account_id };
 }
 
 export function readRequiredField(form: FormData, name: string): string {
@@ -542,13 +561,16 @@ export function readPermissionBundle(
 export function readRoleScope(form: FormData, prefix: string): RoleScope {
   const kind = parseScopeKind(readNonEmptyField(form, `${prefix}kind`));
   const id = readNonEmptyField(form, `${prefix}id`);
-  if (kind === "organization") {
-    return { scope: "organization", org_id: asOrgIdValue(id) };
+  switch (kind) {
+    case "organization":
+      return { scope: "organization", org_id: asOrgIdValue(id) };
+    case "project":
+      return { scope: "project", project_id: asProjectIdValue(id) };
+    case "account":
+      return { scope: "account", account_id: asAccountIdValue(id) };
+    default:
+      return assertNever(kind, "scope kind");
   }
-  if (kind === "project") {
-    return { scope: "project", project_id: asProjectIdValue(id) };
-  }
-  return { scope: "account", account_id: asAccountIdValue(id) };
 }
 
 export function readPermissionScope(
@@ -571,15 +593,19 @@ export function readAccountPrincipalRef(
   prefix: string,
 ): AccountPrincipalRef {
   const kind = readPrincipalKindField(form, prefix);
-  if (kind !== "account") {
-    throw toRoleValidationError(
-      `field ${prefix}kind must be account for this request`,
-    );
+  switch (kind) {
+    case "account":
+      return {
+        principal: "account",
+        account_id: asAccountIdValue(readNonEmptyField(form, `${prefix}id`)),
+      };
+    case "role":
+      throw toRoleValidationError(
+        `field ${prefix}kind must be account for this request`,
+      );
+    default:
+      return assertNever(kind, "account principal kind");
   }
-  return {
-    principal: "account",
-    account_id: asAccountIdValue(readNonEmptyField(form, `${prefix}id`)),
-  };
 }
 
 export function readRolePrincipalRejectionRef(
@@ -587,15 +613,19 @@ export function readRolePrincipalRejectionRef(
   prefix: string,
 ): RolePrincipalRejectionRef {
   const kind = readPrincipalKindField(form, prefix);
-  if (kind !== "role") {
-    throw toRoleValidationError(
-      `field ${prefix}kind must be role for rejection witness requests`,
-    );
+  switch (kind) {
+    case "role":
+      return {
+        principal: "role",
+        role_id: asRoleIdValue(readNonEmptyField(form, `${prefix}id`)),
+      };
+    case "account":
+      throw toRoleValidationError(
+        `field ${prefix}kind must be role for rejection witness requests`,
+      );
+    default:
+      return assertNever(kind, "role principal kind");
   }
-  return {
-    principal: "role",
-    role_id: asRoleIdValue(readNonEmptyField(form, `${prefix}id`)),
-  };
 }
 
 export function readRoleIdField(form: FormData, name: string): RoleId {

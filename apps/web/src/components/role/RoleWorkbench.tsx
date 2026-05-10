@@ -3,10 +3,7 @@
 import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
-import type {
-  PermissionCheckResponse,
-  RoleScope,
-} from "@/app/lib/generated/role-contract";
+import type { RoleAdminAction } from "@/app/lib/generated/role-contract";
 import {
   applyRole,
   buildApplyRoleRequest,
@@ -20,6 +17,7 @@ import {
   deleteRole,
   editRole,
   formatRoleError,
+  type RoleRequestContextInput,
   type RoleCapabilitySnapshot,
 } from "@/app/lib/role-client";
 
@@ -29,13 +27,27 @@ import {
   RoleReadModelView,
 } from "./RoleReadModelView";
 import type { OperationSummary } from "./RoleReadModelView";
+import {
+  ROLE_OPERATION_DESCRIPTORS,
+  type RoleOperationAction,
+  type RoleOperationDescriptor,
+  type RoleOperationResponseMap,
+  type RoleOperationSubmitStateKey,
+} from "./role-action-descriptors";
 import { useRoleCapabilities } from "./useRoleCapabilities";
-import { resolveRoleReadContext, useRoleReadModel } from "./useRoleReadModel";
+import {
+  resolveRoleReadContext,
+  type RoleReadContext,
+  useRoleReadModel,
+} from "./useRoleReadModel";
 
 export function RoleWorkbench(): ReactNode {
   const [roleMessage, setRoleMessage] = useState<string>("");
   const [operationSummary, setOperationSummary] =
     useState<OperationSummary | null>(null);
+  const [submitState, setSubmitState] = useState<
+    Record<RoleOperationSubmitStateKey, boolean>
+  >(buildSubmitState(false));
   const {
     snapshot: capabilitySnapshot,
     capabilities,
@@ -62,124 +74,91 @@ export function RoleWorkbench(): ReactNode {
     });
   }, [capabilitySnapshot, initializeReadModel]);
 
-  const runRoleAction = async (
-    label: string,
+  const runRoleAction: RunRoleAction = async (
+    descriptor,
     action: () => Promise<void>,
   ): Promise<void> => {
+    setSubmitState((current) => ({
+      ...current,
+      [descriptor.submitStateKey]: true,
+    }));
     try {
       await action();
-      setRoleMessage(`${label}: ok`);
+      setRoleMessage(`${descriptor.label}: ok`);
     } catch (reason: unknown) {
-      setRoleMessage(`${label}: ${formatRoleError(reason)}`);
+      setRoleMessage(`${descriptor.label}: ${formatRoleError(reason)}`);
+    } finally {
+      setSubmitState((current) => ({
+        ...current,
+        [descriptor.submitStateKey]: false,
+      }));
     }
   };
 
   const onCreateRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void runRoleAction("create role", async () => {
-      const token = requireCsrfToken(csrfToken);
-      const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
-      const submission = buildCreateRoleRequest(
-        new FormData(event.currentTarget),
-      );
-      const context = resolveRoleReadContext(
-        readContext,
-        snapshot.capabilities.actor.account_id,
-        submission.context,
-      );
-      const response = await createRole(submission.request, token);
-      setOperationSummary({
-        label: "Create role",
-        lines: [
-          `role: ${response.role.id}`,
-          `name: ${response.role.name}`,
-          `permissions: ${response.role.permissions.length}`,
-        ],
-      });
-      await refreshReadModel(context);
-    });
+    void runRoleMutation(
+      ROLE_OPERATION_DESCRIPTORS.create_role,
+      capabilitySnapshot,
+      csrfToken,
+      readContext,
+      refreshReadModel,
+      setOperationSummary,
+      () => buildCreateRoleRequest(new FormData(event.currentTarget)),
+      (request, token) => createRole(request, token),
+      runRoleAction,
+    );
   };
 
   const onEditRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void runRoleAction("edit role", async () => {
-      const token = requireCsrfToken(csrfToken);
-      const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
-      const submission = buildEditRoleRequest(
-        new FormData(event.currentTarget),
-      );
-      const context = resolveRoleReadContext(
-        readContext,
-        snapshot.capabilities.actor.account_id,
-        submission.context,
-      );
-      const response = await editRole(submission.request, token);
-      setOperationSummary({
-        label: "Edit role",
-        lines: [
-          `role: ${response.role.id}`,
-          `name: ${response.role.name}`,
-          `permissions: ${response.role.permissions.length}`,
-        ],
-      });
-      await refreshReadModel(context);
-    });
+    void runRoleMutation(
+      ROLE_OPERATION_DESCRIPTORS.edit_role,
+      capabilitySnapshot,
+      csrfToken,
+      readContext,
+      refreshReadModel,
+      setOperationSummary,
+      () => buildEditRoleRequest(new FormData(event.currentTarget)),
+      (request, token) => editRole(request, token),
+      runRoleAction,
+    );
   };
 
   const onDeleteRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void runRoleAction("delete role", async () => {
-      const token = requireCsrfToken(csrfToken);
-      const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
-      const submission = buildDeleteRoleRequest(
-        new FormData(event.currentTarget),
-      );
-      const context = resolveRoleReadContext(
-        readContext,
-        snapshot.capabilities.actor.account_id,
-        submission.context,
-      );
-      const response = await deleteRole(submission.request, token);
-      setOperationSummary({
-        label: "Delete role",
-        lines: [
-          `role: ${response.role.role_id}`,
-          `scope: ${formatScopeLabel(response.role.scope)}`,
-        ],
-      });
-      await refreshReadModel(context);
-    });
+    void runRoleMutation(
+      ROLE_OPERATION_DESCRIPTORS.delete_role,
+      capabilitySnapshot,
+      csrfToken,
+      readContext,
+      refreshReadModel,
+      setOperationSummary,
+      () => buildDeleteRoleRequest(new FormData(event.currentTarget)),
+      (request, token) => deleteRole(request, token),
+      runRoleAction,
+    );
   };
 
   const onApplyRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void runRoleAction("apply role", async () => {
-      const token = requireCsrfToken(csrfToken);
-      const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
-      const submission = buildApplyRoleRequest(
-        new FormData(event.currentTarget),
-      );
-      const context = resolveRoleReadContext(
-        readContext,
-        snapshot.capabilities.actor.account_id,
-        submission.context,
-      );
-      const response = await applyRole(submission.request, token);
-      setOperationSummary({
-        label: "Apply role",
-        lines: [
-          `role: ${response.role.role_id}`,
-          `grants created: ${response.grants.length}`,
-          `permissions: ${summarizeGrantPermissions(response.grants.map((grant) => grant.permission))}`,
-        ],
-      });
-      await refreshReadModel(context);
-    });
+    void runRoleMutation(
+      ROLE_OPERATION_DESCRIPTORS.apply_role,
+      capabilitySnapshot,
+      csrfToken,
+      readContext,
+      refreshReadModel,
+      setOperationSummary,
+      () => buildApplyRoleRequest(new FormData(event.currentTarget)),
+      (request, token) => applyRole(request, token),
+      runRoleAction,
+    );
   };
 
   const onCheckPermission = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
-    void runRoleAction("check permission", async () => {
+    const descriptor = ROLE_OPERATION_DESCRIPTORS.check_permission;
+    void runRoleAction(descriptor, async () => {
       const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
       const submission = buildPermissionCheckRequest(
         new FormData(event.currentTarget),
@@ -193,7 +172,7 @@ export function RoleWorkbench(): ReactNode {
         submission.principalKind === "role"
           ? await checkPermissionRolePrincipalRejection(submission.request)
           : await checkPermission(submission.request);
-      setOperationSummary(buildPermissionSummary(response));
+      setOperationSummary(descriptor.buildSummary(response));
       await refreshReadModel(context);
     });
   };
@@ -202,11 +181,14 @@ export function RoleWorkbench(): ReactNode {
     <>
       <RoleOperationForms
         capabilities={capabilities}
-        onCreateRole={onCreateRole}
-        onEditRole={onEditRole}
-        onDeleteRole={onDeleteRole}
-        onApplyRole={onApplyRole}
-        onCheckPermission={onCheckPermission}
+        submitState={submitState}
+        onSubmitByAction={{
+          create_role: onCreateRole,
+          edit_role: onEditRole,
+          delete_role: onDeleteRole,
+          apply_role: onApplyRole,
+          check_permission: onCheckPermission,
+        }}
       />
 
       <RoleOperationResultView
@@ -219,28 +201,54 @@ export function RoleWorkbench(): ReactNode {
   );
 }
 
-function buildPermissionSummary(
-  response: PermissionCheckResponse,
-): OperationSummary {
+function buildSubmitState(
+  value: boolean,
+): Record<RoleOperationSubmitStateKey, boolean> {
   return {
-    label: "Permission check",
-    lines: [
-      `allowed: ${String(response.allowed)}`,
-      `matching grants: ${response.matching_grant_ids.length}`,
-    ],
+    create_role: value,
+    edit_role: value,
+    delete_role: value,
+    apply_role: value,
+    check_permission: value,
   };
 }
 
-function summarizeGrantPermissions(permissions: string[]): string {
-  if (permissions.length === 0) {
-    return "none";
-  }
-  const preview = permissions.slice(0, 5).join(", ");
-  if (permissions.length <= 5) {
-    return preview;
-  }
-  return `${preview} +${permissions.length - 5} more`;
+async function runRoleMutation<
+  TAction extends Exclude<RoleAdminAction, "check_permission" | "read_roles">,
+  TSubmission extends { context: RoleRequestContextInput; request: unknown },
+>(
+  descriptor: RoleOperationDescriptor<TAction>,
+  capabilitySnapshot: RoleCapabilitySnapshot | null,
+  csrfToken: string | null,
+  readContext: RoleReadContext | null,
+  refreshReadModel: (context: RoleReadContext) => Promise<void>,
+  setOperationSummary: (summary: OperationSummary) => void,
+  buildSubmission: () => TSubmission,
+  execute: (
+    request: TSubmission["request"],
+    csrfToken: string,
+  ) => Promise<RoleOperationResponseMap[TAction]>,
+  runRoleAction: RunRoleAction,
+): Promise<void> {
+  return runRoleAction(descriptor, async () => {
+    const token = requireCsrfToken(csrfToken);
+    const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
+    const submission = buildSubmission();
+    const context = resolveRoleReadContext(
+      readContext,
+      snapshot.capabilities.actor.account_id,
+      submission.context,
+    );
+    const response = await execute(submission.request, token);
+    setOperationSummary(descriptor.buildSummary(response));
+    await refreshReadModel(context);
+  });
 }
+
+type RunRoleAction = <TAction extends RoleOperationAction>(
+  descriptor: RoleOperationDescriptor<TAction>,
+  action: () => Promise<void>,
+) => Promise<void>;
 
 function requireCapabilitySnapshot(
   actorSnapshot: RoleCapabilitySnapshot | null,
@@ -256,14 +264,4 @@ function requireCsrfToken(token: string | null): string {
     throw new Error("CSRF token is unavailable");
   }
   return token;
-}
-
-function formatScopeLabel(scope: RoleScope): string {
-  if (scope.scope === "organization") {
-    return `organization:${scope.org_id}`;
-  }
-  if (scope.scope === "project") {
-    return `project:${scope.project_id}`;
-  }
-  return `account:${scope.account_id}`;
 }

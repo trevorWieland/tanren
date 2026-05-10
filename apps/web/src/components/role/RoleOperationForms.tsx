@@ -11,84 +11,56 @@ import {
   RoleCard,
   ScopeFields,
 } from "./RoleFormFields";
+import {
+  assertNever,
+  ROLE_OPERATION_DESCRIPTORS,
+  type RoleOperationAction,
+  type RoleOperationSubmitStateKey,
+} from "./role-action-descriptors";
 
 interface RoleOperationFormsProps {
   capabilities: RoleAdminCapabilities | null;
-  onCreateRole: FormEventHandler<HTMLFormElement>;
-  onEditRole: FormEventHandler<HTMLFormElement>;
-  onDeleteRole: FormEventHandler<HTMLFormElement>;
-  onApplyRole: FormEventHandler<HTMLFormElement>;
-  onCheckPermission: FormEventHandler<HTMLFormElement>;
+  onSubmitByAction: Record<
+    RoleOperationAction,
+    FormEventHandler<HTMLFormElement>
+  >;
+  submitState: Record<RoleOperationSubmitStateKey, boolean>;
 }
 
 export function RoleOperationForms(props: RoleOperationFormsProps): ReactNode {
   return (
     <section className="grid gap-4 md:grid-cols-2">
-      {hasRoleCapability(props.capabilities, "create_role") ? (
-        <RoleCard title="Create role" onSubmit={props.onCreateRole}>
-          <ScopeFields prefix="scope_" />
-          <LabeledInput
-            name="name"
-            label="Name"
-            placeholder="workspace-admin"
-          />
-          <LabeledInput
-            name="permissions"
-            label="Permissions"
-            placeholder="accounts.read,accounts.write"
-          />
-        </RoleCard>
-      ) : null}
-
-      {hasRoleCapability(props.capabilities, "edit_role") ? (
-        <RoleCard title="Edit role" onSubmit={props.onEditRole}>
-          <LabeledInput name="role_id" label="Role id" placeholder="uuid" />
-          <ScopeFields prefix="scope_" />
-          <LabeledInput
-            name="name"
-            label="Name"
-            placeholder="workspace-admin"
-          />
-          <LabeledInput
-            name="permissions"
-            label="Permissions"
-            placeholder="accounts.read,accounts.write"
-          />
-        </RoleCard>
-      ) : null}
-
-      {hasRoleCapability(props.capabilities, "delete_role") ? (
-        <RoleCard title="Delete role" onSubmit={props.onDeleteRole}>
-          <LabeledInput name="role_id" label="Role id" placeholder="uuid" />
-          <ScopeFields prefix="scope_" />
-        </RoleCard>
-      ) : null}
-
-      {hasRoleCapability(props.capabilities, "apply_role") ? (
-        <RoleCard title="Apply role" onSubmit={props.onApplyRole}>
-          <LabeledInput name="role_id" label="Role id" placeholder="uuid" />
-          <ScopeFields prefix="role_scope_" legend="Role scope" />
-          <PrincipalFields prefix="principal_" />
-          <ScopeFields prefix="grant_scope_" legend="Grant scope" />
-        </RoleCard>
-      ) : null}
-
-      {hasRoleCapability(props.capabilities, "check_permission") ? (
-        <RoleCard title="Check permission" onSubmit={props.onCheckPermission}>
-          <PrincipalFields prefix="principal_" allowRolePrincipal />
-          <LabeledInput
-            name="permission"
-            label="Permission"
-            placeholder="accounts.read"
-          />
-          <ScopeFields prefix="scope_" />
-        </RoleCard>
-      ) : null}
+      {ROLE_OPERATION_ORDER.map((action) => {
+        const descriptor = ROLE_OPERATION_DESCRIPTORS[action];
+        if (!hasRoleCapability(props.capabilities, descriptor.capability)) {
+          return null;
+        }
+        const isSubmitting = props.submitState[descriptor.submitStateKey];
+        return (
+          <RoleCard
+            key={descriptor.action}
+            title={descriptor.title}
+            onSubmit={props.onSubmitByAction[descriptor.action]}
+            submitLabel={isSubmitting ? "Running..." : "Run"}
+            submitDisabled={isSubmitting}
+          >
+            {renderOperationFields(descriptor.action)}
+          </RoleCard>
+        );
+      })}
 
       {renderCapabilityState(props.capabilities)}
     </section>
   );
 }
+
+const ROLE_OPERATION_ORDER: readonly RoleOperationAction[] = [
+  "create_role",
+  "edit_role",
+  "delete_role",
+  "apply_role",
+  "check_permission",
+];
 
 function hasRoleCapability(
   capabilities: RoleAdminCapabilities | null,
@@ -118,4 +90,72 @@ function renderCapabilityState(
   }
 
   return null;
+}
+
+function renderOperationFields(action: RoleOperationAction): ReactNode {
+  switch (action) {
+    case "create_role":
+      return (
+        <>
+          <ScopeFields prefix="scope_" />
+          <LabeledInput
+            name="name"
+            label="Name"
+            placeholder="workspace-admin"
+          />
+          <LabeledInput
+            name="permissions"
+            label="Permissions"
+            placeholder="accounts.read,accounts.write"
+          />
+        </>
+      );
+    case "edit_role":
+      return (
+        <>
+          <LabeledInput name="role_id" label="Role id" placeholder="uuid" />
+          <ScopeFields prefix="scope_" />
+          <LabeledInput
+            name="name"
+            label="Name"
+            placeholder="workspace-admin"
+          />
+          <LabeledInput
+            name="permissions"
+            label="Permissions"
+            placeholder="accounts.read,accounts.write"
+          />
+        </>
+      );
+    case "delete_role":
+      return (
+        <>
+          <LabeledInput name="role_id" label="Role id" placeholder="uuid" />
+          <ScopeFields prefix="scope_" />
+        </>
+      );
+    case "apply_role":
+      return (
+        <>
+          <LabeledInput name="role_id" label="Role id" placeholder="uuid" />
+          <ScopeFields prefix="role_scope_" legend="Role scope" />
+          <PrincipalFields prefix="principal_" />
+          <ScopeFields prefix="grant_scope_" legend="Grant scope" />
+        </>
+      );
+    case "check_permission":
+      return (
+        <>
+          <PrincipalFields prefix="principal_" allowRolePrincipal />
+          <LabeledInput
+            name="permission"
+            label="Permission"
+            placeholder="accounts.read"
+          />
+          <ScopeFields prefix="scope_" />
+        </>
+      );
+    default:
+      return assertNever(action, "role operation action");
+  }
 }

@@ -3,6 +3,8 @@ import type { FormEvent, ReactNode } from "react";
 export function RoleCard(props: {
   title: string;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
+  submitLabel?: string;
+  submitDisabled?: boolean;
   children: ReactNode;
 }): ReactNode {
   return (
@@ -14,9 +16,10 @@ export function RoleCard(props: {
       <div className="space-y-2">{props.children}</div>
       <button
         className="mt-3 rounded border border-[--color-border] px-3 py-1 text-sm"
+        disabled={props.submitDisabled}
         type="submit"
       >
-        Run
+        {props.submitLabel ?? "Run"}
       </button>
     </form>
   );

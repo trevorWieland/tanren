@@ -159,7 +159,7 @@ export interface PermissionGrantView {
   principal: PrincipalRef;
   scope: PermissionScope;
   permission: PermissionName;
-  source_role_id: RoleId;
+  source_role_id: RoleId | null;
   granted_at: string;
 }
 
@@ -253,6 +253,22 @@ export function roleFailureSummaryForCode(code: RoleServerFailureCode): string {
   return ROLE_FAILURE_SUMMARIES[code];
 }
 
+export function roleFailureSummaryForAnyCode(code: RoleFailureCode): string {
+  switch (code) {
+    case "validation_failed":
+    case "not_found":
+    case "conflict":
+    case "permission_denied":
+    case "role_as_principal_rejected":
+    case "internal_error":
+      return roleFailureSummaryForCode(code);
+    case "transport_error":
+      return "Tanren could not complete the request due to transport or payload errors.";
+    default:
+      return assertNever(code, "role failure code");
+  }
+}
+
 export function isRoleServerFailureCode(
   code: string,
 ): code is RoleServerFailureCode {
@@ -261,27 +277,21 @@ export function isRoleServerFailureCode(
 
 export function parseRoleFailure(payload: unknown): RoleFailureBody {
   if (isRecord(payload)) {
-    const code = payload["code"];
+    const code = parseRoleFailureCode(payload["code"]);
     const summary = payload["summary"];
-    if (typeof code === "string" && isRoleServerFailureCode(code)) {
+    if (code !== null) {
       return {
         code,
         summary:
           typeof summary === "string"
-            ? summary
-            : roleFailureSummaryForCode(code),
-      };
-    }
-    if (typeof summary === "string" && summary.length > 0) {
-      return {
-        code: "transport_error",
-        summary,
+            ? summary.trim() || roleFailureSummaryForAnyCode(code)
+            : roleFailureSummaryForAnyCode(code),
       };
     }
   }
   return {
     code: "transport_error",
-    summary: "unexpected failure payload",
+    summary: roleFailureSummaryForAnyCode("transport_error"),
   };
 }
 
@@ -443,28 +453,31 @@ function parseRoleScope(value: unknown, context: string): RoleScope {
     parseString(data["scope"], `${context}.scope`),
     `${context}.scope`,
   );
-  if (scope === "organization") {
-    return {
-      scope,
-      org_id: parseOrgIdValue(data["org_id"], `${context}.org_id`),
-    };
+  switch (scope) {
+    case "organization":
+      return {
+        scope,
+        org_id: parseOrgIdValue(data["org_id"], `${context}.org_id`),
+      };
+    case "project":
+      return {
+        scope,
+        project_id: parseProjectIdValue(
+          data["project_id"],
+          `${context}.project_id`,
+        ),
+      };
+    case "account":
+      return {
+        scope,
+        account_id: parseAccountIdValue(
+          data["account_id"],
+          `${context}.account_id`,
+        ),
+      };
+    default:
+      return assertNever(scope, `${context}.scope`);
   }
-  if (scope === "project") {
-    return {
-      scope,
-      project_id: parseProjectIdValue(
-        data["project_id"],
-        `${context}.project_id`,
-      ),
-    };
-  }
-  return {
-    scope,
-    account_id: parseAccountIdValue(
-      data["account_id"],
-      `${context}.account_id`,
-    ),
-  };
 }
 
 function parsePermissionScope(
@@ -472,13 +485,16 @@ function parsePermissionScope(
   context: string,
 ): PermissionScope {
   const scope = parseRoleScope(value, context);
-  if (scope.scope === "organization") {
-    return { scope: "organization", org_id: scope.org_id };
+  switch (scope.scope) {
+    case "organization":
+      return { scope: "organization", org_id: scope.org_id };
+    case "project":
+      return { scope: "project", project_id: scope.project_id };
+    case "account":
+      return { scope: "account", account_id: scope.account_id };
+    default:
+      return assertNever(scope, context);
   }
-  if (scope.scope === "project") {
-    return { scope: "project", project_id: scope.project_id };
-  }
-  return { scope: "account", account_id: scope.account_id };
 }
 
 function parsePrincipalRef(value: unknown, context: string): PrincipalRef {
@@ -487,10 +503,14 @@ function parsePrincipalRef(value: unknown, context: string): PrincipalRef {
     parseString(data["principal"], `${context}.principal`),
     `${context}.principal`,
   );
-  if (principal === "role") {
-    return parseRolePrincipalRejectionRef(data, context);
+  switch (principal) {
+    case "role":
+      return parseRolePrincipalRejectionRef(data, context);
+    case "account":
+      return parseAccountPrincipalRef(data, context);
+    default:
+      return assertNever(principal, `${context}.principal`);
   }
-  return parseAccountPrincipalRef(data, context);
 }
 
 function parseAccountPrincipalRef(
@@ -558,9 +578,10 @@ function parsePermissionGrantView(
       data["permission"],
       `${context}.permission`,
     ),
-    source_role_id: parseRoleIdValue(
+    source_role_id: parseOptional(
       data["source_role_id"],
       `${context}.source_role_id`,
+      parseRoleIdValue,
     ),
     granted_at: parseString(data["granted_at"], `${context}.granted_at`),
   };
@@ -655,6 +676,22 @@ function parsePrincipalKindStrict(
   }
 }
 
+function parseRoleFailureCode(value: unknown): RoleFailureCode | null {
+  if (typeof value !== "string") {
+    return null;
+  }
+  if (value === "transport_error") {
+    return "transport_error";
+  }
+  return isRoleServerFailureCode(value) ? value : null;
+}
+
+function assertNever(value: never, context: string): never {
+  throw new Error(
+    `${context} must contain a supported variant: ${String(value)}`,
+  );
+}
+
 function parseRoleIdValue(value: unknown, context: string): RoleId {
   return asRoleId(parseString(value, context));
 }
@@ -725,7 +762,7 @@ function parseOptional<TValue>(
   context: string,
   parser: (item: unknown, parserContext: string) => TValue,
 ): TValue | null {
-  if (value === null) {
+  if (value === null || value === undefined) {
     return null;
   }
   return parser(value, context);

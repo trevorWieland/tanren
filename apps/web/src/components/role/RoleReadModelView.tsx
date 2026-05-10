@@ -1,11 +1,12 @@
 import type { ReactNode } from "react";
 
 import type {
-  AccountPrincipalRef,
   PermissionScope,
+  PrincipalRef,
   RoleReadModelResponse,
   RoleScope,
 } from "@/app/lib/generated/role-contract";
+import { assertNever } from "./role-action-descriptors";
 
 export interface OperationSummary {
   label: string;
@@ -111,27 +112,40 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
 }
 
 function formatRoleScope(scope: RoleScope): string {
-  if (scope.scope === "organization") {
-    return `organization:${scope.org_id}`;
+  switch (scope.scope) {
+    case "organization":
+      return `organization:${scope.org_id}`;
+    case "project":
+      return `project:${scope.project_id}`;
+    case "account":
+      return `account:${scope.account_id}`;
+    default:
+      return assertNever(scope, "role scope");
   }
-  if (scope.scope === "project") {
-    return `project:${scope.project_id}`;
-  }
-  return `account:${scope.account_id}`;
 }
 
 function formatPermissionScope(scope: PermissionScope): string {
-  if (scope.scope === "organization") {
-    return `organization:${scope.org_id}`;
+  switch (scope.scope) {
+    case "organization":
+      return `organization:${scope.org_id}`;
+    case "project":
+      return `project:${scope.project_id}`;
+    case "account":
+      return `account:${scope.account_id}`;
+    default:
+      return assertNever(scope, "permission scope");
   }
-  if (scope.scope === "project") {
-    return `project:${scope.project_id}`;
-  }
-  return `account:${scope.account_id}`;
 }
 
-function formatPrincipal(principal: AccountPrincipalRef): string {
-  return `account:${principal.account_id}`;
+function formatPrincipal(principal: PrincipalRef): string {
+  switch (principal.principal) {
+    case "account":
+      return `account:${principal.account_id}`;
+    case "role":
+      return `role:${principal.role_id}`;
+    default:
+      return assertNever(principal, "principal");
+  }
 }
 
 function formatRoleCursor(
