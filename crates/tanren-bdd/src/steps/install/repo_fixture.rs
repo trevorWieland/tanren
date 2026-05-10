@@ -36,17 +36,18 @@ impl InstallContext {
         Ok(())
     }
 
-    pub(crate) fn record_baseline(
+    pub(crate) fn record_fixture_baseline(
         &mut self,
         relative_path: RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         let absolute = self.repository_path(&relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute,
-            action: "read repository fixture file for baseline",
+            action: "read repository fixture file for fixture baseline",
             source,
         })?;
-        self.baselines.insert(relative_path, bytes);
+        self.fixture_proof_file_baselines
+            .insert(relative_path, bytes);
         Ok(())
     }
 

@@ -244,6 +244,24 @@ Tanren-owned artifacts are controlled by Tanren, regeneration does not require
 human approval. Protection comes from clear ownership classification, audit
 history, and the ability to replay the canonical event stream.
 
+## Proof Fixture Classification
+
+BDD repository snapshots, baseline maps, and other filesystem fixture checks
+are non-canonical proof-support evidence. They verify interface behavior for a
+test harness run, but they do not define production drift state or replace
+event-backed projection authority.
+
+This includes install/drift BDD harness context state (for example, pre-run
+filesystem snapshots and per-file baseline maps captured for assertions): those
+values are witness inputs for tests only.
+
+For drift semantics:
+
+- canonical authority is typed events plus projection metadata and read models;
+- fixture snapshots are secondary witness artifacts for acceptance tests;
+- fixture baseline maps are per-scenario comparison inputs, not repo-artifact
+  projection state.
+
 ## Public Event Stream Access
 
 Tanren exposes event-stream access as a first-class API capability for advanced

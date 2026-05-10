@@ -38,7 +38,7 @@ fn given_repository_file_seeded_from_catalog(
 #[given(expr = "repository file {string} baseline is recorded")]
 fn given_repository_file_baseline(world: &mut TanrenWorld, path: String) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
-    ctx.record_baseline(RepositoryRelativePath::parse(path)?)
+    ctx.record_fixture_baseline(RepositoryRelativePath::parse(path)?)
 }
 
 #[given(expr = "previous install manifest tracks stale generated file {string}")]

@@ -139,8 +139,10 @@ impl InstallContext {
     }
 
     pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
+        // This is a secondary read-only witness for BDD runs. Canonical drift
+        // authority remains event-backed projection state and drift reporting.
         let before = self
-            .snapshot_before_last_run
+            .fixture_proof_snapshot_before_last_run
             .as_ref()
             .ok_or(InstallStepError::MissingSnapshotBeforeRun)?;
         let after =
@@ -218,12 +220,12 @@ impl InstallContext {
         &self,
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
-        let baseline =
-            self.baselines
-                .get(relative_path)
-                .ok_or_else(|| InstallStepError::MissingBaseline {
-                    path: relative_path.as_str().to_owned(),
-                })?;
+        let baseline = self
+            .fixture_proof_file_baselines
+            .get(relative_path)
+            .ok_or_else(|| InstallStepError::MissingBaseline {
+                path: relative_path.as_str().to_owned(),
+            })?;
         let absolute = self.repository_path(relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute.clone(),
@@ -240,12 +242,12 @@ impl InstallContext {
         &self,
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
-        let baseline =
-            self.baselines
-                .get(relative_path)
-                .ok_or_else(|| InstallStepError::MissingBaseline {
-                    path: relative_path.as_str().to_owned(),
-                })?;
+        let baseline = self
+            .fixture_proof_file_baselines
+            .get(relative_path)
+            .ok_or_else(|| InstallStepError::MissingBaseline {
+                path: relative_path.as_str().to_owned(),
+            })?;
         let absolute = self.repository_path(relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute.clone(),

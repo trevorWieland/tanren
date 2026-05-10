@@ -12,11 +12,14 @@ use crate::steps::install_snapshot::RepositorySnapshot;
 use super::{InstallStepError, InstallStepResult};
 
 /// Per-scenario install fixture state.
+///
+/// These fields are BDD proof harness inputs and witnesses only. They are not
+/// production projection state and never become canonical drift authority.
 #[derive(Debug)]
 pub(crate) struct InstallContext {
     pub(super) repository_root: PathBuf,
-    pub(super) baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
-    pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
+    pub(super) fixture_proof_file_baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
+    pub(super) fixture_proof_snapshot_before_last_run: Option<RepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
 }
 
@@ -31,8 +34,8 @@ impl InstallContext {
         })?;
         Ok(Self {
             repository_root,
-            baselines: BTreeMap::new(),
-            snapshot_before_last_run: None,
+            fixture_proof_file_baselines: BTreeMap::new(),
+            fixture_proof_snapshot_before_last_run: None,
             last_run: None,
         })
     }
@@ -59,7 +62,7 @@ impl InstallContext {
             .execute_cli_command(args)
             .await
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
-        self.snapshot_before_last_run = Some(before);
+        self.fixture_proof_snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
         Ok(())
     }
@@ -86,7 +89,7 @@ impl InstallContext {
             .execute_cli_command(args)
             .await
             .map_err(|source| InstallStepError::RunDriftCommand { source })?;
-        self.snapshot_before_last_run = Some(before);
+        self.fixture_proof_snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
         Ok(())
     }

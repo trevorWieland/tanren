@@ -380,6 +380,76 @@ state; it does not run upgrade or uninstall flows. Upgrade behavior is owned by
 [Stack Uninstall](#stack-uninstall). Repository asset removal is owned by
 [Repo Uninstall](#repo-uninstall).
 
+Architecture classification for this command slice:
+
+- This R-0023 install surface is a repository-local bootstrap/materialization
+  path while the broader control-plane-backed delivery model is being
+  completed.
+- It does not create alternate canonical state: install-managed files remain
+  controlled projections whose production authority is typed events and
+  projection metadata in the control plane.
+- BDD fixture repositories used to test this command are proof harness inputs,
+  not product-state authority.
+
+## Current Read-Only Drift Command Surface (R-0024)
+
+The implemented repository-local drift command is:
+
+```text
+tanren-cli drift --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
+```
+
+Current behavior:
+
+- `--profile` is required. Current supported value is `rust-cargo`.
+- `--repo` defaults to the current working directory (`.`).
+- `--integrations` supports `claude`, `codex`, and `open-code`; omitting the
+  flag analyzes all supported integrations.
+- The command is read-only diagnostics over install-managed assets for the
+  selected repository slice; it does not write files and does not remediate
+  drift directly.
+- Drift remediation for this slice remains `tanren-cli install` ownership.
+
+Stable output contract (line 1):
+
+```text
+status=<ok|drift> command=drift repo=<repo_arg_or_redacted> profile=<profile> integrations=<csv_or_all> clean=<u32> changed_generated=<u32> missing_generated=<u32> missing_preserved=<u32> accepted_preserved=<u32> drift=<u32>
+```
+
+Stable output contract (line 2):
+
+```text
+paths clean=[<repo-relative-path,...>] changed_generated=[<repo-relative-path,...>] missing_generated=[<repo-relative-path,...>] missing_preserved=[<repo-relative-path,...>] accepted_preserved=[<repo-relative-path,...>]
+```
+
+Field and outcome contract:
+
+- `status`: `ok` when `drift=0`; `drift` when `drift>0`.
+- `drift`: total drift count (`changed_generated + missing_generated +
+  missing_preserved`).
+- `clean`: count of install-managed paths matching generated or preserved
+  expectations.
+- `changed_generated` / `missing_generated`: generated-asset drift counts.
+- `missing_preserved`: preserved standards deleted from the repository.
+- `accepted_preserved`: preserved standards edited by the user and accepted as
+  non-drift.
+- Path lists are repository-relative and must not expose absolute host paths.
+- Clean install-managed state exits `0` with `status=ok command=drift`.
+- Generated-asset drift or missing preserved standards exits non-zero with
+  `status=drift command=drift`.
+- Accepted preserved edits remain non-drift and exit `0`.
+
+Architecture classification for this command slice:
+
+- This R-0024 surface is a repository-local operator diagnostic path for
+  install-managed projections while the broader control-plane-backed delivery
+  model is being completed.
+- It does not redefine canonical drift authority: canonical state remains typed
+  events and projection metadata in the control plane.
+- BDD coverage for this command uses temporary filesystem fixtures as proof
+  harness inputs only; fixture snapshots and per-file baseline maps are not
+  product state and not canonical drift records.
+
 ## Standards Profiles
 
 Standards profiles are Tanren-owned projections once selected for a project.
