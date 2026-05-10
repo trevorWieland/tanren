@@ -14,11 +14,12 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CreateUserCredentialRequest,
-    CreateUserCredentialResponse, GetAuthenticatedUserConfigurationCapabilitiesResponse,
-    ListUserCredentialsResponse, ListUserSettingsResponse, RemoveUserCredentialResponse,
-    RemoveUserSettingResponse, SessionEnvelope, SignInRequest, SignUpRequest,
-    UpdateUserCredentialRequest, UpdateUserCredentialResponse, UpsertUserSettingRequest,
-    UpsertUserSettingResponse, UserConfigurationFailureReason,
+    CreateUserCredentialResponse, GetAuthenticatedAccountResponse,
+    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
+    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
+    SessionEnvelope, SignInRequest, SignUpRequest, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -34,9 +35,10 @@ use self::user_configuration::{
     __path_add_user_credential_route, __path_list_user_credentials_route,
     __path_list_user_settings_route, __path_remove_user_credential_route,
     __path_remove_user_setting_route, __path_update_user_credential_route,
-    __path_upsert_user_setting_route, add_user_credential_route, list_user_credentials_route,
-    list_user_settings_route, remove_user_credential_route, remove_user_setting_route,
-    update_user_credential_route, upsert_user_setting_route,
+    __path_upsert_user_setting_route, add_user_credential_route, auth_required,
+    authenticated_session_context, list_user_credentials_route, list_user_settings_route,
+    remove_user_credential_route, remove_user_setting_route, update_user_credential_route,
+    upsert_user_setting_route,
 };
 use self::user_configuration_authenticated::{
     __path_add_authenticated_user_credential_route,
@@ -129,6 +131,7 @@ pub struct AcceptInvitationBody {
         health_route,
         sign_up_route,
         sign_in_route,
+        get_authenticated_account_route,
         accept_invitation_route,
         revoke_route,
         get_authenticated_user_configuration_capabilities_route,
@@ -153,6 +156,7 @@ pub struct AcceptInvitationBody {
         SignUpResponseCookie,
         SignInRequest,
         SignInResponseCookie,
+        GetAuthenticatedAccountResponse,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
         GetAuthenticatedUserConfigurationCapabilitiesResponse,
@@ -279,6 +283,36 @@ pub(crate) async fn sign_in_route(
     }
 }
 
+/// Return the authenticated account read model sourced from the cookie
+/// session context.
+#[utoipa::path(
+    get,
+    path = "/account",
+    responses(
+        (status = 200, body = GetAuthenticatedAccountResponse, description = "Authenticated account/session read model"),
+        (status = 401, body = AccountFailureBody, description = "auth_required"),
+    ),
+    tag = "accounts",
+)]
+pub(crate) async fn get_authenticated_account_route(
+    State(state): State<AppState>,
+    session: Session,
+) -> Response {
+    let context = match authenticated_session_context(&session).await {
+        Ok(value) => value,
+        Err(response) => return response,
+    };
+    match state
+        .handlers
+        .get_authenticated_account(state.store.as_ref(), context.account_id, context.expires_at)
+        .await
+    {
+        Ok(Some(response)) => (StatusCode::OK, Json(response)).into_response(),
+        Ok(None) => auth_required(),
+        Err(err) => map_app_error(err),
+    }
+}
+
 /// Accept an organization invitation and mint a cookie-bound session.
 #[utoipa::path(
     post,
@@ -382,6 +416,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
+        .routes(routes!(get_authenticated_account_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
         .routes(routes!(

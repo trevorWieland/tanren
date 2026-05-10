@@ -107,10 +107,11 @@ When(
     await page.getByLabel(/password/i).fill(password);
     await page.getByLabel(/display name/i).fill(name);
     await page.getByRole("button", { name: /create account/i }).click();
-    // The form's onSuccess pushes to "/configuration/account";
+    // The form's onSuccess pushes to "/account" (optionally with a
+    // constrained `from` query hint).
     // failure surfaces an alert.
     const result = await Promise.race([
-      page.waitForURL("/configuration/account").then(() => "ok" as const),
+      page.waitForURL(/\/account(?:\?.*)?$/).then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()
@@ -138,7 +139,7 @@ Given(
     await page.getByLabel(/password/i).fill(password);
     await page.getByLabel(/display name/i).fill(name);
     await page.getByRole("button", { name: /create account/i }).click();
-    await page.waitForURL("/configuration/account", { timeout: 10_000 });
+    await page.waitForURL(/\/account(?:\?.*)?$/, { timeout: 10_000 });
     a.hasSession = true;
     // Sign out for the next step by clearing cookies — the alternative
     // (a real sign-out UI) lives in a future PR.
@@ -160,7 +161,7 @@ When(
     await page.getByLabel(/password/i).fill(a.password);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     const result = await Promise.race([
-      page.waitForURL("/configuration/account").then(() => "ok" as const),
+      page.waitForURL(/\/account(?:\?.*)?$/).then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()
@@ -187,7 +188,7 @@ When(
     await page.getByLabel(/password/i).fill(password);
     await page.getByRole("button", { name: /^sign in$/i }).click();
     const result = await Promise.race([
-      page.waitForURL("/configuration/account").then(() => "ok" as const),
+      page.waitForURL(/\/account(?:\?.*)?$/).then(() => "ok" as const),
       page
         .locator('form [role="alert"]')
         .first()

@@ -4,6 +4,7 @@ use axum::extract::{FromRequestParts, Path, Query, State};
 use axum::http::StatusCode;
 use axum::http::request::Parts;
 use axum::response::{IntoResponse, Response};
+use chrono::{DateTime, Utc};
 use serde::Deserialize;
 use std::collections::HashMap;
 use tanren_app_services::AuthenticatedConfigurationContext;
@@ -28,7 +29,7 @@ use super::user_configuration_helpers::{
     update_user_credential_operation, upsert_user_setting_operation,
 };
 use crate::AppState;
-use crate::cookies::SESSION_KEY_ACCOUNT;
+use crate::cookies::{SESSION_KEY_ACCOUNT, SESSION_KEY_EXPIRES};
 use crate::errors::AccountFailureBody;
 use crate::errors::ValidatedJson;
 
@@ -338,14 +339,40 @@ pub(super) fn list_credentials_request_from_query(
 }
 
 pub(super) async fn authenticated_account_id(session: &Session) -> Result<AccountId, Response> {
-    match session.get::<AccountId>(SESSION_KEY_ACCOUNT).await {
-        Ok(Some(account_id)) => Ok(account_id),
-        Ok(None) => Err(auth_required()),
+    authenticated_session_context(session)
+        .await
+        .map(|context| context.account_id)
+}
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct AuthenticatedSessionContext {
+    pub(crate) account_id: AccountId,
+    pub(crate) expires_at: DateTime<Utc>,
+}
+
+pub(crate) async fn authenticated_session_context(
+    session: &Session,
+) -> Result<AuthenticatedSessionContext, Response> {
+    let account_id = match session.get::<AccountId>(SESSION_KEY_ACCOUNT).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return Err(auth_required()),
         Err(err) => {
             tracing::error!(target: "tanren_api", error = %err, "session read account_id");
-            Err(internal_error())
+            return Err(internal_error());
         }
-    }
+    };
+    let expires_at = match session.get::<DateTime<Utc>>(SESSION_KEY_EXPIRES).await {
+        Ok(Some(value)) => value,
+        Ok(None) => return Err(auth_required()),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read expires_at");
+            return Err(internal_error());
+        }
+    };
+    Ok(AuthenticatedSessionContext {
+        account_id,
+        expires_at,
+    })
 }
 
 pub(super) fn auth_required() -> Response {

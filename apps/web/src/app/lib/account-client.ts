@@ -90,6 +90,16 @@ export interface SignInResult {
   session: SessionView;
 }
 
+export interface AccountHomeFreshnessView {
+  read_at: string;
+  session_expires_at: string;
+}
+
+export interface AuthenticatedAccountHomeResult {
+  account: AccountView;
+  freshness: AccountHomeFreshnessView;
+}
+
 export interface AcceptInvitationResult {
   account: AccountView;
   session: SessionView;
@@ -215,6 +225,12 @@ export function acceptInvitation(
 
 export function fetchHealth(): Promise<HealthReport> {
   return requestJson<HealthReport>("/health", { method: "GET" });
+}
+
+export function fetchAuthenticatedAccountHome(): Promise<AuthenticatedAccountHomeResult> {
+  return requestJson<AuthenticatedAccountHomeResult>("/account", {
+    method: "GET",
+  });
 }
 
 export function listUserSettings(): Promise<ListUserSettingsResult> {

@@ -10,7 +10,8 @@ pub mod configuration;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AuthenticatedAccountFreshnessView, GetAuthenticatedAccountResponse, SessionEnvelope,
+    SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use configuration::{
     ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,

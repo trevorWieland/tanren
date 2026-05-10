@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { buildAccountHomeRoute } from "@/app/lib/navigation";
 import { SignUpForm } from "@/components/account/SignUpForm";
 import * as m from "@/i18n/paraglide/messages";
 
@@ -13,7 +14,7 @@ export default function SignUpPage(): ReactNode {
       <h1 className="text-2xl font-semibold">{m.signUp_title()}</h1>
       <SignUpForm
         onSuccess={() => {
-          router.push("/configuration/account");
+          router.push(buildAccountHomeRoute({ from: "sign_up" }));
         }}
       />
     </main>

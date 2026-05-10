@@ -186,6 +186,24 @@ impl SessionEnvelope {
     }
 }
 
+/// Freshness metadata attached to the authenticated account read model.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct AuthenticatedAccountFreshnessView {
+    /// Server timestamp used to resolve this read model.
+    pub read_at: DateTime<Utc>,
+    /// Session expiry instant from the authenticated cookie session.
+    pub session_expires_at: DateTime<Utc>,
+}
+
+/// Authenticated account/session read model used by post-auth surfaces.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct GetAuthenticatedAccountResponse {
+    /// Authenticated account snapshot.
+    pub account: AccountView,
+    /// Read-model freshness metadata.
+    pub freshness: AuthenticatedAccountFreshnessView,
+}
+
 /// Closed taxonomy of account-flow failures.
 ///
 /// Maps onto the shared `{code, summary}` error body documented in

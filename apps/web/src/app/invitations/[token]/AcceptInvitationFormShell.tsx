@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import type { ReactNode } from "react";
+import type { JSX } from "react";
 
 import { buildAccountHomeRoute } from "@/app/lib/navigation";
 import { AcceptInvitationForm } from "@/components/account/AcceptInvitationForm";
@@ -21,21 +21,13 @@ export interface AcceptInvitationFormShellProps {
  */
 export function AcceptInvitationFormShell({
   token,
-}: AcceptInvitationFormShellProps): ReactNode {
+}: AcceptInvitationFormShellProps): JSX.Element {
   const router = useRouter();
   return (
     <AcceptInvitationForm
       token={token}
-      onSuccess={(result) => {
-        router.push(
-          buildAccountHomeRoute({
-            accountId: result.account.id,
-            accountIdentifier: result.account.identifier,
-            displayName: result.account.display_name,
-            joinedOrganization: result.joined_org,
-            source: "invitation",
-          }),
-        );
+      onSuccess={() => {
+        router.push(buildAccountHomeRoute({ from: "invitation" }));
       }}
     />
   );

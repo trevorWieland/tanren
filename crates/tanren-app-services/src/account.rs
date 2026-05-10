@@ -25,7 +25,8 @@ use chrono::{DateTime, Duration, Utc};
 use secrecy::ExposeSecret;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AuthenticatedAccountFreshnessView, GetAuthenticatedAccountResponse, SessionView, SignInRequest,
+    SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     AccountId, CredentialVerifier, Identifier, MembershipId, SessionToken,
@@ -203,6 +204,27 @@ where
         account: account_view(&account),
         session,
     })
+}
+
+pub(crate) async fn get_authenticated_account<S>(
+    store: &S,
+    clock: &Clock,
+    account_id: AccountId,
+    session_expires_at: DateTime<Utc>,
+) -> Result<Option<GetAuthenticatedAccountResponse>, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    let Some(account) = store.find_account_by_id(account_id).await? else {
+        return Ok(None);
+    };
+    Ok(Some(GetAuthenticatedAccountResponse {
+        account: account_view(&account),
+        freshness: AuthenticatedAccountFreshnessView {
+            read_at: clock.now(),
+            session_expires_at,
+        },
+    }))
 }
 
 pub(crate) async fn accept_invitation<S>(

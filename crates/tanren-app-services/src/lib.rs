@@ -13,11 +13,12 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
-    ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
-    RemoveUserCredentialResponse, RemoveUserSettingResponse, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
-    UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
+    CreateUserCredentialRequest, CreateUserCredentialResponse, GetAuthenticatedAccountResponse,
+    ListUserCredentialsRequest, ListUserCredentialsResponse, ListUserSettingsRequest,
+    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UpdateUserCredentialRequest,
+    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
+    UserConfigurationFailureReason,
 };
 use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
 use tanren_store::UserConfigurationStore;
@@ -138,6 +139,18 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::sign_in(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    pub async fn get_authenticated_account<S>(
+        &self,
+        store: &S,
+        account_id: AccountId,
+        session_expires_at: DateTime<Utc>,
+    ) -> Result<Option<GetAuthenticatedAccountResponse>, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        account::get_authenticated_account(store, &self.clock, account_id, session_expires_at).await
     }
 
     pub async fn accept_invitation<S>(
