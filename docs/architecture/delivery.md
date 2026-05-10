@@ -308,6 +308,20 @@ Manual edits to Tanren-owned projections are drift. Changes should happen
 through Tanren actions, imports, or approved editing surfaces that emit typed
 events and regenerate projections.
 
+For the current `tanren-cli install` repository-local slice (R-0023), the
+generated install artifacts are:
+
+- selected integration command assets under `.claude/commands/`,
+  `.codex/skills/`, and `.opencode/commands/`;
+- standards profile assets tracked by the install manifest;
+- install metadata at `.tanren/install-manifest.toml`.
+
+Reinstall applies replace semantics to Tanren-owned generated command assets:
+the selected integration set is regenerated from canonical command sources, and
+stale Tanren-generated command files tracked in the prior manifest are removed.
+Standards profile assets use preserve-user-edits semantics: reinstall restores
+missing tracked files while keeping user-edited content.
+
 ## Harness Asset Generation
 
 Tanren generates harness-specific assets for Codex, Claude Code, and OpenCode.
@@ -330,6 +344,41 @@ Harness assets may include:
 Harness assets are Tanren-owned controlled projections. Reinstalling or
 regenerating them replaces stale Tanren-owned content while preserving
 unrelated user-owned files according to the declared merge policy.
+
+## Current Local Install Command Surface (R-0023)
+
+The implemented repository-local install command is:
+
+```text
+tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
+```
+
+Current behavior:
+
+- `--profile` is required. Current supported value is `rust-cargo`.
+- `--repo` defaults to the current working directory (`.`).
+- `--integrations` supports `claude`, `codex`, and `open-code`; omitting the
+  flag installs all supported integrations.
+- Selected integration command assets are written to `.claude/commands/`,
+  `.codex/skills/`, and `.opencode/commands/`.
+- Install state is recorded in `.tanren/install-manifest.toml`.
+- Tanren-owned generated command assets use `replace-generated` semantics.
+- Standards profile assets use `preserve-user-edits` semantics; reinstall
+  restores missing tracked standards files and keeps user-edited content.
+- Reinstall cleanup removes stale Tanren-generated command assets that were
+  tracked in the prior install manifest but are no longer selected by the
+  active integration set.
+- Install preview for this command surface is defined in
+  [Install Preview](#install-preview). Preview describes the same manifest
+  ownership and stale-generated cleanup decisions before apply; R-0023 does
+  not add separate install-only preview flags.
+
+This command slice is intentionally limited to install materialization. For
+this node, `tanren-cli install` only writes install assets and updates install
+state; it does not run upgrade or uninstall flows. Upgrade behavior is owned by
+[Upgrades And Migrations](#upgrades-and-migrations). Stack removal is owned by
+[Stack Uninstall](#stack-uninstall). Repository asset removal is owned by
+[Repo Uninstall](#repo-uninstall).
 
 ## Standards Profiles
 
@@ -396,6 +445,13 @@ A preview shows:
 
 A preview does not create a dev-only path. Applying the preview still happens
 through the control plane or deployment mechanism that owns the real action.
+
+For R-0023 install writes, `.tanren/install-manifest.toml` is a Tanren-owned
+install state record. The install command owns writing and replacing this
+manifest; users do not edit it as canonical input. During reinstall preview and
+apply, stale generated command cleanup is driven by manifest ownership: files
+recorded as Tanren-generated in the prior manifest that are no longer part of
+the selected integration set are scheduled for and then removed.
 
 ## Upgrades And Migrations
 

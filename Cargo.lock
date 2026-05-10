@@ -4217,6 +4217,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-testkit",
+ "thiserror 2.0.18",
  "tokio",
 ]
 
@@ -4244,10 +4245,14 @@ dependencies = [
  "anyhow",
  "clap",
  "secrecy",
+ "serde",
+ "sha2",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "thiserror 2.0.18",
  "tokio",
+ "toml",
 ]
 
 [[package]]
@@ -4456,6 +4461,7 @@ dependencies = [
  "serde_json",
  "tanren-api-app",
  "tanren-app-services",
+ "tanren-cli-app",
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-mcp-app",

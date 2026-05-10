@@ -2,12 +2,29 @@
 
 This directory is the single source of truth for Tanren's shared agent
 commands. `tanren-cli install` renders these sources into per-agent-framework
-destinations such as `.claude/commands/`, `.codex/skills/`, and
-`.opencode/commands/`.
+destinations.
 
 Do not hand-edit rendered artifacts. Edit files in `commands/` and re-run
 `just install-commands` in this repository, or `tanren-cli install` in an
 adopting repository.
+
+## Install Contract Reference
+
+Use `tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`
+to materialize command assets in a target repository.
+
+Lifecycle and ownership rules are canonical in
+[`docs/architecture/delivery.md`](../docs/architecture/delivery.md). This
+directory does not redefine install/preview/upgrade/uninstall semantics.
+
+Reference sections:
+
+- [Generated Repository Assets](../docs/architecture/delivery.md#generated-repository-assets)
+- [CLI And TUI Role](../docs/architecture/delivery.md#cli-and-tui-role)
+- [Install Preview](../docs/architecture/delivery.md#install-preview)
+- [Upgrades And Migrations](../docs/architecture/delivery.md#upgrades-and-migrations)
+- [Stack Uninstall](../docs/architecture/delivery.md#stack-uninstall)
+- [Repo Uninstall](../docs/architecture/delivery.md#repo-uninstall)
 
 > **Note (rewrite reset):** the `spec/` directory and the
 > `assess-implementation` command have been removed during the architecture

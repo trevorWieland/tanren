@@ -16,6 +16,7 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use crate::steps::install::{InstallContext, InstallStepError, InstallStepResult};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -28,31 +29,77 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Typed setup error captured by the scenario `Before` hook.
+    install_setup_error: Option<InstallStepError>,
 }
 
 impl TanrenWorld {
     /// Construct (or return) the lazy account context.
     pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
-        if self.account.is_none() {
-            self.account = Some(AccountContext::new_in_process().await);
+        match &mut self.account {
+            Some(account) => account,
+            slot @ None => slot.insert(AccountContext::new_in_process().await),
+        }
+    }
+
+    /// Construct (or return) the lazy install context.
+    pub(crate) fn ensure_install_ctx(&mut self) -> Result<&mut InstallContext, InstallStepError> {
+        self.require_account_ctx()?.ensure_install_ctx()
+    }
+
+    /// Reset the install context for the current scenario.
+    pub(crate) fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
+        self.require_account_ctx()?.reset_install_ctx()
+    }
+
+    pub(crate) async fn run_install(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        self.require_account_ctx()?
+            .run_install(profile, integrations)
+            .await
+    }
+
+    fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
+        if let Some(error) = self.install_setup_error.take() {
+            return Err(error);
         }
         self.account
             .as_mut()
-            .expect("account context just initialized")
+            .ok_or(InstallStepError::AccountContextUnavailable)
     }
 
     /// Refresh the account context with the harness chosen for the
     /// supplied scenario tags. Cucumber-rs does not give step bodies
     /// access to the active scenario's tags, so the BDD bin invokes
     /// this from a `Before` hook.
-    pub async fn install_harness_for_tags<I, S>(&mut self, tags: I)
+    pub(crate) async fn install_harness_for_tags<I, S>(&mut self, tags: I) -> InstallStepResult<()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        let kind = HarnessKind::from_tags(tags);
-        let ctx = AccountContext::new_for(kind).await;
+        self.install_setup_error = None;
+        let tags: Vec<String> = tags
+            .into_iter()
+            .map(|tag| tag.as_ref().to_owned())
+            .collect();
+        let kind = HarnessKind::from_tags(tags.iter().map(String::as_str));
+        let mut ctx = AccountContext::new_for(kind).await;
+        if tags
+            .iter()
+            .any(|tag| tag.strip_prefix('@').unwrap_or(tag) == "cli")
+        {
+            ctx.install = Some(InstallContext::new()?);
+        }
         self.account = Some(ctx);
+        Ok(())
+    }
+
+    fn store_install_setup_error(&mut self, error: InstallStepError) {
+        self.account = None;
+        self.install_setup_error = Some(error);
     }
 }
 
@@ -69,6 +116,8 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Install-flow fixture state for CLI-tagged scenarios.
+    pub(crate) install: Option<InstallContext>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -77,6 +126,7 @@ impl std::fmt::Debug for AccountContext {
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
+            .field("has_install_ctx", &self.install.is_some())
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
@@ -119,7 +169,33 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            install: None,
         }
+    }
+
+    fn ensure_install_ctx(&mut self) -> InstallStepResult<&mut InstallContext> {
+        self.install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)
+    }
+
+    fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
+        self.install = Some(InstallContext::new()?);
+        Ok(())
+    }
+
+    async fn run_install(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install
+            .run_install(self.harness.as_mut(), profile, integrations)
+            .await
     }
 }
 
@@ -141,7 +217,9 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
             Box::pin(async move {
-                world.install_harness_for_tags(tags).await;
+                if let Err(error) = world.install_harness_for_tags(tags).await {
+                    world.store_install_setup_error(error);
+                }
             })
         })
         .fail_on_skipped()
@@ -167,6 +245,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            install_setup_error: None,
         };
         assert_eq!(world.seed.value(), 42);
     }

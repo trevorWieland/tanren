@@ -311,6 +311,7 @@ fn check_scenario(
             interface_tags.len()
         ));
     }
+    check_install_step_cli_only_dispatch(rel, scenario, &interface_tags, violations);
     // Reject both missing rationale and empty `# rationale:` (the parser
     // captures `# rationale:` with no body as `Some("")` — without this
     // empty-string guard a bare `# rationale:` would silently satisfy
@@ -338,6 +339,50 @@ fn check_scenario(
             }
         }
     }
+}
+
+fn check_install_step_cli_only_dispatch(
+    rel: &Path,
+    scenario: &ParsedScenario,
+    interface_tags: &[String],
+    violations: &mut Vec<String>,
+) {
+    if !scenario_uses_install_steps(scenario) {
+        return;
+    }
+    if interface_tags.len() == 1 && interface_tags[0] == "@cli" {
+        return;
+    }
+    violations.push(format!(
+        "{}:{}: install-step scenarios must be tagged explicitly as @cli (and no other interface tags); got {:?}",
+        rel.display(),
+        scenario.keyword_line,
+        interface_tags
+    ));
+}
+
+fn scenario_uses_install_steps(scenario: &ParsedScenario) -> bool {
+    scenario
+        .step_lines
+        .iter()
+        .any(|step| step_mentions_install_flow(step))
+}
+
+fn step_mentions_install_flow(step: &str) -> bool {
+    let normalized = step.to_ascii_lowercase();
+    normalized.contains("tanren-cli install runs with profile")
+        || normalized.contains("install command succeeds")
+        || normalized.contains("install command exits nonzero")
+        || normalized.contains("install output reports")
+        || normalized.contains("install manifest records")
+        || normalized.contains("install stderr contains")
+        || normalized.contains("previous install manifest")
+        || normalized.contains("stale generated file")
+        || normalized.contains("only integrations")
+        || normalized.contains("rust-cargo profile standards files are installed")
+        || normalized.contains(
+            "rust-cargo defaults install all methodology command assets and standards files",
+        )
 }
 
 fn check_coverage_against_behavior(

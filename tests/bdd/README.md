@@ -40,3 +40,26 @@ runs the cucumber-rs harness and the BDD runner binary; with zero
 feature files shipped under F-0001/F-0002 it exits 0 with no scenarios.
 Mutation testing is intentionally separated into `just mutation` and
 nightly CI.
+
+## Current CLI Install Behavior Slices
+
+Repository install behavior is currently covered by:
+
+- `tests/bdd/features/B-0068-bootstrap-tanren-assets.feature`
+- `tests/bdd/features/B-0070-generate-selected-agent-integrations.feature`
+
+These slices assert the concrete `tanren-cli install` surface:
+
+- required `--profile` (current value: `rust-cargo`);
+- optional `--repo` defaulting to current directory;
+- optional `--integrations` with `claude`, `codex`, `open-code` (default: all);
+- generated command assets per selected integrations;
+- standards files installed and preserved by policy;
+- stale manifest-tracked generated assets removed;
+- invalid profile/integration inputs fail before repository writes.
+
+Keep scope boundaries explicit in new BDD edits:
+
+- install materialization and validation belong here;
+- drift detection/remediation, upgrade, and uninstall are separate nodes and
+  should not be folded into install-proof scenarios in this slice.

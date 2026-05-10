@@ -844,6 +844,7 @@ ci:
 # Install pnpm workspace dependencies. Lockfile must be up to date.
 web-install:
     pnpm install --frozen-lockfile
+    pnpm --filter @tanren/web exec playwright install --with-deps chromium
 
 # Build the web frontend (Next.js + Turbopack).
 web-build:

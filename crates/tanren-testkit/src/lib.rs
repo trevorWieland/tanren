@@ -12,12 +12,22 @@
 #![cfg(feature = "test-hooks")]
 
 pub mod harness;
+pub mod install_contract;
 
 pub use harness::{
-    AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
-    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
-    HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    record_failure,
+    AccountHarness, ActorState, ApiHarness, CliCommandOutcome, CliHarness,
+    ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, McpHarness, TuiHarness,
+    WebHarness, event_kinds, execute_tanren_cli, locate_workspace_binary, record_failure,
+};
+pub use install_contract::{
+    INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,
+    InstallProofContractError, InstallProofError, InstallProofIntegration, InstallProofProfile,
+    InstallProofRepoRelativePath, RUST_CARGO_PROFILE_ROOT, append_stale_generated_manifest_entry,
+    assert_manifest_rust_cargo_defaults, assert_rust_cargo_default_assets_installed,
+    assert_rust_cargo_standards_installed, assert_selected_integration_command_assets,
+    parse_install_integration_selection, read_workspace_catalog_file, sha256_hex_string,
+    tamper_manifest_with_raw_generated_entry,
 };
 
 use chrono::{DateTime, Duration, Utc};

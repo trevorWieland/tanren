@@ -25,6 +25,8 @@ use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
+pub mod install;
+
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
@@ -64,6 +66,8 @@ enum Command {
         #[command(subcommand)]
         action: AccountAction,
     },
+    /// Bootstrap Tanren assets into a repository.
+    Install(install::InstallCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -122,6 +126,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Install(command)) => command.run().map_err(anyhow::Error::new),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
