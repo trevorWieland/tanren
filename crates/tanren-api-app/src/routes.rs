@@ -21,9 +21,10 @@ use tanren_app_services::project::{
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, ActiveProjectCookieRequest, ActiveProjectRequest,
     ActiveProjectView, ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,
-    ConnectProjectRepositoryResponse, CreateProjectCookieRequest, CreateProjectRequest,
-    CreateProjectResponse, ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest,
-    ProjectCollectionView, ProjectFailureReason, SessionEnvelope, SignInRequest, SignUpRequest,
+    ConnectProjectRepositoryResponse, CookieSessionEnvelope, CreateProjectCookieRequest,
+    CreateProjectRequest, CreateProjectResponse, ListVisibleProjectsCookieRequest,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -40,17 +41,17 @@ pub struct HealthResponse {
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignUpResponseCookie {
     pub account: AccountView,
-    pub session: SessionEnvelope,
+    pub session: CookieSessionEnvelope,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct SignInResponseCookie {
     pub account: AccountView,
-    pub session: SessionEnvelope,
+    pub session: CookieSessionEnvelope,
 }
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationResponseCookie {
     pub account: AccountView,
-    pub session: SessionEnvelope,
+    pub session: CookieSessionEnvelope,
     pub joined_org: OrgId,
 }
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
@@ -96,7 +97,7 @@ pub struct AcceptInvitationBody {
         ProjectCollectionView,
         ActiveProjectCookieRequest,
         ActiveProjectView,
-        SessionEnvelope,
+        CookieSessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
@@ -151,7 +152,7 @@ pub(crate) async fn sign_up_route(
                     StatusCode::CREATED,
                     Json(SignUpResponseCookie {
                         account: response.account,
-                        session: SessionEnvelope::cookie(&response.session),
+                        session: CookieSessionEnvelope::from_session_view(&response.session),
                     }),
                 )
                     .into_response(),
@@ -189,7 +190,7 @@ pub(crate) async fn sign_in_route(
                     StatusCode::OK,
                     Json(SignInResponseCookie {
                         account: response.account,
-                        session: SessionEnvelope::cookie(&response.session),
+                        session: CookieSessionEnvelope::from_session_view(&response.session),
                     }),
                 )
                     .into_response(),
@@ -255,7 +256,7 @@ pub(crate) async fn accept_invitation_route(
                     StatusCode::CREATED,
                     Json(AcceptInvitationResponseCookie {
                         account: response.account,
-                        session: SessionEnvelope::cookie(&response.session),
+                        session: CookieSessionEnvelope::from_session_view(&response.session),
                         joined_org: response.joined_org,
                     }),
                 )

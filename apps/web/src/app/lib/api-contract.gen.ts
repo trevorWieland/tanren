@@ -161,7 +161,7 @@ export interface components {
     AcceptInvitationResponseCookie: {
       account: components["schemas"]["AccountView"];
       joined_org: components["schemas"]["OrgId"];
-      session: components["schemas"]["SessionEnvelope"];
+      session: components["schemas"]["CookieSessionEnvelope"];
     };
     /** @description Shared `{code, summary}` failure body. */
     AccountFailureBody: {
@@ -354,47 +354,22 @@ export interface components {
      */
     RepositoryRef: string;
     /**
-     * @description Transport-aware projection of a freshly minted session.
+     * @description Cookie-transport session envelope for API/web account responses.
      *
-     *     The `@web` and `@api` surfaces deliver session tokens via an
-     *     `HttpOnly + Secure + SameSite=Strict` cookie set by the API; the body
-     *     only exposes `account_id` + `expires_at` (`Cookie` variant). The
-     *     `@cli`, `@mcp`, and `@tui` surfaces have no cookie jar — they receive
-     *     the token in the response body (`Bearer` variant). Subsequent PRs map
-     *     `SessionView` → `SessionEnvelope` per surface inside each binary
-     *     (cookie session lands in PR 8). The discriminator is the transport,
-     *     not the user.
-     *
-     *     See `docs/architecture/subsystems/interfaces.md` § "Canonical session,
-     *     error, `OpenAPI`, and design-token decisions" and
-     *     `profiles/rust-cargo/architecture/cookie-session.md`.
+     *     Session tokens are written to an `HttpOnly` cookie and are never
+     *     returned in these response bodies.
      */
-    SessionEnvelope:
-      | {
-          /** @description Account this session is bound to. */
-          account_id: components["schemas"]["AccountId"];
-          /**
-           * Format: date-time
-           * @description Wall-clock time at which the session expires.
-           */
-          expires_at: string;
-          /** @enum {string} */
-          transport: "cookie";
-        }
-      | {
-          /** @description Account this session is bound to. */
-          account_id: components["schemas"]["AccountId"];
-          /**
-           * Format: date-time
-           * @description Wall-clock time at which the session expires.
-           */
-          expires_at: string;
-          /** @description Opaque session token. */
-          token: components["schemas"]["SessionToken"];
-          /** @enum {string} */
-          transport: "bearer";
-        };
-    SessionToken: string;
+    CookieSessionEnvelope: {
+      /** @description Account this session is bound to. */
+      account_id: components["schemas"]["AccountId"];
+      /**
+       * Format: date-time
+       * @description Wall-clock time at which the session expires.
+       */
+      expires_at: string;
+      /** @enum {string} */
+      transport: "cookie";
+    };
     /** @description Sign-in request. */
     SignInRequest: {
       /** @description Email of the account being signed in to. */
@@ -407,7 +382,7 @@ export interface components {
     };
     SignInResponseCookie: {
       account: components["schemas"]["AccountView"];
-      session: components["schemas"]["SessionEnvelope"];
+      session: components["schemas"]["CookieSessionEnvelope"];
     };
     /** @description Self-signup request. */
     SignUpRequest: {
@@ -428,7 +403,7 @@ export interface components {
     };
     SignUpResponseCookie: {
       account: components["schemas"]["AccountView"];
-      session: components["schemas"]["SessionEnvelope"];
+      session: components["schemas"]["CookieSessionEnvelope"];
     };
   };
   responses: never;

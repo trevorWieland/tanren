@@ -10,7 +10,8 @@ pub mod project;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest, SignInResponse,
+    SignUpRequest, SignUpResponse,
 };
 pub use project::{
     ActiveProjectCookieRequest, ActiveProjectRequest, ActiveProjectView,

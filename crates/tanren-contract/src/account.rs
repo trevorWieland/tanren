@@ -125,6 +125,33 @@ pub struct SessionView {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Cookie-transport session envelope for API/web account responses.
+///
+/// Session tokens are written to an `HttpOnly` cookie and are never
+/// returned in these response bodies.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(tag = "transport", rename_all = "snake_case")]
+pub enum CookieSessionEnvelope {
+    /// Cookie-bound session metadata.
+    Cookie {
+        /// Account this session is bound to.
+        account_id: AccountId,
+        /// Wall-clock time at which the session expires.
+        expires_at: DateTime<Utc>,
+    },
+}
+
+impl CookieSessionEnvelope {
+    /// Project a [`SessionView`] into the cookie envelope.
+    #[must_use]
+    pub fn from_session_view(view: &SessionView) -> Self {
+        Self::Cookie {
+            account_id: view.account_id,
+            expires_at: view.expires_at,
+        }
+    }
+}
+
 /// Transport-aware projection of a freshly minted session.
 ///
 /// The `@web` and `@api` surfaces deliver session tokens via an

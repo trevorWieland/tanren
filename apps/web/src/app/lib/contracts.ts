@@ -5,7 +5,7 @@ import type { components, paths } from "@/app/lib/api-contract.gen";
 const PROVIDER_FAMILY_PATTERN = /^(?!.*--)[a-z0-9][a-z0-9-]{0,46}[a-z0-9]$/;
 
 export type AccountView = components["schemas"]["AccountView"];
-export type SessionView = components["schemas"]["SessionEnvelope"];
+export type SessionView = components["schemas"]["CookieSessionEnvelope"];
 export type SignUpInput = components["schemas"]["SignUpRequest"];
 export type SignInInput = components["schemas"]["SignInRequest"];
 export type AcceptInvitationInput =
