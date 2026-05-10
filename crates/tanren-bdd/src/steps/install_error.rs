@@ -74,8 +74,13 @@ pub(crate) enum InstallStepError {
     ValidationFailureMissing { stderr: String },
     #[error("expected uninstall preview to include at least one removable path; got:\n{stdout}")]
     UninstallPreviewExpectedRemovals { stdout: String },
-    #[error("expected repository fixture to remain unchanged after command")]
-    RepositorySnapshotMismatch,
+    #[error(
+        "expected repository fixture `{repository_root}` to remain unchanged after command; changed paths: {changed_paths:?}"
+    )]
+    RepositorySnapshotMismatch {
+        repository_root: String,
+        changed_paths: Vec<String>,
+    },
     #[error("expected stale path to be absent before manifest injection: {path}")]
     StaleManifestPathAlreadyPresent { path: String },
     #[error("expected repository file content to differ from baseline for `{path}`")]

@@ -22,9 +22,8 @@ fn given_clean_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<
 #[given(expr = "an installed repository fixture")]
 async fn given_installed_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<()> {
     world.reset_install_ctx()?;
-    let ctx = world.ensure_install_ctx()?;
-    ctx.run_install_with_cli_binary("rust-cargo", None).await?;
-    ctx.assert_success()
+    world.run_install("rust-cargo", None).await?;
+    world.ensure_install_ctx()?.assert_success()
 }
 
 #[given(expr = "a repository with Tanren-managed assets")]
@@ -208,8 +207,16 @@ async fn when_uninstall_preview_runs_through_interface(
     interface: String,
 ) -> InstallStepResult<()> {
     world.assert_active_harness_interface(interface.as_str())?;
-    let ctx = world.ensure_install_ctx()?;
-    ctx.run_uninstall_preview_with_cli_binary().await
+    world.run_uninstall_preview().await
+}
+
+#[when(expr = "uninstall apply runs through the {word} interface")]
+async fn when_uninstall_apply_runs_through_interface(
+    world: &mut TanrenWorld,
+    interface: String,
+) -> InstallStepResult<()> {
+    world.assert_active_harness_interface(interface.as_str())?;
+    world.run_uninstall_apply().await
 }
 
 #[then(expr = "the install command succeeds")]

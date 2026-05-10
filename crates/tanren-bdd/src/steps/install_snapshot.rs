@@ -15,6 +15,27 @@ impl RepositorySnapshot {
         collect_files(root, root, &mut files)?;
         Ok(Self { files })
     }
+
+    #[must_use]
+    pub(crate) fn changed_paths(&self, other: &Self) -> Vec<String> {
+        let mut changed = Vec::new();
+
+        for (path, bytes) in &self.files {
+            match other.files.get(path) {
+                Some(other_bytes) if other_bytes == bytes => {}
+                Some(_) | None => changed.push(path.clone()),
+            }
+        }
+        for path in other.files.keys() {
+            if !self.files.contains_key(path) {
+                changed.push(path.clone());
+            }
+        }
+
+        changed.sort_unstable();
+        changed.dedup();
+        changed
+    }
 }
 
 fn collect_files(

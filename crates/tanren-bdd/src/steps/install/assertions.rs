@@ -230,7 +230,15 @@ impl InstallContext {
         let after =
             crate::steps::install_snapshot::RepositorySnapshot::capture(&self.repository_root)?;
         if &after != before {
-            return Err(InstallStepError::RepositorySnapshotMismatch);
+            let mut changed_paths = before.changed_paths(&after);
+            if changed_paths.len() > 20 {
+                changed_paths.truncate(20);
+                changed_paths.push("...truncated...".to_owned());
+            }
+            return Err(InstallStepError::RepositorySnapshotMismatch {
+                repository_root: self.repository_root.display().to_string(),
+                changed_paths,
+            });
         }
         Ok(())
     }
