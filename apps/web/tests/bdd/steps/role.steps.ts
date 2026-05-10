@@ -1,6 +1,10 @@
 import { createBdd, test as base } from "playwright-bdd";
 
 import type {
+  ApplyRoleResponse,
+  PermissionCheckResponse,
+  PermissionGrantId,
+  PermissionGrantView,
   PermissionScope,
   RoleFailureCode,
   RoleScope,
@@ -9,6 +13,8 @@ import {
   asAccountId,
   asOrgId,
   isRoleServerFailureCode,
+  parseApplyRoleResponse,
+  parsePermissionCheckResponse,
 } from "../../../src/app/lib/generated/role-contract";
 
 interface PrincipalAccount {
@@ -23,8 +29,10 @@ interface RoleWorld {
   activeRoleName: string | undefined;
   principals: Map<string, PrincipalAccount>;
   operator: PrincipalAccount | undefined;
-  lastPermissionCheck: boolean | undefined;
+  lastPermissionCheck: PermissionCheckResponse | undefined;
   lastErrorCode: string | undefined;
+  grantIdsByAlias: Map<string, Map<string, PermissionGrantId>>;
+  applyGrantSnapshots: Map<string, Array<Map<string, PermissionGrantId>>>;
 }
 
 type RoleTest = ReturnType<typeof base.extend<{ world: RoleWorld }>>;
@@ -39,6 +47,8 @@ export const test: RoleTest = base.extend<{ world: RoleWorld }>({
       operator: undefined,
       lastPermissionCheck: undefined,
       lastErrorCode: undefined,
+      grantIdsByAlias: new Map(),
+      applyGrantSnapshots: new Map(),
     });
   },
 });
@@ -60,6 +70,8 @@ Given("a clean role-template environment", async ({ page, world }) => {
   world.operator = undefined;
   world.lastPermissionCheck = undefined;
   world.lastErrorCode = undefined;
+  world.grantIdsByAlias.clear();
+  world.applyGrantSnapshots.clear();
   await page.context().clearCookies();
 
   const operator = await signUpActorViaUi(page, {
@@ -200,24 +212,16 @@ When(
   async ({ page, world }, alias: string) => {
     const scope = roleScope(world);
     const principal = await ensureScenarioPrincipalAccount(page, world, alias);
-    const applyCard = roleCard(page, "Apply role");
-
-    await applyCard
-      .locator('[name="role_id"]')
-      .fill(requiredActiveRoleId(world));
-    await setScope(applyCard, "role_scope_", scope);
-    await applyCard.locator('[name="principal_kind"]').selectOption("account");
-    await applyCard.locator('[name="principal_id"]').fill(principal.accountId);
-    await setPermissionScope(
-      applyCard,
-      "grant_scope_",
-      permissionScopeFromRoleScope(scope),
-    );
-
-    await submitRoleCard(page, applyCard, {
-      path: "/roles/apply",
-      label: "apply role",
+    const result = await runApplyRole(page, {
+      roleId: requiredActiveRoleId(world),
+      roleScope: scope,
+      principalAccountId: principal.accountId,
+      grantScope: permissionScopeFromRoleScope(scope),
     });
+    if (!result.ok) {
+      throw new Error(`apply role failed (${result.code})`);
+    }
+    recordApplyGrantSnapshot(world, alias, result.response.grants);
 
     world.lastPermissionCheck = undefined;
     world.lastErrorCode = undefined;
@@ -289,7 +293,7 @@ When(
         `permission check failed (${result.code}): expected successful response`,
       );
     }
-    world.lastPermissionCheck = result.allowed;
+    world.lastPermissionCheck = result.response;
     world.lastErrorCode = undefined;
   },
 );
@@ -304,7 +308,7 @@ When(
       scope: permissionScopeFromRoleScope(roleScope(world)),
     });
     if (result.ok) {
-      world.lastPermissionCheck = result.allowed;
+      world.lastPermissionCheck = result.response;
       world.lastErrorCode = "unexpected_success";
       return;
     }
@@ -324,7 +328,7 @@ When(
     });
 
     if (result.ok) {
-      world.lastPermissionCheck = result.allowed;
+      world.lastPermissionCheck = result.response;
       world.lastErrorCode = "unexpected_success";
       return;
     }
@@ -400,11 +404,119 @@ Then(
       throw new Error("permission check response is missing");
     }
     const expected = outcome === "allowed";
-    if (actual !== expected) {
+    if (actual.allowed !== expected) {
       throw new Error(
-        `permission check mismatch: expected ${expected}, got ${actual}`,
+        `permission check mismatch: expected ${expected}, got ${actual.allowed}`,
       );
     }
+  },
+);
+
+Then(
+  "the permission check matches direct grant ids for account principal {word} and permission {string}",
+  async ({ world }, alias: string, permission: string) => {
+    const check = world.lastPermissionCheck;
+    if (check === undefined) {
+      throw new Error("permission check response is missing");
+    }
+    const principal = world.principals.get(alias);
+    if (principal === undefined) {
+      throw new Error(`principal state missing for alias '${alias}'`);
+    }
+    if (check.principal.principal !== "account") {
+      throw new Error(
+        `permission check principal mismatch: expected account, got ${check.principal.principal}`,
+      );
+    }
+    if (check.principal.account_id !== principal.accountId) {
+      throw new Error(
+        `permission check principal id mismatch: expected ${principal.accountId}, got ${check.principal.account_id}`,
+      );
+    }
+    const expectedByPermission = world.grantIdsByAlias.get(alias);
+    if (expectedByPermission === undefined) {
+      throw new Error(`grant id state missing for alias '${alias}'`);
+    }
+    const expectedScope = permissionScopeFromRoleScope(roleScope(world));
+    if (
+      permissionScopeIdentity(check.scope) !==
+      permissionScopeIdentity(expectedScope)
+    ) {
+      throw new Error(
+        `permission check scope mismatch: expected ${permissionScopeIdentity(expectedScope)}, got ${permissionScopeIdentity(check.scope)}`,
+      );
+    }
+    const normalizedPermission = normalizePermissions([permission])[0] ?? "";
+    const expectedGrantId = expectedByPermission.get(normalizedPermission);
+    if (expectedGrantId === undefined) {
+      throw new Error(
+        `no expected grant id tracked for ${alias}:${normalizedPermission}`,
+      );
+    }
+    if (normalizePermissions([check.permission])[0] !== normalizedPermission) {
+      throw new Error(
+        `permission check mismatch: expected ${normalizedPermission}, got ${check.permission}`,
+      );
+    }
+    if (!check.allowed) {
+      throw new Error(
+        "permission check should be allowed for granted permission",
+      );
+    }
+    const actual = new Set(check.matching_grant_ids);
+    if (actual.size !== 1 || !actual.has(expectedGrantId)) {
+      throw new Error(
+        `matching_grant_ids mismatch for ${alias}:${normalizedPermission}`,
+      );
+    }
+  },
+);
+
+Then("the permission check has no matching grant ids", async ({ world }) => {
+  const check = world.lastPermissionCheck;
+  if (check === undefined) {
+    throw new Error("permission check response is missing");
+  }
+  if (check.allowed) {
+    throw new Error("denied permission checks must report allowed=false");
+  }
+  if (check.matching_grant_ids.length !== 0) {
+    throw new Error(
+      "denied permission checks must return empty matching_grant_ids",
+    );
+  }
+});
+
+Then(
+  "applying the role template to account principal {word} is idempotent for permissions {string}",
+  async ({ page, world }, alias: string, permissions: string) => {
+    const snapshots = world.applyGrantSnapshots.get(alias);
+    if (snapshots === undefined || snapshots.length < 2) {
+      throw new Error(
+        `idempotency witness requires two apply snapshots for alias '${alias}'`,
+      );
+    }
+    const expected = parsePermissionsCsv(permissions);
+    const previous = snapshots[snapshots.length - 2];
+    const latest = snapshots[snapshots.length - 1];
+    if (previous === undefined || latest === undefined) {
+      throw new Error(
+        `idempotency witness snapshots missing for alias '${alias}'`,
+      );
+    }
+    assertGrantSnapshotMatchesPermissions(previous, expected, "first apply");
+    assertGrantSnapshotMatchesPermissions(latest, expected, "second apply");
+    assertGrantSnapshotEqual(previous, latest, "duplicate apply");
+    await assertDirectGrantPermissions(page, world, alias, permissions);
+    const direct = world.grantIdsByAlias.get(alias);
+    if (direct === undefined) {
+      throw new Error(`direct grant state missing for alias '${alias}'`);
+    }
+    assertGrantSnapshotEqual(
+      direct,
+      latest,
+      "direct grants after duplicate apply",
+    );
   },
 );
 
@@ -474,6 +586,17 @@ function normalizePermissions(values: string[]): string[] {
     .filter((value) => value.length > 0);
 }
 
+function permissionScopeIdentity(scope: PermissionScope): string {
+  switch (scope.scope) {
+    case "account":
+      return `account:${scope.account_id}`;
+    case "organization":
+      return `organization:${scope.org_id}`;
+    case "project":
+      return `project:${scope.project_id}`;
+  }
+}
+
 function assertPermissionSetEqual(actual: string[], expected: string[]): void {
   const actualSet = new Set(actual);
   const expectedSet = new Set(expected);
@@ -498,6 +621,7 @@ async function assertDirectGrantPermissions(
   const expected = parsePermissionsCsv(permissionsCsv);
   const principal = await ensureScenarioPrincipalAccount(page, world, alias);
   const scope = permissionScopeFromRoleScope(roleScope(world));
+  const grantIdsByPermission = new Map<string, PermissionGrantId>();
 
   for (const permission of expected) {
     const result = await runPermissionCheck(page, {
@@ -511,11 +635,23 @@ async function assertDirectGrantPermissions(
         `permission check failed (${result.code}) for ${alias}:${permission}`,
       );
     }
-    if (!result.allowed) {
+    if (!result.response.allowed) {
       throw new Error(
         `expected ${alias} to have permission ${permission}, but it was denied`,
       );
     }
+    if (result.response.matching_grant_ids.length !== 1) {
+      throw new Error(
+        `expected one matching grant id for ${alias}:${permission}, got ${result.response.matching_grant_ids.length}`,
+      );
+    }
+    const grantId = result.response.matching_grant_ids[0];
+    if (grantId === undefined) {
+      throw new Error(
+        `matching grant id missing for ${alias}:${permission} despite length check`,
+      );
+    }
+    grantIdsByPermission.set(permission, grantId);
   }
 
   for (const probe of DENY_PROBE_PERMISSIONS) {
@@ -533,9 +669,86 @@ async function assertDirectGrantPermissions(
         `permission check failed (${result.code}) for ${alias}:${probe}`,
       );
     }
-    if (result.allowed) {
+    if (result.response.allowed) {
       throw new Error(
         `expected ${alias} to be denied for non-granted permission ${probe}`,
+      );
+    }
+    if (result.response.matching_grant_ids.length !== 0) {
+      throw new Error(
+        `expected no matching grant ids for denied permission ${alias}:${probe}`,
+      );
+    }
+  }
+  world.grantIdsByAlias.set(alias, grantIdsByPermission);
+}
+
+function recordApplyGrantSnapshot(
+  world: RoleWorld,
+  alias: string,
+  grants: PermissionGrantView[],
+): void {
+  const byPermission = grantIdsByPermission(grants);
+  world.grantIdsByAlias.set(alias, byPermission);
+  const snapshots = world.applyGrantSnapshots.get(alias) ?? [];
+  snapshots.push(new Map(byPermission));
+  world.applyGrantSnapshots.set(alias, snapshots);
+}
+
+function grantIdsByPermission(
+  grants: PermissionGrantView[],
+): Map<string, PermissionGrantId> {
+  const ids = new Map<string, PermissionGrantId>();
+  for (const grant of grants) {
+    const permission = normalizePermissions([grant.permission])[0] ?? "";
+    if (permission.length === 0) {
+      throw new Error("apply response permission should not be empty");
+    }
+    if (ids.has(permission)) {
+      throw new Error(
+        `duplicate grant id observed for permission '${permission}' in apply response`,
+      );
+    }
+    ids.set(permission, grant.id);
+  }
+  return ids;
+}
+
+function assertGrantSnapshotMatchesPermissions(
+  snapshot: Map<string, PermissionGrantId>,
+  permissions: string[],
+  label: string,
+): void {
+  const snapshotPermissions = new Set(snapshot.keys());
+  const expectedPermissions = new Set(permissions);
+  if (snapshotPermissions.size !== expectedPermissions.size) {
+    throw new Error(
+      `${label} permission count mismatch: expected ${expectedPermissions.size}, got ${snapshotPermissions.size}`,
+    );
+  }
+  for (const permission of expectedPermissions) {
+    if (!snapshotPermissions.has(permission)) {
+      throw new Error(`${label} missing permission '${permission}'`);
+    }
+  }
+}
+
+function assertGrantSnapshotEqual(
+  left: Map<string, PermissionGrantId>,
+  right: Map<string, PermissionGrantId>,
+  label: string,
+): void {
+  if (left.size !== right.size) {
+    throw new Error(`${label} grant-id map size mismatch`);
+  }
+  for (const [permission, grantId] of left.entries()) {
+    const rightGrantId = right.get(permission);
+    if (rightGrantId === undefined) {
+      throw new Error(`${label} missing permission '${permission}'`);
+    }
+    if (rightGrantId !== grantId) {
+      throw new Error(
+        `${label} grant id mismatch for permission '${permission}': expected ${grantId}, got ${rightGrantId}`,
       );
     }
   }
@@ -739,10 +952,8 @@ async function submitRoleCard(
   card: import("@playwright/test").Locator,
   input: { path: string; label: string },
 ): Promise<string> {
-  const responsePromise = waitForApiResponse(page, input.path);
-  await card.getByRole("button", { name: /^run$/i }).click();
-  await responsePromise;
-  return await waitForRoleMessage(page, input.label);
+  const outcome = await submitRoleCardWithResponse(page, card, input);
+  return outcome.message;
 }
 
 async function submitRoleCardWithoutRequest(
@@ -762,7 +973,9 @@ async function runApplyRole(
     principalAccountId: string;
     grantScope: PermissionScope;
   },
-): Promise<{ ok: true } | { ok: false; code: string }> {
+): Promise<
+  { ok: true; response: ApplyRoleResponse } | { ok: false; code: string }
+> {
   const applyCard = roleCard(page, "Apply role");
   await applyCard.locator('[name="role_id"]').fill(input.roleId);
   await setScope(applyCard, "role_scope_", input.roleScope);
@@ -772,16 +985,18 @@ async function runApplyRole(
     .fill(input.principalAccountId);
   await setPermissionScope(applyCard, "grant_scope_", input.grantScope);
 
-  const message = await submitRoleCard(page, applyCard, {
+  const outcome = await submitRoleCardWithResponse(page, applyCard, {
     path: "/roles/apply",
     label: "apply role",
   });
-  if (message.endsWith(": ok")) {
-    return { ok: true };
+  if (outcome.message.endsWith(": ok")) {
+    const payload = (await outcome.response.json()) as unknown;
+    return { ok: true, response: parseApplyRoleResponse(payload) };
   }
   return {
     ok: false,
-    code: parseRoleErrorCode(message, "apply role") ?? "transport_error",
+    code:
+      parseRoleErrorCode(outcome.message, "apply role") ?? "transport_error",
   };
 }
 
@@ -793,7 +1008,9 @@ async function runPermissionCheck(
     permission: string;
     scope: PermissionScope;
   },
-): Promise<{ ok: true; allowed: boolean } | { ok: false; code: string }> {
+): Promise<
+  { ok: true; response: PermissionCheckResponse } | { ok: false; code: string }
+> {
   const checkCard = roleCard(page, "Check permission");
 
   await checkCard
@@ -803,27 +1020,34 @@ async function runPermissionCheck(
   await checkCard.locator('[name="permission"]').fill(input.permission);
   await setPermissionScope(checkCard, "scope_", input.scope);
 
-  const message = await submitRoleCard(page, checkCard, {
+  const outcome = await submitRoleCardWithResponse(page, checkCard, {
     path: "/permissions/check",
     label: "check permission",
   });
 
-  if (!message.endsWith(": ok")) {
+  if (!outcome.message.endsWith(": ok")) {
     return {
       ok: false,
       code:
-        parseRoleErrorCode(message, "check permission") ?? "transport_error",
+        parseRoleErrorCode(outcome.message, "check permission") ??
+        "transport_error",
     };
   }
 
-  const summary = await readOperationSummary(page, "Permission check");
-  const allowedLine = summaryLine(summary, "allowed");
-  if (allowedLine !== "true" && allowedLine !== "false") {
-    throw new Error(
-      `permission summary missing allowed flag, got '${allowedLine}'`,
-    );
-  }
-  return { ok: true, allowed: allowedLine === "true" };
+  const payload = (await outcome.response.json()) as unknown;
+  return { ok: true, response: parsePermissionCheckResponse(payload) };
+}
+
+async function submitRoleCardWithResponse(
+  page: import("@playwright/test").Page,
+  card: import("@playwright/test").Locator,
+  input: { path: string; label: string },
+): Promise<{ response: import("@playwright/test").Response; message: string }> {
+  const responsePromise = waitForApiResponse(page, input.path);
+  await card.getByRole("button", { name: /^run$/i }).click();
+  const response = await responsePromise;
+  const message = await waitForRoleMessage(page, input.label);
+  return { response, message };
 }
 
 async function waitForRoleMessage(

@@ -13,11 +13,11 @@
 pub mod steps;
 
 use cucumber::World as CucumberWorld;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
 use tanren_contract::PermissionCheckResponse;
-use tanren_identity_policy::{AccountId, RoleScope, ScopedRole};
+use tanren_identity_policy::{AccountId, PermissionGrantId, RoleScope, ScopedRole};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, RoleHarness, TuiHarness, WebHarness,
@@ -148,6 +148,10 @@ pub struct RoleScenarioState {
     pub last_error_code: Option<String>,
     /// Last permission-check response observed.
     pub last_permission_check: Option<PermissionCheckResponse>,
+    /// Direct-grant ids observed for each principal alias by permission.
+    pub grant_ids_by_alias: HashMap<String, BTreeMap<String, PermissionGrantId>>,
+    /// Apply snapshots observed per principal alias.
+    pub apply_grant_snapshots: HashMap<String, Vec<BTreeMap<String, PermissionGrantId>>>,
 }
 
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {

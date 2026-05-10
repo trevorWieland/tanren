@@ -1,22 +1,22 @@
 //! Role-template step definitions for B-0038.
 
-use std::collections::BTreeSet;
-
 use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
     ApplyRoleRequest, CreateRoleRequest, DeleteRoleRequest, EditRoleRequest,
-    PermissionCheckRequest, SignInRequest, SignUpRequest,
+    PermissionCheckRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, Email, OrgId, PermissionGrantSource, PermissionName, PermissionScope, PrincipalRef,
-    RoleName, RoleScope, ScopedRole,
+    Email, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleName, RoleScope, ScopedRole,
 };
 
+use crate::steps::role_support::{
+    ROLE_OPERATOR_EMAIL, ROLE_OPERATOR_PASSWORD, active_role, assert_role_template_grant,
+    ensure_scenario_principal_account, missing_principal_account_id, parse_outcome_word,
+    parse_permissions_csv, permission_grant_ids_by_permission, permission_set, scenario_role_scope,
+    synthetic_permissions,
+};
 use crate::{RoleScenarioState, TanrenWorld};
-
-const ROLE_OPERATOR_EMAIL: &str = "role-operator@tanren.test";
-const ROLE_OPERATOR_PASSWORD: &str = "role-operator-password";
 #[given(expr = "a clean role-template environment")]
 async fn given_clean_role_env(world: &mut TanrenWorld) {
     let ctx = world.ensure_account_ctx().await;
@@ -148,7 +148,7 @@ async fn when_apply_role_to_account(world: &mut TanrenWorld, alias: String) {
     let ctx = world.ensure_account_ctx().await;
     let role = active_role(&ctx.role);
     let grant_scope = scenario_role_scope(&mut ctx.role).as_permission_scope();
-    let account_id = ensure_scenario_principal_account(ctx, alias).await;
+    let account_id = ensure_scenario_principal_account(ctx, alias.clone()).await;
     let principal = PrincipalRef::Account { account_id };
     let applied = ctx
         .harness
@@ -169,6 +169,15 @@ async fn when_apply_role_to_account(world: &mut TanrenWorld, alias: String) {
         assert_eq!(grant.scope, grant_scope, "grant scope mismatch");
         assert_role_template_grant(grant.source, grant.revocation, role.role_id);
     }
+    let grant_ids = permission_grant_ids_by_permission(&applied.grants);
+    ctx.role
+        .grant_ids_by_alias
+        .insert(alias.clone(), grant_ids.clone());
+    ctx.role
+        .apply_grant_snapshots
+        .entry(alias)
+        .or_default()
+        .push(grant_ids);
     ctx.role.last_error_code = None;
     ctx.role.last_permission_check = None;
 }
@@ -238,7 +247,7 @@ async fn when_check_permission_for_account(
     alias: String,
 ) {
     let ctx = world.ensure_account_ctx().await;
-    let account_id = ensure_scenario_principal_account(ctx, alias).await;
+    let account_id = ensure_scenario_principal_account(ctx, alias.clone()).await;
     let request = PermissionCheckRequest {
         principal: PrincipalRef::Account { account_id },
         permission: PermissionName::parse(&permission).expect("scenario permission must parse"),
@@ -340,7 +349,7 @@ async fn then_account_has_direct_grants(
 ) {
     let ctx = world.ensure_account_ctx().await;
     let role = active_role(&ctx.role);
-    let account_id = ensure_scenario_principal_account(ctx, alias).await;
+    let account_id = ensure_scenario_principal_account(ctx, alias.clone()).await;
     let principal = PrincipalRef::Account { account_id };
     let grants = ctx
         .harness
@@ -373,6 +382,9 @@ async fn then_account_has_direct_grants(
         permission_set(&expected_permissions),
         "direct-grant permission set mismatch"
     );
+    ctx.role
+        .grant_ids_by_alias
+        .insert(alias, permission_grant_ids_by_permission(&grants));
 }
 
 #[then(expr = "the permission check result is {word}")]
@@ -400,97 +412,4 @@ async fn then_role_fails_with(world: &mut TanrenWorld, code: String) {
         .clone()
         .unwrap_or_else(|| "no_error".to_owned());
     assert_eq!(actual, code, "unexpected role failure code");
-}
-
-fn parse_permissions_csv(raw: &str) -> Vec<PermissionName> {
-    raw.split(',')
-        .map(str::trim)
-        .filter(|s| !s.is_empty())
-        .map(|s| PermissionName::parse(s).expect("scenario permission list must parse"))
-        .collect()
-}
-
-fn permission_set(perms: &[PermissionName]) -> BTreeSet<String> {
-    perms.iter().map(|p| p.as_str().to_owned()).collect()
-}
-
-fn parse_outcome_word(word: &str) -> bool {
-    assert!(
-        word == "allowed" || word == "denied",
-        "permission-check outcome must be `allowed` or `denied` (got {word})"
-    );
-    word == "allowed"
-}
-
-fn assert_role_template_grant(
-    source: PermissionGrantSource,
-    revocation: Option<tanren_identity_policy::PermissionGrantRevocation>,
-    role_id: tanren_identity_policy::RoleId,
-) {
-    assert_eq!(source, PermissionGrantSource::RoleTemplate { role_id });
-    assert_eq!(revocation, None);
-}
-
-fn synthetic_permissions(permission_count: usize) -> Vec<PermissionName> {
-    (0..permission_count)
-        .map(|idx| {
-            PermissionName::parse(&format!("project.synthetic_{idx}"))
-                .expect("synthetic scenario permission must parse")
-        })
-        .collect()
-}
-
-fn scenario_role_scope(role: &mut RoleScenarioState) -> RoleScope {
-    if let Some(scope) = role.scope {
-        scope
-    } else {
-        let scope = RoleScope::Organization {
-            org_id: OrgId::fresh(),
-        };
-        role.scope = Some(scope);
-        scope
-    }
-}
-
-fn active_role(role: &RoleScenarioState) -> ScopedRole {
-    role.active_role
-        .expect("active role template must be created first")
-}
-
-async fn ensure_scenario_principal_account(
-    ctx: &mut crate::AccountContext,
-    alias: String,
-) -> AccountId {
-    if let Some(account_id) = ctx.role.principals.get(&alias) {
-        return *account_id;
-    }
-
-    let email = Email::parse(&format!("{alias}@tanren.test"))
-        .expect("scenario principal email literal must parse");
-    let password = SecretString::from(format!("{alias}-password"));
-    let session = ctx
-        .harness
-        .sign_up(SignUpRequest {
-            email: email.clone(),
-            password: password.clone(),
-            display_name: format!("Principal {alias}"),
-        })
-        .await
-        .expect("scenario principal sign-up should succeed");
-    let account_id = session.account.id;
-    ctx.role.principals.insert(alias, account_id);
-
-    ctx.harness
-        .sign_in(SignInRequest {
-            email: Email::parse(ROLE_OPERATOR_EMAIL)
-                .expect("role-operator scenario email literal must parse"),
-            password: SecretString::from(ROLE_OPERATOR_PASSWORD.to_owned()),
-        })
-        .await
-        .expect("role-operator sign-in should succeed after principal provisioning");
-    account_id
-}
-
-fn missing_principal_account_id(_role: &RoleScenarioState, _alias: String) -> AccountId {
-    AccountId::fresh()
 }

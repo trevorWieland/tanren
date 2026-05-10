@@ -23,6 +23,8 @@ Feature: Manage roles as permission templates
       Then the active role template has permissions "project.read,project.comment"
       When the operator applies the role template to account principal alice
       Then account principal alice has direct grants "project.read,project.comment"
+      When the operator applies the role template to account principal alice
+      Then applying the role template to account principal alice is idempotent for permissions "project.read,project.comment"
       When the operator edits the active role template to name "Reviewer API Plus" and permissions "project.read,project.comment,project.merge"
       Then the active role template has permissions "project.read,project.comment,project.merge"
       And account principal alice retains direct grants "project.read,project.comment"
@@ -39,6 +41,10 @@ Feature: Manage roles as permission templates
       And the operator applies the role template to account principal alice
       When the operator checks permission "project.audit" for account principal alice
       Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.audit"
+      When the operator checks permission "project.merge" for account principal alice
+      Then the permission check result is denied
+      And the permission check has no matching grant ids
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 
@@ -64,6 +70,8 @@ Feature: Manage roles as permission templates
       Then the active role template has permissions "project.read,project.comment"
       When the operator applies the role template to account principal alice
       Then account principal alice has direct grants "project.read,project.comment"
+      When the operator applies the role template to account principal alice
+      Then applying the role template to account principal alice is idempotent for permissions "project.read,project.comment"
       When the operator edits the active role template to name "Reviewer Web Plus" and permissions "project.read,project.comment,project.merge"
       Then the active role template has permissions "project.read,project.comment,project.merge"
       And account principal alice retains direct grants "project.read,project.comment"
@@ -80,6 +88,10 @@ Feature: Manage roles as permission templates
       And the operator applies the role template to account principal alice
       When the operator checks permission "project.audit" for account principal alice
       Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.audit"
+      When the operator checks permission "project.merge" for account principal alice
+      Then the permission check result is denied
+      And the permission check has no matching grant ids
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 
@@ -105,6 +117,8 @@ Feature: Manage roles as permission templates
       Then the active role template has permissions "project.read,project.comment"
       When the operator applies the role template to account principal alice
       Then account principal alice has direct grants "project.read,project.comment"
+      When the operator applies the role template to account principal alice
+      Then applying the role template to account principal alice is idempotent for permissions "project.read,project.comment"
       When the operator edits the active role template to name "Reviewer MCP Plus" and permissions "project.read,project.comment,project.merge"
       Then the active role template has permissions "project.read,project.comment,project.merge"
       And account principal alice retains direct grants "project.read,project.comment"
@@ -121,6 +135,10 @@ Feature: Manage roles as permission templates
       And the operator applies the role template to account principal alice
       When the operator checks permission "project.audit" for account principal alice
       Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.audit"
+      When the operator checks permission "project.merge" for account principal alice
+      Then the permission check result is denied
+      And the permission check has no matching grant ids
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 
@@ -146,6 +164,8 @@ Feature: Manage roles as permission templates
       Then the active role template has permissions "project.read,project.comment"
       When the operator applies the role template to account principal alice
       Then account principal alice has direct grants "project.read,project.comment"
+      When the operator applies the role template to account principal alice
+      Then applying the role template to account principal alice is idempotent for permissions "project.read,project.comment"
       When the operator edits the active role template to name "Reviewer CLI Plus" and permissions "project.read,project.comment,project.merge"
       Then the active role template has permissions "project.read,project.comment,project.merge"
       And account principal alice retains direct grants "project.read,project.comment"
@@ -162,6 +182,10 @@ Feature: Manage roles as permission templates
       And the operator applies the role template to account principal alice
       When the operator checks permission "project.audit" for account principal alice
       Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.audit"
+      When the operator checks permission "project.merge" for account principal alice
+      Then the permission check result is denied
+      And the permission check has no matching grant ids
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 
@@ -187,6 +211,8 @@ Feature: Manage roles as permission templates
       Then the active role template has permissions "project.read,project.comment"
       When the operator applies the role template to account principal alice
       Then account principal alice has direct grants "project.read,project.comment"
+      When the operator applies the role template to account principal alice
+      Then applying the role template to account principal alice is idempotent for permissions "project.read,project.comment"
       When the operator edits the active role template to name "Reviewer TUI Plus" and permissions "project.read,project.comment,project.merge"
       Then the active role template has permissions "project.read,project.comment,project.merge"
       And account principal alice retains direct grants "project.read,project.comment"
@@ -203,6 +229,10 @@ Feature: Manage roles as permission templates
       And the operator applies the role template to account principal alice
       When the operator checks permission "project.audit" for account principal alice
       Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.audit"
+      When the operator checks permission "project.merge" for account principal alice
+      Then the permission check result is denied
+      And the permission check has no matching grant ids
       When the operator checks permission "project.audit" for the role template principal
       Then the role request fails with code "role_as_principal_rejected"
 

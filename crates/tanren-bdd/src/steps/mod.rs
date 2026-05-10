@@ -5,3 +5,5 @@
 
 pub mod account;
 pub mod role;
+pub mod role_assertions;
+pub(crate) mod role_support;
