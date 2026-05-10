@@ -64,6 +64,26 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) async fn run_standards_inspect(
+        &mut self,
+        harness: &mut dyn AccountHarness,
+    ) -> InstallStepResult<()> {
+        let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let args = vec![
+            OsString::from("standards"),
+            OsString::from("inspect"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+        ];
+        let outcome = harness
+            .execute_cli_command(args)
+            .await
+            .map_err(|source| InstallStepError::RunStandardsInspectCommand { source })?;
+        self.snapshot_before_last_run = Some(before);
+        self.last_run = Some(outcome);
+        Ok(())
+    }
+
     pub(super) fn require_last_run(&self) -> InstallStepResult<&InstallCommandOutcome> {
         self.last_run
             .as_ref()

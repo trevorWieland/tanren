@@ -65,6 +65,54 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_standards_inspect_report_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=ok command=standards.inspect")?;
+        for field in [
+            "profile=rust-cargo",
+            "standards_root=",
+            "standards_count=",
+            "first_standard_name=",
+            "first_standard_path=",
+        ] {
+            ensure_stdout_contains(run, field)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_standards_missing_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        for fragment in [
+            "error: standards_missing -",
+            "configured standards root is missing:",
+        ] {
+            if !run.stderr.contains(fragment) {
+                return Err(InstallStepError::StderrMissingExpected {
+                    expected: fragment.to_owned(),
+                    stderr: run.stderr.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_standards_parse_failure_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        for fragment in [
+            "error: standards_parse_failed -",
+            "failed to parse standards frontmatter in",
+            "missing opening frontmatter delimiter",
+        ] {
+            if !run.stderr.contains(fragment) {
+                return Err(InstallStepError::StderrMissingExpected {
+                    expected: fragment.to_owned(),
+                    stderr: run.stderr.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
         let before = self
             .snapshot_before_last_run

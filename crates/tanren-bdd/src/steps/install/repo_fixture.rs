@@ -5,6 +5,9 @@ use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use tanren_configuration_secrets::{ProjectMethodologyConfig, StandardsRoot};
+use tanren_testkit::PROJECT_METHODOLOGY_CONFIG_REPO_PATH;
+
 use super::context::InstallContext;
 use super::manifest_helpers;
 use super::manifest_helpers::RepositoryRelativePath;
@@ -143,6 +146,90 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn delete_configured_standards_directory(&mut self) -> InstallStepResult<()> {
+        let config = self.load_project_methodology_config()?;
+        let standards_root = self.repository_path(config.standards_root.as_str())?;
+        if !standards_root.is_dir() {
+            return Err(InstallStepError::ExpectedDirectoryToExist {
+                path: standards_root,
+            });
+        }
+        fs::remove_dir_all(&standards_root).map_err(|source| InstallStepError::Io {
+            path: standards_root,
+            action: "delete configured standards directory from repository fixture",
+            source,
+        })?;
+        Ok(())
+    }
+
+    pub(crate) fn corrupt_installed_standards_markdown_file(&mut self) -> InstallStepResult<()> {
+        let config = self.load_project_methodology_config()?;
+        let standards_root = self.repository_path(config.standards_root.as_str())?;
+        let Some(standard_path) = first_markdown_path_under(&standards_root)? else {
+            return Err(InstallStepError::StandardsMarkdownFileMissing {
+                path: standards_root,
+            });
+        };
+        fs::write(&standard_path, "name: missing frontmatter delimiters\n").map_err(|source| {
+            InstallStepError::WriteFile {
+                path: standard_path,
+                action: "corrupt installed standards markdown file in repository fixture",
+                source,
+            }
+        })?;
+        Ok(())
+    }
+
+    pub(crate) fn move_standards_assets_to_root(
+        &mut self,
+        standards_root: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let mut config = self.load_project_methodology_config()?;
+        let current_root = self.repository_path(config.standards_root.as_str())?;
+        if !current_root.is_dir() {
+            return Err(InstallStepError::ExpectedDirectoryToExist { path: current_root });
+        }
+
+        let destination_root = self.repository_path(standards_root.as_str())?;
+        if destination_root.exists() {
+            remove_existing_path_if_present(&destination_root)?;
+        } else if let Some(parent) = destination_root.parent() {
+            fs::create_dir_all(parent).map_err(|source| InstallStepError::Io {
+                path: parent.to_path_buf(),
+                action: "create parent directory for relocated standards root",
+                source,
+            })?;
+        }
+        fs::rename(&current_root, &destination_root).map_err(|source| InstallStepError::Io {
+            path: current_root.clone(),
+            action: "relocate standards assets to non-default repository root",
+            source,
+        })?;
+
+        config.standards_root =
+            StandardsRoot::parse(standards_root.as_str()).map_err(|source| {
+                InstallStepError::InvalidStandardsRootForConfig {
+                    path: standards_root.as_str().to_owned(),
+                    source,
+                }
+            })?;
+        let config_toml = config.to_toml().map_err(|source| {
+            InstallStepError::SerializeProjectMethodologyConfig {
+                path: self
+                    .repository_root
+                    .join(PROJECT_METHODOLOGY_CONFIG_REPO_PATH),
+                source,
+            }
+        })?;
+        let config_path = self.repository_path(PROJECT_METHODOLOGY_CONFIG_REPO_PATH)?;
+        fs::write(&config_path, config_toml).map_err(|source| InstallStepError::WriteFile {
+            path: config_path,
+            action: "write relocated standards_root to project methodology config",
+            source,
+        })?;
+        Ok(())
+    }
+
     pub(crate) fn replace_fixture_path_with_directory_symlink(
         &mut self,
         link_path: &RepositoryRelativePath,
@@ -184,6 +271,24 @@ impl InstallContext {
             }
         })?;
         Ok(())
+    }
+
+    fn load_project_methodology_config(&self) -> InstallStepResult<ProjectMethodologyConfig> {
+        let config_path = self
+            .repository_root
+            .join(PROJECT_METHODOLOGY_CONFIG_REPO_PATH);
+        let raw =
+            fs::read_to_string(&config_path).map_err(|source| InstallStepError::ReadFile {
+                path: config_path.clone(),
+                action: "read project methodology config from repository fixture",
+                source,
+            })?;
+        ProjectMethodologyConfig::from_toml(&raw).map_err(|source| {
+            InstallStepError::ParseProjectMethodologyConfig {
+                path: config_path,
+                source,
+            }
+        })
     }
 }
 
@@ -289,4 +394,42 @@ fn remove_existing_path_if_present(path: &Path) -> InstallStepResult<()> {
             source,
         }),
     }
+}
+
+fn first_markdown_path_under(root: &Path) -> InstallStepResult<Option<PathBuf>> {
+    if !root.is_dir() {
+        return Ok(None);
+    }
+
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(directory) = stack.pop() {
+        let entries =
+            fs::read_dir(&directory).map_err(|source| InstallStepError::ReadDirectory {
+                path: directory.clone(),
+                source,
+            })?;
+        for entry in entries {
+            let entry = entry.map_err(|source| InstallStepError::ReadDirectoryEntry {
+                path: directory.clone(),
+                source,
+            })?;
+            let path = entry.path();
+            let file_type =
+                entry
+                    .file_type()
+                    .map_err(|source| InstallStepError::InspectFileType {
+                        path: path.clone(),
+                        source,
+                    })?;
+            if file_type.is_dir() {
+                stack.push(path);
+                continue;
+            }
+            if file_type.is_file() && path.extension().and_then(|ext| ext.to_str()) == Some("md") {
+                return Ok(Some(path));
+            }
+        }
+    }
+
+    Ok(None)
 }

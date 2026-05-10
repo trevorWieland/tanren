@@ -8,3 +8,4 @@ mod install_error;
 pub mod install_selection;
 mod install_snapshot;
 mod install_steps;
+mod standards_runtime;

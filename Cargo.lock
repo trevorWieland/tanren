@@ -4214,6 +4214,7 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-testkit",

@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 
+use tanren_configuration_secrets::ConfigSecretsError;
 use thiserror::Error;
 
 use tanren_testkit::{HarnessError, InstallProofError};
@@ -18,6 +19,8 @@ pub(crate) enum InstallStepError {
     },
     #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
     RunInstallCommand { source: HarnessError },
+    #[error("failed to execute tanren-cli standards inspect via CLI harness adapter: {source}")]
+    RunStandardsInspectCommand { source: HarnessError },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
     #[error("install command must run before no-write assertion")]
@@ -64,6 +67,25 @@ pub(crate) enum InstallStepError {
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository file to be absent: {path}")]
     ExpectedFileToBeAbsent { path: PathBuf },
+    #[error("expected repository directory to exist: {path}")]
+    ExpectedDirectoryToExist { path: PathBuf },
+    #[error("no markdown standards files found under configured standards root '{path}'")]
+    StandardsMarkdownFileMissing { path: PathBuf },
+    #[error("failed to parse project methodology config '{path}': {source}")]
+    ParseProjectMethodologyConfig {
+        path: PathBuf,
+        source: ConfigSecretsError,
+    },
+    #[error("failed to serialize project methodology config '{path}': {source}")]
+    SerializeProjectMethodologyConfig {
+        path: PathBuf,
+        source: ConfigSecretsError,
+    },
+    #[error("invalid standards root '{path}' for project methodology config: {source}")]
+    InvalidStandardsRootForConfig {
+        path: String,
+        source: ConfigSecretsError,
+    },
     #[error("repository-relative path cannot be empty")]
     EmptyRepositoryRelativePath,
     #[error("repository-relative path must not be absolute: {path}")]
