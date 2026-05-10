@@ -1,19 +1,18 @@
 //! Role administration read-model query handlers.
 
 use tanren_contract::{
-    PermissionGrantCursorView, PermissionGrantView, ROLE_READ_MODEL_PAGE_DEFAULT,
-    ROLE_READ_MODEL_PAGE_MAX, RoleActor, RoleFailureReason, RoleReadModelFreshness,
-    RoleReadModelRequest, RoleReadModelResponse, RoleTemplateCursorView, RoleTemplateView,
+    PermissionGrantCursorView, ROLE_READ_MODEL_PAGE_DEFAULT, ROLE_READ_MODEL_PAGE_MAX, RoleActor,
+    RoleFailureReason, RoleReadModelFreshness, RoleReadModelRequest, RoleReadModelResponse,
+    RoleTemplateCursorView,
 };
-use tanren_identity_policy::{AccountId, PermissionName, PermissionScope, PrincipalRef, RoleScope};
+use tanren_identity_policy::{PermissionScope, PrincipalRef, RoleScope};
 use tanren_store::{
     AccountStore, PermissionGrantListCursor, ROLE_GRANT_LIST_PAGE_MAX, RoleListCursor, RoleStore,
 };
 
+use crate::role_authorization::authorize_read_permission_scope;
+use crate::role_view_mapper::{permission_grant_view, role_template_view};
 use crate::{Clock, RoleServiceError};
-
-const ROLE_MANAGE_PERMISSION: &str = "roles.manage";
-const ROLE_READ_PERMISSION: &str = "roles.read";
 
 pub(crate) async fn read_role_model<S>(
     store: &S,
@@ -66,13 +65,13 @@ where
         role_templates: role_page
             .items
             .into_iter()
-            .map(role_view)
+            .map(role_template_view)
             .collect::<Vec<_>>(),
         role_next_cursor: role_page.next_cursor.map(role_cursor_to_view),
         direct_grants: grant_page
             .items
             .into_iter()
-            .map(grant_view)
+            .map(permission_grant_view)
             .collect::<Vec<_>>(),
         grant_next_cursor: grant_page.next_cursor.as_ref().map(grant_cursor_to_view),
         freshness: RoleReadModelFreshness {
@@ -87,48 +86,6 @@ fn normalize_page_limit(requested: Option<u64>) -> u64 {
         .filter(|limit| *limit > 0)
         .unwrap_or(ROLE_READ_MODEL_PAGE_DEFAULT)
         .min(max)
-}
-
-async fn authorize_read_permission_scope<S>(
-    store: &S,
-    actor: AccountId,
-    scope: PermissionScope,
-) -> Result<(), RoleServiceError>
-where
-    S: RoleStore + ?Sized,
-{
-    let can_read = store
-        .has_direct_grant(
-            PrincipalRef::Account { account_id: actor },
-            scope,
-            &role_read_permission()?,
-        )
-        .await?;
-    if can_read {
-        return Ok(());
-    }
-    let can_manage = store
-        .has_direct_grant(
-            PrincipalRef::Account { account_id: actor },
-            scope,
-            &role_manage_permission()?,
-        )
-        .await?;
-    if can_manage {
-        Ok(())
-    } else {
-        Err(RoleServiceError::Role(RoleFailureReason::PermissionDenied))
-    }
-}
-
-fn role_manage_permission() -> Result<PermissionName, RoleServiceError> {
-    PermissionName::parse(ROLE_MANAGE_PERMISSION)
-        .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
-}
-
-fn role_read_permission() -> Result<PermissionName, RoleServiceError> {
-    PermissionName::parse(ROLE_READ_PERMISSION)
-        .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
 }
 
 async fn ensure_role_scope_exists<S>(store: &S, scope: RoleScope) -> Result<(), RoleServiceError>
@@ -195,28 +152,5 @@ fn grant_cursor_to_view(cursor: &PermissionGrantListCursor) -> PermissionGrantCu
     PermissionGrantCursorView {
         granted_at: cursor.granted_at,
         id: cursor.id,
-    }
-}
-
-fn role_view(record: tanren_store::RoleRecord) -> RoleTemplateView {
-    RoleTemplateView {
-        id: record.id,
-        scope: record.scope,
-        name: record.name,
-        permissions: record.permissions,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-    }
-}
-
-fn grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
-    PermissionGrantView {
-        id: record.id,
-        principal: record.principal,
-        scope: record.scope,
-        permission: record.permission,
-        source: record.source,
-        revocation: record.revocation,
-        granted_at: record.granted_at,
     }
 }

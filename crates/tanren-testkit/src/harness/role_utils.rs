@@ -1,6 +1,8 @@
+use tanren_contract::{PermissionGrantView, RoleTemplateView};
 use tanren_identity_policy::PrincipalRef;
 use tanren_store::{
-    PermissionGrantListCursor, PermissionGrantRecord, ROLE_GRANT_LIST_PAGE_MAX, RoleStore,
+    PermissionGrantListCursor, PermissionGrantRecord, ROLE_GRANT_LIST_PAGE_MAX, RoleRecord,
+    RoleStore,
 };
 
 use super::RoleHarnessError;
@@ -27,4 +29,14 @@ where
         }
     }
     Ok(grants)
+}
+
+#[must_use]
+pub(crate) fn role_template_view(record: RoleRecord) -> RoleTemplateView {
+    tanren_app_services::role_view_mapper::role_template_view(record)
+}
+
+#[must_use]
+pub(crate) fn permission_grant_view(record: PermissionGrantRecord) -> PermissionGrantView {
+    tanren_app_services::role_view_mapper::permission_grant_view(record)
 }

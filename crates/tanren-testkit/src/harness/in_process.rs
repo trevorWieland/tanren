@@ -21,6 +21,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewRole, RoleStor
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessRoleTemplate, HarnessSession, RoleHarness, RoleHarnessError, RoleHarnessResult,
+    permission_grant_view, role_template_view,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -294,28 +295,5 @@ fn translate_role_error(err: tanren_app_services::RoleServiceError) -> RoleHarne
         }
         RoleServiceError::Store(err) => RoleHarnessError::Transport(format!("store: {err}")),
         _ => RoleHarnessError::Transport("unknown app-service failure".to_owned()),
-    }
-}
-
-fn role_template_view(record: tanren_store::RoleRecord) -> RoleTemplateView {
-    RoleTemplateView {
-        id: record.id,
-        scope: record.scope,
-        name: record.name,
-        permissions: record.permissions,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-    }
-}
-
-fn permission_grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
-    PermissionGrantView {
-        id: record.id,
-        principal: record.principal,
-        scope: record.scope,
-        permission: record.permission,
-        source: record.source,
-        revocation: record.revocation,
-        granted_at: record.granted_at,
     }
 }

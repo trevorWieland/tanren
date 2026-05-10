@@ -8,7 +8,9 @@
 pub mod account;
 pub mod events;
 pub mod role;
+mod role_authorization;
 mod role_read_model;
+pub mod role_view_mapper;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

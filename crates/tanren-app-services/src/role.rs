@@ -4,16 +4,13 @@
 use tanren_contract::{
     ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
     DeleteRoleResponse, EditRoleRequest, EditRoleResponse, MAX_ROLE_TEMPLATE_PERMISSIONS,
-    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView,
-    ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE, RoleActor, RoleAdminAction, RoleAdminCapabilities,
-    RoleFailureReason, RoleTemplateView,
+    PermissionCheckRequest, PermissionCheckResponse, ROLE_TEMPLATE_ALLOW_EMPTY_BUNDLE, RoleActor,
+    RoleAdminAction, RoleAdminCapabilities, RoleFailureReason,
 };
-use tanren_identity_policy::{
-    AccountId, PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope,
-};
+use tanren_identity_policy::{PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope};
 use tanren_store::{
     AccountStore, ApplyRole, ApplyRoleError, CreateRoleError, EditRole, EditRoleError, NewRole,
-    RoleRecord, RoleStore, StoreError,
+    RoleStore,
 };
 
 use crate::events::{
@@ -21,53 +18,12 @@ use crate::events::{
     role_created_event_builder, role_deleted_event_builder, role_edited_event_builder,
     role_envelope,
 };
+use crate::role_authorization::{
+    RoleAdminCapabilityPort, authorize_manage_permission_scope, authorize_manage_role_scope,
+    authorize_read_permission_scope, role_manage_permission, role_read_permission,
+};
+use crate::role_view_mapper::{permission_grant_view, role_template_view};
 use crate::{Clock, RoleServiceError};
-
-const ROLE_MANAGE_PERMISSION: &str = "roles.manage";
-const ROLE_READ_PERMISSION: &str = "roles.read";
-
-pub(crate) trait RoleAdminCapabilityPort {
-    async fn actor_has_capability_in_scope(
-        &self,
-        actor: AccountId,
-        scope: PermissionScope,
-        permission: &PermissionName,
-    ) -> Result<bool, StoreError>;
-
-    async fn actor_has_capability_any_scope(
-        &self,
-        actor: AccountId,
-        permission: &PermissionName,
-    ) -> Result<bool, StoreError>;
-}
-
-impl<T> RoleAdminCapabilityPort for T
-where
-    T: RoleStore + ?Sized,
-{
-    async fn actor_has_capability_in_scope(
-        &self,
-        actor: AccountId,
-        scope: PermissionScope,
-        permission: &PermissionName,
-    ) -> Result<bool, StoreError> {
-        self.has_direct_grant(
-            PrincipalRef::Account { account_id: actor },
-            scope,
-            permission,
-        )
-        .await
-    }
-
-    async fn actor_has_capability_any_scope(
-        &self,
-        actor: AccountId,
-        permission: &PermissionName,
-    ) -> Result<bool, StoreError> {
-        self.has_any_direct_grant(PrincipalRef::Account { account_id: actor }, permission)
-            .await
-    }
-}
 
 pub(crate) async fn create_role<S>(
     store: &S,
@@ -98,7 +54,7 @@ where
         .await
         .map_err(map_create_role_error)?;
     Ok(CreateRoleResponse {
-        role: role_view(role),
+        role: role_template_view(role),
     })
 }
 
@@ -128,7 +84,7 @@ where
         .await
         .map_err(map_edit_role_error)?;
     Ok(EditRoleResponse {
-        role: role_view(role),
+        role: role_template_view(role),
     })
 }
 
@@ -194,7 +150,11 @@ where
         )
         .await
         .map_err(map_apply_role_error)?;
-    let grant_views = grants.iter().cloned().map(grant_view).collect::<Vec<_>>();
+    let grant_views = grants
+        .iter()
+        .cloned()
+        .map(permission_grant_view)
+        .collect::<Vec<_>>();
     Ok(ApplyRoleResponse {
         role: request.role,
         grants: grant_views,
@@ -275,80 +235,6 @@ where
         actions.extend_from_slice(&[RoleAdminAction::ReadRoles, RoleAdminAction::CheckPermission]);
     }
     Ok(RoleAdminCapabilities { actor, actions })
-}
-
-async fn authorize_manage_role_scope<S>(
-    store: &S,
-    actor: AccountId,
-    scope: RoleScope,
-) -> Result<(), RoleServiceError>
-where
-    S: RoleStore + ?Sized,
-{
-    authorize_role_permission(
-        store,
-        actor,
-        scope.as_permission_scope(),
-        &role_manage_permission()?,
-    )
-    .await
-}
-
-async fn authorize_manage_permission_scope<S>(
-    store: &S,
-    actor: AccountId,
-    scope: PermissionScope,
-) -> Result<(), RoleServiceError>
-where
-    S: RoleStore + ?Sized,
-{
-    authorize_role_permission(store, actor, scope, &role_manage_permission()?).await
-}
-
-async fn authorize_read_permission_scope<S>(
-    store: &S,
-    actor: AccountId,
-    scope: PermissionScope,
-) -> Result<(), RoleServiceError>
-where
-    S: RoleStore + ?Sized,
-{
-    let can_read = store
-        .actor_has_capability_in_scope(actor, scope, &role_read_permission()?)
-        .await?;
-    if can_read {
-        return Ok(());
-    }
-    authorize_manage_permission_scope(store, actor, scope).await
-}
-
-async fn authorize_role_permission<S>(
-    store: &S,
-    actor: AccountId,
-    scope: PermissionScope,
-    permission: &PermissionName,
-) -> Result<(), RoleServiceError>
-where
-    S: RoleStore + ?Sized,
-{
-    let allowed = store
-        .actor_has_capability_in_scope(actor, scope, permission)
-        .await?;
-    if allowed {
-        Ok(())
-    } else {
-        Err(RoleServiceError::Role(RoleFailureReason::PermissionDenied))
-    }
-}
-
-fn role_manage_permission() -> Result<PermissionName, RoleServiceError> {
-    PermissionName::parse(ROLE_MANAGE_PERMISSION)
-        .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
-}
-
-fn role_read_permission() -> Result<PermissionName, RoleServiceError> {
-    PermissionName::parse(ROLE_READ_PERMISSION)
-        .map_err(|err| RoleServiceError::InvalidInput(format!("invalid static permission: {err}")))
 }
 
 async fn ensure_role_scope_exists<S>(store: &S, scope: RoleScope) -> Result<(), RoleServiceError>
@@ -433,28 +319,5 @@ fn map_apply_role_error(err: ApplyRoleError) -> RoleServiceError {
             RoleServiceError::Role(RoleFailureReason::ValidationFailed)
         }
         ApplyRoleError::Store(store_err) => RoleServiceError::Store(store_err),
-    }
-}
-
-fn role_view(record: RoleRecord) -> RoleTemplateView {
-    RoleTemplateView {
-        id: record.id,
-        scope: record.scope,
-        name: record.name,
-        permissions: record.permissions,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-    }
-}
-
-fn grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
-    PermissionGrantView {
-        id: record.id,
-        principal: record.principal,
-        scope: record.scope,
-        permission: record.permission,
-        source: record.source,
-        revocation: record.revocation,
-        granted_at: record.granted_at,
     }
 }

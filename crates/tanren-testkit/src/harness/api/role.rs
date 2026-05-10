@@ -8,7 +8,8 @@ use tanren_contract::{
 use tanren_store::{NewRole, RoleStore};
 
 use super::super::{
-    HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult, seed_role_admin_grants,
+    HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult, permission_grant_view,
+    role_template_view, seed_role_admin_grants,
 };
 use super::{ApiHarness, role_code_to_reason};
 
@@ -147,29 +148,6 @@ impl RoleHarness for ApiHarness {
     ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
         let grants = super::super::read_all_direct_grants(self.store.as_ref(), principal).await?;
         Ok(grants.into_iter().map(permission_grant_view).collect())
-    }
-}
-
-fn role_template_view(record: tanren_store::RoleRecord) -> RoleTemplateView {
-    RoleTemplateView {
-        id: record.id,
-        scope: record.scope,
-        name: record.name,
-        permissions: record.permissions,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-    }
-}
-
-fn permission_grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
-    PermissionGrantView {
-        id: record.id,
-        principal: record.principal,
-        scope: record.scope,
-        permission: record.permission,
-        source: record.source,
-        revocation: record.revocation,
-        granted_at: record.granted_at,
     }
 }
 

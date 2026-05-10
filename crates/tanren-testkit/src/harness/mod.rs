@@ -48,7 +48,7 @@ pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
-pub(crate) use role_utils::read_all_direct_grants;
+pub(crate) use role_utils::{permission_grant_view, read_all_direct_grants, role_template_view};
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 

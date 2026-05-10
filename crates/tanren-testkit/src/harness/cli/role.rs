@@ -15,7 +15,8 @@ use uuid::Uuid;
 
 use super::super::api::role_code_to_reason;
 use super::super::{
-    HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult, seed_role_admin_grants,
+    HarnessRoleTemplate, RoleHarness, RoleHarnessError, RoleHarnessResult, permission_grant_view,
+    role_template_view, seed_role_admin_grants,
 };
 use super::CliHarness;
 
@@ -287,28 +288,5 @@ fn principal_parts(principal: PrincipalRef) -> (&'static str, Uuid) {
     match principal {
         PrincipalRef::Account { account_id } => ("account", account_id.as_uuid()),
         PrincipalRef::Role { role_id } => ("role", role_id.as_uuid()),
-    }
-}
-
-fn role_template_view(record: tanren_store::RoleRecord) -> RoleTemplateView {
-    RoleTemplateView {
-        id: record.id,
-        scope: record.scope,
-        name: record.name,
-        permissions: record.permissions,
-        created_at: record.created_at,
-        updated_at: record.updated_at,
-    }
-}
-
-fn permission_grant_view(record: tanren_store::PermissionGrantRecord) -> PermissionGrantView {
-    PermissionGrantView {
-        id: record.id,
-        principal: record.principal,
-        scope: record.scope,
-        permission: record.permission,
-        source: record.source,
-        revocation: record.revocation,
-        granted_at: record.granted_at,
     }
 }
