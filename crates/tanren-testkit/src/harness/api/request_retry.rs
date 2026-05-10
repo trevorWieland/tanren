@@ -30,13 +30,31 @@ pub(super) async fn send_json<T: serde::Serialize + ?Sized>(
     body: &T,
     operation: &str,
 ) -> HarnessResult<Response> {
-    let response = client
-        .request(method, url)
-        .json(body)
-        .send()
-        .await
-        .map_err(|error| HarnessError::Transport(format!("{operation}: {error}")))?;
-    Ok(response)
+    let mut last_error = None;
+    for attempt in 1..=TRANSPORT_RETRY_ATTEMPTS {
+        match client.request(method.clone(), url).json(body).send().await {
+            Ok(response) => return Ok(response),
+            Err(error) => {
+                // JSON-bearing account-flow requests are non-idempotent.
+                // Only retry connect failures where the request could not
+                // be delivered, and preserve the first error for context.
+                if !error.is_connect() || attempt == TRANSPORT_RETRY_ATTEMPTS {
+                    return Err(HarnessError::Transport(format!(
+                        "{operation}: {}",
+                        match last_error {
+                            Some(previous) => format!(
+                                "last error after {attempt} attempts: {error}; previous: {previous}"
+                            ),
+                            None => error.to_string(),
+                        }
+                    )));
+                }
+                last_error = Some(error.to_string());
+                sleep(TRANSPORT_RETRY_DELAY).await;
+            }
+        }
+    }
+    unreachable!("retry loop always returns before completion");
 }
 
 async fn execute_with_retry<F>(operation: &str, mut build_request: F) -> HarnessResult<Response>
