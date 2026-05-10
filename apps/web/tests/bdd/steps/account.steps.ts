@@ -283,6 +283,10 @@ Then(
   },
 );
 
+Then(/^a "([^"]+)" event is recorded$/, async (_fixture, kind: string) => {
+  await assertEventRecordedViaTestHook(kind);
+});
+
 // ============================================================================
 // Steps requiring API-side seeding — backed by the `/test-hooks/*`
 // HTTP endpoints the api binary exposes when built with the
@@ -309,6 +313,51 @@ async function seedInvitation(
       `seed ${context.kind} invitation '${token}' failed: ${res.status} ${body}`,
     );
   }
+}
+
+interface TestHookRecentEventsResponse {
+  events: Array<{
+    id: string;
+    occurred_at: string;
+    kind: string | null;
+  }>;
+}
+
+async function assertEventRecordedViaTestHook(kind: string): Promise<void> {
+  for (let attempts = 0; attempts < 5; attempts += 1) {
+    const kinds = await recentEventKindsViaTestHook(200);
+    if (kinds.includes(kind)) {
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  const observedKinds = await recentEventKindsViaTestHook(200);
+  throw new Error(
+    `expected event '${kind}' in recent test-hook stream, got ${JSON.stringify(observedKinds)}`,
+  );
+}
+
+async function recentEventKindsViaTestHook(limit: number): Promise<string[]> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const response = await fetch(
+    `${apiUrl}/test-hooks/events/recent?limit=${encodeURIComponent(String(limit))}`,
+    {
+      method: "GET",
+      headers: { accept: "application/json" },
+    },
+  );
+  if (!response.ok) {
+    const body = await response.text();
+    throw new Error(
+      `read /test-hooks/events/recent failed: ${response.status} ${body}`,
+    );
+  }
+  const payload =
+    (await response.json()) as Partial<TestHookRecentEventsResponse>;
+  const events = Array.isArray(payload.events) ? payload.events : [];
+  return events
+    .map((event) => (typeof event.kind === "string" ? event.kind : ""))
+    .filter((kindValue) => kindValue.trim() !== "");
 }
 
 Given(
@@ -713,8 +762,8 @@ Then(
     surface: string,
   ) => {
     assertWebSurface(surface);
-    const listingA = await listWindowAccounts(page, world, windowA, false);
-    const listingB = await listWindowAccounts(page, world, windowB, false);
+    const listingA = await listWindowAccounts(page, world, windowA, true);
+    const listingB = await listWindowAccounts(page, world, windowB, true);
     const activeA = listingA.find((entry) => entry.is_active)?.account.id ?? "";
     const activeB = listingB.find((entry) => entry.is_active)?.account.id ?? "";
     if (activeA === "" || activeB === "") {

@@ -1,6 +1,4 @@
-//! `@api` harness — spawns `tanren-api-app` on an ephemeral port and drives it
-//! via `reqwest::Client` with `cookie_store(true)`.
-
+mod concurrent_switch;
 mod wire;
 
 use std::path::PathBuf;
@@ -25,19 +23,18 @@ use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession, InvalidSessionKind,
 };
+use concurrent_switch::switch_active_accounts_in_windows_concurrent;
 pub(crate) use wire::{scenario_db_path, sqlite_url};
 use wire::{send_with_retry, wait_for_server_ready};
 
 const WINDOW_ID_HEADER: &str = "x-tanren-window-id";
 
-/// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
     window_id: String,
     client: Client,
     store: Arc<Store>,
     server: Option<JoinHandle<()>>,
-    /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
 }
 
@@ -51,8 +48,6 @@ impl std::fmt::Debug for ApiHarness {
 }
 
 impl ApiHarness {
-    /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -389,6 +384,14 @@ impl AccountHarness for ApiHarness {
         target_account_id: AccountId,
     ) -> HarnessResult<Vec<SignedInAccountView>> {
         self.switch_active_account_with_window(Some(window_id), target_account_id)
+            .await
+    }
+
+    async fn switch_active_accounts_in_windows_concurrent(
+        &mut self,
+        requests: Vec<(String, AccountId)>,
+    ) -> Vec<(String, HarnessResult<Vec<SignedInAccountView>>)> {
+        switch_active_accounts_in_windows_concurrent(&self.base_url, self.client.clone(), requests)
             .await
     }
 

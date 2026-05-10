@@ -281,6 +281,24 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         self.switch_active_account(target_account_id).await
     }
 
+    /// Switch active accounts for multiple windows in one logical
+    /// batch. The default implementation dispatches serially; harnesses
+    /// with real concurrent transports can override this to submit in
+    /// parallel.
+    async fn switch_active_accounts_in_windows_concurrent(
+        &mut self,
+        requests: Vec<(String, AccountId)>,
+    ) -> Vec<(String, HarnessResult<Vec<SignedInAccountView>>)> {
+        let mut out = Vec::with_capacity(requests.len());
+        for (window_id, target_account_id) in requests {
+            let result = self
+                .switch_active_account_in_window(&window_id, target_account_id)
+                .await;
+            out.push((window_id, result));
+        }
+        out
+    }
+
     /// Inject an invalid caller-session mode for subsequent
     /// active-account list/switch calls.
     async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {

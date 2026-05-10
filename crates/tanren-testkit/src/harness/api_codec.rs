@@ -31,7 +31,7 @@ pub(super) fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
     })
 }
 
-pub(super) fn failure_from_body(json: &Value) -> HarnessError {
+pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
     let code = json
         .get("code")
         .and_then(Value::as_str)

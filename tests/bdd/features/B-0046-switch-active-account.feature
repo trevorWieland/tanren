@@ -26,6 +26,12 @@ Feature: Switch the active account
       And alice switches the active account to the second account in window "11111111-1111-4111-8111-11111111111b" via the api
       Then alice sees different active accounts between windows "11111111-1111-4111-8111-11111111111a" and "11111111-1111-4111-8111-11111111111b" via the api
 
+    @positive @api
+    Scenario: API keeps concurrent window switches isolated
+      Given alice holds two signed-in accounts via the api
+      When alice concurrently switches the active account to the first account in window "11111111-1111-4111-8111-11111111111a" and the second account in window "11111111-1111-4111-8111-11111111111b" via the api
+      Then alice sees different active accounts between windows "11111111-1111-4111-8111-11111111111a" and "11111111-1111-4111-8111-11111111111b" via the api
+
     @falsification @api
     Scenario: API rejects switching to an unsigned account
       Given alice holds one signed-in account via the api
@@ -84,6 +90,7 @@ Feature: Switch the active account
       And alice sees project availability scoped to the selected account via the web
       When alice switches the active account back to the first account via the web
       Then alice sees the first account as active without re-authentication via the web
+      And a "active_account_switched" event is recorded
 
     @positive @web
     Scenario: Web keeps per-window active selection independent
@@ -97,6 +104,7 @@ Feature: Switch the active account
       Given alice holds one signed-in account via the web
       When alice switches the active account to an unsigned account via the web
       Then the request fails with code "target_account_not_signed_in"
+      And a "active_account_switch_rejected" event is recorded
 
     @falsification @web
     Scenario: Web rejects switching with a missing caller session
@@ -149,6 +157,7 @@ Feature: Switch the active account
       And alice sees project availability scoped to the selected account via the cli
       When alice switches the active account back to the first account via the cli
       Then alice sees the first account as active without re-authentication via the cli
+      And a "active_account_switched" event is recorded
 
     @positive @cli
     Scenario: CLI keeps per-window active selection independent
@@ -162,6 +171,7 @@ Feature: Switch the active account
       Given alice holds one signed-in account via the cli
       When alice switches the active account to an unsigned account via the cli
       Then the request fails with code "target_account_not_signed_in"
+      And a "active_account_switch_rejected" event is recorded
 
     @falsification @cli
     Scenario: CLI rejects switching with a missing caller session
@@ -207,6 +217,7 @@ Feature: Switch the active account
       And alice sees project availability scoped to the selected account via the mcp
       When alice switches the active account back to the first account via the mcp
       Then alice sees the first account as active without re-authentication via the mcp
+      And a "active_account_switched" event is recorded
 
     @positive @mcp
     Scenario: MCP keeps per-window active selection independent
@@ -220,6 +231,7 @@ Feature: Switch the active account
       Given alice holds one signed-in account via the mcp
       When alice switches the active account to an unsigned account via the mcp
       Then the request fails with code "target_account_not_signed_in"
+      And a "active_account_switch_rejected" event is recorded
 
     @falsification @mcp
     Scenario: MCP rejects switching with a missing caller session
@@ -265,6 +277,7 @@ Feature: Switch the active account
       And alice sees project availability scoped to the selected account via the tui
       When alice switches the active account back to the first account via the tui
       Then alice sees the first account as active without re-authentication via the tui
+      And a "active_account_switched" event is recorded
 
     @positive @tui
     Scenario: TUI keeps per-window active selection independent
@@ -278,6 +291,7 @@ Feature: Switch the active account
       Given alice holds one signed-in account via the tui
       When alice switches the active account to an unsigned account via the tui
       Then the request fails with code "target_account_not_signed_in"
+      And a "active_account_switch_rejected" event is recorded
 
     @falsification @tui
     Scenario: TUI rejects switching with a missing caller session

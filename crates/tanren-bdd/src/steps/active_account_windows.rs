@@ -54,6 +54,71 @@ async fn when_switch_in_window(
     }
 }
 
+#[when(
+    expr = "{word} concurrently switches the active account to the {word} account in window {string} and the {word} account in window {string} via the {word}"
+)]
+async fn when_switch_in_windows_concurrently(
+    world: &mut TanrenWorld,
+    actor: String,
+    first_target: String,
+    first_window_id: String,
+    second_target: String,
+    second_window_id: String,
+    surface: String,
+) {
+    let expected_kind = parse_surface_kind(&surface);
+    let ctx = world.ensure_account_ctx().await;
+    assert_eq!(
+        ctx.harness.kind(),
+        expected_kind,
+        "harness/surface mismatch"
+    );
+    let first_account_id = ctx
+        .actors
+        .get(&actor)
+        .and_then(|entry| entry.sign_up.as_ref())
+        .map(|session| session.account_id)
+        .expect("first account must exist");
+    let second_account_id = ctx
+        .actors
+        .get(&actor)
+        .and_then(|entry| entry.accept_invitation.as_ref())
+        .map(|accept| accept.session.account_id)
+        .expect("second account must exist");
+    let first_target_account =
+        parse_target_account(&first_target, first_account_id, second_account_id);
+    let second_target_account =
+        parse_target_account(&second_target, first_account_id, second_account_id);
+
+    let outcomes = ctx
+        .harness
+        .switch_active_accounts_in_windows_concurrent(vec![
+            (first_window_id, first_target_account),
+            (second_window_id, second_target_account),
+        ])
+        .await;
+
+    let mut first_error = None;
+    for (window_id, outcome) in outcomes {
+        match outcome {
+            Ok(accounts) => {
+                ctx.window_accounts.insert(window_id, accounts);
+            }
+            Err(err) => {
+                first_error = Some(err);
+                break;
+            }
+        }
+    }
+    let entry = ctx.actors.entry(actor).or_default();
+    if let Some(err) = first_error {
+        ctx.last_outcome = Some(record_failure(err, entry));
+    } else {
+        entry.last_failure = None;
+        ctx.last_outcome = Some(HarnessOutcome::Other("active_account_switched".to_owned()));
+    }
+}
+
 #[then(
     expr = "{word} sees different active accounts between windows {string} and {string} via the {word}"
 )]

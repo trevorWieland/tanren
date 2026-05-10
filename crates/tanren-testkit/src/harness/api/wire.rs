@@ -37,7 +37,7 @@ fn should_retry_transport(err: &reqwest::Error) -> bool {
     err.is_connect() || err.is_timeout()
 }
 
-pub(super) async fn send_with_retry<F>(
+pub(crate) async fn send_with_retry<F>(
     mut build_request: F,
     operation: &'static str,
 ) -> HarnessResult<reqwest::Response>
