@@ -62,6 +62,14 @@ export const ORGANIZATION_WIRE_TEST_IDS = {
   organizationsList: "org-wire-organizations-list",
 } as const;
 
+export const ORGANIZATION_PRODUCT_TEST_IDS = {
+  authGate: "org-product-auth-gate",
+  organizationsList: "org-product-organizations-list",
+  emptyState: "org-product-empty-state",
+  sourceLink: "org-product-source-link",
+  freshness: "org-product-freshness",
+} as const;
+
 export const ORGANIZATION_ADMIN_PERMISSION_OPTIONS = [
   "invite",
   "manage_access",
