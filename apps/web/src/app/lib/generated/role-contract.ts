@@ -414,6 +414,29 @@ export function parseRoleCapabilitySnapshotPayload(
   };
 }
 
+export function parseRoleCapabilitySnapshot(
+  payload: unknown,
+): RoleCapabilitySnapshotPayload {
+  const snapshot = parseRoleCapabilitySnapshotPayload(payload);
+  return {
+    capabilities: {
+      ...snapshot.capabilities,
+      actor: {
+        account_id: asAccountId(
+          parseNonEmptyString(
+            snapshot.capabilities.actor.account_id,
+            "role capability snapshot.capabilities.actor.account_id",
+          ),
+        ),
+      },
+    },
+    csrf_token: parseNonEmptyString(
+      snapshot.csrf_token,
+      "role capability snapshot.csrf_token",
+    ),
+  };
+}
+
 function parseRoleScope(value: unknown, context: string): RoleScope {
   const data = expectRecord(value, context);
   const scope = parseRoleScopeKindStrict(
@@ -679,6 +702,13 @@ function parsePermissionGrantCursorIdValue(
 function parseString(value: unknown, context: string): string {
   if (typeof value !== "string") {
     throw new Error(`${context} must be a string`);
+  }
+  return value;
+}
+
+function parseNonEmptyString(value: string, context: string): string {
+  if (value.trim().length === 0) {
+    throw new Error(`${context} must be non-empty`);
   }
   return value;
 }

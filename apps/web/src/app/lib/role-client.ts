@@ -10,17 +10,17 @@ import type {
   EditRoleRequest,
   EditRoleResponse,
   OrgId,
-  PermissionName,
-  ProjectId,
   PermissionCheckRequest,
   PermissionCheckResponse,
+  PermissionName,
+  PermissionScope,
+  ProjectId,
+  RoleAdminCapabilities,
+  RoleFailureBody,
   RoleId,
   RolePrincipalRejectionRef,
   RoleReadModelRequest,
   RoleReadModelResponse,
-  PermissionScope,
-  RoleAdminCapabilities,
-  RoleFailureBody,
   RoleScope,
 } from "./generated/role-contract";
 import {
@@ -35,7 +35,7 @@ import {
   parseEditRoleResponse,
   parsePermissionCheckResponse,
   parsePrincipalKind,
-  parseRoleCapabilitySnapshotPayload,
+  parseRoleCapabilitySnapshot,
   parseRoleFailure,
   parseRoleReadModelResponse,
   parseRoleScopeKind,
@@ -69,16 +69,48 @@ export interface PermissionCheckRolePrincipalRejectionRequest {
   scope: PermissionScope;
 }
 
-type RoleCommandRequest =
-  | CreateRoleRequest
-  | EditRoleRequest
-  | DeleteRoleRequest
-  | ApplyRoleRequest
-  | PermissionCheckRequest
-  | PermissionCheckRolePrincipalRejectionRequest
-  | RoleReadModelRequest;
+interface RolePostEndpointMap {
+  "/roles": {
+    request: CreateRoleRequest;
+    response: CreateRoleResponse;
+  };
+  "/roles/edit": {
+    request: EditRoleRequest;
+    response: EditRoleResponse;
+  };
+  "/roles/delete": {
+    request: DeleteRoleRequest;
+    response: DeleteRoleResponse;
+  };
+  "/roles/apply": {
+    request: ApplyRoleRequest;
+    response: ApplyRoleResponse;
+  };
+  "/permissions/check": {
+    request:
+      | PermissionCheckRequest
+      | PermissionCheckRolePrincipalRejectionRequest;
+    response: PermissionCheckResponse;
+  };
+  "/roles/read-model": {
+    request: RoleReadModelRequest;
+    response: RoleReadModelResponse;
+  };
+}
 
+type RolePostPath = keyof RolePostEndpointMap;
 type ResponseDecoder<TResponse> = (payload: unknown) => TResponse;
+
+const ROLE_POST_DECODERS: {
+  [K in RolePostPath]: ResponseDecoder<RolePostEndpointMap[K]["response"]>;
+} = {
+  "/roles": parseCreateRoleResponse,
+  "/roles/edit": parseEditRoleResponse,
+  "/roles/delete": parseDeleteRoleResponse,
+  "/roles/apply": parseApplyRoleResponse,
+  "/permissions/check": parsePermissionCheckResponse,
+  "/roles/read-model": parseRoleReadModelResponse,
+};
 
 function toRoleTransportFailure(summary: string): RoleFailureBody {
   return {
@@ -156,12 +188,11 @@ function resolveRoleApiPath(path: string): string {
   return `${resolveApiBasePath()}${path}`;
 }
 
-async function postRoleJson<TResponse>(
-  path: string,
-  body: RoleCommandRequest,
-  decode: ResponseDecoder<TResponse>,
+async function postRoleEndpoint<K extends RolePostPath>(
+  path: K,
+  body: RolePostEndpointMap[K]["request"],
   csrfToken?: string,
-): Promise<TResponse> {
+): Promise<RolePostEndpointMap[K]["response"]> {
   let response: Response;
   try {
     response = await fetch(resolveRoleApiPath(path), {
@@ -192,6 +223,7 @@ async function postRoleJson<TResponse>(
     throw new RoleRequestError(parseRoleFailure(payload));
   }
 
+  const decode = ROLE_POST_DECODERS[path];
   try {
     return decode(payload);
   } catch (cause: unknown) {
@@ -209,6 +241,44 @@ export interface RoleCapabilitySnapshot {
   capabilities: RoleAdminCapabilities;
   csrfToken: string;
 }
+
+export interface RoleRequestContextInput {
+  roleScope: RoleScope;
+  grantScope: PermissionScope;
+  grantPrincipal?: AccountPrincipalRef;
+}
+
+export interface CreateRoleFormSubmission {
+  request: CreateRoleRequest;
+  context: RoleRequestContextInput;
+}
+
+export interface EditRoleFormSubmission {
+  request: EditRoleRequest;
+  context: RoleRequestContextInput;
+}
+
+export interface DeleteRoleFormSubmission {
+  request: DeleteRoleRequest;
+  context: RoleRequestContextInput;
+}
+
+export interface ApplyRoleFormSubmission {
+  request: ApplyRoleRequest;
+  context: RoleRequestContextInput;
+}
+
+export type PermissionCheckFormSubmission =
+  | {
+      principalKind: "account";
+      request: PermissionCheckRequest;
+      context: RoleRequestContextInput;
+    }
+  | {
+      principalKind: "role";
+      request: PermissionCheckRolePrincipalRejectionRequest;
+      context: RoleRequestContextInput;
+    };
 
 export function formatRoleError(reason: unknown): string {
   return reason instanceof Error ? reason.message : String(reason);
@@ -241,13 +311,10 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
   }
 
   try {
-    const typed = parseRoleCapabilitySnapshotPayload(payload);
-    if (typed.csrf_token.length === 0) {
-      throw new Error("missing csrf token in capability payload");
-    }
+    const snapshot = parseRoleCapabilitySnapshot(payload);
     return {
-      capabilities: typed.capabilities,
-      csrfToken: typed.csrf_token,
+      capabilities: snapshot.capabilities,
+      csrfToken: snapshot.csrf_token,
     };
   } catch (cause: unknown) {
     throw new RoleRequestError(
@@ -264,64 +331,181 @@ export function createRole(
   request: CreateRoleRequest,
   csrfToken: string,
 ): Promise<CreateRoleResponse> {
-  return postRoleJson("/roles", request, parseCreateRoleResponse, csrfToken);
+  return postRoleEndpoint("/roles", request, csrfToken);
 }
 
 export function editRole(
   request: EditRoleRequest,
   csrfToken: string,
 ): Promise<EditRoleResponse> {
-  return postRoleJson("/roles/edit", request, parseEditRoleResponse, csrfToken);
+  return postRoleEndpoint("/roles/edit", request, csrfToken);
 }
 
 export function deleteRole(
   request: DeleteRoleRequest,
   csrfToken: string,
 ): Promise<DeleteRoleResponse> {
-  return postRoleJson(
-    "/roles/delete",
-    request,
-    parseDeleteRoleResponse,
-    csrfToken,
-  );
+  return postRoleEndpoint("/roles/delete", request, csrfToken);
 }
 
 export function applyRole(
   request: ApplyRoleRequest,
   csrfToken: string,
 ): Promise<ApplyRoleResponse> {
-  return postRoleJson(
-    "/roles/apply",
-    request,
-    parseApplyRoleResponse,
-    csrfToken,
-  );
+  return postRoleEndpoint("/roles/apply", request, csrfToken);
 }
 
 export function checkPermission(
   request: PermissionCheckRequest,
 ): Promise<PermissionCheckResponse> {
-  return postRoleJson(
-    "/permissions/check",
-    request,
-    parsePermissionCheckResponse,
-  );
+  return postRoleEndpoint("/permissions/check", request);
 }
 
 export function checkPermissionRolePrincipalRejection(
   request: PermissionCheckRolePrincipalRejectionRequest,
 ): Promise<PermissionCheckResponse> {
-  return postRoleJson(
-    "/permissions/check",
-    request,
-    parsePermissionCheckResponse,
-  );
+  return postRoleEndpoint("/permissions/check", request);
 }
 
 export function readRoleModel(
   request: RoleReadModelRequest,
 ): Promise<RoleReadModelResponse> {
-  return postRoleJson("/roles/read-model", request, parseRoleReadModelResponse);
+  return postRoleEndpoint("/roles/read-model", request);
+}
+
+export function buildCreateRoleRequest(
+  form: FormData,
+): CreateRoleFormSubmission {
+  const roleScope = readRoleScope(form, "scope_");
+  return {
+    request: {
+      scope: roleScope,
+      name: readRoleNameField(form, "name"),
+      permissions: readPermissionBundle(form, "permissions"),
+    },
+    context: {
+      roleScope,
+      grantScope: permissionScopeFromRoleScope(roleScope),
+    },
+  };
+}
+
+export function buildEditRoleRequest(form: FormData): EditRoleFormSubmission {
+  const roleScope = readRoleScope(form, "scope_");
+  return {
+    request: {
+      role: {
+        role_id: readRoleIdField(form, "role_id"),
+        scope: roleScope,
+      },
+      name: readRoleNameField(form, "name"),
+      permissions: readPermissionBundle(form, "permissions"),
+    },
+    context: {
+      roleScope,
+      grantScope: permissionScopeFromRoleScope(roleScope),
+    },
+  };
+}
+
+export function buildDeleteRoleRequest(
+  form: FormData,
+): DeleteRoleFormSubmission {
+  const roleScope = readRoleScope(form, "scope_");
+  return {
+    request: {
+      role: {
+        role_id: readRoleIdField(form, "role_id"),
+        scope: roleScope,
+      },
+    },
+    context: {
+      roleScope,
+      grantScope: permissionScopeFromRoleScope(roleScope),
+    },
+  };
+}
+
+export function buildApplyRoleRequest(form: FormData): ApplyRoleFormSubmission {
+  const roleScope = readRoleScope(form, "role_scope_");
+  const principal = readAccountPrincipalRef(form, "principal_");
+  const grantScope = readPermissionScope(form, "grant_scope_");
+  return {
+    request: {
+      role: {
+        role_id: readRoleIdField(form, "role_id"),
+        scope: roleScope,
+      },
+      principal,
+      grant_scope: grantScope,
+    },
+    context: {
+      roleScope,
+      grantPrincipal: principal,
+      grantScope,
+    },
+  };
+}
+
+export function buildPermissionCheckRequest(
+  form: FormData,
+): PermissionCheckFormSubmission {
+  const scope = readPermissionScope(form, "scope_");
+  const permission = readPermissionNameField(form, "permission");
+  const principalKind = readPrincipalKindField(form, "principal_");
+  if (principalKind === "role") {
+    return {
+      principalKind: "role",
+      request: {
+        principal: readRolePrincipalRejectionRef(form, "principal_"),
+        permission,
+        scope,
+      },
+      context: {
+        roleScope: roleScopeFromPermissionScope(scope),
+        grantScope: scope,
+      },
+    };
+  }
+
+  const principal = readAccountPrincipalRef(form, "principal_");
+  return {
+    principalKind: "account",
+    request: {
+      principal,
+      permission,
+      scope,
+    },
+    context: {
+      roleScope: roleScopeFromPermissionScope(scope),
+      grantPrincipal: principal,
+      grantScope: scope,
+    },
+  };
+}
+
+export function permissionScopeFromRoleScope(
+  scope: RoleScope,
+): PermissionScope {
+  if (scope.scope === "organization") {
+    return { scope: "organization", org_id: scope.org_id };
+  }
+  if (scope.scope === "project") {
+    return { scope: "project", project_id: scope.project_id };
+  }
+  return { scope: "account", account_id: scope.account_id };
+}
+
+export function roleScopeFromPermissionScope(
+  scope: PermissionScope,
+): RoleScope {
+  if (scope.scope === "organization") {
+    return { scope: "organization", org_id: scope.org_id };
+  }
+  if (scope.scope === "project") {
+    return { scope: "project", project_id: scope.project_id };
+  }
+  return { scope: "account", account_id: scope.account_id };
 }
 
 export function readRequiredField(form: FormData, name: string): string {
@@ -372,13 +556,7 @@ export function readPermissionScope(
   prefix: string,
 ): PermissionScope {
   const scope = readRoleScope(form, prefix);
-  if (scope.scope === "organization") {
-    return { scope: "organization", org_id: scope.org_id };
-  }
-  if (scope.scope === "project") {
-    return { scope: "project", project_id: scope.project_id };
-  }
-  return { scope: "account", account_id: scope.account_id };
+  return permissionScopeFromRoleScope(scope);
 }
 
 export function readPrincipalKindField(
