@@ -5,10 +5,13 @@ use crate::{FormField, FormState, OutcomeView};
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse, ThemePreference, UserCredentialId,
-    UserCredentialKind, UserCredentialStatus, UserCredentialView, UserSettingKey, UserSettingValue,
-    parse_user_credential_kind, parse_user_setting_key,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
+    SUPPORTED_THEME_PREFERENCES, SUPPORTED_USER_CREDENTIAL_KINDS, SUPPORTED_USER_SETTING_KEYS,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, UserCredentialId,
+    UserCredentialKind, UserCredentialView, UserSettingKey, UserSettingValue,
+    parse_optional_page_after, parse_optional_page_limit, parse_theme_preference,
+    parse_user_credential_kind, parse_user_setting_key, theme_preference_name,
+    user_credential_kind_name, user_credential_status_name, user_setting_key_name,
 };
 use tanren_identity_policy::{AccountId, Email, InvitationToken, ValidationError};
 use uuid::Uuid;
@@ -256,8 +259,12 @@ pub(crate) fn parse_setting_key_field(
     state: &FormState,
     idx: usize,
 ) -> Result<UserSettingKey, String> {
-    parse_user_setting_key(state.value(idx).trim())
-        .map_err(|_| "validation_failed: key must be one of theme|editor".to_owned())
+    parse_user_setting_key(state.value(idx).trim()).map_err(|_| {
+        format!(
+            "validation_failed: key must be one of {}",
+            SUPPORTED_USER_SETTING_KEYS.join("|")
+        )
+    })
 }
 pub(crate) fn parse_setting_value_field(
     key: UserSettingKey,
@@ -265,12 +272,14 @@ pub(crate) fn parse_setting_value_field(
     idx: usize,
 ) -> Result<UserSettingValue, String> {
     match key {
-        UserSettingKey::Theme => match state.value(idx).trim() {
-            "system" => Ok(UserSettingValue::Theme(ThemePreference::System)),
-            "light" => Ok(UserSettingValue::Theme(ThemePreference::Light)),
-            "dark" => Ok(UserSettingValue::Theme(ThemePreference::Dark)),
-            _ => Err("validation_failed: theme value must be system|light|dark".to_owned()),
-        },
+        UserSettingKey::Theme => parse_theme_preference(state.value(idx).trim())
+            .map(UserSettingValue::Theme)
+            .ok_or_else(|| {
+                format!(
+                    "validation_failed: theme value must be {}",
+                    SUPPORTED_THEME_PREFERENCES.join("|")
+                )
+            }),
         UserSettingKey::Editor => Ok(UserSettingValue::Editor(state.value(idx).to_owned())),
     }
 }
@@ -279,7 +288,10 @@ pub(crate) fn parse_credential_kind_field(
     idx: usize,
 ) -> Result<UserCredentialKind, String> {
     parse_user_credential_kind(state.value(idx).trim()).map_err(|_| {
-        "validation_failed: kind must be provider_api_token|harness_api_token".to_owned()
+        format!(
+            "validation_failed: kind must be {}",
+            SUPPORTED_USER_CREDENTIAL_KINDS.join("|")
+        )
     })
 }
 pub(crate) fn credential_list_outcome(
@@ -301,8 +313,8 @@ pub(crate) fn credential_list_outcome(
         lines.push(format!(
             "{} kind={} status={} updated_at={}",
             item.id,
-            credential_kind(item.kind),
-            credential_status(item.status),
+            user_credential_kind_name(item.kind),
+            user_credential_status_name(item.status),
             item.updated_at.to_rfc3339()
         ));
     }
@@ -322,8 +334,8 @@ pub(crate) fn credential_item_outcome(
         title,
         lines: vec![
             format!("id: {}", item.id),
-            format!("kind: {}", credential_kind(item.kind)),
-            format!("status: {}", credential_status(item.status)),
+            format!("kind: {}", user_credential_kind_name(item.kind)),
+            format!("status: {}", user_credential_status_name(item.status)),
             format!("updated_at: {}", item.updated_at.to_rfc3339()),
             "secret: [redacted]".to_owned(),
         ],
@@ -347,7 +359,7 @@ pub(crate) fn settings_list_outcome(
     for item in items {
         lines.push(format!(
             "{}={} updated_at={}",
-            setting_key(item.key),
+            user_setting_key_name(item.key),
             setting_value(&item.value),
             item.updated_at.to_rfc3339()
         ));
@@ -367,7 +379,7 @@ pub(crate) fn setting_item_outcome(
     OutcomeView {
         title,
         lines: vec![
-            format!("key: {}", setting_key(item.key)),
+            format!("key: {}", user_setting_key_name(item.key)),
             format!("value: {}", setting_value(&item.value)),
             format!("updated_at: {}", item.updated_at.to_rfc3339()),
         ],
@@ -382,24 +394,11 @@ pub(crate) fn parse_item_id_field(
         .map_err(|_| "validation_failed: item id must be a valid uuid".to_owned())
 }
 pub(crate) fn parse_list_limit_field(state: &FormState, idx: usize) -> Result<Option<u16>, String> {
-    let raw = state.value(idx).trim();
-    if raw.is_empty() {
-        return Ok(None);
-    }
-    let parsed = raw
-        .parse::<u16>()
-        .map_err(|_| "validation_failed: limit must be a positive integer".to_owned())?;
-    if parsed == 0 {
-        return Err("validation_failed: limit must be a positive integer".to_owned());
-    }
-    Ok(Some(parsed))
+    parse_optional_page_limit(state.value(idx))
+        .map_err(|summary| format!("validation_failed: {summary}"))
 }
 pub(crate) fn parse_list_after_field(state: &FormState, idx: usize) -> Option<String> {
-    let raw = state.value(idx).trim();
-    if raw.is_empty() {
-        return None;
-    }
-    Some(raw.to_owned())
+    parse_optional_page_after(state.value(idx))
 }
 fn parse_account_id(raw: &str) -> Result<AccountId, String> {
     let trimmed = raw.trim();
@@ -407,33 +406,10 @@ fn parse_account_id(raw: &str) -> Result<AccountId, String> {
         .map_err(|_| "validation_failed: account id must be a uuid".to_owned())?;
     Ok(AccountId::new(parsed))
 }
-fn setting_key(key: UserSettingKey) -> &'static str {
-    match key {
-        UserSettingKey::Theme => "theme",
-        UserSettingKey::Editor => "editor",
-    }
-}
 fn setting_value(value: &UserSettingValue) -> String {
     match value {
-        UserSettingValue::Theme(theme) => match theme {
-            ThemePreference::System => "system".to_owned(),
-            ThemePreference::Light => "light".to_owned(),
-            ThemePreference::Dark => "dark".to_owned(),
-        },
+        UserSettingValue::Theme(theme) => theme_preference_name(*theme).to_owned(),
         UserSettingValue::Editor(editor) => editor.clone(),
-    }
-}
-fn credential_kind(kind: UserCredentialKind) -> &'static str {
-    match kind {
-        UserCredentialKind::ProviderApiToken => "provider_api_token",
-        UserCredentialKind::HarnessApiToken => "harness_api_token",
-    }
-}
-fn credential_status(status: UserCredentialStatus) -> &'static str {
-    match status {
-        UserCredentialStatus::Pending => "pending",
-        UserCredentialStatus::Active => "active",
-        UserCredentialStatus::Invalid => "invalid",
     }
 }
 pub(crate) fn parse_sign_in(state: &FormState) -> Result<SignInRequest, String> {

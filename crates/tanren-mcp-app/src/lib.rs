@@ -26,9 +26,8 @@ use std::sync::Arc;
 use tanren_app_services::{Handlers, Store};
 use tanren_configuration_secrets::{CredentialSealingFailure, CredentialValueSealer};
 use tanren_contract::{
-    AcceptInvitationRequest, CreateUserCredentialRequest, ListUserCredentialsRequest,
-    ListUserSettingsRequest, OwnerScope, SignInRequest, SignUpRequest, UpdateUserCredentialRequest,
-    UpsertUserSettingRequest,
+    AcceptInvitationRequest, CreateUserCredentialRequest, OwnerScope, SignInRequest, SignUpRequest,
+    UpdateUserCredentialRequest, UpsertUserSettingRequest,
 };
 
 pub(crate) const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
@@ -184,10 +183,7 @@ impl TanrenMcp {
                 self.store.as_ref(),
                 authenticated_account_id,
                 requested_account_id,
-                ListUserSettingsRequest {
-                    limit: request.limit,
-                    after: request.after,
-                },
+                request.settings_page_request(),
             )
             .await
         {
@@ -371,10 +367,7 @@ impl TanrenMcp {
                 OwnerScope::User {
                     account_id: requested_account_id,
                 },
-                ListUserCredentialsRequest {
-                    limit: request.limit,
-                    after: request.after,
-                },
+                request.credentials_page_request(),
             )
             .await
         {

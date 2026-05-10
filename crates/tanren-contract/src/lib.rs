@@ -18,12 +18,17 @@ pub use configuration::{
     CreateUserCredentialResponse, CredentialCapabilitiesView, CredentialCapabilityAction,
     GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsRequest,
     ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse, OwnerScope,
-    RemoveUserCredentialResponse, RemoveUserSettingResponse, SettingCapabilitiesView,
+    RemoveUserCredentialResponse, RemoveUserSettingResponse, SUPPORTED_THEME_PREFERENCES,
+    SUPPORTED_USER_CREDENTIAL_KINDS, SUPPORTED_USER_SETTING_KEYS, SettingCapabilitiesView,
     SettingCapabilityAction, ThemePreference, UpdateUserCredentialRequest,
     UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
     UserConfigurationFailureReason, UserCredentialId, UserCredentialKind, UserCredentialStatus,
     UserCredentialView, UserSettingKey, UserSettingValue, UserSettingView,
-    parse_user_credential_kind, parse_user_setting_key,
+    parse_optional_page_after, parse_optional_page_limit, parse_theme_preference,
+    parse_user_credential_kind, parse_user_setting_key, theme_preference_name,
+    user_credential_kind_name, user_credential_kind_wire_name, user_credential_status_name,
+    user_credentials_page_request, user_setting_key_name, user_setting_key_wire_name,
+    user_settings_page_request,
 };
 
 use serde::{Deserialize, Serialize};

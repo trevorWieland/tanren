@@ -14,7 +14,8 @@ use tanren_configuration_secrets::UserCredentialMetadata;
 pub use tanren_configuration_secrets::{
     ConfigurationValidationFailure, OwnerScope, ThemePreference, UserCredentialId,
     UserCredentialKind, UserCredentialStatus, UserSettingKey, UserSettingValue,
-    parse_user_credential_kind, parse_user_setting_key,
+    parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,
+    user_setting_key_wire_name,
 };
 use tanren_identity_policy::secret_serde;
 use utoipa::ToSchema;
@@ -271,4 +272,107 @@ impl UserConfigurationFailureReason {
             Self::SettingNotFound | Self::ItemNotFound => 404,
         }
     }
+}
+
+/// Stable list of supported user-setting keys for interface prompts/messages.
+pub const SUPPORTED_USER_SETTING_KEYS: [&str; 2] = ["theme", "editor"];
+/// Stable list of supported credential kinds for interface prompts/messages.
+pub const SUPPORTED_USER_CREDENTIAL_KINDS: [&str; 2] = ["provider_api_token", "harness_api_token"];
+/// Stable list of supported theme preferences for interface prompts/messages.
+pub const SUPPORTED_THEME_PREFERENCES: [&str; 3] = ["system", "light", "dark"];
+
+/// Resolve a user-setting key to a stable transport name.
+#[must_use]
+pub fn user_setting_key_name(key: UserSettingKey) -> &'static str {
+    match user_setting_key_wire_name(key) {
+        Ok(value) => value,
+        Err(_) => "unsupported_setting_key",
+    }
+}
+
+/// Resolve a credential kind to a stable transport name.
+#[must_use]
+pub fn user_credential_kind_name(kind: UserCredentialKind) -> &'static str {
+    match user_credential_kind_wire_name(kind) {
+        Ok(value) => value,
+        Err(_) => "unsupported_credential_kind",
+    }
+}
+
+/// Resolve a credential status to a stable transport name.
+#[must_use]
+pub const fn user_credential_status_name(status: UserCredentialStatus) -> &'static str {
+    match status {
+        UserCredentialStatus::Pending => "pending",
+        UserCredentialStatus::Active => "active",
+        UserCredentialStatus::Invalid => "invalid",
+    }
+}
+
+/// Resolve a theme preference to a stable transport name.
+#[must_use]
+pub const fn theme_preference_name(theme: ThemePreference) -> &'static str {
+    match theme {
+        ThemePreference::System => "system",
+        ThemePreference::Light => "light",
+        ThemePreference::Dark => "dark",
+    }
+}
+
+/// Parse a theme preference from its stable transport name.
+#[must_use]
+pub fn parse_theme_preference(raw: &str) -> Option<ThemePreference> {
+    match raw {
+        "system" => Some(ThemePreference::System),
+        "light" => Some(ThemePreference::Light),
+        "dark" => Some(ThemePreference::Dark),
+        _ => None,
+    }
+}
+
+/// Convert shared list-page arguments to a settings list request.
+#[must_use]
+pub fn user_settings_page_request(
+    limit: Option<u16>,
+    after: Option<String>,
+) -> ListUserSettingsRequest {
+    ListUserSettingsRequest { limit, after }
+}
+
+/// Convert shared list-page arguments to a credentials list request.
+#[must_use]
+pub fn user_credentials_page_request(
+    limit: Option<u16>,
+    after: Option<String>,
+) -> ListUserCredentialsRequest {
+    ListUserCredentialsRequest { limit, after }
+}
+
+/// Parse an optional list-page limit argument from text.
+///
+/// # Errors
+///
+/// Returns an error when a non-empty input is not a positive integer.
+pub fn parse_optional_page_limit(raw: &str) -> Result<Option<u16>, &'static str> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let parsed = trimmed
+        .parse::<u16>()
+        .map_err(|_| "limit must be a positive integer")?;
+    if parsed == 0 {
+        return Err("limit must be a positive integer");
+    }
+    Ok(Some(parsed))
+}
+
+/// Parse an optional list-page cursor argument from text.
+#[must_use]
+pub fn parse_optional_page_after(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    Some(trimmed.to_owned())
 }

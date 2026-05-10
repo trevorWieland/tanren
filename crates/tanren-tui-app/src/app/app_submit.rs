@@ -9,8 +9,8 @@ use crate::ui::{
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
 use tanren_contract::{
-    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest, OwnerScope,
-    UpdateUserCredentialRequest, UpsertUserSettingRequest,
+    CreateUserCredentialRequest, OwnerScope, UpdateUserCredentialRequest, UpsertUserSettingRequest,
+    user_credentials_page_request, user_settings_page_request,
 };
 impl App {
     pub(super) fn submit(&mut self, kind: FormKind) {
@@ -165,7 +165,7 @@ impl App {
             store,
             authenticated_account_id,
             requested_account_id,
-            ListUserSettingsRequest { limit, after },
+            user_settings_page_request(limit, after),
         ));
         match result {
             Ok(response) => {
@@ -286,7 +286,7 @@ impl App {
             OwnerScope::User {
                 account_id: requested_account_id,
             },
-            ListUserCredentialsRequest { limit, after },
+            user_credentials_page_request(limit, after),
         ));
         match result {
             Ok(response) => {

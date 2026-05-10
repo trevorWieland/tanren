@@ -6,7 +6,10 @@ use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_contract::{UserCredentialId, UserCredentialKind, UserSettingKey, UserSettingValue};
+use tanren_contract::{
+    ListUserCredentialsRequest, ListUserSettingsRequest, UserCredentialId, UserCredentialKind,
+    UserSettingKey, UserSettingValue, user_credentials_page_request, user_settings_page_request,
+};
 use tanren_identity_policy::AccountId;
 use uuid::Uuid;
 
@@ -17,6 +20,18 @@ pub(crate) struct AccountScopeParams {
     pub(crate) account_id: String,
     pub(crate) limit: Option<u16>,
     pub(crate) after: Option<String>,
+}
+
+impl AccountScopeParams {
+    #[must_use]
+    pub(crate) fn settings_page_request(&self) -> ListUserSettingsRequest {
+        user_settings_page_request(self.limit, self.after.clone())
+    }
+
+    #[must_use]
+    pub(crate) fn credentials_page_request(&self) -> ListUserCredentialsRequest {
+        user_credentials_page_request(self.limit, self.after.clone())
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]

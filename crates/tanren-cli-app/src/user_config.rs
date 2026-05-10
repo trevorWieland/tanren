@@ -6,9 +6,11 @@ use secrecy::SecretString;
 use std::io::Write;
 use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
 use tanren_contract::{
-    CreateUserCredentialRequest, ListUserCredentialsRequest, ListUserSettingsRequest, OwnerScope,
-    ThemePreference, UpdateUserCredentialRequest, UpsertUserSettingRequest, UserCredentialId,
-    UserCredentialKind, UserCredentialStatus, UserCredentialView, UserSettingKey, UserSettingValue,
+    CreateUserCredentialRequest, OwnerScope, SUPPORTED_THEME_PREFERENCES,
+    UpdateUserCredentialRequest, UpsertUserSettingRequest, UserCredentialId, UserCredentialKind,
+    UserCredentialView, UserSettingKey, UserSettingValue, parse_theme_preference,
+    theme_preference_name, user_credential_kind_name, user_credential_status_name,
+    user_credentials_page_request, user_setting_key_name, user_settings_page_request,
 };
 use tanren_identity_policy::AccountId;
 use uuid::Uuid;
@@ -195,7 +197,7 @@ async fn run_user_config_list(
             &store,
             authenticated_account_id,
             requested_account_id,
-            ListUserSettingsRequest { limit, after },
+            user_settings_page_request(limit, after),
         )
         .await
         .map_err(account_error)?;
@@ -204,7 +206,7 @@ async fn run_user_config_list(
         writeln!(
             handle,
             "setting key={} value={} updated_at={}",
-            setting_key_name(item.key),
+            user_setting_key_name(item.key),
             setting_value_name(item.value),
             item.updated_at.to_rfc3339()
         )
@@ -241,7 +243,7 @@ async fn run_user_config_set(
     writeln!(
         handle,
         "setting key={} value={} updated_at={}",
-        setting_key_name(response.setting.key),
+        user_setting_key_name(response.setting.key),
         setting_value_name(response.setting.value),
         response.setting.updated_at.to_rfc3339()
     )
@@ -269,7 +271,7 @@ async fn run_user_config_remove(
     writeln!(
         handle,
         "removed key={} value={} updated_at={}",
-        setting_key_name(response.setting.key),
+        user_setting_key_name(response.setting.key),
         setting_value_name(response.setting.value),
         response.setting.updated_at.to_rfc3339()
     )
@@ -343,7 +345,7 @@ async fn run_credential_list(
             OwnerScope::User {
                 account_id: requested_account_id,
             },
-            ListUserCredentialsRequest { limit, after },
+            user_credentials_page_request(limit, after),
         )
         .await
         .map_err(account_error)?;
@@ -432,34 +434,20 @@ fn read_secret_from_stdin() -> Result<SecretString> {
 fn parse_setting_value(key: CliUserSettingKey, raw: &str) -> Result<UserSettingValue> {
     match key {
         CliUserSettingKey::Theme => {
-            let value = match raw {
-                "system" => ThemePreference::System,
-                "light" => ThemePreference::Light,
-                "dark" => ThemePreference::Dark,
-                _ => {
-                    return Err(anyhow::anyhow!(
-                        "invalid --value for theme; expected one of: system, light, dark"
-                    ));
-                }
-            };
+            let value = parse_theme_preference(raw).ok_or_else(|| {
+                anyhow::anyhow!(
+                    "invalid --value for theme; expected one of: {}",
+                    SUPPORTED_THEME_PREFERENCES.join(", ")
+                )
+            })?;
             Ok(UserSettingValue::Theme(value))
         }
         CliUserSettingKey::Editor => Ok(UserSettingValue::Editor(raw.to_owned())),
     }
 }
-fn setting_key_name(key: UserSettingKey) -> &'static str {
-    match key {
-        UserSettingKey::Theme => "theme",
-        UserSettingKey::Editor => "editor",
-    }
-}
 fn setting_value_name(value: UserSettingValue) -> String {
     match value {
-        UserSettingValue::Theme(pref) => match pref {
-            ThemePreference::System => "theme:system".to_owned(),
-            ThemePreference::Light => "theme:light".to_owned(),
-            ThemePreference::Dark => "theme:dark".to_owned(),
-        },
+        UserSettingValue::Theme(pref) => format!("theme:{}", theme_preference_name(pref)),
         UserSettingValue::Editor(editor) => format!("editor:{editor}"),
     }
 }
@@ -469,9 +457,9 @@ fn print_credential_row(prefix: &str, item: &UserCredentialView) -> Result<()> {
         handle,
         "{prefix} id={} kind={} scope=user:{} status={} created_at={} updated_at={}",
         item.id,
-        credential_kind_name(item.kind),
+        user_credential_kind_name(item.kind),
         owner_account_id(item.owner_scope),
-        credential_status_name(item.status),
+        user_credential_status_name(item.status),
         item.created_at.to_rfc3339(),
         item.updated_at.to_rfc3339()
     )
@@ -481,18 +469,5 @@ fn print_credential_row(prefix: &str, item: &UserCredentialView) -> Result<()> {
 fn owner_account_id(scope: OwnerScope) -> AccountId {
     match scope {
         OwnerScope::User { account_id } => account_id,
-    }
-}
-fn credential_kind_name(kind: UserCredentialKind) -> &'static str {
-    match kind {
-        UserCredentialKind::ProviderApiToken => "provider_api_token",
-        UserCredentialKind::HarnessApiToken => "harness_api_token",
-    }
-}
-fn credential_status_name(status: UserCredentialStatus) -> &'static str {
-    match status {
-        UserCredentialStatus::Pending => "pending",
-        UserCredentialStatus::Active => "active",
-        UserCredentialStatus::Invalid => "invalid",
     }
 }
