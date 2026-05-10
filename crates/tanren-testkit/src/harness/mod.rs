@@ -328,6 +328,10 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// Release spawned servers, terminal children, and store handles
+    /// before the next scenario starts. Called from the `After` hook.
+    async fn drain(&mut self) {}
 }
 
 /// Default short-window timeout used by the wire harnesses.

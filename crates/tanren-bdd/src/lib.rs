@@ -175,6 +175,16 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
                 world.install_harness_for_tags(tags).await;
             })
         })
+        .after(|_feature, _rule, _scenario, _event, world| {
+            Box::pin(async move {
+                if let Some(world) = world {
+                    if let Some(mut account) = world.account.take() {
+                        account.harness.drain().await;
+                        drop(account);
+                    }
+                }
+            })
+        })
         .fail_on_skipped()
         .run_and_exit(features_dir.into())
         .await;

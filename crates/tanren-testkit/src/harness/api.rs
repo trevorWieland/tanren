@@ -393,6 +393,16 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn drain(&mut self) {
+        // Abort the spawned API server and await its shutdown so
+        // the axum app (holding an Arc<Store> clone) drops before
+        // the next scenario's migration runs.
+        if let Some(handle) = self.server.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
 }
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {

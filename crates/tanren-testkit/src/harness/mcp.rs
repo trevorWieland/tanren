@@ -248,6 +248,19 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn drain(&mut self) {
+        // Close the rmcp client gracefully.
+        if let Some(client) = self.client.as_mut() {
+            let _ = client.close().await;
+        }
+        self.client.take();
+        // Abort the MCP server and await its shutdown.
+        if let Some(handle) = self.server.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
 }
 
 #[async_trait]

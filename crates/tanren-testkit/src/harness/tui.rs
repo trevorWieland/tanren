@@ -319,6 +319,14 @@ impl AccountHarness for TuiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn drain(&mut self) {
+        // The TUI driver spawns a PTY child per form submission
+        // and kills it in finish_session, so there is no persistent
+        // child process to tear down. The Drop impl cleans up the
+        // DB file. This override exists so the After hook can
+        // trigger the Arc<Store> release path.
+    }
 }
 
 #[path = "tui/role_impl.rs"]
