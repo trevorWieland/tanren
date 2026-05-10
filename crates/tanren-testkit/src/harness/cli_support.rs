@@ -8,6 +8,11 @@ use uuid::Uuid;
 use super::common::code_to_reason;
 use super::{HarnessError, HarnessResult};
 
+pub(crate) fn compile_regex(pattern: &str, context: &str) -> HarnessResult<Regex> {
+    Regex::new(pattern)
+        .map_err(|e| HarnessError::Transport(format!("compile {context} regex: {e}")))
+}
+
 /// Locate a workspace binary by name. The BDD runner is at
 /// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
 /// the same directory.
@@ -56,9 +61,11 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 pub(crate) fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
-    let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
+    // CLI emits `error: <code> — <summary>` lines.
+    let re = match compile_regex(r"error:\s*([a-z_]+)\s*—\s*(.*)", "cli error line") {
+        Ok(re) => re,
+        Err(err) => return err,
+    };
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
@@ -74,7 +81,10 @@ pub(crate) fn parse_session(
     email: &str,
     display_name: &str,
 ) -> HarnessResult<(AccountView, bool)> {
-    let re = Regex::new(r"account_id=([0-9a-fA-F-]+)\s+session=([^\s]+)").expect("constant regex");
+    let re = compile_regex(
+        r"account_id=([0-9a-fA-F-]+)\s+session=([^\s]+)",
+        "account/session output",
+    )?;
     let captures = re
         .captures(stdout)
         .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
@@ -102,7 +112,7 @@ pub(crate) fn parse_session(
 }
 
 pub(crate) fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
-    let re = Regex::new(r"joined_org=([0-9a-fA-F-]+)").expect("constant regex");
+    let re = compile_regex(r"joined_org=([0-9a-fA-F-]+)", "joined_org output")?;
     let captures = re.captures(stdout).ok_or_else(|| {
         HarnessError::Transport(format!(
             "could not parse joined_org from cli stdout: {stdout}"

@@ -23,7 +23,7 @@ use std::process::ExitCode;
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, Store, map_organization_error};
+use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
@@ -190,7 +190,9 @@ fn dispatch_organization(action: OrganizationAction) -> Result<()> {
         .build()
         .context("build tokio runtime")?;
     let handlers = Handlers::new();
-    runtime.block_on(run_organization(action, &handlers))
+    runtime
+        .block_on(run_organization(action, &handlers))
+        .map_err(anyhow::Error::from)
 }
 
 async fn run_account(action: AccountAction) -> Result<()> {
@@ -306,15 +308,6 @@ pub(crate) fn account_error(err: AppServiceError) -> anyhow::Error {
         }
         _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }
-}
-
-pub(crate) fn organization_error(err: &AppServiceError) -> anyhow::Error {
-    let projection = map_organization_error(err);
-    anyhow::anyhow!(
-        "error: {} — {}",
-        projection.body.code.code(),
-        projection.body.summary
-    )
 }
 
 pub(crate) fn session_path() -> PathBuf {

@@ -15,7 +15,6 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
-use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{
@@ -30,7 +29,7 @@ use tokio::process::Command;
 use uuid::Uuid;
 
 use super::cli_support::{
-    locate_workspace_binary, parse_joined_org, parse_session, translate_cli_error,
+    compile_regex, locate_workspace_binary, parse_joined_org, parse_session, translate_cli_error,
 };
 use super::common::{scenario_db_path, sqlite_url};
 use super::{
@@ -291,10 +290,10 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let re = Regex::new(
+        let re = compile_regex(
             r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)\s+granted_permissions=([a-z_,]*)\s+initial_project_count=(\d+)\s+proof_behavior_id=([^\s]+)\s+source_event=([^\s]+)",
-        )
-        .expect("constant regex");
+            "organization create output",
+        )?;
         let captures = re.captures(&stdout).ok_or_else(|| {
             HarnessError::Transport(format!("could not parse create-org cli stdout: {stdout}"))
         })?;
@@ -360,9 +359,14 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let summary_re =
-            Regex::new(r"organizations=\d+\s+next_cursor=([0-9a-fA-F-]+|<none>)").expect("regex");
-        let row_re = Regex::new(r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)").expect("regex");
+        let summary_re = compile_regex(
+            r"organizations=\d+\s+next_cursor=([0-9a-fA-F-]+|<none>)",
+            "organization list summary output",
+        )?;
+        let row_re = compile_regex(
+            r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)",
+            "organization list row output",
+        )?;
         let next_cursor = stdout
             .lines()
             .find_map(|line| summary_re.captures(line))

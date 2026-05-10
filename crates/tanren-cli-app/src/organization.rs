@@ -2,10 +2,9 @@ use std::fs;
 use std::io::Write;
 use std::str::FromStr;
 
-use anyhow::{Context, Result};
 use clap::Subcommand;
 use secrecy::SecretString;
-use tanren_app_services::{AppServiceError, Handlers, Store};
+use tanren_app_services::{AppServiceError, Handlers, Store, map_organization_error};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CreateOrganizationRequest,
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsRequest,
@@ -13,9 +12,30 @@ use tanren_contract::{
 use tanren_identity_policy::{
     AccountId, MembershipId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
 };
+use thiserror::Error;
 use uuid::Uuid;
 
-use crate::{organization_error, session_path};
+use crate::session_path;
+
+type OrganizationResult<T> = Result<T, OrganizationCliError>;
+
+#[derive(Debug, Error)]
+pub(crate) enum OrganizationCliError {
+    #[error("error: {code} — {summary}")]
+    Taxonomy { code: String, summary: String },
+    #[error("{0}")]
+    Message(String),
+}
+
+impl OrganizationCliError {
+    fn from_app_service(err: &AppServiceError) -> Self {
+        let projection = map_organization_error(err);
+        Self::Taxonomy {
+            code: projection.body.code.code().to_owned(),
+            summary: projection.body.summary,
+        }
+    }
+}
 
 #[derive(Debug, Subcommand)]
 pub(crate) enum OrganizationAction {
@@ -66,7 +86,7 @@ pub(crate) enum OrganizationAction {
 pub(crate) async fn run_organization(
     action: OrganizationAction,
     handlers: &Handlers,
-) -> Result<()> {
+) -> OrganizationResult<()> {
     match action {
         OrganizationAction::Create {
             database_url,
@@ -103,13 +123,15 @@ async fn create_organization(
     database_url: &str,
     account_id_raw: &str,
     name_raw: &str,
-) -> Result<()> {
+) -> OrganizationResult<()> {
     let store = Store::connect(database_url)
         .await
-        .context("connect to store")?;
+        .map_err(|e| OrganizationCliError::Message(format!("connect to store: {e}")))?;
     let account_id = parse_account_id(account_id_raw)?;
     let session_token = read_session_token()?;
-    let name = OrganizationName::parse(name_raw).context("parse --name as organization name")?;
+    let name = OrganizationName::parse(name_raw).map_err(|e| {
+        OrganizationCliError::Message(format!("parse --name as organization name: {e}"))
+    })?;
     let response = handlers
         .create_organization(
             &store,
@@ -121,7 +143,7 @@ async fn create_organization(
             },
         )
         .await
-        .map_err(|err| organization_error(&err))?;
+        .map_err(|err| OrganizationCliError::from_app_service(&err))?;
     let granted = response
         .granted_permissions
         .iter()
@@ -144,7 +166,7 @@ async fn create_organization(
         proof_behavior_id = response.proof_link.behavior_id,
         source_event = source_event,
     )
-    .context("write create-organization result")?;
+    .map_err(|e| OrganizationCliError::Message(format!("write create-organization result: {e}")))?;
     Ok(())
 }
 
@@ -154,10 +176,10 @@ async fn list_organizations(
     account_id_raw: &str,
     limit: u64,
     cursor_raw: Option<&str>,
-) -> Result<()> {
+) -> OrganizationResult<()> {
     let store = Store::connect(database_url)
         .await
-        .context("connect to store")?;
+        .map_err(|e| OrganizationCliError::Message(format!("connect to store: {e}")))?;
     let account_id = parse_account_id(account_id_raw)?;
     let session_token = read_session_token()?;
     let cursor = parse_cursor(cursor_raw)?;
@@ -172,25 +194,29 @@ async fn list_organizations(
             },
         )
         .await
-        .map_err(|err| organization_error(&err))?;
+        .map_err(|err| OrganizationCliError::from_app_service(&err))?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     let next_cursor = response
         .next_cursor
         .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
     if response.organizations.is_empty() {
-        writeln!(handle, "organizations=0 next_cursor={next_cursor}")
-            .context("write organization-list result")?;
+        writeln!(handle, "organizations=0 next_cursor={next_cursor}").map_err(|e| {
+            OrganizationCliError::Message(format!("write organization-list result: {e}"))
+        })?;
     } else {
         writeln!(
             handle,
             "organizations={} next_cursor={next_cursor}",
             response.organizations.len()
         )
-        .context("write organization-list count")?;
+        .map_err(|e| {
+            OrganizationCliError::Message(format!("write organization-list count: {e}"))
+        })?;
         for org in response.organizations {
-            writeln!(handle, "organization_id={} name={}", org.id, org.name)
-                .context("write organization-list row")?;
+            writeln!(handle, "organization_id={} name={}", org.id, org.name).map_err(|e| {
+                OrganizationCliError::Message(format!("write organization-list row: {e}"))
+            })?;
         }
     }
     Ok(())
@@ -202,10 +228,10 @@ async fn check_permission(
     account_id_raw: &str,
     org_id_raw: &str,
     permission_raw: &str,
-) -> Result<()> {
+) -> OrganizationResult<()> {
     let store = Store::connect(database_url)
         .await
-        .context("connect to store")?;
+        .map_err(|e| OrganizationCliError::Message(format!("connect to store: {e}")))?;
     let account_id = parse_account_id(account_id_raw)?;
     let org_id = parse_org_id(org_id_raw)?;
     let permission = parse_permission(permission_raw)?;
@@ -221,11 +247,11 @@ async fn check_permission(
             },
         )
         .await
-        .map_err(|err| organization_error(&err))?;
+        .map_err(|err| OrganizationCliError::from_app_service(&err))?;
     if !response.allowed {
-        return Err(organization_error(&AppServiceError::Account(
-            AccountFailureReason::PermissionDenied,
-        )));
+        return Err(OrganizationCliError::from_app_service(
+            &AppServiceError::Account(AccountFailureReason::PermissionDenied),
+        ));
     }
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -236,56 +262,61 @@ async fn check_permission(
         org = response.org_id,
         permission = response.permission,
     )
-    .context("write permission-check result")?;
+    .map_err(|e| OrganizationCliError::Message(format!("write permission-check result: {e}")))?;
     Ok(())
 }
 
-fn read_session_token() -> Result<SessionToken> {
+fn read_session_token() -> OrganizationResult<SessionToken> {
     let path = session_path();
     let token = match fs::read_to_string(&path) {
         Ok(token) => token,
         Err(err) if err.kind() == std::io::ErrorKind::NotFound => {
-            return Err(organization_error(&AppServiceError::Account(
-                AccountFailureReason::AuthRequired,
-            )));
+            return Err(OrganizationCliError::from_app_service(
+                &AppServiceError::Account(AccountFailureReason::AuthRequired),
+            ));
         }
         Err(err) => {
-            return Err(err).with_context(|| format!("read session from {}", path.display()));
+            return Err(OrganizationCliError::Message(format!(
+                "read session from {}: {err}",
+                path.display()
+            )));
         }
     };
     let trimmed = token.trim();
     if trimmed.is_empty() {
-        return Err(organization_error(&AppServiceError::Account(
-            AccountFailureReason::AuthRequired,
-        )));
+        return Err(OrganizationCliError::from_app_service(
+            &AppServiceError::Account(AccountFailureReason::AuthRequired),
+        ));
     }
     Ok(SessionToken::from_secret(SecretString::from(
         trimmed.to_owned(),
     )))
 }
 
-fn parse_account_id(raw: &str) -> Result<AccountId> {
-    let uuid = Uuid::parse_str(raw).context("parse --account-id as uuid")?;
+fn parse_account_id(raw: &str) -> OrganizationResult<AccountId> {
+    let uuid = Uuid::parse_str(raw)
+        .map_err(|e| OrganizationCliError::Message(format!("parse --account-id as uuid: {e}")))?;
     Ok(AccountId::from(uuid))
 }
 
-fn parse_org_id(raw: &str) -> Result<OrgId> {
-    let uuid = Uuid::parse_str(raw).context("parse --org-id as uuid")?;
+fn parse_org_id(raw: &str) -> OrganizationResult<OrgId> {
+    let uuid = Uuid::parse_str(raw)
+        .map_err(|e| OrganizationCliError::Message(format!("parse --org-id as uuid: {e}")))?;
     Ok(OrgId::from(uuid))
 }
 
-fn parse_permission(raw: &str) -> Result<OrganizationPermission> {
+fn parse_permission(raw: &str) -> OrganizationResult<OrganizationPermission> {
     OrganizationPermission::from_str(raw.trim()).map_err(|_| {
         let expected = OrganizationPermission::ALL
             .into_iter()
             .map(OrganizationPermission::as_str)
             .collect::<Vec<_>>()
             .join("|");
-        anyhow::anyhow!("parse --permission: expected {expected}")
+        OrganizationCliError::Message(format!("parse --permission: expected {expected}"))
     })
 }
 
-fn parse_cursor(raw: Option<&str>) -> Result<Option<MembershipId>> {
+fn parse_cursor(raw: Option<&str>) -> OrganizationResult<Option<MembershipId>> {
     let Some(raw) = raw else {
         return Ok(None);
     };
@@ -293,6 +324,7 @@ fn parse_cursor(raw: Option<&str>) -> Result<Option<MembershipId>> {
     if trimmed.is_empty() {
         return Ok(None);
     }
-    let uuid = Uuid::parse_str(trimmed).context("parse --cursor as uuid")?;
+    let uuid = Uuid::parse_str(trimmed)
+        .map_err(|e| OrganizationCliError::Message(format!("parse --cursor as uuid: {e}")))?;
     Ok(Some(MembershipId::from(uuid)))
 }
