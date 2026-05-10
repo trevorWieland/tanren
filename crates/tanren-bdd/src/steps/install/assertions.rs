@@ -10,11 +10,9 @@ use super::{InstallStepError, InstallStepResult};
 impl InstallContext {
     pub(crate) fn assert_success(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        if !run.success {
+        if !run.is_success() {
             return Err(InstallStepError::InstallCommandExpectedSuccess {
-                status: run.status_code,
-                stdout: run.stdout.clone(),
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -22,10 +20,9 @@ impl InstallContext {
 
     pub(crate) fn assert_nonzero(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        if run.success {
+        if run.is_success() {
             return Err(InstallStepError::InstallCommandExpectedFailure {
-                stdout: run.stdout.clone(),
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -33,11 +30,9 @@ impl InstallContext {
 
     pub(crate) fn assert_drift_success(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        if !run.success {
+        if !run.is_success() {
             return Err(InstallStepError::DriftCommandExpectedSuccess {
-                status: run.status_code,
-                stdout: run.stdout.clone(),
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -45,10 +40,9 @@ impl InstallContext {
 
     pub(crate) fn assert_drift_nonzero(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        if run.success {
+        if run.is_success() {
             return Err(InstallStepError::DriftCommandExpectedFailure {
-                stdout: run.stdout.clone(),
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -80,9 +74,9 @@ impl InstallContext {
 
     pub(crate) fn assert_validation_failure_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        if !run.stderr.contains("error: validation_failed") {
+        if !run.stderr().contains("error: validation_failed") {
             return Err(InstallStepError::ValidationFailureMissing {
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -155,10 +149,10 @@ impl InstallContext {
 
     pub(crate) fn assert_stderr_contains(&self, expected: &str) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        if !run.stderr.contains(expected) {
+        if !run.stderr().contains(expected) {
             return Err(InstallStepError::StderrMissingExpected {
                 expected: expected.to_owned(),
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -167,11 +161,9 @@ impl InstallContext {
     pub(crate) fn assert_no_absolute_repository_path_leaked(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         let repository_path = self.repository_root.display().to_string();
-        if run.stdout.contains(&repository_path) || run.stderr.contains(&repository_path) {
+        if run.stdout().contains(&repository_path) || run.stderr().contains(&repository_path) {
             return Err(InstallStepError::OutputLeakedAbsoluteRepositoryPath {
-                path: repository_path,
-                stdout: run.stdout.clone(),
-                stderr: run.stderr.clone(),
+                diagnostic: run.redacted_diagnostic(),
             });
         }
         Ok(())
@@ -284,10 +276,10 @@ impl InstallContext {
 }
 
 fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> InstallStepResult<()> {
-    if !run.stdout.contains(expected) {
+    if !run.stdout().contains(expected) {
         return Err(InstallStepError::StdoutMissingExpected {
             expected: expected.to_owned(),
-            stdout: run.stdout.clone(),
+            diagnostic: run.redacted_diagnostic(),
         });
     }
     Ok(())
@@ -300,25 +292,25 @@ fn ensure_stdout_list_field_contains(
 ) -> InstallStepResult<()> {
     let field_name = field.as_str();
     let marker = format!("{field_name}=[");
-    let value_start = run.stdout.find(marker.as_str()).ok_or_else(|| {
+    let value_start = run.stdout().find(marker.as_str()).ok_or_else(|| {
         InstallStepError::StdoutMissingExpected {
             expected: marker.clone(),
-            stdout: run.stdout.clone(),
+            diagnostic: run.redacted_diagnostic(),
         }
     })?;
     let items_start = value_start + marker.len();
-    let remainder = &run.stdout[items_start..];
+    let remainder = &run.stdout()[items_start..];
     let closing = remainder
         .find(']')
         .ok_or_else(|| InstallStepError::StdoutMissingExpected {
             expected: format!("{field_name} list closing bracket"),
-            stdout: run.stdout.clone(),
+            diagnostic: run.redacted_diagnostic(),
         })?;
     let list = &remainder[..closing];
     if !list.split(',').any(|item| item == path.as_str()) {
         return Err(InstallStepError::StdoutMissingExpected {
             expected: format!("{field_name} contains {}", path.as_str()),
-            stdout: run.stdout.clone(),
+            diagnostic: run.redacted_diagnostic(),
         });
     }
     Ok(())

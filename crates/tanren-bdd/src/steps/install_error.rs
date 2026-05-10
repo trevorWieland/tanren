@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use thiserror::Error;
 
-use tanren_testkit::{HarnessError, InstallProofError};
+use tanren_testkit::{HarnessError, InstallProofError, RedactedDiagnostic};
 
 #[derive(Debug, Error)]
 pub(crate) enum InstallStepError {
@@ -32,44 +32,28 @@ pub(crate) enum InstallStepError {
     MissingSnapshotBeforeRun,
     #[error("baseline must be recorded before assertion for `{path}`")]
     MissingBaseline { path: String },
-    #[error(
-        "expected install command to succeed; status={status:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    )]
-    InstallCommandExpectedSuccess {
-        status: Option<i32>,
-        stdout: String,
-        stderr: String,
+    #[error("expected install command to succeed; {diagnostic}")]
+    InstallCommandExpectedSuccess { diagnostic: RedactedDiagnostic },
+    #[error("expected install command to fail with non-zero exit; {diagnostic}")]
+    InstallCommandExpectedFailure { diagnostic: RedactedDiagnostic },
+    #[error("expected drift command to succeed; {diagnostic}")]
+    DriftCommandExpectedSuccess { diagnostic: RedactedDiagnostic },
+    #[error("expected drift command to fail with non-zero exit; {diagnostic}")]
+    DriftCommandExpectedFailure { diagnostic: RedactedDiagnostic },
+    #[error("expected install stdout to contain `{expected}`; {diagnostic}")]
+    StdoutMissingExpected {
+        expected: String,
+        diagnostic: RedactedDiagnostic,
     },
-    #[error(
-        "expected install command to fail with non-zero exit; stdout:\n{stdout}\nstderr:\n{stderr}"
-    )]
-    InstallCommandExpectedFailure { stdout: String, stderr: String },
-    #[error(
-        "expected drift command to succeed; status={status:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    )]
-    DriftCommandExpectedSuccess {
-        status: Option<i32>,
-        stdout: String,
-        stderr: String,
+    #[error("expected install stderr to contain `{expected}`; {diagnostic}")]
+    StderrMissingExpected {
+        expected: String,
+        diagnostic: RedactedDiagnostic,
     },
-    #[error(
-        "expected drift command to fail with non-zero exit; stdout:\n{stdout}\nstderr:\n{stderr}"
-    )]
-    DriftCommandExpectedFailure { stdout: String, stderr: String },
-    #[error("expected install stdout to contain `{expected}`; got:\n{stdout}")]
-    StdoutMissingExpected { expected: String, stdout: String },
-    #[error("expected install stderr to contain `{expected}`; got:\n{stderr}")]
-    StderrMissingExpected { expected: String, stderr: String },
-    #[error(
-        "install command output leaked absolute repository path `{path}`\nstdout:\n{stdout}\nstderr:\n{stderr}"
-    )]
-    OutputLeakedAbsoluteRepositoryPath {
-        path: String,
-        stdout: String,
-        stderr: String,
-    },
-    #[error("expected validation failure in stderr; got:\n{stderr}")]
-    ValidationFailureMissing { stderr: String },
+    #[error("install command output leaked absolute repository path; {diagnostic}")]
+    OutputLeakedAbsoluteRepositoryPath { diagnostic: RedactedDiagnostic },
+    #[error("expected validation failure in stderr; {diagnostic}")]
+    ValidationFailureMissing { diagnostic: RedactedDiagnostic },
     #[error("expected repository fixture to remain unchanged after command")]
     RepositorySnapshotMismatch,
     #[error("expected stale path to be absent before manifest injection: {path}")]

@@ -1,11 +1,9 @@
 //! `@cli` harness — shells out to the `tanren-cli` binary against a
 //! per-scenario `SQLite` file.
 //!
-//! The harness owns the database file, applies migrations once at
-//! construction, and reads recent events directly via its own
-//! `Store` handle. Each sign-up / sign-in / accept-invitation step
-//! spawns a `tanren-cli account ...` subprocess and parses the
-//! `account_id=... session=...` line from stdout.
+//! The harness owns the database file and reads recent events via its
+//! own `Store` handle. Each sign-up / sign-in / accept-invitation step
+//! spawns a `tanren-cli account ...` subprocess.
 
 use std::collections::BTreeSet;
 use std::ffi::OsString;
@@ -32,39 +30,60 @@ use super::{
     HarnessSession, InstallCommandKind, InstallCommandRequest, InstallHarness,
 };
 
-/// Captured output from a `tanren-cli` subprocess invocation.
-#[derive(Clone, PartialEq, Eq)]
+use super::capture::{BoundedCapture, CommandExitStatus, RedactedDiagnostic};
+
+/// Captured output from a `tanren-cli` subprocess invocation with typed
+/// exit status and bounded captures with explicit truncation metadata.
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CliCommandOutcome {
-    /// Exit status code, or `None` when unavailable.
-    pub status_code: Option<i32>,
-    /// `true` when the command exited with code 0.
-    pub success: bool,
-    /// Process standard output decoded as UTF-8 lossily.
-    pub stdout: String,
-    /// Process standard error decoded as UTF-8 lossily.
-    pub stderr: String,
+    exit_status: CommandExitStatus,
+    stdout: BoundedCapture,
+    stderr: BoundedCapture,
 }
 
-impl std::fmt::Debug for CliCommandOutcome {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("CliCommandOutcome")
-            .field("status_code", &self.status_code)
-            .field("success", &self.success)
-            .field("stdout", &"<redacted>")
-            .field("stderr", &"<redacted>")
-            .field("stdout_bytes", &self.stdout.len())
-            .field("stderr_bytes", &self.stderr.len())
-            .finish()
+impl CliCommandOutcome {
+    #[must_use]
+    pub fn status_code(&self) -> Option<i32> {
+        self.exit_status.code()
+    }
+
+    #[must_use]
+    pub fn is_success(&self) -> bool {
+        self.exit_status.is_success()
+    }
+
+    #[must_use]
+    pub fn stdout(&self) -> &str {
+        self.stdout.as_str()
+    }
+
+    #[must_use]
+    pub fn stderr(&self) -> &str {
+        self.stderr.as_str()
+    }
+
+    /// Redacted diagnostic for error messages — exit status and truncation
+    /// metadata only, never raw stdout/stderr content.
+    #[must_use]
+    pub fn redacted_diagnostic(&self) -> RedactedDiagnostic {
+        RedactedDiagnostic {
+            exit_status: Some(self.exit_status),
+            stdout_meta: *self.stdout.truncation(),
+            stderr_meta: *self.stderr.truncation(),
+        }
     }
 }
 
 impl From<std::process::Output> for CliCommandOutcome {
     fn from(output: std::process::Output) -> Self {
+        let exit_status = match output.status.code() {
+            Some(code) => CommandExitStatus::Exited(code),
+            None => CommandExitStatus::Signal,
+        };
         Self {
-            status_code: output.status.code(),
-            success: output.status.success(),
-            stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
-            stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
+            exit_status,
+            stdout: BoundedCapture::from_bytes(&output.stdout),
+            stderr: BoundedCapture::from_bytes(&output.stderr),
         }
     }
 }
@@ -334,8 +353,7 @@ impl InstallHarness for CliHarness {
     }
 }
 
-/// Format a typed integration set back into the comma-separated CLI
-/// representation. Returns an empty string when the set is absent or empty.
+/// Format an integration set as comma-separated CLI text.
 fn format_integrations_csv(integrations: Option<&BTreeSet<InstallProofIntegration>>) -> String {
     match integrations {
         Some(set) if !set.is_empty() => {
@@ -347,9 +365,7 @@ fn format_integrations_csv(integrations: Option<&BTreeSet<InstallProofIntegratio
     }
 }
 
-/// Locate a workspace binary by name. The BDD runner is at
-/// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
-/// the same directory.
+/// Locate a workspace binary next to the current test executable.
 pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if let Ok(explicit) = std::env::var(format!(
         "TANREN_BIN_{}",

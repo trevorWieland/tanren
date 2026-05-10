@@ -43,6 +43,7 @@
 //!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
+mod capture;
 mod cli;
 mod in_process;
 mod mcp;
@@ -66,6 +67,9 @@ use tanren_store::EventEnvelope;
 use crate::install_contract::{InstallProofIntegration, InstallProofProfile};
 
 pub use api::ApiHarness;
+pub use capture::{
+    BoundedCapture, CAPTURE_BOUND, CommandExitStatus, RedactedDiagnostic, TruncationMeta,
+};
 pub use cli::{CliCommandOutcome, CliHarness};
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;

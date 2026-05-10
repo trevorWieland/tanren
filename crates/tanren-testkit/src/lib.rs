@@ -15,11 +15,11 @@ pub mod harness;
 pub mod install_contract;
 
 pub use harness::{
-    AccountHarness, ActorState, ApiHarness, CliCommandOutcome, CliHarness,
-    ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessOutcome, HarnessResult, HarnessSession, InProcessHarness, InstallCommandKind,
-    InstallCommandRequest, InstallHarness, McpHarness, TuiHarness, WebHarness, event_kinds,
-    record_failure,
+    AccountHarness, ActorState, ApiHarness, BoundedCapture, CAPTURE_BOUND, CliCommandOutcome,
+    CliHarness, CommandExitStatus, ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError,
+    HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult, HarnessSession,
+    InProcessHarness, InstallCommandKind, InstallCommandRequest, InstallHarness, McpHarness,
+    RedactedDiagnostic, TruncationMeta, TuiHarness, WebHarness, event_kinds, record_failure,
 };
 pub use install_contract::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,
