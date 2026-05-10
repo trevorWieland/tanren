@@ -7,6 +7,7 @@
 import { createBdd } from "playwright-bdd";
 import {
   expect,
+  type Locator,
   type Page,
   type Request,
   type Response,
@@ -42,6 +43,89 @@ function stateFor(world: WebWorld): PostureScenarioState {
     scenarioState.set(world, state);
   }
   return state;
+}
+
+function escapeRegexLiteral(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function readbackSection(page: Page): Locator {
+  return page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", { name: /capability readback/i }),
+    })
+    .first();
+}
+
+function currentPostureCard(page: Page): Locator {
+  return readbackSection(page)
+    .locator("div")
+    .filter({
+      hasText: /scope:\s*(account|project|installation):/i,
+    })
+    .first();
+}
+
+function auditSection(page: Page): Locator {
+  return page
+    .locator("section")
+    .filter({
+      has: page.getByRole("heading", { name: /audit/i }),
+    })
+    .first();
+}
+
+function capabilityRow(
+  currentCard: Locator,
+  label: "available" | "unavailable",
+): Locator {
+  return currentCard
+    .locator("p")
+    .filter({ hasText: new RegExp(`^${label}:`, "i") })
+    .first();
+}
+
+function parseCapabilityRowValues(
+  rowText: string,
+  label: "available" | "unavailable",
+): string[] {
+  const match = rowText.match(new RegExp(`^${label}:\\s*(.+)$`, "i"));
+  if (!match) {
+    throw new Error(`${label} capability row was not readable: ${rowText}`);
+  }
+  const valuesText = match[1];
+  if (valuesText === undefined) {
+    throw new Error(`${label} capability row had no values: ${rowText}`);
+  }
+  return valuesText
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry !== "");
+}
+
+function operationalScopeLabelFromCurrentScope(
+  scope:
+    | {
+        scope: "account";
+        account_id: string;
+      }
+    | {
+        scope: "project";
+        project_id: string;
+      }
+    | {
+        scope: "installation";
+        installation_id: string;
+      },
+): string {
+  if (scope.scope === "account") {
+    return `account: ${scope.account_id}`;
+  }
+  if (scope.scope === "project") {
+    return `project: ${scope.project_id}`;
+  }
+  return `installation: ${scope.installation_id}`;
 }
 
 function isListPostureResponse(response: Response): boolean {
@@ -483,42 +567,68 @@ Then(
 
 Then(
   "the web view shows posture {string}",
-  async ({ world }, posture: string) => {
-    const last = stateFor(world).lastSet;
-    if (!last) {
-      throw new Error("no posture-set response recorded");
-    }
-    if (last.posture !== posture) {
-      throw new Error(`expected posture ${posture}, got ${last.posture}`);
-    }
+  async ({ page }, posture: string) => {
+    const currentCard = currentPostureCard(page);
+    await expect(currentCard).toBeVisible();
+    await expect(currentCard.locator("p.font-mono").first()).toHaveText(
+      new RegExp(`^${escapeRegexLiteral(posture)}$`),
+    );
   },
 );
 
 Then(
   "the web view shows available and unavailable capability summaries",
-  async ({ world }) => {
-    const last = stateFor(world).lastSet;
-    if (!last) {
-      throw new Error("no posture capability summary recorded");
+  async ({ page }) => {
+    const currentCard = currentPostureCard(page);
+    await expect(currentCard).toBeVisible();
+    const availableRow = capabilityRow(currentCard, "available");
+    const unavailableRow = capabilityRow(currentCard, "unavailable");
+    await expect(availableRow).toBeVisible();
+    await expect(unavailableRow).toBeVisible();
+
+    const availableText = ((await availableRow.textContent()) ?? "").trim();
+    const unavailableText = ((await unavailableRow.textContent()) ?? "").trim();
+    const availableValues = parseCapabilityRowValues(
+      availableText,
+      "available",
+    );
+    const unavailableValues = parseCapabilityRowValues(
+      unavailableText,
+      "unavailable",
+    );
+
+    if (availableValues.length === 0) {
+      throw new Error("expected at least one available capability in readback");
     }
-    if (
-      last.capability_summary.available.length === 0 ||
-      last.capability_summary.unavailable.length === 0
-    ) {
+    if (unavailableValues.length === 0) {
       throw new Error(
-        "expected non-empty available and unavailable capability lists",
+        "expected at least one unavailable capability in readback",
       );
+    }
+
+    for (const entry of unavailableValues) {
+      if (!/^[a-z_]+ \([a-z_]+\)$/i.test(entry)) {
+        throw new Error(
+          `unavailable capability entry must include reason text, got: ${entry}`,
+        );
+      }
     }
   },
 );
 
-Then("the web view includes an audit reference", async ({ world }) => {
-  const last = stateFor(world).lastSet;
-  if (!last) {
-    throw new Error("no posture-set response recorded");
-  }
-  if (last.audit_reference.trim() === "") {
-    throw new Error("expected a non-empty audit reference");
+Then("the web view includes an audit reference", async ({ page }) => {
+  const audit = auditSection(page);
+  await expect(audit).toBeVisible();
+  const auditReferenceRow = audit
+    .locator("p")
+    .filter({ hasText: /^audit reference:/i })
+    .first();
+  await expect(auditReferenceRow).toBeVisible();
+  const auditReferenceText = ((await auditReferenceRow.textContent()) ?? "")
+    .replace(/^audit reference:\s*/i, "")
+    .trim();
+  if (auditReferenceText === "") {
+    throw new Error("expected a non-empty rendered audit reference");
   }
 });
 
@@ -547,6 +657,70 @@ Then(
       throw new Error(
         `expected recorded posture ${posture}, got ${payload.current.posture}`,
       );
+    }
+
+    const currentCard = currentPostureCard(page);
+    await expect(currentCard).toBeVisible();
+    await expect(currentCard.locator("p.font-mono").first()).toHaveText(
+      new RegExp(`^${escapeRegexLiteral(posture)}$`),
+    );
+
+    const expectedScopeLabel = operationalScopeLabelFromCurrentScope(
+      payload.current.scope,
+    );
+    await expect(currentCard).toContainText(
+      new RegExp(`scope:\\s*${escapeRegexLiteral(expectedScopeLabel)}`, "i"),
+    );
+
+    const availableRow = capabilityRow(currentCard, "available");
+    const unavailableRow = capabilityRow(currentCard, "unavailable");
+    await expect(availableRow).toBeVisible();
+    await expect(unavailableRow).toBeVisible();
+
+    const availableText = ((await availableRow.textContent()) ?? "").trim();
+    const unavailableText = ((await unavailableRow.textContent()) ?? "").trim();
+    const availableValues = parseCapabilityRowValues(
+      availableText,
+      "available",
+    );
+    const unavailableValues = parseCapabilityRowValues(
+      unavailableText,
+      "unavailable",
+    );
+
+    if (
+      availableValues.length !==
+      payload.current.capability_summary.available.length
+    ) {
+      throw new Error(
+        "available capability count in readback did not match wire response",
+      );
+    }
+    if (
+      unavailableValues.length !==
+      payload.current.capability_summary.unavailable.length
+    ) {
+      throw new Error(
+        "unavailable capability count in readback did not match wire response",
+      );
+    }
+
+    for (const capability of payload.current.capability_summary.available) {
+      await expect(availableRow).toContainText(
+        new RegExp(`\\b${escapeRegexLiteral(capability)}\\b`),
+      );
+    }
+    for (const capability of payload.current.capability_summary.unavailable) {
+      await expect(unavailableRow).toContainText(
+        `${capability.capability} (${capability.reason})`,
+      );
+    }
+    for (const entry of unavailableValues) {
+      if (!/^[a-z_]+ \([a-z_]+\)$/i.test(entry)) {
+        throw new Error(
+          `unavailable capability entry must include reason text, got: ${entry}`,
+        );
+      }
     }
   },
 );
