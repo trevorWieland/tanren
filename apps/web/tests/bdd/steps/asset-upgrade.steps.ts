@@ -4,17 +4,8 @@
 // The shared Gherkin in `tests/bdd/features/B-0134-upgrade-installed-tanren-assets.feature`
 // remains the single source of truth for Rust and Playwright runners.
 
-import { createHash } from "node:crypto";
 import { spawn } from "node:child_process";
-import {
-  mkdtemp,
-  mkdir,
-  readFile,
-  readdir,
-  realpath,
-  rm,
-  writeFile,
-} from "node:fs/promises";
+import { mkdtemp, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
@@ -31,6 +22,11 @@ import {
   createBdd,
   test as base,
 } from "playwright-bdd";
+import {
+  type RepositorySnapshot,
+  sha256Hex,
+  snapshotRepositoryForUpgradeAssertions,
+} from "../support/asset-fixture";
 
 interface CommandResult {
   readonly stdout: string;
@@ -39,16 +35,11 @@ interface CommandResult {
   readonly success: boolean;
 }
 
-interface RepositorySnapshot {
-  readonly directories: readonly string[];
-  readonly files: readonly [string, string][];
-  readonly symlinks: readonly [string, string][];
-}
-
 interface UpgradeWorld {
   repositoryRoot?: string;
   labeledSnapshots: Map<string, RepositorySnapshot>;
   fileBaselines: Map<string, Uint8Array>;
+  trackedSnapshotPaths: Set<string>;
   snapshotBeforeLastRun?: RepositorySnapshot;
   lastRun?: CommandResult;
 }
@@ -65,6 +56,7 @@ export const test: UpgradeTest = base.extend<{ world: UpgradeWorld }>({
     await use({
       labeledSnapshots: new Map<string, RepositorySnapshot>(),
       fileBaselines: new Map<string, Uint8Array>(),
+      trackedSnapshotPaths: new Set<string>(),
     });
   },
 });
@@ -80,6 +72,7 @@ Given("a clean repository fixture", async ({ world }) => {
   );
   world.labeledSnapshots.clear();
   world.fileBaselines.clear();
+  world.trackedSnapshotPaths.clear();
   delete world.snapshotBeforeLastRun;
   delete world.lastRun;
 });
@@ -89,6 +82,7 @@ Given(
   async ({ world }, path: string, content: string) => {
     const repositoryRoot = requireRepositoryRoot(world);
     const relativePath = parseRelativePath(path);
+    trackScenarioOwnedPath(world, relativePath);
     const absolutePath = resolve(repositoryRoot, relativePath);
     await mkdir(dirname(absolutePath), { recursive: true });
     await writeFile(absolutePath, content, "utf-8");
@@ -100,6 +94,7 @@ Given(
   async ({ world }, path: string) => {
     const repositoryRoot = requireRepositoryRoot(world);
     const relativePath = parseRelativePath(path);
+    trackScenarioOwnedPath(world, relativePath);
     const absolutePath = resolve(repositoryRoot, relativePath);
     const baseline = await readFile(absolutePath);
     world.fileBaselines.set(relativePath, Uint8Array.from(baseline));
@@ -221,6 +216,7 @@ Given(
   async ({ world }, path: string) => {
     const repositoryRoot = requireRepositoryRoot(world);
     const relativePath = parseRelativePath(path);
+    trackScenarioOwnedPath(world, relativePath);
     const absolutePath = resolve(repositoryRoot, relativePath);
     await mkdir(resolve(absolutePath, ".."), { recursive: true });
     const legacyContent = "legacy standards asset requiring migration";
@@ -231,7 +227,7 @@ Given(
       ".tanren/install-manifest.toml",
     );
     const manifestRaw = await readFile(manifestPath, "utf-8");
-    const contentHash = hashSha256(legacyContent);
+    const contentHash = sha256Hex(legacyContent);
     const staleEntry =
       `\n[[entries]]\n` +
       `path = "${relativePath}"\n` +
@@ -294,8 +290,7 @@ Then("no files are written in the repository fixture", async ({ world }) => {
   if (!world.snapshotBeforeLastRun) {
     throw new Error("missing snapshot before last command run");
   }
-  const repositoryRoot = requireRepositoryRoot(world);
-  const after = await snapshotRepository(repositoryRoot);
+  const after = await captureScopedSnapshot(world);
   if (!snapshotsEqual(after, world.snapshotBeforeLastRun)) {
     throw new Error("repository changed but expected no writes");
   }
@@ -308,8 +303,7 @@ Then(
     if (!expected) {
       throw new Error(`missing labeled snapshot '${label}'`);
     }
-    const repositoryRoot = requireRepositoryRoot(world);
-    const actual = await snapshotRepository(repositoryRoot);
+    const actual = await captureScopedSnapshot(world);
     if (!snapshotsEqual(actual, expected)) {
       throw new Error(`repository does not match labeled snapshot '${label}'`);
     }
@@ -366,25 +360,44 @@ async function captureSnapshot(
   if (trimmed.length === 0) {
     throw new Error("snapshot label cannot be empty");
   }
-  const repositoryRoot = requireRepositoryRoot(world);
-  world.labeledSnapshots.set(trimmed, await snapshotRepository(repositoryRoot));
+  world.labeledSnapshots.set(trimmed, await captureScopedSnapshot(world));
 }
 
 async function runUpgradeCommand(
   world: UpgradeWorld,
   installArgs: readonly string[],
 ): Promise<void> {
-  const repositoryRoot = requireRepositoryRoot(world);
-  const repoRoot =
-    process.env["TANREN_REPO_ROOT"] ?? resolve(process.cwd(), "..", "..");
-  const before = await snapshotRepository(repositoryRoot);
+  const workspaceRoot = resolveWorkspaceRoot();
+  const before = await captureScopedSnapshot(world);
   const result = await runCommand(
     "cargo",
     ["run", "-q", "-p", "tanren-cli", "--", ...installArgs],
-    repoRoot,
+    workspaceRoot,
   );
   world.snapshotBeforeLastRun = before;
   world.lastRun = result;
+}
+
+async function captureScopedSnapshot(
+  world: UpgradeWorld,
+): Promise<RepositorySnapshot> {
+  const repositoryRoot = requireRepositoryRoot(world);
+  return await snapshotRepositoryForUpgradeAssertions(
+    repositoryRoot,
+    resolveWorkspaceRoot(),
+    world.trackedSnapshotPaths,
+  );
+}
+
+function resolveWorkspaceRoot(): string {
+  return process.env["TANREN_REPO_ROOT"] ?? resolve(process.cwd(), "..", "..");
+}
+
+function trackScenarioOwnedPath(
+  world: UpgradeWorld,
+  relativePath: string,
+): void {
+  world.trackedSnapshotPaths.add(relativePath);
 }
 
 async function runCommand(
@@ -422,51 +435,6 @@ async function runCommand(
       });
     });
   });
-}
-
-async function snapshotRepository(
-  repositoryRoot: string,
-): Promise<RepositorySnapshot> {
-  const root = await realpath(repositoryRoot);
-  const directories: string[] = [];
-  const files: [string, string][] = [];
-  const symlinks: [string, string][] = [];
-
-  async function walk(dir: string): Promise<void> {
-    const entries = await readdir(dir, { withFileTypes: true });
-    entries.sort((left, right) => left.name.localeCompare(right.name));
-
-    for (const entry of entries) {
-      const absolutePath = join(dir, entry.name);
-      const relativePath = absolutePath
-        .slice(root.length + 1)
-        .replaceAll("\\", "/");
-      if (entry.isDirectory()) {
-        directories.push(relativePath);
-        await walk(absolutePath);
-        continue;
-      }
-      if (entry.isSymbolicLink()) {
-        const target = await realpath(absolutePath);
-        symlinks.push([relativePath, target]);
-        continue;
-      }
-      const bytes = await readFile(absolutePath);
-      files.push([relativePath, hashSha256(bytes)]);
-    }
-  }
-
-  await walk(root);
-
-  return {
-    directories,
-    files,
-    symlinks,
-  };
-}
-
-function hashSha256(payload: string | Uint8Array): string {
-  return createHash("sha256").update(payload).digest("hex");
 }
 
 function snapshotsEqual(

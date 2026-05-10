@@ -1,6 +1,8 @@
 //! Install manifest entry metadata.
 
 use std::fmt;
+use std::fs::File;
+use std::io::{BufReader, Read};
 use std::path::{Component, Path};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
@@ -13,6 +15,7 @@ use crate::install::error::InstallError;
 
 const NIBBLES: &[u8; 16] = b"0123456789abcdef";
 const SHA256_HEX_LENGTH: usize = 64;
+const SHA256_STREAM_BUFFER_SIZE: usize = 16 * 1024;
 
 /// Install manifest schema version.
 pub(super) const INSTALL_MANIFEST_VERSION: ManifestVersion = ManifestVersion::new(1);
@@ -278,6 +281,29 @@ pub(super) fn build_manifest_entries(assets: &[InstallAssetProjection]) -> Vec<M
 #[must_use]
 pub(super) fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
     let digest = Sha256::digest(bytes);
+    sha256_hex_from_digest(digest.as_ref())
+}
+
+/// Hash a file as lowercase SHA-256 hex using buffered streaming reads.
+pub(super) fn sha256_hex_file(path: &Path) -> Result<Sha256Hex, std::io::Error> {
+    let file = File::open(path)?;
+    let mut reader = BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; SHA256_STREAM_BUFFER_SIZE];
+
+    loop {
+        let read = reader.read(&mut buffer)?;
+        if read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read]);
+    }
+
+    let digest = hasher.finalize();
+    Ok(sha256_hex_from_digest(digest.as_ref()))
+}
+
+fn sha256_hex_from_digest(digest: &[u8]) -> Sha256Hex {
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {
         hex.push(char::from(NIBBLES[(byte >> 4) as usize]));
