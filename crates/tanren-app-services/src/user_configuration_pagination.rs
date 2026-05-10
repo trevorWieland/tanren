@@ -1,7 +1,8 @@
 use base64::Engine;
 use tanren_contract::{
-    ListUserCredentialsRequest, ListUserSettingsRequest, UserCredentialsPageCursorKind,
-    UserCredentialsPageCursorPayload, UserSettingsPageCursorKind, UserSettingsPageCursorPayload,
+    BoundedPageLimit, ListUserCredentialsRequest, ListUserSettingsRequest,
+    UserCredentialsPageCursorKind, UserCredentialsPageCursorPayload, UserSettingsPageCursorKind,
+    UserSettingsPageCursorPayload,
 };
 use tanren_store::{
     UserConfigurationListPageRequest, UserCredentialListCursor, UserSettingListCursor,
@@ -10,12 +11,17 @@ use tanren_store::{
 use crate::AppServiceError;
 
 pub(super) const DEFAULT_LIST_LIMIT: u16 = 50;
-const MAX_LIST_LIMIT: u16 = 100;
+
+fn bounded_page_limit_or_default(limit: Option<u16>) -> Result<BoundedPageLimit, AppServiceError> {
+    let effective = limit.unwrap_or(DEFAULT_LIST_LIMIT);
+    BoundedPageLimit::new(effective)
+        .map_err(|message| AppServiceError::InvalidInput(message.to_string()))
+}
 
 pub(super) fn parse_settings_page_request(
     request: ListUserSettingsRequest,
 ) -> Result<UserConfigurationListPageRequest<UserSettingListCursor>, AppServiceError> {
-    let limit = parse_limit(request.limit)?;
+    let limit = bounded_page_limit_or_default(request.limit)?.into_inner();
     let after = match request.after {
         Some(cursor) => Some(decode_settings_cursor(&cursor)?),
         None => None,
@@ -26,7 +32,7 @@ pub(super) fn parse_settings_page_request(
 pub(super) fn parse_credentials_page_request(
     request: ListUserCredentialsRequest,
 ) -> Result<UserConfigurationListPageRequest<UserCredentialListCursor>, AppServiceError> {
-    let limit = parse_limit(request.limit)?;
+    let limit = bounded_page_limit_or_default(request.limit)?.into_inner();
     let after = match request.after {
         Some(cursor) => Some(decode_credentials_cursor(&cursor)?),
         None => None,
@@ -48,16 +54,6 @@ pub(super) fn encode_credentials_cursor(cursor: &UserCredentialListCursor) -> St
         updated_at: cursor.updated_at,
         id: cursor.id,
     })
-}
-
-fn parse_limit(limit: Option<u16>) -> Result<u16, AppServiceError> {
-    let effective = limit.unwrap_or(DEFAULT_LIST_LIMIT);
-    if effective == 0 || effective > MAX_LIST_LIMIT {
-        return Err(AppServiceError::InvalidInput(format!(
-            "limit must be between 1 and {MAX_LIST_LIMIT}"
-        )));
-    }
-    Ok(effective)
 }
 
 fn decode_settings_cursor(raw: &str) -> Result<UserSettingListCursor, AppServiceError> {

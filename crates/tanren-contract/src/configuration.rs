@@ -1,10 +1,4 @@
 //! User-tier configuration and credential wire shapes.
-//!
-//! The schema here intentionally starts small for B-0048/B-0125:
-//! - settings: theme + editor preference
-//! - credentials: provider/harness token metadata with redacted reads
-//!
-//! Storage, access control, and handler behavior live in other crates.
 
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
@@ -20,9 +14,9 @@ pub use tanren_configuration_secrets::{
 };
 use tanren_identity_policy::secret_serde;
 use utoipa::ToSchema;
-
 /// Upsert request for a user-tier setting.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpsertUserSettingRequest {
     pub key: UserSettingKey,
     pub value: UserSettingValue,
@@ -48,6 +42,7 @@ pub struct ListUserSettingsResponse {
 }
 /// List request for user-tier settings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListUserSettingsRequest {
     pub limit: Option<u16>,
     pub after: Option<String>,
@@ -74,6 +69,7 @@ pub struct RemoveUserSettingResponse {
 }
 /// Create request for a user-owned credential.
 #[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct CreateUserCredentialRequest {
     pub kind: UserCredentialKind,
     pub owner_scope: OwnerScope,
@@ -85,6 +81,7 @@ pub struct CreateUserCredentialRequest {
 }
 /// Update request for an existing user-owned credential.
 #[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct UpdateUserCredentialRequest {
     /// Replacement secret value.
     #[serde(deserialize_with = "secret_serde::deserialize_password")]
@@ -102,7 +99,6 @@ pub struct UserCredentialView {
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
 }
-
 impl From<UserCredentialMetadata> for UserCredentialView {
     fn from(metadata: UserCredentialMetadata) -> Self {
         Self {
@@ -134,6 +130,7 @@ pub struct ListUserCredentialsResponse {
 }
 /// List request for user-owned credentials.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(deny_unknown_fields)]
 pub struct ListUserCredentialsRequest {
     pub limit: Option<u16>,
     pub after: Option<String>,
@@ -163,7 +160,6 @@ pub struct RemoveUserCredentialResponse {
 /// Callers check this to evolve client logic alongside the contract surface.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConfigurationVersion(u32);
-
 impl ConfigurationVersion {
     /// Current configuration contract version.
     pub const CURRENT: Self = Self(1);
@@ -184,7 +180,6 @@ pub const SETTING_CAPABILITY_ACTIONS: [SettingCapabilityAction; 3] = [
     SettingCapabilityAction::CreateOrUpdate,
     SettingCapabilityAction::Delete,
 ];
-
 /// Closed registry of credential capability actions.
 pub const CREDENTIAL_CAPABILITY_ACTIONS: [CredentialCapabilityAction; 4] = [
     CredentialCapabilityAction::Read,
@@ -192,7 +187,6 @@ pub const CREDENTIAL_CAPABILITY_ACTIONS: [CredentialCapabilityAction; 4] = [
     CredentialCapabilityAction::Update,
     CredentialCapabilityAction::Delete,
 ];
-
 /// Capability map for authenticated account-configuration operations.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConfigurationCapabilitiesView {
@@ -325,7 +319,6 @@ pub enum UserConfigurationFailureReason {
     /// Requested metadata row was not present.
     ItemNotFound,
 }
-
 impl UserConfigurationFailureReason {
     /// Stable machine-readable error code.
     #[must_use]
@@ -336,7 +329,6 @@ impl UserConfigurationFailureReason {
             Self::ItemNotFound => "item_not_found",
         }
     }
-
     /// Human-readable wire summary for this failure.
     #[must_use]
     pub const fn summary(&self) -> &'static str {
@@ -352,7 +344,6 @@ impl UserConfigurationFailureReason {
             }
         }
     }
-
     /// Recommended HTTP status for API/MCP transport projections.
     #[must_use]
     pub const fn http_status(&self) -> u16 {
@@ -362,7 +353,7 @@ impl UserConfigurationFailureReason {
         }
     }
 }
-/// Stable list of supported user-setting keys for interface prompts/messages.
+/// Stable list of supported user-setting keys.
 pub const SUPPORTED_USER_SETTING_KEYS: [&str; USER_SETTING_DESCRIPTORS.len()] =
     supported_user_setting_keys();
 /// Stable list of supported credential kinds for interface prompts/messages.
@@ -370,7 +361,37 @@ pub const SUPPORTED_USER_CREDENTIAL_KINDS: [&str; USER_CREDENTIAL_KIND_DESCRIPTO
     supported_user_credential_kinds();
 /// Stable list of supported theme preferences for interface prompts/messages.
 pub const SUPPORTED_THEME_PREFERENCES: [&str; 3] = ["system", "light", "dark"];
-
+/// Maximum allowed page size for configuration list requests.
+pub const MAX_PAGE_LIMIT: u16 = 100;
+/// Validated page-size bound. Guarantees the inner `u16` is in `1..=MAX_PAGE_LIMIT`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(try_from = "u16", into = "u16")]
+pub struct BoundedPageLimit(u16);
+impl BoundedPageLimit {
+    /// Reject zero or values above [`MAX_PAGE_LIMIT`].
+    pub fn new(value: u16) -> Result<Self, &'static str> {
+        if value == 0 || value > MAX_PAGE_LIMIT {
+            return Err("limit must be between 1 and 100");
+        }
+        Ok(Self(value))
+    }
+    /// The validated inner value.
+    #[must_use]
+    pub const fn into_inner(self) -> u16 {
+        self.0
+    }
+}
+impl TryFrom<u16> for BoundedPageLimit {
+    type Error = &'static str;
+    fn try_from(value: u16) -> Result<Self, Self::Error> {
+        Self::new(value)
+    }
+}
+impl From<BoundedPageLimit> for u16 {
+    fn from(value: BoundedPageLimit) -> Self {
+        value.into_inner()
+    }
+}
 const fn supported_user_setting_keys() -> [&'static str; USER_SETTING_DESCRIPTORS.len()] {
     let mut names = [""; USER_SETTING_DESCRIPTORS.len()];
     let mut index = 0;
