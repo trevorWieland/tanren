@@ -1,6 +1,6 @@
 use axum::Json;
 use axum::extract::{Request, State};
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderValue, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
@@ -12,6 +12,8 @@ use tanren_app_services::{AccountStore, Store};
 use tanren_identity_policy::{AccountId, SessionToken};
 
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
+pub(crate) const CORS_ORIGINS_ENV: &str = "TANREN_MCP_CORS_ORIGINS";
+const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 
 #[derive(Debug, Clone)]
 pub(crate) struct AuthConfig {
@@ -157,6 +159,57 @@ pub(crate) fn principal_from_request(
     parts: &axum::http::request::Parts,
 ) -> Option<AuthenticatedPrincipal> {
     parts.extensions.get::<AuthenticatedPrincipal>().copied()
+}
+
+pub(crate) fn parse_cors_origins(raw: Option<&str>) -> (Vec<HeaderValue>, Vec<String>) {
+    let trimmed = raw.map_or("", str::trim);
+    if trimmed.is_empty() {
+        return (
+            vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)],
+            vec![DEFAULT_DEV_ORIGIN.to_owned()],
+        );
+    }
+
+    let mut cors_allow_origins = Vec::new();
+    let mut allowed_origins = Vec::new();
+    for token in trimmed.split(',') {
+        let origin = token.trim();
+        if origin.is_empty() {
+            continue;
+        }
+        if origin == "*" {
+            tracing::warn!(
+                target: "tanren_mcp",
+                env_var = CORS_ORIGINS_ENV,
+                "Ignoring wildcard CORS origin; set explicit origins instead."
+            );
+            continue;
+        }
+        match HeaderValue::from_str(origin) {
+            Ok(value) => {
+                cors_allow_origins.push(value);
+                allowed_origins.push(origin.to_owned());
+            }
+            Err(err) => {
+                tracing::warn!(
+                    target: "tanren_mcp",
+                    env_var = CORS_ORIGINS_ENV,
+                    origin,
+                    error = %err,
+                    "Ignoring invalid CORS origin."
+                );
+            }
+        }
+    }
+
+    if cors_allow_origins.is_empty() {
+        return (
+            vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)],
+            vec![DEFAULT_DEV_ORIGIN.to_owned()],
+        );
+    }
+
+    (cors_allow_origins, allowed_origins)
 }
 
 /// Shared error response shape per

@@ -15,6 +15,7 @@ mod auth;
 use anyhow::{Context, Result};
 use axum::Json;
 use axum::Router;
+use axum::http::{HeaderName, Method, header};
 use axum::middleware;
 use axum::routing::get;
 use rmcp::ErrorData as McpError;
@@ -39,7 +40,7 @@ use tanren_contract::{
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
+use tower_http::cors::CorsLayer;
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8081";
 const BIND_ADDRESS_ENV: &str = "TANREN_MCP_BIND";
@@ -186,7 +187,7 @@ impl TanrenMcp {
                     scope = ?scope,
                     "deployment posture read store error"
                 );
-                Ok(internal_error_result(""))
+                Ok(internal_error_result())
             }
         }
     }
@@ -243,14 +244,22 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
     let (code, summary) = match err {
         AppServiceError::Account(reason) => (reason.code().to_owned(), reason.summary().to_owned()),
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
-            "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
-        ),
-        _ => (
-            "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
-        ),
+        AppServiceError::Store(source) => {
+            tracing::error!(
+                target: "tanren_mcp",
+                error = %source,
+                "account tool store error"
+            );
+            return internal_error_result();
+        }
+        other => {
+            tracing::error!(
+                target: "tanren_mcp",
+                error = %other,
+                "account tool internal error"
+            );
+            return internal_error_result();
+        }
     };
     let body = json!({
         "code": code,
@@ -263,23 +272,20 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
 fn map_posture_failure(err: &SetDeploymentPostureError) -> CallToolResult {
     if let SetDeploymentPostureError::Store { source } = err {
         tracing::error!(target: "tanren_mcp", error = %source, "store error");
+    } else if err.contract_failure().is_none() {
+        tracing::error!(target: "tanren_mcp", error = %err, "posture internal error");
     }
     let rendered = err.render();
     let reason = DeploymentPostureFailureReason::from_code(rendered.code.as_str())
         .unwrap_or(DeploymentPostureFailureReason::InternalError);
+    if reason == DeploymentPostureFailureReason::InternalError {
+        return internal_error_result();
+    }
     failure_result(reason, Some(rendered.summary.as_str()))
 }
 
-fn internal_error_result(summary: &str) -> CallToolResult {
-    let detail = if summary.is_empty() {
-        None
-    } else {
-        Some(format!("Tanren encountered an internal error: {summary}"))
-    };
-    failure_result(
-        DeploymentPostureFailureReason::InternalError,
-        detail.as_deref(),
-    )
+fn internal_error_result() -> CallToolResult {
+    failure_result(DeploymentPostureFailureReason::InternalError, None)
 }
 
 fn actor_from_principal(
@@ -330,7 +336,9 @@ fn build_router(
     store: Arc<Store>,
     cancellation: CancellationToken,
 ) -> Router {
-    let config = streamable_http_config(cancellation);
+    let (cors_allow_origins, allowed_origins) =
+        auth::parse_cors_origins(env::var(auth::CORS_ORIGINS_ENV).ok().as_deref());
+    let config = streamable_http_config(cancellation, allowed_origins);
     let mcp_service: StreamableHttpService<TanrenMcp, LocalSessionManager> =
         StreamableHttpService::new(
             move || Ok(TanrenMcp::new(handlers.clone(), store.clone())),
@@ -346,9 +354,21 @@ fn build_router(
         .service(mcp_service);
 
     let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
+        .allow_origin(cors_allow_origins)
+        .allow_methods([Method::GET, Method::POST, Method::DELETE, Method::OPTIONS])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::ACCEPT,
+            HeaderName::from_static("x-api-key"),
+            HeaderName::from_static("mcp-session-id"),
+            HeaderName::from_static("mcp-protocol-version"),
+            HeaderName::from_static("last-event-id"),
+        ])
+        .expose_headers([
+            HeaderName::from_static("mcp-session-id"),
+            HeaderName::from_static("mcp-protocol-version"),
+        ]);
 
     Router::new()
         .route("/health", get(health))
@@ -356,33 +376,37 @@ fn build_router(
         .layer(cors)
 }
 
-fn streamable_http_config(cancellation: CancellationToken) -> StreamableHttpServerConfig {
+fn streamable_http_config(
+    cancellation: CancellationToken,
+    allowed_origins: Vec<String>,
+) -> StreamableHttpServerConfig {
     let base = StreamableHttpServerConfig::default().with_cancellation_token(cancellation);
+    let mut config = base.with_allowed_origins(allowed_origins);
     let raw = env::var(ALLOWED_HOSTS_ENV).ok().filter(|s| !s.is_empty());
-    let Some(value) = raw else {
-        return base;
-    };
-    if value.trim() == "*" {
-        tracing::warn!(
-            target: "tanren_mcp",
-            env_var = ALLOWED_HOSTS_ENV,
-            "Host-header validation disabled by `*`; relying on API-key auth as the sole gate."
-        );
-        return base.disable_allowed_hosts();
-    }
-    let mut hosts: Vec<String> = vec!["localhost".into(), "127.0.0.1".into(), "::1".into()];
-    for host in value.split(',') {
-        let trimmed = host.trim();
-        if !trimmed.is_empty() {
-            hosts.push(trimmed.to_owned());
+    if let Some(value) = raw {
+        if value.trim() == "*" {
+            tracing::warn!(
+                target: "tanren_mcp",
+                env_var = ALLOWED_HOSTS_ENV,
+                "Host-header validation disabled by `*`; relying on API-key auth as the sole gate."
+            );
+            return config.disable_allowed_hosts();
         }
+        let mut hosts: Vec<String> = vec!["localhost".into(), "127.0.0.1".into(), "::1".into()];
+        for host in value.split(',') {
+            let trimmed = host.trim();
+            if !trimmed.is_empty() {
+                hosts.push(trimmed.to_owned());
+            }
+        }
+        tracing::info!(
+            target: "tanren_mcp",
+            allowed_hosts = ?hosts,
+            "Host-header validation extended via {ALLOWED_HOSTS_ENV}"
+        );
+        config = config.with_allowed_hosts(hosts);
     }
-    tracing::info!(
-        target: "tanren_mcp",
-        allowed_hosts = ?hosts,
-        "Host-header validation extended via {ALLOWED_HOSTS_ENV}"
-    );
-    base.with_allowed_hosts(hosts)
+    config
 }
 
 #[cfg(any(test, feature = "test-hooks"))]
