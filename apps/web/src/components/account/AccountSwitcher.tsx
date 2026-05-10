@@ -13,6 +13,7 @@ import type { ChangeEvent, ReactNode } from "react";
 import {
   AccountRequestError,
   describeFailure,
+  getActiveAccountId,
   listActiveAccounts,
   parseAccountId,
   switchActiveAccount,
@@ -51,7 +52,7 @@ export function AccountSwitcher({
   const isMountedRef = useRef(true);
 
   const activeAccountId = useMemo(
-    () => accounts.find((entry) => entry.is_active)?.account.id ?? "",
+    () => getActiveAccountId(accounts) ?? "",
     [accounts],
   );
 

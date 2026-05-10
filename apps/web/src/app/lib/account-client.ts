@@ -38,6 +38,9 @@ const WINDOW_ID_STORAGE_KEY = "tanren.window_id";
 const WINDOW_ID_FAILURE_SUMMARY =
   "Unable to initialize browser window context.";
 
+/** Maximum number of signed-in accounts the server and validators accept. */
+export const ACTIVE_ACCOUNT_LIMIT = 16;
+
 export interface SignUpInput {
   email: string;
   password: string;
@@ -434,26 +437,101 @@ export function signOut(): Promise<void> {
   return requestJson(ACCOUNT_OPERATIONS.signOut, {});
 }
 
-export function parseAccountId(value: string): AccountId | null {
-  return parseGeneratedAccountId(value);
-}
+/**
+ * Bounded keyed lookup helpers for active-account responses.
+ *
+ * These helpers avoid unbounded `.find()` / `.filter()` scans by using
+ * direct index access on the server-bounded response array (max
+ * `ACTIVE_ACCOUNT_LIMIT` entries). The response validators in
+ * `generated/account-contract.ts` already enforce `maxLength(16)`, so
+ * callers never see a list exceeding the documented bound.
+ */
 
-export function parseWindowContextId(payload: unknown): WindowContextId | null {
-  return parseGeneratedWindowContextId(payload);
-}
-
-function windowIdentityHeader(): Record<string, string> {
-  const windowId = getWindowId();
-  if (windowId === null) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: WINDOW_ID_FAILURE_SUMMARY,
-    });
+/**
+ * Extract the active account id from a signed-in account list using a
+ * bounded scan. Returns `null` when no entry is marked active.
+ */
+export function getActiveAccountId(
+  accounts: readonly SignedInAccountView[],
+): AccountId | null {
+  for (let i = 0; i < accounts.length && i < ACTIVE_ACCOUNT_LIMIT; i++) {
+    if (accounts[i]!.is_active) {
+      return accounts[i]!.account.id;
+    }
   }
-  return { [WINDOW_ID_HEADER]: windowId };
+  return null;
 }
 
-function getWindowId(): WindowContextId | null {
+/**
+ * Find a specific signed-in account by its account id using bounded
+ * keyed lookup. Returns `null` when no matching entry exists.
+ */
+export function findSignedInAccount(
+  accounts: readonly SignedInAccountView[],
+  accountId: AccountId,
+): SignedInAccountView | null {
+  for (let i = 0; i < accounts.length && i < ACTIVE_ACCOUNT_LIMIT; i++) {
+    if (accounts[i]!.account.id === accountId) {
+      return accounts[i]!;
+    }
+  }
+  return null;
+}
+
+/**
+ * Build a `Map<AccountId, SignedInAccountView>` from a bounded account
+ * list for O(1) keyed lookups within a single request lifecycle. The
+ * map is scoped to the bounded limit so callers never index an
+ * unbounded structure.
+ */
+export function buildAccountLookup(
+  accounts: readonly SignedInAccountView[],
+): Map<AccountId, SignedInAccountView> {
+  const map = new Map<AccountId, SignedInAccountView>();
+  for (let i = 0; i < accounts.length && i < ACTIVE_ACCOUNT_LIMIT; i++) {
+    const entry = accounts[i]!;
+    map.set(entry.account.id, entry);
+  }
+  return map;
+}
+
+/**
+ * Cached window context for the current request lifecycle.
+ *
+ * The window id is stable within a page session (stored in
+ * `sessionStorage`) and only rotates on explicit sign-out / sign-in
+ * transitions. Within a single React render cycle, the id is resolved
+ * once and reused so that concurrent `listActiveAccounts` and
+ * `switchActiveAccount` calls share the same window scope.
+ */
+let cachedWindowId: WindowContextId | null = null;
+
+/**
+ * Resolve the window context id, caching the result for the duration
+ * of the page session. Returns `null` when window context is
+ * unavailable (SSR, missing crypto, storage errors).
+ */
+export function getCachedWindowId(): WindowContextId | null {
+  if (cachedWindowId !== null) {
+    return cachedWindowId;
+  }
+  const resolved = resolveWindowId();
+  if (resolved !== null) {
+    cachedWindowId = resolved;
+  }
+  return resolved;
+}
+
+/**
+ * Invalidate the cached window context, forcing re-resolution on the
+ * next call. Called after sign-out or after a server rejection that
+ * indicates the current window id is stale.
+ */
+export function invalidateCachedWindowId(): void {
+  cachedWindowId = null;
+}
+
+function resolveWindowId(): WindowContextId | null {
   if (typeof window === "undefined") {
     return null;
   }
@@ -481,7 +559,31 @@ function getWindowId(): WindowContextId | null {
   }
 }
 
+export function parseAccountId(value: string): AccountId | null {
+  return parseGeneratedAccountId(value);
+}
+
+export function parseWindowContextId(payload: unknown): WindowContextId | null {
+  return parseGeneratedWindowContextId(payload);
+}
+
+function windowIdentityHeader(): Record<string, string> {
+  const windowId = getWindowId();
+  if (windowId === null) {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: WINDOW_ID_FAILURE_SUMMARY,
+    });
+  }
+  return { [WINDOW_ID_HEADER]: windowId };
+}
+
+function getWindowId(): WindowContextId | null {
+  return getCachedWindowId();
+}
+
 function clearWindowId(): void {
+  invalidateCachedWindowId();
   if (typeof window === "undefined") {
     return;
   }
@@ -495,8 +597,10 @@ function clearWindowId(): void {
 function rotateWindowId(): void {
   clearWindowId();
   // Best-effort replacement so the next request can proceed without
-  // waiting for a second retry path.
-  void getWindowId();
+  // waiting for a second retry path. Invalidating the cache forces
+  // re-resolution on the next call.
+  invalidateCachedWindowId();
+  void resolveWindowId();
 }
 
 function windowContextRejectedByServer(

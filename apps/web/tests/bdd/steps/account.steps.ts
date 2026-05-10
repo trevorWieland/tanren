@@ -1263,3 +1263,81 @@ async function ensureWindowContextId(
 function uniqueSuffix(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
 }
+
+// B-0041 bounded active-account read model steps (web surface).
+
+When(
+  "{word} receives an oversized active-account response via the {word}",
+  async ({ page }, _actor: string, _surface: string) => {
+    // Inject a synthetic oversized response by intercepting the next
+    // fetch and returning 17 accounts. The valibot `maxLength(16)`
+    // validator should reject it.
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const windowId = await ensureWindowContextId(page);
+    const fakeAccounts = Array.from({ length: 17 }, (_, i) => ({
+      is_active: i === 0,
+      account: {
+        id: `00000000-0000-4000-8000-${String(i).padStart(12, "0")}`,
+        org: null,
+      },
+    }));
+    let intercepted = false;
+    await page.route(
+      new RegExp(
+        `${apiUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/accounts/active`,
+      ),
+      async (route) => {
+        if (intercepted) {
+          await route.continue();
+          return;
+        }
+        intercepted = true;
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({ accounts: fakeAccounts }),
+        });
+      },
+    );
+    const validationError = await page.evaluate(
+      async ({ apiUrl, windowId }) => {
+        window.sessionStorage.setItem("tanren.window_id", windowId);
+        const headers: Record<string, string> = {
+          "x-tanren-window-id": windowId,
+        };
+        const response = await fetch(`${apiUrl}/accounts/active`, {
+          method: "GET",
+          headers,
+          credentials: "include",
+        });
+        const payload = await response.json();
+        // Try to parse with the validator — it should return null for oversized
+        const { parseListActiveAccountsResponse } = await import(
+          "@/app/lib/generated/account-contract"
+        );
+        const parsed = parseListActiveAccountsResponse(payload);
+        return parsed === null ? "rejected" : "accepted";
+      },
+      { apiUrl, windowId },
+    );
+    page.unroute(
+      new RegExp(
+        `${apiUrl.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}/accounts/active`,
+      ),
+    );
+    (page as unknown as Record<string, unknown>)["__bdd_oversized_result"] =
+      validationError;
+  },
+);
+
+Then("the web client rejects the response as invalid", async ({ page }) => {
+  const result = (page as unknown as Record<string, unknown>)[
+    "__bdd_oversized_result"
+  ];
+  if (result !== "rejected") {
+    throw new Error(
+      `Expected web client to reject the oversized response, but got: ${String(result)}`,
+    );
+  }
+});

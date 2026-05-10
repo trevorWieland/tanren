@@ -107,6 +107,9 @@ pub struct AccountContext {
     /// definitions use this cache to avoid redundant list calls while
     /// still verifying window-isolation behavior.
     pub window_accounts: HashMap<String, Vec<SignedInAccountView>>,
+    /// Cached result from "lists active accounts" step (B-0041 bounded
+    /// read-model scenarios).
+    pub bounded_list_result: Option<Vec<SignedInAccountView>>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -122,6 +125,10 @@ impl std::fmt::Debug for AccountContext {
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
+            )
+            .field(
+                "bounded_list_result_len",
+                &self.bounded_list_result.as_ref().map(Vec::len),
             )
             .finish()
     }
@@ -189,6 +196,7 @@ impl AccountContext {
             last_outcome: None,
             invitations: HashSet::new(),
             window_accounts: HashMap::new(),
+            bounded_list_result: None,
         })
     }
 }
