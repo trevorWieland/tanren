@@ -98,6 +98,26 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_uninstall_nothing_to_uninstall(
+        &self,
+        expected: bool,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let parsed = parse_status_bool(&run.stdout, "nothing_to_uninstall").ok_or_else(|| {
+            InstallStepError::StdoutMissingExpected {
+                expected: "nothing_to_uninstall=<bool>".to_owned(),
+                stdout: run.stdout.clone(),
+            }
+        })?;
+        if parsed != expected {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!("nothing_to_uninstall={expected}"),
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_uninstall_preview_lists_removal_path(
         &self,
         relative_path: &RepositoryRelativePath,
@@ -351,6 +371,18 @@ fn parse_status_count(stdout: &str, field: &str) -> Option<usize> {
                 .find_map(|segment| segment.strip_prefix(&prefix))
         })
         .and_then(|raw| raw.parse::<usize>().ok())
+}
+
+fn parse_status_bool(stdout: &str, field: &str) -> Option<bool> {
+    let prefix = format!("{field}=");
+    stdout
+        .lines()
+        .find(|line| line.starts_with("status=ok command=uninstall"))
+        .and_then(|line| {
+            line.split_whitespace()
+                .find_map(|segment| segment.strip_prefix(&prefix))
+        })
+        .and_then(|raw| raw.parse::<bool>().ok())
 }
 
 fn parse_paths_segment<'a>(stdout: &'a str, key: &str) -> Option<&'a str> {

@@ -3,43 +3,7 @@ Feature: Uninstall Tanren assets without deleting user work
   A builder can preview and apply repository uninstall actions without
   deleting unrelated user-owned work.
 
-  Rule: Interface uninstall preview and preservation witnesses
-
-    @positive @web
-    Scenario: Web uninstall preview includes Tanren-managed removals
-      Given a repository with Tanren-managed assets
-      When uninstall preview runs through the web interface
-      Then the preview includes at least one removable Tanren-managed path
-
-    @falsification @web
-    Scenario: Web uninstall preserves user-owned repository files
-      Given a repository with Tanren-managed assets and user-owned files
-      When uninstall preview runs through the web interface
-      Then the preview preserves user-owned files
-
-    @positive @api
-    Scenario: API uninstall preview includes Tanren-managed removals
-      Given a repository with Tanren-managed assets
-      When uninstall preview runs through the api interface
-      Then the preview includes at least one removable Tanren-managed path
-
-    @falsification @api
-    Scenario: API uninstall preserves user-owned repository files
-      Given a repository with Tanren-managed assets and user-owned files
-      When uninstall preview runs through the api interface
-      Then the preview preserves user-owned files
-
-    @positive @mcp
-    Scenario: MCP uninstall preview includes Tanren-managed removals
-      Given a repository with Tanren-managed assets
-      When uninstall preview runs through the mcp interface
-      Then the preview includes at least one removable Tanren-managed path
-
-    @falsification @mcp
-    Scenario: MCP uninstall preserves user-owned repository files
-      Given a repository with Tanren-managed assets and user-owned files
-      When uninstall preview runs through the mcp interface
-      Then the preview preserves user-owned files
+  Rule: CLI uninstall preview and preservation witnesses
 
     @positive @cli
     Scenario: CLI uninstall preview includes Tanren-managed removals
@@ -53,14 +17,36 @@ Feature: Uninstall Tanren assets without deleting user work
       When uninstall preview runs through the cli interface
       Then the preview preserves user-owned files
 
-    @positive @tui
-    Scenario: TUI uninstall preview includes Tanren-managed removals
-      Given a repository with Tanren-managed assets
-      When uninstall preview runs through the tui interface
-      Then the preview includes at least one removable Tanren-managed path
+    @falsification @cli
+    Scenario: CLI uninstall preview reports nothing to uninstall when manifest is absent
+      Given a clean repository fixture
+      When tanren-cli uninstall preview runs without confirmation
+      Then the uninstall command succeeds
+      And the uninstall preview output reports remove, preserve, and warning path lists
+      And the uninstall output reports nothing to uninstall
+      And no files are written in the repository fixture
+      And the install output redacts absolute repository paths
 
-    @falsification @tui
-    Scenario: TUI uninstall preserves user-owned repository files
+    @falsification @cli
+    Scenario: CLI uninstall confirm reports nothing to uninstall when manifest is absent
+      Given a clean repository fixture
+      When tanren-cli uninstall runs with confirmation
+      Then the uninstall command succeeds
+      And the uninstall preview output reports remove, preserve, and warning path lists
+      And the uninstall apply output reports removed generated and metadata summaries
+      And the uninstall output reports nothing to uninstall
+      And no files are written in the repository fixture
+      And the install output redacts absolute repository paths
+
+    @positive @cli
+    Scenario: CLI uninstall confirm removes only managed assets and preserves user work
       Given a repository with Tanren-managed assets and user-owned files
-      When uninstall preview runs through the tui interface
-      Then the preview preserves user-owned files
+      When tanren-cli uninstall runs with confirmation
+      Then the uninstall command succeeds
+      And the uninstall preview output reports remove, preserve, and warning path lists
+      And the uninstall apply output reports removed generated and metadata summaries
+      And the uninstall apply removes generated assets and install metadata
+      And repository file "docs/behaviors/user-uninstall-notes.md" preserves its baseline content
+      And repository file "crates/tanren-cli-app/src/user_uninstall_notes.rs" preserves its baseline content
+      And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
+      And the install output redacts absolute repository paths

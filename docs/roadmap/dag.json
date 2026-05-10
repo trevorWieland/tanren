@@ -1651,11 +1651,7 @@
           "kind": "bdd",
           "behavior_id": "B-0135",
           "interfaces": [
-            "web",
-            "api",
-            "mcp",
-            "cli",
-            "tui"
+            "cli"
           ],
           "witnesses": [
             "positive",

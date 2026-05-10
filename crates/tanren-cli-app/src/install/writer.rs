@@ -1,5 +1,6 @@
 //! Filesystem writer for manifest-driven install plans.
 
+use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
 use crate::install::error::InstallError;
@@ -36,13 +37,6 @@ impl InstallReport {
 pub struct UninstallApplyReport {
     pub removed_generated: Vec<RepoRelativePath>,
     pub removed_metadata: Vec<RepoRelativePath>,
-}
-
-impl UninstallApplyReport {
-    fn sort_paths(&mut self) {
-        self.removed_generated.sort();
-        self.removed_metadata.sort();
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -121,10 +115,13 @@ pub(super) fn apply_uninstall_preview(
     }
     removals.sort();
     removals.dedup();
+    if removals.is_empty() {
+        return Ok(UninstallApplyReport::default());
+    }
 
     let prepared = prepare_uninstall_apply(&repository_root, &removals)?;
     let mut report = UninstallApplyReport::default();
-    let mut changed_paths = Vec::new();
+    let mut changed_paths = Vec::with_capacity(prepared.len());
 
     let apply_result: Result<(), InstallError> = (|| {
         for removal in &prepared {
@@ -153,7 +150,6 @@ pub(super) fn apply_uninstall_preview(
         ));
     }
 
-    report.sort_paths();
     Ok(report)
 }
 
@@ -188,14 +184,16 @@ fn prepare_uninstall_apply(
     let mut removals = Vec::with_capacity(removal_paths.len());
     for path in removal_paths {
         let absolute = resolve_repo_path(repository_root, path)?;
-        if !absolute.exists() {
-            continue;
-        }
-
-        let metadata = std::fs::metadata(&absolute).map_err(|err| InstallError::ReadFailure {
-            path: path.as_str().to_owned(),
-            message: err.to_string(),
-        })?;
+        let metadata = match std::fs::symlink_metadata(&absolute) {
+            Ok(metadata) => metadata,
+            Err(err) if err.kind() == ErrorKind::NotFound => continue,
+            Err(err) => {
+                return Err(InstallError::ReadFailure {
+                    path: path.as_str().to_owned(),
+                    message: err.to_string(),
+                });
+            }
+        };
         if !metadata.is_file() {
             return Err(InstallError::RemoveFailure {
                 path: path.as_str().to_owned(),

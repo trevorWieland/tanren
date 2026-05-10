@@ -95,12 +95,13 @@ impl UninstallCommand {
         let mut handle = stdout.lock();
         writeln!(
             handle,
-            "status=ok command=uninstall phase=preview repo={} remove={} preserve={} warning={} nothing_to_uninstall={}",
+            "status=ok command=uninstall phase=preview repo={} remove={} preserve={} warning={} nothing_to_uninstall={} nothing_reason={}",
             repository,
             preview.remove().len(),
             preview.preserve().len(),
             preview.warning().len(),
             preview.nothing_to_uninstall(),
+            uninstall_nothing_reason(preview),
         )
         .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
         writeln!(
@@ -124,11 +125,12 @@ impl UninstallCommand {
         let mut handle = stdout.lock();
         writeln!(
             handle,
-            "status=ok command=uninstall phase=apply repo={} removed_generated={} removed_metadata={} nothing_to_uninstall={}",
+            "status=ok command=uninstall phase=apply repo={} removed_generated={} removed_metadata={} nothing_to_uninstall={} nothing_reason={}",
             repository,
             report.removed_generated.len(),
             report.removed_metadata.len(),
             preview.nothing_to_uninstall(),
+            uninstall_nothing_reason(preview),
         )
         .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
         writeln!(
@@ -200,4 +202,20 @@ fn display_repository_argument(path: &Path) -> String {
     } else {
         path.display().to_string()
     }
+}
+
+fn uninstall_nothing_reason(preview: &UninstallPreview) -> &'static str {
+    if !preview.nothing_to_uninstall() {
+        return "not_empty";
+    }
+
+    if preview
+        .warning()
+        .iter()
+        .any(|warning| warning.kind() == UninstallWarningKind::ManifestMissing)
+    {
+        return "manifest_missing";
+    }
+
+    "no_removal_candidates"
 }

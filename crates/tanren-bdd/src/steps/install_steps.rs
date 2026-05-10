@@ -22,8 +22,8 @@ fn given_clean_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<
 #[given(expr = "an installed repository fixture")]
 async fn given_installed_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<()> {
     world.reset_install_ctx()?;
-    world.run_install("rust-cargo", None).await?;
     let ctx = world.ensure_install_ctx()?;
+    ctx.run_install_with_cli_binary("rust-cargo", None).await?;
     ctx.assert_success()
 }
 
@@ -208,7 +208,8 @@ async fn when_uninstall_preview_runs_through_interface(
     interface: String,
 ) -> InstallStepResult<()> {
     world.assert_active_harness_interface(interface.as_str())?;
-    world.run_uninstall_preview().await
+    let ctx = world.ensure_install_ctx()?;
+    ctx.run_uninstall_preview_with_cli_binary().await
 }
 
 #[then(expr = "the install command succeeds")]
@@ -287,6 +288,14 @@ fn then_uninstall_preview_includes_removable_path(
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_uninstall_preview_has_removals()
+}
+
+#[then(expr = "the uninstall output reports nothing to uninstall")]
+fn then_uninstall_output_reports_nothing_to_uninstall(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_uninstall_nothing_to_uninstall(true)
 }
 
 #[then(expr = "the preview includes at least one removable Tanren-managed path")]

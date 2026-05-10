@@ -381,6 +381,7 @@ pub(super) fn generated_integration_destination_roots(
 
 /// Whether a path matches a selected integration command destination layout.
 #[must_use]
+#[cfg(feature = "test-hooks")]
 pub(super) fn is_current_generated_integration_destination(
     path: &RepoRelativePath,
     destination_roots: &BTreeSet<&'static str>,

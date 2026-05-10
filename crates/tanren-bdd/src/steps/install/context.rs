@@ -3,7 +3,7 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{AccountHarness, CliCommandOutcome};
+use tanren_testkit::{AccountHarness, CliCommandOutcome, execute_tanren_cli};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -58,6 +58,37 @@ impl InstallContext {
             .await
     }
 
+    pub(crate) async fn run_install_with_cli_binary(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        let mut args = vec![
+            OsString::from("install"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+            OsString::from("--profile"),
+            OsString::from(profile),
+        ];
+        if let Some(selected) = integrations {
+            args.push(OsString::from("--integrations"));
+            args.push(OsString::from(selected));
+        }
+
+        let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let rendered_args = render_cli_args(&args);
+        let outcome = execute_tanren_cli(args).await.map_err(|source| {
+            InstallStepError::RunInstallCommand {
+                harness: "cli-bootstrap".to_owned(),
+                args: rendered_args,
+                source,
+            }
+        })?;
+        self.snapshot_before_last_run = Some(before);
+        self.last_run = Some(outcome);
+        Ok(())
+    }
+
     pub(crate) async fn run_uninstall_preview(
         &mut self,
         harness: &mut dyn AccountHarness,
@@ -69,6 +100,27 @@ impl InstallContext {
         ];
         self.run_cli_command(harness, args, InstallCommandKind::UninstallPreview)
             .await
+    }
+
+    pub(crate) async fn run_uninstall_preview_with_cli_binary(&mut self) -> InstallStepResult<()> {
+        let args = vec![
+            OsString::from("uninstall"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+        ];
+
+        let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let rendered_args = render_cli_args(&args);
+        let outcome = execute_tanren_cli(args).await.map_err(|source| {
+            InstallStepError::RunUninstallPreviewCommand {
+                harness: "cli-bootstrap".to_owned(),
+                args: rendered_args,
+                source,
+            }
+        })?;
+        self.snapshot_before_last_run = Some(before);
+        self.last_run = Some(outcome);
+        Ok(())
     }
 
     pub(crate) async fn run_uninstall_apply(

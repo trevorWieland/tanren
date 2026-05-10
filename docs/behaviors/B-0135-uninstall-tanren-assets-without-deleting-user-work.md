@@ -4,7 +4,7 @@ id: B-0135
 title: Uninstall Tanren assets without deleting user work
 area: project-setup
 personas: [solo-builder, team-builder, operator]
-interfaces: [web, api, mcp, cli, tui]
+interfaces: [cli]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
