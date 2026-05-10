@@ -36,6 +36,44 @@ export const ORGANIZATION_CREATED_EVENT_KIND: OrganizationCreatedEventKind =
   "organization_created";
 export const ORGANIZATION_WEB_HARNESS_ROUTE =
   ORGANIZATION_HARNESS_ROUTE_OWNER.route;
+
+export interface WebSurfaceContract<
+  TRoute extends string,
+  TBehaviorId extends string,
+  TApiCreate extends string,
+  TApiList extends string,
+  TApiCheckPermission extends string,
+> {
+  readonly route: TRoute;
+  readonly behaviorId: TBehaviorId;
+  readonly apiPaths: {
+    readonly create: TApiCreate;
+    readonly list: TApiList;
+    readonly checkPermission: TApiCheckPermission;
+  };
+  readonly harnessRoute: `/harness/${string}`;
+  readonly featurePath: string;
+  readonly eventFamily: "organization";
+  readonly createdEventKind: "organization_created";
+  readonly requiresAuth: true;
+}
+
+export const ORGANIZATION_WEB_SURFACE_CONTRACT = {
+  route: ORGANIZATION_RUNTIME_ROUTE,
+  behaviorId: ORGANIZATION_CREATE_BEHAVIOR_ID,
+  apiPaths: ORGANIZATION_API_ROUTES,
+  harnessRoute: ORGANIZATION_WEB_HARNESS_ROUTE,
+  featurePath: ORGANIZATION_BEHAVIOR_FEATURE_PATH,
+  eventFamily: ORGANIZATION_EVENT_FAMILY,
+  createdEventKind: ORGANIZATION_CREATED_EVENT_KIND,
+  requiresAuth: true as const,
+} as const satisfies WebSurfaceContract<
+  typeof ORGANIZATION_RUNTIME_ROUTE,
+  OrganizationCreateBehaviorId,
+  typeof ORGANIZATION_API_ROUTES.create,
+  typeof ORGANIZATION_API_ROUTES.list,
+  typeof ORGANIZATION_API_ROUTES.checkPermission
+>;
 export type OrganizationAdminPermission =
   components["schemas"]["OrganizationPermission"];
 export type CreateOrganizationApiRequest =
