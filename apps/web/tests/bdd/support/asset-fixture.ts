@@ -5,6 +5,11 @@ export interface FixtureActionResult {
   readonly success?: boolean;
 }
 
+export type UpgradeApplyOutcomeLabel =
+  | "applied"
+  | "no_manifest_noop"
+  | "blocked";
+
 export type FixtureActionName =
   | "reset"
   | "write-file"
@@ -25,6 +30,7 @@ export interface CommandResult {
   readonly stdout: string;
   readonly status: number;
   readonly success: boolean;
+  readonly upgradeApplyOutcome?: UpgradeApplyOutcomeLabel;
 }
 
 export interface UpgradeWorld {

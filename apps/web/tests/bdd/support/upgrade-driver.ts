@@ -4,6 +4,7 @@ import {
   type CommandResult,
   type FixtureActionName,
   type FixtureActionResult,
+  type UpgradeApplyOutcomeLabel,
   type UpgradeWorld,
 } from "./asset-fixture";
 
@@ -88,11 +89,17 @@ export class UpgradeDriver {
     payload: unknown,
   ): Promise<CommandResult> {
     const result = await this.execute(action, payload);
-    return {
-      stdout: expectString(result.stdout, "stdout"),
+    const stdout = expectString(result.stdout, "stdout");
+    const commandResult: CommandResult = {
+      stdout,
       status: expectNumber(result.status, "status"),
       success: expectBoolean(result.success, "success"),
     };
+    const upgradeApplyOutcome = parseUpgradeApplyOutcome(stdout);
+    if (upgradeApplyOutcome) {
+      return { ...commandResult, upgradeApplyOutcome };
+    }
+    return commandResult;
   }
 
   private async execute(
@@ -159,4 +166,30 @@ function expectBoolean(value: unknown, label: string): boolean {
     throw new Error(`expected ${label} to be a boolean`);
   }
   return value;
+}
+
+function parseUpgradeApplyOutcome(
+  stdout: string,
+): UpgradeApplyOutcomeLabel | undefined {
+  const lines = stdout.split("\n");
+  for (const line of lines) {
+    if (!line.includes(" command=upgrade ") || !line.includes(" outcome=")) {
+      continue;
+    }
+    const match = line.match(/\boutcome=([a-z_]+)\b/);
+    if (!match) {
+      continue;
+    }
+    if (match[1] === "applied") {
+      return "applied";
+    }
+    if (match[1] === "no_manifest_noop") {
+      return "no_manifest_noop";
+    }
+    if (match[1] === "blocked") {
+      return "blocked";
+    }
+    throw new Error(`unknown upgrade apply outcome label '${match[1]}'`);
+  }
+  return undefined;
 }

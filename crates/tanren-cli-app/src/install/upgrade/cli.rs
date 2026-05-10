@@ -5,8 +5,8 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 
-use super::UpgradePreview;
 use super::report::UpgradePreviewReport;
+use super::{UpgradeApplyOutcome, UpgradePreview};
 use crate::install::error::UpgradeCommandError;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::upgrade::{apply_upgrade, preview_upgrade};
@@ -33,12 +33,8 @@ impl UpgradeCommand {
             return self.write_confirmation_required(&preview);
         }
 
-        if !preview.can_apply() {
-            return self.write_noop_apply_result();
-        }
-
-        let apply_report = apply_upgrade(&preview).map_err(UpgradeCommandError::from)?;
-        self.write_apply_result(apply_report)
+        let apply_outcome = apply_upgrade(&preview).map_err(UpgradeCommandError::from)?;
+        self.write_apply_result(apply_outcome)
     }
 
     fn write_preview_report(
@@ -86,50 +82,50 @@ impl UpgradeCommand {
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })
     }
 
-    fn write_noop_apply_result(&self) -> Result<(), UpgradeCommandError> {
-        let repository = display_repository_argument(&self.repo);
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        writeln!(
-            handle,
-            "status=noop command=upgrade repo={repository} confirm=true applied=false created=0 updated=0 removed=0 restored=0 preserved=0",
-        )
-        .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })
-    }
-
     fn write_apply_result(
         &self,
-        apply_report: Option<crate::install::InstallReport>,
+        apply_outcome: UpgradeApplyOutcome,
     ) -> Result<(), UpgradeCommandError> {
         let repository = display_repository_argument(&self.repo);
-        let Some(report) = apply_report else {
-            return self.write_noop_apply_result();
-        };
-
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        writeln!(
-            handle,
-            "status=ok command=upgrade repo={} confirm=true applied=true created={} updated={} removed={} restored={} preserved={}",
-            repository,
-            report.created.len(),
-            report.updated.len(),
-            report.removed.len(),
-            report.restored.len(),
-            report.preserved.len(),
-        )
-        .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
-        writeln!(
-            handle,
-            "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
-            format_path_list(&report.created),
-            format_path_list(&report.updated),
-            format_path_list(&report.removed),
-            format_path_list(&report.restored),
-            format_path_list(&report.preserved),
-        )
-        .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
-        Ok(())
+        match apply_outcome {
+            UpgradeApplyOutcome::NoInstallManifestNoop => writeln!(
+                handle,
+                "status=noop command=upgrade repo={repository} confirm=true applied=false outcome=no_manifest_noop created=0 updated=0 removed=0 restored=0 preserved=0",
+            )
+            .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source }),
+            UpgradeApplyOutcome::Applied { report } => {
+                writeln!(
+                    handle,
+                    "status=ok command=upgrade repo={} confirm=true applied=true outcome=applied created={} updated={} removed={} restored={} preserved={}",
+                    repository,
+                    report.created.len(),
+                    report.updated.len(),
+                    report.removed.len(),
+                    report.restored.len(),
+                    report.preserved.len(),
+                )
+                .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
+                writeln!(
+                    handle,
+                    "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
+                    format_path_list(&report.created),
+                    format_path_list(&report.updated),
+                    format_path_list(&report.removed),
+                    format_path_list(&report.restored),
+                    format_path_list(&report.preserved),
+                )
+                .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })
+            }
+            UpgradeApplyOutcome::Blocked { reason } => writeln!(
+                handle,
+                "status=blocked command=upgrade repo={} confirm=true applied=false outcome=blocked reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
+                repository,
+                reason.as_str(),
+            )
+            .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source }),
+        }
     }
 }
 

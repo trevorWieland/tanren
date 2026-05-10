@@ -79,15 +79,60 @@ fn preview_upgrade(repository: &Path) -> Result<UpgradePreview, InstallError> {
     UpgradePlanner::preview(repository)
 }
 
-/// Apply a previously generated upgrade preview through the install writer.
-fn apply_upgrade(preview: &UpgradePreview) -> Result<Option<InstallReport>, InstallError> {
-    match preview {
-        UpgradePreview::NoInstallManifest { .. } => Ok(None),
-        UpgradePreview::Planned { plan, .. } => {
-            let report = super::apply_validated_plan(plan.as_ref())?;
-            Ok(Some(report))
+/// Reason an upgrade apply operation was blocked before mutating files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UpgradeApplyBlockedReason {
+    /// Preview did not produce an applyable plan.
+    PreviewNotApplicable,
+}
+
+impl UpgradeApplyBlockedReason {
+    #[must_use]
+    const fn as_str(self) -> &'static str {
+        match self {
+            Self::PreviewNotApplicable => "preview_not_applicable",
         }
     }
+}
+
+/// Typed outcome for applying an upgrade preview.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum UpgradeApplyOutcome {
+    /// No install manifest was present, so apply is a no-op.
+    NoInstallManifestNoop,
+    /// Upgrade plan applied successfully.
+    Applied { report: InstallReport },
+    /// Apply did not run because a precondition was not met.
+    Blocked { reason: UpgradeApplyBlockedReason },
+}
+
+impl UpgradeApplyOutcome {
+    const NO_MANIFEST_NOOP_LABEL: &str = "no_manifest_noop";
+    const APPLIED_LABEL: &str = "applied";
+    const BLOCKED_LABEL: &str = "blocked";
+
+    #[must_use]
+    const fn label(&self) -> &'static str {
+        match self {
+            Self::NoInstallManifestNoop => Self::NO_MANIFEST_NOOP_LABEL,
+            Self::Applied { .. } => Self::APPLIED_LABEL,
+            Self::Blocked { .. } => Self::BLOCKED_LABEL,
+        }
+    }
+}
+
+/// Apply a previously generated upgrade preview through the install writer.
+fn apply_upgrade(preview: &UpgradePreview) -> Result<UpgradeApplyOutcome, InstallError> {
+    if let UpgradePreview::Planned { plan, .. } = preview {
+        let report = super::apply_validated_plan(plan.as_ref())?;
+        return Ok(UpgradeApplyOutcome::Applied { report });
+    }
+    if matches!(preview, UpgradePreview::NoInstallManifest { .. }) {
+        return Ok(UpgradeApplyOutcome::NoInstallManifestNoop);
+    }
+    Ok(UpgradeApplyOutcome::Blocked {
+        reason: UpgradeApplyBlockedReason::PreviewNotApplicable,
+    })
 }
 
 /// Structured outcome for web/API witnesses that need the same observable
@@ -143,44 +188,45 @@ pub fn run_upgrade_witness(
         });
     }
 
-    if !preview.can_apply() {
-        lines.push(format!(
-            "status=noop command=upgrade repo={} confirm=true applied=false created=0 updated=0 removed=0 restored=0 preserved=0",
-            display_repository_argument(repository),
-        ));
-        return Ok(UpgradeWitnessRun {
-            stdout_lines: lines,
-        });
+    let apply_outcome = apply_upgrade(&preview)?;
+
+    match apply_outcome {
+        UpgradeApplyOutcome::NoInstallManifestNoop => {
+            lines.push(format!(
+                "status=noop command=upgrade repo={} confirm=true applied=false outcome={} created=0 updated=0 removed=0 restored=0 preserved=0",
+                display_repository_argument(repository),
+                UpgradeApplyOutcome::NoInstallManifestNoop.label(),
+            ));
+        }
+        UpgradeApplyOutcome::Applied { report } => {
+            lines.push(format!(
+                "status=ok command=upgrade repo={} confirm=true applied=true outcome={} created={} updated={} removed={} restored={} preserved={}",
+                display_repository_argument(repository),
+                UpgradeApplyOutcome::APPLIED_LABEL,
+                report.created.len(),
+                report.updated.len(),
+                report.removed.len(),
+                report.restored.len(),
+                report.preserved.len(),
+            ));
+            lines.push(format!(
+                "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
+                format_path_list(&report.created),
+                format_path_list(&report.updated),
+                format_path_list(&report.removed),
+                format_path_list(&report.restored),
+                format_path_list(&report.preserved),
+            ));
+        }
+        UpgradeApplyOutcome::Blocked { reason } => {
+            lines.push(format!(
+                "status=blocked command=upgrade repo={} confirm=true applied=false outcome={} reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
+                display_repository_argument(repository),
+                UpgradeApplyOutcome::Blocked { reason }.label(),
+                reason.as_str(),
+            ));
+        }
     }
-
-    let apply_report = apply_upgrade(&preview)?;
-    let Some(report) = apply_report else {
-        lines.push(format!(
-            "status=noop command=upgrade repo={} confirm=true applied=false created=0 updated=0 removed=0 restored=0 preserved=0",
-            display_repository_argument(repository),
-        ));
-        return Ok(UpgradeWitnessRun {
-            stdout_lines: lines,
-        });
-    };
-
-    lines.push(format!(
-        "status=ok command=upgrade repo={} confirm=true applied=true created={} updated={} removed={} restored={} preserved={}",
-        display_repository_argument(repository),
-        report.created.len(),
-        report.updated.len(),
-        report.removed.len(),
-        report.restored.len(),
-        report.preserved.len(),
-    ));
-    lines.push(format!(
-        "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
-        format_path_list(&report.created),
-        format_path_list(&report.updated),
-        format_path_list(&report.removed),
-        format_path_list(&report.restored),
-        format_path_list(&report.preserved),
-    ));
 
     Ok(UpgradeWitnessRun {
         stdout_lines: lines,

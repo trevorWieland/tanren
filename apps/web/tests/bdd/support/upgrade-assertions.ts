@@ -1,9 +1,14 @@
-import type { CommandResult, UpgradeWorld } from "./asset-fixture";
+import type {
+  CommandResult,
+  UpgradeApplyOutcomeLabel,
+  UpgradeWorld,
+} from "./asset-fixture";
 
 export function assertUpgradeApplySuccess(world: UpgradeWorld): void {
   const run = assertSuccess(world.lastRun, "upgrade apply");
   assertIncludes(run.stdout, "status=ok command=upgrade");
   assertIncludes(run.stdout, "confirm=true applied=true");
+  assertUpgradeApplyOutcome(run, "applied");
   assertIncludes(run.stdout, "applied created=[");
   assertIncludes(run.stdout, "updated=[");
   assertIncludes(run.stdout, "removed=[");
@@ -15,6 +20,7 @@ export function assertUpgradeApplyNoop(world: UpgradeWorld): void {
   const run = assertSuccess(world.lastRun, "upgrade apply");
   assertIncludes(run.stdout, "status=noop command=upgrade");
   assertIncludes(run.stdout, "confirm=true applied=false");
+  assertUpgradeApplyOutcome(run, "no_manifest_noop");
 }
 
 export function assertUpgradePreviewSuccess(world: UpgradeWorld): void {
@@ -73,5 +79,16 @@ function assertSuccess(
 function assertIncludes(haystack: string, needle: string): void {
   if (!haystack.includes(needle)) {
     throw new Error(`expected output to contain '${needle}'`);
+  }
+}
+
+function assertUpgradeApplyOutcome(
+  run: CommandResult,
+  expected: UpgradeApplyOutcomeLabel,
+): void {
+  if (run.upgradeApplyOutcome !== expected) {
+    throw new Error(
+      `expected upgrade apply outcome '${expected}' but found '${run.upgradeApplyOutcome ?? "undefined"}'`,
+    );
   }
 }

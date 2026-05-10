@@ -140,6 +140,7 @@ impl InstallContext {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=ok command=upgrade")?;
         ensure_stdout_contains(run, "confirm=true applied=true")?;
+        ensure_stdout_contains(run, "outcome=applied")?;
         ensure_stdout_contains(run, "applied created=[")?;
         ensure_stdout_contains(run, "updated=[")?;
         ensure_stdout_contains(run, "removed=[")?;
@@ -152,6 +153,7 @@ impl InstallContext {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=noop command=upgrade")?;
         ensure_stdout_contains(run, "confirm=true applied=false")?;
+        ensure_stdout_contains(run, "outcome=no_manifest_noop")?;
         Ok(())
     }
 
