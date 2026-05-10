@@ -1,4 +1,3 @@
-/* eslint-disable */
 // global-setup.ts — boots the Tanren API binary on a free port against
 // an ephemeral SQLite database, then exports the URL via
 // NEXT_PUBLIC_API_URL so the Next.js dev server (Playwright `webServer`)
@@ -14,7 +13,6 @@ import { setTimeout as delay } from "node:timers/promises";
 declare global {
   // Stash the spawned process + temp paths on globalThis so
   // global-teardown.ts can clean up.
-  // eslint-disable-next-line no-var
   var __tanrenBddState: TanrenBddState | undefined;
 }
 

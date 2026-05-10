@@ -1,9 +1,7 @@
-/* eslint-disable */
 import { rmSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
 declare global {
-  // eslint-disable-next-line no-var
   var __tanrenBddState:
     | {
         apiProcess: import("node:child_process").ChildProcess | null;

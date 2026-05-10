@@ -1,4 +1,3 @@
-/* eslint-disable */
 // playwright-bdd step definitions for the `@web` slice of B-0043.
 //
 // The Gherkin in `tests/bdd/features/B-0043-create-account.feature` is
@@ -68,7 +67,7 @@ interface TestHookEventEnvelope {
 // (re-exported from `playwright-bdd`); we extend it to thread an
 // actor-state map through every step without leaning on a global.
 export const test = base.extend<{ world: WebWorld }>({
-  world: async ({}, use) => {
+  world: async (_args, use) => {
     await use({ actors: new Map() });
   },
 });
