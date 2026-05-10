@@ -1,266 +1,41 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import { CredentialsPanel } from "@/app/configuration/account/CredentialsPanel";
 import { SettingsPanel } from "@/app/configuration/account/SettingsPanel";
-import {
-  addUserCredential,
-  AccountRequestError,
-  discoverConfigurationAccess,
-  listUserCredentials as listUserCredentialsApi,
-  listUserSettings as listUserSettingsApi,
-  removeUserCredential as removeUserCredentialApi,
-  removeUserSetting as removeUserSettingApi,
-  upsertUserSetting,
-  updateUserCredential as updateUserCredentialApi,
-} from "@/app/lib/account-client";
-import type {
-  AccountFailure,
-  CredentialListPageInput,
-  ConfigurationCapabilities,
-  CreateUserCredentialInput,
-  ListUserCredentialsResult,
-  ListUserSettingsResult,
-  UserCredentialItemId,
-  UpdateUserCredentialInput,
-  UpsertUserSettingInput,
-} from "@/app/lib/api-contracts";
+import { useConfigurationAccess } from "@/app/configuration/account/useConfigurationAccess";
+import { useCredentialsModel } from "@/app/configuration/account/useCredentialsModel";
+import { useSettingsModel } from "@/app/configuration/account/useSettingsModel";
 import * as m from "@/i18n/paraglide/messages";
-
-const DEFAULT_CREDENTIAL_PAGE_SIZE = 20;
-
-function formatFailure(failure: AccountFailure): string {
-  return `code=${failure.code}; summary=${failure.summary}`;
-}
-
-function formatRequestError(error: unknown): string {
-  if (error instanceof AccountRequestError) {
-    const failure = error.failure;
-    return formatFailure(failure);
-  }
-  if (error instanceof Error) {
-    return error.message;
-  }
-  return String(error);
-}
 
 export default function ConfigurationAccountPage(): ReactNode {
   const [uiError, setUiError] = useState<string | null>(null);
   const [uiMessage, setUiMessage] = useState<string | null>(null);
 
-  const [capabilities, setCapabilities] =
-    useState<ConfigurationCapabilities | null>(null);
-  const [settingsAccessError, setSettingsAccessError] = useState<string | null>(
-    null,
+  const accessModel = useConfigurationAccess();
+  const feedback = useMemo(
+    () => ({
+      setUiError,
+      setUiMessage,
+    }),
+    [],
   );
-  const [credentialsAccessError, setCredentialsAccessError] = useState<
-    string | null
-  >(null);
-  const [capabilitiesAccessError, setCapabilitiesAccessError] = useState<
-    string | null
-  >(null);
 
-  const [settingsReadModel, setSettingsReadModel] =
-    useState<ListUserSettingsResult | null>(null);
-  const [credentialsReadModel, setCredentialsReadModel] =
-    useState<ListUserCredentialsResult | null>(null);
-  const [credentialListInput, setCredentialListInput] =
-    useState<CredentialListPageInput>({
-      page_size: DEFAULT_CREDENTIAL_PAGE_SIZE,
-    });
+  const settingsModel = useSettingsModel({
+    discoveredAccessError: accessModel.settingsAccessError,
+    discoveredReadModel: accessModel.discoveredSettingsReadModel,
+    feedback,
+  });
+  const credentialsModel = useCredentialsModel({
+    discoveredAccessError: accessModel.userCredentialsAccessError,
+    discoveredReadModel: accessModel.discoveredCredentialsReadModel,
+    feedback,
+  });
 
-  const [busy, setBusy] = useState(false);
-
-  const settingActions = capabilities?.settings.allowed_actions ?? [];
-  const itemActions = capabilities?.user_items.allowed_actions ?? [];
-  const canReadCredentials = itemActions.includes("read");
-  const canCreateCredentials = itemActions.includes("create");
-  const canUpdateCredentials = itemActions.includes("update");
-  const canDeleteCredentials = itemActions.includes("delete");
-
-  useEffect(() => {
-    let cancelled = false;
-
-    void discoverConfigurationAccess()
-      .then((result) => {
-        if (cancelled) {
-          return;
-        }
-        setCapabilities(result.capabilities);
-        setCapabilitiesAccessError(
-          result.capabilities_failure === null
-            ? null
-            : `${m.config_access_check_failed()}: ${formatFailure(result.capabilities_failure)}`,
-        );
-        setSettingsReadModel(result.settings_read_model);
-        setCredentialsReadModel(result.credentials_read_model);
-        setSettingsAccessError(
-          result.settings_failure === null
-            ? null
-            : `${m.config_settings_access_limited()}: ${formatFailure(result.settings_failure)}`,
-        );
-        setCredentialsAccessError(
-          result.credentials_failure === null
-            ? null
-            : `${m.config_credentials_access_limited()}: ${formatFailure(result.credentials_failure)}`,
-        );
-      })
-      .catch((reason: unknown) => {
-        if (cancelled) {
-          return;
-        }
-        const details = formatRequestError(reason);
-        setCapabilitiesAccessError(details);
-        setSettingsAccessError(`${m.config_access_check_failed()}: ${details}`);
-        setCredentialsAccessError(
-          `${m.config_access_check_failed()}: ${details}`,
-        );
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function refreshSettingsReadModel(): Promise<void> {
-    const body = await listUserSettingsApi();
-    setSettingsReadModel(body);
-    setSettingsAccessError(null);
-  }
-
-  async function refreshCredentialsReadModel(
-    input: CredentialListPageInput = credentialListInput,
-  ): Promise<void> {
-    const body = await listUserCredentialsApi(input);
-    setCredentialsReadModel(body);
-    setCredentialsAccessError(null);
-  }
-
-  async function listSettings(): Promise<void> {
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await refreshSettingsReadModel();
-      setUiMessage(m.config_settings_list_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function setUserSetting(input: UpsertUserSettingInput): Promise<void> {
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await upsertUserSetting(input);
-      await refreshSettingsReadModel();
-      setUiMessage(m.config_settings_set_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeUserSetting(
-    key: UpsertUserSettingInput["key"],
-  ): Promise<void> {
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await removeUserSettingApi(key);
-      await refreshSettingsReadModel();
-      setUiMessage(m.config_settings_remove_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function listCredentials(
-    input: CredentialListPageInput,
-  ): Promise<void> {
-    const normalizedPageSize =
-      typeof input.page_size === "number"
-        ? input.page_size
-        : (credentialListInput.page_size ?? DEFAULT_CREDENTIAL_PAGE_SIZE);
-    const normalizedInput: CredentialListPageInput =
-      typeof input.cursor === "string" && input.cursor !== ""
-        ? { cursor: input.cursor, page_size: normalizedPageSize }
-        : { page_size: normalizedPageSize };
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await refreshCredentialsReadModel(normalizedInput);
-      setCredentialListInput(normalizedInput);
-      setUiMessage(m.config_credentials_list_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function addCredential(
-    input: CreateUserCredentialInput,
-  ): Promise<void> {
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await addUserCredential(input);
-      await refreshCredentialsReadModel(credentialListInput);
-      setUiMessage(m.config_credentials_add_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function updateCredential(
-    itemId: UserCredentialItemId,
-    input: UpdateUserCredentialInput,
-  ): Promise<void> {
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await updateUserCredentialApi(itemId, input);
-      await refreshCredentialsReadModel(credentialListInput);
-      setUiMessage(m.config_credentials_update_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function removeCredential(itemId: UserCredentialItemId): Promise<void> {
-    setBusy(true);
-    setUiError(null);
-    setUiMessage(null);
-    try {
-      await removeUserCredentialApi(itemId);
-      await refreshCredentialsReadModel(credentialListInput);
-      setUiMessage(m.config_credentials_remove_success());
-    } catch (error: unknown) {
-      setUiError(formatRequestError(error));
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  const capabilitiesLoading = capabilities === null;
-  const sharedAccessError = capabilitiesAccessError;
+  const busy = settingsModel.busy || credentialsModel.busy;
+  const sharedAccessError = accessModel.capabilitiesAccessError;
 
   return (
     <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col gap-6 px-4 py-6">
@@ -272,29 +47,29 @@ export default function ConfigurationAccountPage(): ReactNode {
       </header>
 
       <SettingsPanel
-        accessError={settingsAccessError ?? sharedAccessError}
+        accessError={settingsModel.accessError ?? sharedAccessError}
         busy={busy}
-        capabilitiesLoading={capabilitiesLoading}
-        onList={listSettings}
-        onRemove={removeUserSetting}
-        onSet={setUserSetting}
-        readModel={settingsReadModel}
-        settingsAllowedActions={settingActions}
+        capabilitiesLoading={accessModel.capabilitiesLoading}
+        onList={settingsModel.listSettings}
+        onRemove={settingsModel.removeUserSetting}
+        onSet={settingsModel.setUserSetting}
+        readModel={settingsModel.readModel}
+        settingsAllowedActions={accessModel.settingActions}
       />
 
       <CredentialsPanel
-        accessError={credentialsAccessError ?? sharedAccessError}
+        accessError={credentialsModel.accessError ?? sharedAccessError}
         busy={busy}
-        canCreateCredentials={canCreateCredentials}
-        canDeleteCredentials={canDeleteCredentials}
-        canReadCredentials={canReadCredentials}
-        canUpdateCredentials={canUpdateCredentials}
-        capabilitiesLoading={capabilitiesLoading}
-        onAdd={addCredential}
-        onList={listCredentials}
-        onRemove={removeCredential}
-        onUpdate={updateCredential}
-        readModel={credentialsReadModel}
+        canCreateCredentials={accessModel.canCreateCredentials}
+        canDeleteCredentials={accessModel.canDeleteCredentials}
+        canReadCredentials={accessModel.canReadCredentials}
+        canUpdateCredentials={accessModel.canUpdateCredentials}
+        capabilitiesLoading={accessModel.capabilitiesLoading}
+        onAdd={credentialsModel.addCredential}
+        onList={credentialsModel.listCredentials}
+        onRemove={credentialsModel.removeCredential}
+        onUpdate={credentialsModel.updateCredential}
+        readModel={credentialsModel.readModel}
       />
 
       {uiError !== null ? (
