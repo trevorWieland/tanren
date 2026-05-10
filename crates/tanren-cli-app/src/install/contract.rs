@@ -16,9 +16,15 @@ use crate::install::{
     InstallError, InstallIntegration, InstallProfile, parse_integration_selection,
 };
 
+#[path = "contract_fs.rs"]
+mod contract_fs;
+#[path = "contract_methodology.rs"]
+mod contract_methodology;
+
 const TAMPERED_ENTRY_SHA256: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
 const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
+pub(super) const RUST_CARGO_STANDARDS_ROOT: &str = "profiles/rust-cargo";
 
 /// Delivery-owned proof failures surfaced to BDD assertion mapping.
 #[derive(Debug, Error)]
@@ -68,6 +74,11 @@ pub enum InstallProofError {
         manifest_path: PathBuf,
         source: toml::de::Error,
     },
+    #[error("failed to parse project methodology config '{path}' as TOML: {source}")]
+    ProjectMethodologyConfigTomlParse {
+        path: PathBuf,
+        source: tanren_configuration_secrets::ConfigSecretsError,
+    },
     #[error("expected repository file to exist: {path}")]
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository path to be absent: {path}")]
@@ -101,6 +112,10 @@ pub fn assert_rust_cargo_default_assets_installed(
         &expected_integrations,
     )?;
     assert_standards_assets_for_rust_cargo(repository_root, &manifest)?;
+    contract_methodology::assert_project_methodology_config_for_rust_cargo(
+        repository_root,
+        &manifest,
+    )?;
     Ok(())
 }
 
@@ -109,7 +124,11 @@ pub fn assert_rust_cargo_standards_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
-    assert_standards_assets_for_rust_cargo(repository_root, &manifest)
+    assert_standards_assets_for_rust_cargo(repository_root, &manifest)?;
+    contract_methodology::assert_project_methodology_config_for_rust_cargo(
+        repository_root,
+        &manifest,
+    )
 }
 
 /// Assert only the selected integration command assets are installed.
@@ -165,6 +184,18 @@ pub fn assert_manifest_rust_cargo_defaults(
         ));
     }
 
+    let has_methodology_config = manifest
+        .parsed
+        .entries
+        .iter()
+        .any(|entry| entry.asset_class == AssetClass::MethodologyConfig);
+    if !has_methodology_config {
+        return Err(manifest_contract_error(
+            &manifest,
+            "manifest must include one methodology-config entry",
+        ));
+    }
+
     Ok(())
 }
 
@@ -191,7 +222,8 @@ pub fn tamper_manifest_with_raw_generated_entry(
     raw_path: &str,
 ) -> Result<(), InstallProofError> {
     let manifest_path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
-    let mut manifest = read_to_string_with_context(&manifest_path, "read install manifest")?;
+    let mut manifest =
+        contract_fs::read_to_string_with_context(&manifest_path, "read install manifest")?;
     let path_line = format!("path = \"{raw_path}\"");
     if manifest.contains(&path_line) {
         return Err(InstallProofError::StaleManifestPathAlreadyPresent {
@@ -216,22 +248,25 @@ pub fn tamper_manifest_with_raw_generated_entry(
 pub fn read_workspace_catalog_file(
     relative_path: &RepoRelativePath,
 ) -> Result<String, InstallProofError> {
-    let absolute = workspace_root()?.join(relative_path.as_str());
-    read_to_string_with_context(&absolute, "read workspace catalog file")
+    let absolute = contract_fs::workspace_root()?.join(relative_path.as_str());
+    contract_fs::read_to_string_with_context(&absolute, "read workspace catalog file")
 }
 
 #[derive(Debug)]
-struct ObservedInstallManifest {
-    path: PathBuf,
-    raw: String,
-    parsed: InstallManifest,
+pub(super) struct ObservedInstallManifest {
+    pub(super) path: PathBuf,
+    pub(super) raw: String,
+    pub(super) parsed: InstallManifest,
 }
 
 fn read_install_manifest(
     repository_root: &Path,
 ) -> Result<ObservedInstallManifest, InstallProofError> {
     let path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
-    let raw = read_to_string_with_context(&path, "read install manifest from repository fixture")?;
+    let raw = contract_fs::read_to_string_with_context(
+        &path,
+        "read install manifest from repository fixture",
+    )?;
     let parsed: InstallManifest =
         toml::from_str(&raw).map_err(|source| InstallProofError::InstallManifestTomlParse {
             manifest_path: path.clone(),
@@ -331,7 +366,7 @@ fn assert_command_assets_for_selected_integrations(
             ));
         }
 
-        assert_file_exists(repository_root, entry.path.as_str())?;
+        contract_fs::assert_file_exists(repository_root, entry.path.as_str())?;
         seen.insert(integration);
     }
 
@@ -371,7 +406,7 @@ fn assert_standards_assets_for_rust_cargo(
                 ),
             ));
         }
-        assert_file_exists(repository_root, entry.path.as_str())?;
+        contract_fs::assert_file_exists(repository_root, entry.path.as_str())?;
     }
 
     if !saw_any {
@@ -388,58 +423,7 @@ fn assert_unselected_integration_roots_are_empty(
     repository_root: &Path,
     selected: &BTreeSet<InstallIntegration>,
 ) -> Result<(), InstallProofError> {
-    for integration in InstallIntegration::all() {
-        if selected.contains(&integration) {
-            continue;
-        }
-
-        let roots = generated_integration_destination_roots(&BTreeSet::from([integration]));
-        for root in roots {
-            let root_path = repository_root.join(root);
-            if has_any_files(&root_path)? {
-                return Err(InstallProofError::ExpectedFileToBeAbsent { path: root_path });
-            }
-        }
-    }
-
-    Ok(())
-}
-
-fn has_any_files(path: &Path) -> Result<bool, InstallProofError> {
-    if !path.exists() {
-        return Ok(false);
-    }
-
-    let entries = fs::read_dir(path).map_err(|source| InstallProofError::ReadDirectory {
-        path: path.to_path_buf(),
-        action: "inspect unselected integration root",
-        source,
-    })?;
-
-    for entry in entries {
-        let entry = entry.map_err(|source| InstallProofError::ReadDirectoryEntry {
-            path: path.to_path_buf(),
-            action: "inspect unselected integration root entries",
-            source,
-        })?;
-        let entry_path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|source| InstallProofError::InspectFileType {
-                path: entry_path.clone(),
-                action: "inspect unselected integration root entry type",
-                source,
-            })?;
-
-        if file_type.is_file() {
-            return Ok(true);
-        }
-        if file_type.is_dir() && has_any_files(&entry_path)? {
-            return Ok(true);
-        }
-    }
-
-    Ok(false)
+    contract_fs::assert_unselected_integration_roots_are_empty(repository_root, selected)
 }
 
 fn manifest_contract_error(
@@ -459,37 +443,4 @@ fn format_integration_set(set: &BTreeSet<InstallIntegration>) -> String {
         .map(|integration| integration.as_str())
         .collect::<Vec<_>>();
     format!("[{}]", values.join(", "))
-}
-
-#[cfg(feature = "test-hooks")]
-fn workspace_root() -> Result<PathBuf, InstallProofError> {
-    Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .canonicalize()
-        .map_err(|source| InstallProofError::CanonicalizeWorkspaceRoot {
-            action: "resolving workspace root",
-            source,
-        })
-}
-
-fn assert_file_exists(
-    repository_root: &Path,
-    relative_path: &str,
-) -> Result<(), InstallProofError> {
-    let absolute = repository_root.join(relative_path);
-    if !absolute.exists() {
-        return Err(InstallProofError::ExpectedFileToExist { path: absolute });
-    }
-    Ok(())
-}
-
-fn read_to_string_with_context(
-    path: &Path,
-    action: &'static str,
-) -> Result<String, InstallProofError> {
-    fs::read_to_string(path).map_err(|source| InstallProofError::ReadFile {
-        path: path.to_path_buf(),
-        action,
-        source,
-    })
 }

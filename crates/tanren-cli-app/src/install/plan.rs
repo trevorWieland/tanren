@@ -29,7 +29,7 @@ pub enum PlannedWriteKind {
 pub struct PlannedWrite {
     path: RepoRelativePath,
     absolute_path: PathBuf,
-    content: &'static str,
+    content: String,
     kind: PlannedWriteKind,
 }
 
@@ -54,7 +54,7 @@ impl PlannedWrite {
 
     /// Planned UTF-8 content bytes.
     #[must_use]
-    pub(crate) fn content_bytes(&self) -> &'static [u8] {
+    pub(crate) fn content_bytes(&self) -> &[u8] {
         self.content.as_bytes()
     }
 }
@@ -337,7 +337,7 @@ fn plan_asset_write(
         return Ok(PlannedAssetAction::Write(PlannedWrite {
             path: asset.destination_path.clone(),
             absolute_path,
-            content: asset.content,
+            content: asset.content.clone(),
             kind,
         }));
     }
@@ -360,7 +360,7 @@ fn plan_asset_write(
     Ok(PlannedAssetAction::Write(PlannedWrite {
         path: asset.destination_path.clone(),
         absolute_path,
-        content: asset.content,
+        content: asset.content.clone(),
         kind: PlannedWriteKind::Updated,
     }))
 }

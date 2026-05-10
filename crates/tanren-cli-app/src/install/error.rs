@@ -42,6 +42,9 @@ pub enum InstallError {
     /// Removing stale generated output failed.
     #[error("failed removing '{path}': {message}")]
     RemoveFailure { path: String, message: String },
+    /// Project methodology config projection construction failed.
+    #[error("invalid project methodology config projection: {message}")]
+    InvalidProjectMethodologyConfig { message: String },
 }
 
 /// Typed `tanren-cli install` command failures at the CLI-library boundary.

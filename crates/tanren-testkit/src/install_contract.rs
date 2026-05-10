@@ -13,8 +13,12 @@ use thiserror::Error;
 pub const INSTALL_MANIFEST_VERSION: u32 = 1;
 /// Repo-relative install manifest location asserted by the BDD install proofs.
 pub const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
+/// Repo-relative project methodology config projection location.
+pub const PROJECT_METHODOLOGY_CONFIG_REPO_PATH: &str = ".tanren/project-methodology.toml";
 /// Rust standards profile identifier for install proofs.
 pub const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
+/// Default standards root configured by rust-cargo install profile.
+pub const RUST_CARGO_STANDARDS_ROOT: &str = "profiles/rust-cargo";
 
 /// Profile identifiers supported by install proofs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -106,6 +110,7 @@ impl FromStr for InstallProofIntegration {
 pub enum InstallProofAssetClass {
     MethodologyCommand,
     StandardsProfile,
+    MethodologyConfig,
 }
 
 /// Parse a comma-separated integration selection into typed identifiers.

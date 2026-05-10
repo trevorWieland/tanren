@@ -22,6 +22,7 @@ secrecy = { workspace = true }
 serde = { workspace = true }
 sha2 = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
+tanren-configuration-secrets = { path = "../tanren-configuration-secrets" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }

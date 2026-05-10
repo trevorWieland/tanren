@@ -18,6 +18,8 @@ const SHA256_HEX_LENGTH: usize = 64;
 pub(super) const INSTALL_MANIFEST_VERSION: u32 = 1;
 /// Repo-local metadata path for persisted install state.
 pub(super) const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
+/// Repo-local methodology configuration projection path.
+pub(super) const PROJECT_METHODOLOGY_CONFIG_REPO_PATH: &str = ".tanren/project-methodology.toml";
 
 /// Installed-asset classification used by install drift and apply planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -27,6 +29,8 @@ pub enum AssetClass {
     MethodologyCommand,
     /// Standards profile guidance file.
     StandardsProfile,
+    /// Project methodology configuration projection.
+    MethodologyConfig,
 }
 
 /// Preservation contract for install/update behavior.
@@ -108,7 +112,7 @@ impl<'de> Deserialize<'de> for RepoRelativePath {
 pub(super) struct InstallAssetProjection {
     pub source_path: RepoRelativePath,
     pub destination_path: RepoRelativePath,
-    pub content: &'static str,
+    pub content: String,
     pub asset_class: AssetClass,
     pub integration: Option<InstallIntegration>,
     pub preservation: PreservationPolicy,

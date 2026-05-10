@@ -4248,6 +4248,7 @@ dependencies = [
  "serde",
  "sha2",
  "tanren-app-services",
+ "tanren-configuration-secrets",
  "tanren-contract",
  "tanren-identity-policy",
  "thiserror 2.0.18",

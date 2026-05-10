@@ -2,9 +2,14 @@
 
 use std::collections::BTreeSet;
 
+use tanren_configuration_secrets::{
+    MethodologyProfile, PROJECT_METHODOLOGY_SCHEMA_VERSION, ProjectMethodologyConfig,
+};
+
 use crate::install::error::InstallError;
 use crate::install::manifest::{
-    AssetClass, InstallAssetProjection, PreservationPolicy, RepoRelativePath,
+    AssetClass, InstallAssetProjection, PROJECT_METHODOLOGY_CONFIG_REPO_PATH, PreservationPolicy,
+    RepoRelativePath,
 };
 use crate::install::{InstallIntegration, InstallProfile};
 
@@ -46,6 +51,7 @@ const COMMAND_SOURCES: &[(&str, &str, &str)] = &[
 const CLAUDE_COMMAND_DESTINATION_ROOT: &str = ".claude/commands/";
 const CODEX_COMMAND_DESTINATION_ROOT: &str = ".codex/skills/";
 const OPENCODE_COMMAND_DESTINATION_ROOT: &str = ".opencode/commands/";
+const RUST_CARGO_STANDARDS_ROOT: &str = "profiles/rust-cargo";
 
 const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
     (
@@ -285,6 +291,15 @@ pub(super) fn build_install_asset_catalog(
     integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<Vec<InstallAssetProjection>, InstallError> {
     let mut assets = Vec::new();
+    let methodology_config = methodology_config_projection(profile)?;
+    assets.push(install_asset(
+        PROJECT_METHODOLOGY_CONFIG_REPO_PATH,
+        PROJECT_METHODOLOGY_CONFIG_REPO_PATH,
+        methodology_config,
+        AssetClass::MethodologyConfig,
+        None,
+        PreservationPolicy::PreserveUserEdits,
+    )?);
 
     for (command_name, source_path, content) in COMMAND_SOURCES {
         for integration in integrations {
@@ -292,7 +307,7 @@ pub(super) fn build_install_asset_catalog(
             assets.push(install_asset(
                 source_path,
                 &destination,
-                content,
+                (*content).to_owned(),
                 AssetClass::MethodologyCommand,
                 Some(*integration),
                 PreservationPolicy::ReplaceGenerated,
@@ -306,7 +321,7 @@ pub(super) fn build_install_asset_catalog(
                 assets.push(install_asset(
                     source_path,
                     source_path,
-                    content,
+                    (*content).to_owned(),
                     AssetClass::StandardsProfile,
                     None,
                     PreservationPolicy::PreserveUserEdits,
@@ -362,7 +377,7 @@ pub(super) fn is_current_generated_integration_destination(
 fn install_asset(
     source_path: &str,
     destination_path: &str,
-    content: &'static str,
+    content: String,
     asset_class: AssetClass,
     integration: Option<InstallIntegration>,
     preservation: PreservationPolicy,
@@ -375,6 +390,34 @@ fn install_asset(
         integration,
         preservation,
     })
+}
+
+fn methodology_config_projection(profile: InstallProfile) -> Result<String, InstallError> {
+    let config = ProjectMethodologyConfig::new(
+        PROJECT_METHODOLOGY_SCHEMA_VERSION,
+        methodology_profile(profile),
+        standards_root(profile),
+    )
+    .map_err(|source| InstallError::InvalidProjectMethodologyConfig {
+        message: source.to_string(),
+    })?;
+    config
+        .to_toml()
+        .map_err(|source| InstallError::InvalidProjectMethodologyConfig {
+            message: source.to_string(),
+        })
+}
+
+const fn methodology_profile(profile: InstallProfile) -> MethodologyProfile {
+    match profile {
+        InstallProfile::RustCargo => MethodologyProfile::RustCargo,
+    }
+}
+
+const fn standards_root(profile: InstallProfile) -> &'static str {
+    match profile {
+        InstallProfile::RustCargo => RUST_CARGO_STANDARDS_ROOT,
+    }
 }
 
 fn integration_destination(integration: InstallIntegration, command_name: &str) -> String {
