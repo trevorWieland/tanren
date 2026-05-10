@@ -25,9 +25,20 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_identity_policy::{
+    AccountId, Email, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
+    PolicyConstraintReason, PolicyConstraintSource, ProjectId, RoleTemplateName,
+};
+use tanren_store::{
+    AccountStore, NewInvitation, NewPermissionConstraint, NewPermissionGrant, PermissionGrantScope,
+    Store,
+};
 use uuid::Uuid;
+
+const ORG_PERMISSION: &str = "org.members.view";
+const PROJECT_ROLE_PERMISSION: &str = "project.changes.review";
+const PROJECT_CONSTRAINED_PERMISSION: &str = "project.deploy.approve";
+const ROLE_TEMPLATE_NAME: &str = "release_manager";
 
 /// Request body for `POST /test-hooks/invitations`.
 #[derive(Debug, Deserialize)]
@@ -64,10 +75,355 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+/// Request body for `POST /test-hooks/permission-grants`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedPermissionGrantBody {
+    #[serde(default)]
+    pub account_id: Option<AccountId>,
+    #[serde(default)]
+    pub account_email: Option<Email>,
+    pub scope_kind: SeedPermissionScopeKind,
+    pub scope_id: Uuid,
+    pub permission: PermissionName,
+    pub grant_source_kind: SeedPermissionGrantSourceKind,
+    #[serde(default)]
+    pub role_template_name: Option<RoleTemplateName>,
+    #[serde(default)]
+    pub policy_constraint: Option<SeedPolicyConstraintBody>,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedPolicyConstraintBody {
+    pub reason: PolicyConstraintReason,
+    pub source: PolicyConstraintSource,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SeedPermissionScopeKind {
+    Organization,
+    Project,
+}
+
+#[derive(Debug, Clone, Copy, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub(crate) enum SeedPermissionGrantSourceKind {
+    Direct,
+    RoleTemplate,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct ResolveAccountBody {
+    pub account_email: Email,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ResolveAccountResponse {
+    pub account_id: AccountId,
+}
+
+#[derive(Debug, Deserialize)]
+pub(crate) struct RecentEventsBody {
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct RecentEventView {
+    pub id: Uuid,
+    pub kind: Option<String>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct RecentEventsResponse {
+    pub events: Vec<RecentEventView>,
+}
+
+/// Request body for `POST /test-hooks/permissions/fixtures/actor`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedActorPermissionFixturesBody {
+    pub account_email: Email,
+    pub organization_policy_reason: PolicyConstraintReason,
+}
+
+/// Response body for `POST /test-hooks/permissions/checkpoints/events`.
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct PermissionEventsCheckpointResponse {
+    pub event_ids: Vec<Uuid>,
+}
+
+/// Request body for `POST /test-hooks/permissions/checkpoints/events`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct PermissionEventsCheckpointBody {
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+/// Request body for
+/// `POST /test-hooks/permissions/assertions/no-request-or-grant-events`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct AssertNoPermissionMutationEventsBody {
+    pub event_ids_before: Vec<Uuid>,
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct ForbiddenPermissionMutationEvent {
+    pub id: Uuid,
+    pub kind: String,
+}
+
+#[derive(Debug, serde::Serialize)]
+pub(crate) struct PermissionMutationAssertionFailure {
+    pub forbidden_events: Vec<ForbiddenPermissionMutationEvent>,
+}
+
+pub(crate) async fn seed_permission_grant_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedPermissionGrantBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let account_id = if let Some(id) = body.account_id {
+        id
+    } else if let Some(email_raw) = body.account_email {
+        let account = AccountStore::find_account_by_email(store.as_ref(), &email_raw)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+            .ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    format!("no account found for email '{email_raw}'"),
+                )
+            })?;
+        account.id
+    } else {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            "either account_id or account_email is required".to_owned(),
+        ));
+    };
+    let scope = match body.scope_kind {
+        SeedPermissionScopeKind::Organization => {
+            PermissionGrantScope::Organization(OrgId::from(body.scope_id))
+        }
+        SeedPermissionScopeKind::Project => {
+            PermissionGrantScope::Project(ProjectId::from(body.scope_id))
+        }
+    };
+    let grant_source = match body.grant_source_kind {
+        SeedPermissionGrantSourceKind::Direct => PermissionGrantSource::Direct,
+        SeedPermissionGrantSourceKind::RoleTemplate => {
+            let role_template = body.role_template_name.ok_or_else(|| {
+                (
+                    StatusCode::BAD_REQUEST,
+                    "role_template_name is required for role_template grants".to_owned(),
+                )
+            })?;
+            PermissionGrantSource::RoleTemplate { role_template }
+        }
+    };
+
+    let grant = store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id,
+            scope,
+            permission: body.permission,
+            grant_source,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    if let Some(constraint) = body.policy_constraint {
+        store
+            .seed_permission_constraint(NewPermissionConstraint {
+                grant_id: grant.id,
+                reason: constraint.reason,
+                source: constraint.source,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    }
+
+    Ok(StatusCode::CREATED)
+}
+
+pub(crate) async fn resolve_account_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<ResolveAccountBody>,
+) -> Result<Json<ResolveAccountResponse>, (StatusCode, String)> {
+    let account = AccountStore::find_account_by_email(store.as_ref(), &body.account_email)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::NOT_FOUND,
+                format!("no account found for email '{}'", body.account_email),
+            )
+        })?;
+    Ok(Json(ResolveAccountResponse {
+        account_id: account.id,
+    }))
+}
+
+pub(crate) async fn recent_events_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<RecentEventsBody>,
+) -> Result<Json<RecentEventsResponse>, (StatusCode, String)> {
+    let limit = body.limit.unwrap_or(200);
+    let events = AccountStore::recent_events(store.as_ref(), limit)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .into_iter()
+        .map(|event| RecentEventView {
+            id: event.id,
+            kind: event
+                .payload
+                .get("kind")
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned),
+        })
+        .collect();
+    Ok(Json(RecentEventsResponse { events }))
+}
+
+pub(crate) async fn seed_actor_permission_fixtures_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedActorPermissionFixturesBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let account = AccountStore::find_account_by_email(store.as_ref(), &body.account_email)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .ok_or_else(|| {
+            (
+                StatusCode::BAD_REQUEST,
+                format!("no account found for email '{}'", body.account_email),
+            )
+        })?;
+
+    let organization_scope = OrgId::fresh();
+    let project_scope = ProjectId::fresh();
+
+    store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id: account.id,
+            scope: PermissionGrantScope::Organization(organization_scope),
+            permission: PermissionName::new(ORG_PERMISSION.to_owned()),
+            grant_source: PermissionGrantSource::Direct,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id: account.id,
+            scope: PermissionGrantScope::Project(project_scope),
+            permission: PermissionName::new(PROJECT_ROLE_PERMISSION.to_owned()),
+            grant_source: PermissionGrantSource::RoleTemplate {
+                role_template: RoleTemplateName::new(ROLE_TEMPLATE_NAME.to_owned()),
+            },
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    let constrained_grant = store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id: account.id,
+            scope: PermissionGrantScope::Project(project_scope),
+            permission: PermissionName::new(PROJECT_CONSTRAINED_PERMISSION.to_owned()),
+            grant_source: PermissionGrantSource::Direct,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    store
+        .seed_permission_constraint(NewPermissionConstraint {
+            grant_id: constrained_grant.id,
+            reason: body.organization_policy_reason,
+            source: PolicyConstraintSource::OrganizationPolicy,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+
+    Ok(StatusCode::CREATED)
+}
+
+pub(crate) async fn permissions_events_checkpoint_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<PermissionEventsCheckpointBody>,
+) -> Result<Json<PermissionEventsCheckpointResponse>, (StatusCode, String)> {
+    let limit = body.limit.unwrap_or(200);
+    let event_ids = AccountStore::recent_events(store.as_ref(), limit)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+        .into_iter()
+        .map(|event| event.id)
+        .collect();
+    Ok(Json(PermissionEventsCheckpointResponse { event_ids }))
+}
+
+pub(crate) async fn assert_no_permission_mutation_events_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<AssertNoPermissionMutationEventsBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let limit = body.limit.unwrap_or(200);
+    let event_ids_before: std::collections::HashSet<Uuid> =
+        body.event_ids_before.into_iter().collect();
+    let forbidden_events: Vec<ForbiddenPermissionMutationEvent> =
+        AccountStore::recent_events(store.as_ref(), limit)
+            .await
+            .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?
+            .into_iter()
+            .filter(|event| !event_ids_before.contains(&event.id))
+            .filter_map(|event| {
+                event
+                    .payload
+                    .get("kind")
+                    .and_then(serde_json::Value::as_str)
+                    .filter(|kind| *kind == "permission_requested" || *kind == "permission_granted")
+                    .map(|kind| ForbiddenPermissionMutationEvent {
+                        id: event.id,
+                        kind: kind.to_owned(),
+                    })
+            })
+            .collect();
+
+    if forbidden_events.is_empty() {
+        return Ok(StatusCode::NO_CONTENT);
+    }
+
+    let detail = serde_json::to_string(&PermissionMutationAssertionFailure { forbidden_events })
+        .unwrap_or_else(|_| "{\"forbidden_events\":[]}".to_owned());
+    Err((StatusCode::CONFLICT, detail))
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route("/test-hooks/accounts/resolve", post(resolve_account_route))
+        .route("/test-hooks/events/recent", post(recent_events_route))
+        .route(
+            "/test-hooks/permission-grants",
+            post(seed_permission_grant_route),
+        )
+        .route(
+            "/test-hooks/permissions/fixtures/actor",
+            post(seed_actor_permission_fixtures_route),
+        )
+        .route(
+            "/test-hooks/permissions/checkpoints/events",
+            post(permissions_events_checkpoint_route),
+        )
+        .route(
+            "/test-hooks/permissions/assertions/no-request-or-grant-events",
+            post(assert_no_permission_mutation_events_route),
+        )
         .with_state(store)
 }

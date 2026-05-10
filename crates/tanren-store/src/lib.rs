@@ -10,12 +10,20 @@
 mod accept_invitation;
 mod entity;
 mod migration;
+mod permission_introspection;
 mod records;
+#[cfg(feature = "test-hooks")]
+mod test_hooks;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, MyOrganizationPermissionsRecord,
+    MyPermissionRecord, MyPermissionsCursor, MyPermissionsPage, MyPermissionsReadMetaRecord,
+    MyPermissionsRecord, MyPermissionsScopeKind, MyPermissionsSourceCheckpointRecord,
+    MyPermissionsStalenessRecord, MyProjectPermissionsRecord, NewAccount, NewInvitation,
+    NewPermissionConstraint, NewPermissionGrant, PermissionConstraintRecord, PermissionGrantRecord,
+    PermissionGrantScope, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
@@ -79,6 +87,38 @@ pub struct EventEnvelope {
     pub occurred_at: DateTime<Utc>,
     /// Opaque JSON payload.
     pub payload: serde_json::Value,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PermissionGrantId(Uuid);
+
+impl PermissionGrantId {
+    #[must_use]
+    pub const fn new(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct PermissionConstraintId(Uuid);
+
+impl PermissionConstraintId {
+    #[must_use]
+    pub const fn new(value: Uuid) -> Self {
+        Self(value)
+    }
+
+    #[must_use]
+    pub const fn as_uuid(self) -> Uuid {
+        self.0
+    }
 }
 
 impl Store {
@@ -276,6 +316,24 @@ impl AccountStore for Store {
         })
     }
 
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
+
+    async fn my_permissions(
+        &self,
+        account_id: AccountId,
+        page: MyPermissionsPage,
+    ) -> Result<MyPermissionsRecord, StoreError> {
+        permission_introspection::load_my_permissions(&self.conn, account_id, page).await
+    }
+
     async fn append_event(
         &self,
         payload: serde_json::Value,
@@ -307,33 +365,6 @@ impl AccountStore for Store {
             .all(&self.conn)
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
-    }
-}
-
-/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
-/// so production binaries cannot accidentally seed test data; the testkit
-/// (and only the testkit) enables the feature.
-#[cfg(feature = "test-hooks")]
-impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
-    pub async fn seed_invitation(
-        &self,
-        new: NewInvitation,
-    ) -> Result<InvitationRecord, StoreError> {
-        let model = entity::invitations::ActiveModel {
-            token: Set(new.token.as_str().to_owned()),
-            inviting_org_id: Set(new.inviting_org_id.as_uuid()),
-            expires_at: Set(new.expires_at),
-            consumed_at: Set(None),
-        };
-        let inserted = model.insert(&self.conn).await?;
-        InvitationRecord::try_from(inserted)
     }
 }
 
@@ -382,5 +413,14 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A persisted row violated an internal shape invariant that this
+    /// crate relies on for policy/read-model semantics.
+    #[error("row invariant violation in `{entity}`: {detail}")]
+    Invariant {
+        /// Table/entity name where the invariant was violated.
+        entity: &'static str,
+        /// Short invariant description.
+        detail: &'static str,
     },
 }

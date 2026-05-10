@@ -6,6 +6,7 @@
 //! binary serialises the same shapes — keeping them here is the
 //! architectural guarantee that the surfaces stay equivalent.
 
+use crate::permissions::InterfaceErrorCode;
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use secrecy::SecretString;
@@ -125,6 +126,13 @@ pub struct SessionView {
     pub expires_at: DateTime<Utc>,
 }
 
+/// Capability metadata for the authenticated actor's account surface.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct MyAccountCapabilitiesResponse {
+    /// Whether the current actor may open the self-permissions view.
+    pub can_view_my_permissions: bool,
+}
+
 /// Transport-aware projection of a freshly minted session.
 ///
 /// The `@web` and `@api` surfaces deliver session tokens via an
@@ -215,6 +223,19 @@ pub enum AccountFailureReason {
 }
 
 impl AccountFailureReason {
+    /// Typed interface error-code for this failure.
+    #[must_use]
+    pub const fn interface_error_code(self) -> InterfaceErrorCode {
+        match self {
+            Self::DuplicateIdentifier => InterfaceErrorCode::DuplicateIdentifier,
+            Self::InvalidCredential => InterfaceErrorCode::InvalidCredential,
+            Self::ValidationFailed => InterfaceErrorCode::ValidationFailed,
+            Self::InvitationNotFound => InterfaceErrorCode::InvitationNotFound,
+            Self::InvitationExpired => InterfaceErrorCode::InvitationExpired,
+            Self::InvitationAlreadyConsumed => InterfaceErrorCode::InvitationAlreadyConsumed,
+        }
+    }
+
     /// Stable wire `code` for this failure.
     #[must_use]
     pub const fn code(self) -> &'static str {

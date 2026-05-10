@@ -20,12 +20,15 @@ test-hooks = []
 [dependencies]
 anyhow = { workspace = true }
 axum = { workspace = true }
+chrono = { workspace = true }
 rmcp = { workspace = true }
+schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
 tokio = { workspace = true }
 tokio-util = { workspace = true }
 tower = { workspace = true }

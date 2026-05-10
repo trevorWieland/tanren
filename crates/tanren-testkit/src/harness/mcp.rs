@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -15,15 +16,18 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, MyPermissionsResponse, SignInRequest, SignUpRequest,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessMyPermissionsQuery, HarnessPermissionGrantFixture, HarnessPermissionsView,
+    HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -32,6 +36,7 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    session_tokens: HashMap<tanren_identity_policy::AccountId, SecretString>,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
@@ -94,6 +99,7 @@ impl McpHarness {
         Ok(Self {
             store,
             db_path,
+            session_tokens: HashMap::new(),
             client: Some(client),
             server: Some(server),
         })
@@ -153,7 +159,11 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let token = session_token_from_payload(&payload)?;
+        let session = decode_session(&payload)?;
+        self.session_tokens
+            .insert(session.account_id, SecretString::from(token));
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +172,11 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let token = session_token_from_payload(&payload)?;
+        let session = decode_session(&payload)?;
+        self.session_tokens
+            .insert(session.account_id, SecretString::from(token));
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -176,12 +190,53 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
+        let token = session_token_from_payload(&payload)?;
         let session = decode_session(&payload)?;
+        self.session_tokens
+            .insert(session.account_id, SecretString::from(token));
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
             session,
             joined_org,
+        })
+    }
+
+    async fn my_permissions(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        let session_token = self
+            .session_tokens
+            .get(&session_account_id)
+            .map(|token| token.expose_secret().to_owned());
+        let body = serde_json::json!({
+            "session_token": session_token,
+            "target_account_id": requested_account_id,
+            "limit": query.limit,
+            "cursor": query.cursor,
+        });
+        let payload = self.call_tool("account.my_permissions", body).await?;
+        let response: MyPermissionsResponse = serde_json::from_value(payload.clone())
+            .map_err(|e| HarnessError::Transport(format!("decode my_permissions: {e}")))?;
+        Ok(HarnessPermissionsView {
+            response,
+            rendered: serde_json::to_string(&payload).unwrap_or_default(),
         })
     }
 
@@ -197,11 +252,25 @@ impl AccountHarness for McpHarness {
         Ok(())
     }
 
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()> {
+        seed_permission_fixture(self.store.as_ref(), fixture).await
+    }
+
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+}
+
+fn session_token_from_payload(payload: &Value) -> HarnessResult<String> {
+    payload["session"]["token"]
+        .as_str()
+        .map(ToOwned::to_owned)
+        .ok_or_else(|| HarnessError::Transport("missing session.token".to_owned()))
 }
 
 fn first_text(content: &[Content]) -> Option<String> {
@@ -246,6 +315,45 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
     } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
+        HarnessError::FailureCode { code, summary }
     }
+}
+
+async fn seed_permission_fixture(
+    store: &Store,
+    fixture: HarnessPermissionGrantFixture,
+) -> HarnessResult<()> {
+    use chrono::Utc;
+    use tanren_store::{NewPermissionConstraint, NewPermissionGrant, PermissionGrantScope};
+
+    let scope = match fixture.scope {
+        super::HarnessPermissionScope::Organization(org_id) => {
+            PermissionGrantScope::Organization(org_id)
+        }
+        super::HarnessPermissionScope::Project(project_id) => {
+            PermissionGrantScope::Project(project_id)
+        }
+    };
+    let grant = store
+        .seed_permission_grant(NewPermissionGrant {
+            account_id: fixture.account_id,
+            scope,
+            permission: fixture.permission,
+            grant_source: fixture.grant_source,
+            created_at: Utc::now(),
+        })
+        .await
+        .map_err(|e| HarnessError::Transport(format!("seed_permission_grant: {e}")))?;
+    if let Some(constraint) = fixture.policy_constraint {
+        store
+            .seed_permission_constraint(NewPermissionConstraint {
+                grant_id: grant.id,
+                reason: constraint.reason,
+                source: constraint.source,
+                created_at: Utc::now(),
+            })
+            .await
+            .map_err(|e| HarnessError::Transport(format!("seed_permission_constraint: {e}")))?;
+    }
+    Ok(())
 }

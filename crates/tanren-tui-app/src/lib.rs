@@ -31,6 +31,8 @@ use crossterm::terminal::{
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use ratatui::backend::TestBackend;
+use tanren_contract::MyPermissionsResponse;
 
 /// Configuration for the TUI runtime. R-0001 sub-8 keeps it deliberately
 /// empty — the TUI reads `DATABASE_URL` at startup so this struct exists
@@ -60,6 +62,26 @@ pub fn run(_config: Config) -> Result<()> {
     let app_result = app::App::new().and_then(|mut app| app.run(&mut terminal));
     let teardown_result = teardown_terminal(&mut terminal).context("teardown terminal");
     app_result.and(teardown_result)
+}
+
+/// Render the "My permissions" outcome view through the same ratatui
+/// draw path the interactive TUI uses and return the screen snapshot.
+#[must_use]
+pub fn render_my_permissions_screen(response: &MyPermissionsResponse) -> String {
+    let outcome = ui::my_permissions_outcome(response);
+    let fallback = outcome.lines.join("\n");
+    let backend = TestBackend::new(220, 40);
+    let mut terminal = match Terminal::new(backend) {
+        Ok(terminal) => terminal,
+        Err(never) => match never {},
+    };
+    if terminal
+        .draw(|frame| draw::draw_outcome(frame, frame.area(), &outcome))
+        .is_err()
+    {
+        return fallback;
+    }
+    format!("{}", terminal.backend())
 }
 
 fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
@@ -92,16 +114,23 @@ pub(crate) enum MenuChoice {
     SignUp,
     SignIn,
     AcceptInvitation,
+    MyPermissions,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 3] = [Self::SignUp, Self::SignIn, Self::AcceptInvitation];
+    pub(crate) const ALL: [Self; 4] = [
+        Self::SignUp,
+        Self::SignIn,
+        Self::AcceptInvitation,
+        Self::MyPermissions,
+    ];
 
     pub(crate) fn label(self) -> &'static str {
         match self {
             Self::SignUp => "Sign up",
             Self::SignIn => "Sign in",
             Self::AcceptInvitation => "Accept invitation",
+            Self::MyPermissions => "My permissions",
         }
     }
 }

@@ -10,74 +10,75 @@ use axum::extract::{FromRequest, Request, rejection::JsonRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
-use serde_json::json;
 use tanren_app_services::AppServiceError;
-use tanren_contract::AccountFailureReason;
-
-/// Shared `{code, summary}` failure body.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct AccountFailureBody {
-    /// Stable error code from the closed taxonomy.
-    pub code: String,
-    /// Human-readable summary.
-    pub summary: String,
-}
+use tanren_contract::{InterfaceError, InterfaceErrorCode};
 
 /// Render the standard `internal_error` body for failed cookie-session
 /// writes. Shared between the sign-up / sign-in / accept-invitation
 /// routes.
 pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
     tracing::error!(target: "tanren_api", error = %err, "session install");
+    internal_error_response().into_response()
+}
+
+/// Shared `401 auth_required` error body.
+pub(crate) fn auth_required_response(summary: &str) -> Response {
     (
-        StatusCode::INTERNAL_SERVER_ERROR,
-        Json(AccountFailureBody {
-            code: "internal_error".to_owned(),
-            summary: "Tanren encountered an internal error.".to_owned(),
-        }),
+        StatusCode::UNAUTHORIZED,
+        Json(InterfaceError::new(
+            InterfaceErrorCode::AuthRequired,
+            summary,
+        )),
     )
         .into_response()
+}
+
+/// Shared `500 internal_error` response body.
+pub(crate) fn internal_error_response() -> (StatusCode, Json<InterfaceError>) {
+    (
+        StatusCode::INTERNAL_SERVER_ERROR,
+        Json(InterfaceError::new(
+            InterfaceErrorCode::InternalError,
+            "Tanren encountered an internal error.",
+        )),
+    )
 }
 
 /// Map an [`AppServiceError`] to the matching HTTP response.
 pub(crate) fn map_app_error(err: AppServiceError) -> Response {
-    match err {
-        AppServiceError::Account(reason) => failure_body(reason),
-        AppServiceError::InvalidInput(message) => (
-            StatusCode::BAD_REQUEST,
-            Json(json!({"code": "validation_failed", "summary": message})),
-        )
-            .into_response(),
-        AppServiceError::Store(err) => {
-            tracing::error!(target: "tanren_api", error = %err, "store error");
-            (
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(json!({
-                    "code": "internal_error",
-                    "summary": "Tanren encountered an internal error.",
-                })),
-            )
-                .into_response()
-        }
-        _ => (
-            StatusCode::INTERNAL_SERVER_ERROR,
-            Json(json!({
-                "code": "internal_error",
-                "summary": "Tanren encountered an internal error.",
-            })),
-        )
-            .into_response(),
+    if let AppServiceError::Store(store_error) = &err {
+        tracing::error!(target: "tanren_api", error = %store_error, "store error");
     }
+    let body = err.into_interface_error();
+    (status_for_interface_error(body.code), Json(body)).into_response()
 }
 
-fn failure_body(reason: AccountFailureReason) -> Response {
-    let status =
-        StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(json!({"code": reason.code(), "summary": reason.summary()})),
-    )
-        .into_response()
+fn status_for_interface_error(code: InterfaceErrorCode) -> StatusCode {
+    match code {
+        InterfaceErrorCode::AuthRequired | InterfaceErrorCode::InvalidCredential => {
+            StatusCode::UNAUTHORIZED
+        }
+        InterfaceErrorCode::PermissionDenied => StatusCode::FORBIDDEN,
+        InterfaceErrorCode::ValidationFailed => StatusCode::BAD_REQUEST,
+        InterfaceErrorCode::NotFound | InterfaceErrorCode::InvitationNotFound => {
+            StatusCode::NOT_FOUND
+        }
+        InterfaceErrorCode::Conflict
+        | InterfaceErrorCode::IdempotencyConflict
+        | InterfaceErrorCode::DuplicateIdentifier
+        | InterfaceErrorCode::DriftDetected => StatusCode::CONFLICT,
+        InterfaceErrorCode::StaleProjection => StatusCode::PRECONDITION_FAILED,
+        InterfaceErrorCode::RateLimited => StatusCode::TOO_MANY_REQUESTS,
+        InterfaceErrorCode::Unavailable => StatusCode::SERVICE_UNAVAILABLE,
+        InterfaceErrorCode::UnsupportedAction => StatusCode::NOT_IMPLEMENTED,
+        InterfaceErrorCode::ProviderFailure | InterfaceErrorCode::ExecutionFailure => {
+            StatusCode::BAD_GATEWAY
+        }
+        InterfaceErrorCode::InvitationExpired | InterfaceErrorCode::InvitationAlreadyConsumed => {
+            StatusCode::GONE
+        }
+        InterfaceErrorCode::InternalError => StatusCode::INTERNAL_SERVER_ERROR,
+    }
 }
 
 /// Custom `Json` extractor that maps any deserialize-time failure
@@ -119,10 +120,10 @@ fn map_json_rejection(rejection: &JsonRejection) -> Response {
     };
     (
         StatusCode::BAD_REQUEST,
-        Json(AccountFailureBody {
-            code: "validation_failed".to_owned(),
+        Json(InterfaceError::new(
+            InterfaceErrorCode::ValidationFailed,
             summary,
-        }),
+        )),
     )
         .into_response()
 }

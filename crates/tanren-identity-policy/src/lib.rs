@@ -8,10 +8,15 @@
 //! [`Argon2idVerifier`] as the canonical local-password implementation.
 
 mod argon2_verifier;
+mod permissions;
 pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
+pub use permissions::{
+    PermissionEffectiveState, PermissionGrantSource, PermissionName, PolicyConstraintReason,
+    PolicyConstraintSource, ProjectId, RoleTemplateName,
+};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};
@@ -464,12 +469,9 @@ pub enum IdentityError {
     Validation(#[from] ValidationError),
 }
 
-/// Errors raised when constructing a domain newtype from a raw string.
-///
-/// Surfaces through `tanren-app-services` as
-/// `AccountFailureReason::ValidationFailed` (HTTP 400) — a separate
-/// taxonomy from credential failures so callers can distinguish "your
-/// inputs are malformed" from "your credentials don't match".
+/// Errors raised when constructing domain newtypes from raw strings.
+/// Surfaced by app services as `validation_failed` (HTTP 400), distinct
+/// from credential mismatch failures.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
@@ -488,4 +490,10 @@ pub enum ValidationError {
     /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
+    #[error("permission name is empty")]
+    EmptyPermissionName,
+    #[error("role template name is empty")]
+    EmptyRoleTemplateName,
+    #[error("policy constraint reason is empty")]
+    EmptyPolicyConstraintReason,
 }

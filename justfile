@@ -133,7 +133,7 @@ bootstrap:
     fi
 
     # === Node.js + pnpm ===
-    echo "==> Ensuring Node.js (LTS 22.x via fnm/nvm/corepack)..."
+    echo "==> Ensuring Node.js (LTS 24.x via fnm/nvm/corepack)..."
     need_node=true
     if command -v node &>/dev/null; then
         node_major="$(node --version | sed 's/^v//' | cut -d. -f1)"
@@ -346,6 +346,7 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "web contract generation" just web-contracts-check
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
@@ -848,6 +849,14 @@ web-install:
 # Build the web frontend (Next.js + Turbopack).
 web-build:
     pnpm --filter @tanren/web build
+
+# Regenerate the shared web interface contract from the Rust/utoipa OpenAPI document.
+web-contracts-generate:
+    node scripts/generate-interface-contracts.mjs
+
+# Assert the checked-in shared web interface contract matches generated output.
+web-contracts-check:
+    node scripts/generate-interface-contracts.mjs --check
 
 # Compile inlang/paraglide messages so subsequent web-* recipes can
 # resolve `@/i18n/paraglide/messages` at typecheck/lint time. No-op

@@ -31,7 +31,10 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@tanren/web-interface-contracts": [
+        "../../crates/tanren-contract/generated/web-interface-contracts.ts"
+      ]
     }
   },
   "include": [

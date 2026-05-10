@@ -6,24 +6,32 @@
 //! tower-sessions layer) lives in `lib.rs::build_app`.
 
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use chrono::Utc;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
-use tanren_app_services::Handlers;
+use tanren_app_services::{Handlers, MyPermissionsContext};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, InterfaceError, InterfaceErrorCode,
+    MyAccountCapabilitiesResponse, MyPermissionsRequest, MyPermissionsResponse, SessionEnvelope,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
-use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::cookies::{
+    SessionWrite, install_cookie_session, session_account_id, session_expires_at,
+};
+use crate::errors::{
+    ValidatedJson, auth_required_response, internal_error_response, map_app_error,
+    session_install_error,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -83,6 +91,15 @@ pub struct AcceptInvitationBody {
     pub display_name: String,
 }
 
+/// Optional target-account hint for capability discovery. Omitted in
+/// normal `/me` usage; present only when callers want to verify that a
+/// specific account id is self-scoped under the current session.
+#[derive(Debug, Deserialize, utoipa::ToSchema)]
+pub(crate) struct MyPermissionsCapabilityQuery {
+    /// Optional account id to evaluate against the authenticated session.
+    pub account_id: Option<AccountId>,
+}
+
 /// Top-level `OpenAPI` doc. Each handler is annotated with
 /// `#[utoipa::path(...)]` and listed under `paths(...)` here.
 #[derive(OpenApi)]
@@ -98,6 +115,9 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        my_permissions_capabilities_route,
+        my_permissions_route,
+        target_account_permissions_route,
     ),
     components(schemas(
         HealthResponse,
@@ -107,15 +127,23 @@ pub struct AcceptInvitationBody {
         SignInResponseCookie,
         AcceptInvitationBody,
         AcceptInvitationResponseCookie,
-        AccountFailureBody,
+        MyPermissionsCapabilityQuery,
+        MyAccountCapabilitiesResponse,
+        InterfaceError,
+        MyPermissionsResponse,
         SessionEnvelope,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "permissions", description = "Self-permission introspection."),
     )
 )]
 pub(crate) struct ApiDoc;
+
+pub(crate) fn openapi_document() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
+}
 
 /// Liveness probe.
 #[utoipa::path(
@@ -143,9 +171,9 @@ pub(crate) async fn health_route() -> Json<HealthResponse> {
     request_body = SignUpRequest,
     responses(
         (status = 201, body = SignUpResponseCookie, description = "Account created"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
-        (status = 409, body = AccountFailureBody, description = "duplicate_identifier"),
+        (status = 400, body = InterfaceError, description = "validation_failed"),
+        (status = 401, body = InterfaceError, description = "invalid_credential"),
+        (status = 409, body = InterfaceError, description = "duplicate_identifier"),
     ),
     tag = "accounts",
 )]
@@ -183,8 +211,8 @@ pub(crate) async fn sign_up_route(
     request_body = SignInRequest,
     responses(
         (status = 200, body = SignInResponseCookie, description = "Sign-in succeeded"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+        (status = 400, body = InterfaceError, description = "validation_failed"),
+        (status = 401, body = InterfaceError, description = "invalid_credential"),
     ),
     tag = "accounts",
 )]
@@ -225,9 +253,9 @@ pub(crate) async fn sign_in_route(
     ),
     responses(
         (status = 201, body = AcceptInvitationResponseCookie, description = "Invitation accepted"),
-        (status = 400, body = AccountFailureBody, description = "validation_failed"),
-        (status = 404, body = AccountFailureBody, description = "invitation_not_found"),
-        (status = 410, body = AccountFailureBody, description = "invitation_expired or invitation_already_consumed"),
+        (status = 400, body = InterfaceError, description = "validation_failed"),
+        (status = 404, body = InterfaceError, description = "invitation_not_found"),
+        (status = 410, body = InterfaceError, description = "invitation_expired or invitation_already_consumed"),
     ),
     tag = "accounts",
 )]
@@ -242,10 +270,10 @@ pub(crate) async fn accept_invitation_route(
         Err(err) => {
             return (
                 StatusCode::BAD_REQUEST,
-                Json(AccountFailureBody {
-                    code: "validation_failed".to_owned(),
-                    summary: err.to_string(),
-                }),
+                Json(InterfaceError::new(
+                    InterfaceErrorCode::ValidationFailed,
+                    err.to_string(),
+                )),
             )
                 .into_response();
         }
@@ -298,27 +326,175 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
         tracing::error!(target: "tanren_api", error = %err, "session flush");
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
-                code: "internal_error".to_owned(),
-                summary: "Tanren encountered an internal error.".to_owned(),
-            }),
+            Json(InterfaceError::new(
+                InterfaceErrorCode::InternalError,
+                "Tanren encountered an internal error.",
+            )),
         )
             .into_response();
     }
     StatusCode::NO_CONTENT.into_response()
 }
 
-/// Build the `OpenApiRouter` carrying every account-flow route. Called
-/// from `lib.rs::build_app` after the cookie/CORS layers are
-/// constructed; the macros that `routes!()` expands need to live in the
-/// same module as the `#[utoipa::path]`-annotated handlers, so the
-/// router constructor lives here too.
+/// Read the authenticated account's effective permissions.
+#[utoipa::path(
+    get,
+    path = "/me/capabilities",
+    params(
+        ("account_id" = Option<AccountId>, Query, description = "Optional account id to evaluate with self-permissions authorization semantics."),
+    ),
+    responses(
+        (status = 200, body = MyAccountCapabilitiesResponse, description = "Capability metadata for self-permissions navigation"),
+        (status = 401, body = InterfaceError, description = "auth_required"),
+        (status = 403, body = InterfaceError, description = "permission_denied"),
+        (status = 500, body = InterfaceError, description = "internal_error"),
+    ),
+    tag = "permissions",
+)]
+pub(crate) async fn my_permissions_capabilities_route(
+    State(state): State<AppState>,
+    session: Session,
+    Query(query): Query<MyPermissionsCapabilityQuery>,
+) -> Response {
+    let session_account_id = match authenticated_account_id(&session).await {
+        Ok(account_id) => account_id,
+        Err(response) => return response,
+    };
+    let requested_account_id = query.account_id.unwrap_or(session_account_id);
+    let context =
+        MyPermissionsContext::with_requested_account(session_account_id, requested_account_id);
+    match state.handlers.my_permissions_capabilities(context) {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Read the authenticated account's effective permissions.
+#[utoipa::path(
+    get,
+    path = "/me/permissions",
+    params(
+        ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
+        ("cursor" = Option<String>, Query, description = "Opaque continuation token from a prior page."),
+    ),
+    responses(
+        (status = 200, body = MyPermissionsResponse, description = "Self permissions loaded"),
+        (status = 401, body = InterfaceError, description = "auth_required"),
+        (status = 403, body = InterfaceError, description = "permission_denied"),
+        (status = 500, body = InterfaceError, description = "internal_error"),
+    ),
+    tag = "permissions",
+)]
+pub(crate) async fn my_permissions_route(
+    State(state): State<AppState>,
+    session: Session,
+    Query(request): Query<MyPermissionsRequest>,
+) -> Response {
+    let account_id = match authenticated_account_id(&session).await {
+        Ok(account_id) => account_id,
+        Err(response) => return response,
+    };
+    let context = MyPermissionsContext::self_scoped(account_id);
+    match state
+        .handlers
+        .my_permissions(state.store.as_ref(), context, request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Explicitly reject target-account permission introspection. API clients
+/// must use `/me/permissions`; the account id target is always resolved
+/// from the authenticated session.
+#[utoipa::path(
+    get,
+    path = "/accounts/{account_id}/permissions",
+    params(
+        ("account_id" = AccountId, Path, description = "Target account id (rejected; use /me/permissions)"),
+        ("limit" = Option<u16>, Query, description = "Optional page size hint; values above max are clamped."),
+        ("cursor" = Option<String>, Query, description = "Opaque continuation token from a prior page."),
+    ),
+    responses(
+        (status = 403, body = InterfaceError, description = "permission_denied"),
+        (status = 401, body = InterfaceError, description = "auth_required"),
+        (status = 500, body = InterfaceError, description = "internal_error"),
+    ),
+    tag = "permissions",
+)]
+pub(crate) async fn target_account_permissions_route(
+    State(state): State<AppState>,
+    session: Session,
+    Path(requested_account_id): Path<AccountId>,
+    Query(request): Query<MyPermissionsRequest>,
+) -> Response {
+    let session_account_id = match authenticated_account_id(&session).await {
+        Ok(account_id) => account_id,
+        Err(response) => return response,
+    };
+    let context =
+        MyPermissionsContext::with_requested_account(session_account_id, requested_account_id);
+    match state
+        .handlers
+        .my_permissions(state.store.as_ref(), context, request)
+        .await
+    {
+        Ok(response) => (StatusCode::OK, Json(response)).into_response(),
+        Err(err) => map_app_error(err),
+    }
+}
+
+async fn authenticated_account_id(session: &Session) -> Result<AccountId, Response> {
+    let account_id = match session_account_id(session).await {
+        Ok(Some(account_id)) => account_id,
+        Ok(None) => {
+            return Err(auth_required_response(
+                "No authenticated session is present. Sign in and retry.",
+            ));
+        }
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read account_id");
+            return Err(internal_error_response().into_response());
+        }
+    };
+    match session_expires_at(session).await {
+        Ok(Some(expires_at)) if expires_at < Utc::now() => Err(auth_required_response(
+            "The current session has expired. Sign in and retry.",
+        )),
+        Ok(Some(_)) => Ok(account_id),
+        Ok(None) => Err(clear_malformed_session(
+            session,
+            "Malformed session is missing expiry. Sign in and retry.",
+        )
+        .await),
+        Err(err) => {
+            tracing::error!(target: "tanren_api", error = %err, "session read expires_at");
+            Err(internal_error_response().into_response())
+        }
+    }
+}
+
+async fn clear_malformed_session(session: &Session, summary: &str) -> Response {
+    if let Err(err) = session.flush().await {
+        tracing::error!(target: "tanren_api", error = %err, "session flush malformed session");
+        return internal_error_response().into_response();
+    }
+    auth_required_response(summary)
+}
+
+/// Build the `OpenApiRouter` carrying every account-flow route.
+/// Called from `lib.rs::build_app` after the cookie/CORS layers are constructed.
+/// `routes!()` expansions must live with the `#[utoipa::path]` handlers.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
-    OpenApiRouter::with_openapi(ApiDoc::openapi())
+    OpenApiRouter::with_openapi(openapi_document())
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(my_permissions_capabilities_route))
+        .routes(routes!(my_permissions_route))
+        .routes(routes!(target_account_permissions_route))
         .with_state(state)
 }

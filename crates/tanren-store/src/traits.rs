@@ -32,7 +32,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, MyPermissionsPage, MyPermissionsRecord,
+    NewAccount, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -241,6 +242,25 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         now: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
+
+    /// Look up a session row by its opaque token.
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
+    /// Read the authenticated account's effective permissions grouped by
+    /// organization and project scope.
+    ///
+    /// Implementations must scope exclusively by the supplied `account_id`
+    /// and return deterministic ordering for organizations, projects, and
+    /// permission entries. Pagination must be cursor-aware and bounded by
+    /// `page.limit` via limit-plus-one (or equivalent) semantics.
+    async fn my_permissions(
+        &self,
+        account_id: AccountId,
+        page: MyPermissionsPage,
+    ) -> Result<MyPermissionsRecord, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied
     /// instant.

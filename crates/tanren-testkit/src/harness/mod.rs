@@ -11,12 +11,9 @@
 //! `xtask check-bdd-wire-coverage` guard rejects any step body that
 //! references `Handlers::sign_up`/`sign_in`/`accept_invitation`
 //! directly, so adding a new step that bypasses this seam fails CI.
-//!
 //! See `docs/architecture/subsystems/behavior-proof.md` §
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
-//!
-//! ## Status of each harness (PR 9)
 //!
 //! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
 //!   on an ephemeral port, drives via `reqwest::Client` with
@@ -29,27 +26,25 @@
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
+//! - `@tui` — account actions currently dispatch through
+//!   [`InProcessHarness`], but `my_permissions` rendering runs through
+//!   `tanren-tui-app`'s ratatui draw path so the witness asserts on the
+//!   real TUI output surface.
 //! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
 //!   parallel Node-side Playwright harness for the same `@web` Gherkin
 //!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
+//!   independently against the same scenario file. See `harness::web`.
 //! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
 //!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
+mod api_ready;
 mod cli;
 mod in_process;
 mod mcp;
 mod tui;
 mod web;
-
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
 use anyhow::Result;
@@ -57,9 +52,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, MyAccountCapabilitiesResponse,
+    MyPermissionsResponse, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionGrantSource, PermissionName,
+    PolicyConstraintReason, PolicyConstraintSource, ProjectId,
+};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -154,6 +153,10 @@ pub enum HarnessError {
     /// A taxonomy failure with a known `code`.
     #[error("{0:?}: {1}")]
     Account(AccountFailureReason, String),
+    /// A taxonomy failure with a non-account `code` (for example
+    /// `permission_denied` from self-permission introspection).
+    #[error("{code}: {summary}")]
+    FailureCode { code: String, summary: String },
     /// A non-taxonomy failure (transport, parse, connection, etc.).
     #[error("transport: {0}")]
     Transport(String),
@@ -166,6 +169,7 @@ impl HarnessError {
     pub fn code(&self) -> String {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
+            Self::FailureCode { code, .. } => code.clone(),
             Self::Transport(_) => "transport_error".to_owned(),
         }
     }
@@ -185,6 +189,64 @@ pub struct HarnessInvitation {
     pub inviting_org: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Scope for a seeded permission grant fixture.
+#[derive(Debug, Clone, Copy)]
+pub enum HarnessPermissionScope {
+    /// Organization-level grant.
+    Organization(OrgId),
+    /// Project-level grant.
+    Project(ProjectId),
+}
+
+/// Optional policy-constraint fixture attached to a grant.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionConstraintFixture {
+    /// Human-readable reason surfaced by the self-permissions view.
+    pub reason: PolicyConstraintReason,
+    /// Policy scope that produced the constraint.
+    pub source: PolicyConstraintSource,
+}
+
+/// Seed specification for one permission grant fixture.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionGrantFixture {
+    /// Account receiving the permission.
+    pub account_id: AccountId,
+    /// Scope where the grant applies.
+    pub scope: HarnessPermissionScope,
+    /// Canonical permission identifier.
+    pub permission: PermissionName,
+    /// Grant source metadata (direct vs role template).
+    pub grant_source: PermissionGrantSource,
+    /// Optional policy constraint to attach to this grant.
+    pub policy_constraint: Option<HarnessPermissionConstraintFixture>,
+}
+
+/// Wire/output projection of a self-permission query.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionsView {
+    /// Structured response from the surface.
+    pub response: MyPermissionsResponse,
+    /// Surface-native textual rendering captured from the same call.
+    pub rendered: String,
+}
+
+/// Wire/output projection of self-permissions capability discovery.
+#[derive(Debug, Clone)]
+pub struct HarnessPermissionsCapabilityView {
+    /// Structured capability response from the surface.
+    pub response: MyAccountCapabilitiesResponse,
+    /// Surface-native textual rendering captured from the same call.
+    pub rendered: String,
+}
+
+/// Optional pagination hints for self-permission introspection.
+#[derive(Debug, Clone, Default)]
+pub struct HarnessMyPermissionsQuery {
+    pub limit: Option<u16>,
+    pub cursor: Option<String>,
 }
 
 /// Per-interface seam used by the BDD step-definition crate. Every
@@ -211,6 +273,42 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance>;
 
+    /// Read effective permissions for the signed-in actor. Implementations
+    /// must enforce self-scope semantics when `requested_account_id`
+    /// differs from `session_account_id`.
+    async fn my_permissions(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView>;
+
+    /// Read effective permissions with optional pagination hints.
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView>;
+
+    /// Discover whether the actor may open the self-permissions view.
+    /// `requested_account_id` is optional to support falsification paths
+    /// where the caller asks for another account.
+    async fn my_permissions_capability(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+    ) -> HarnessResult<HarnessPermissionsCapabilityView> {
+        let view = self
+            .my_permissions(session_account_id, requested_account_id)
+            .await?;
+        Ok(HarnessPermissionsCapabilityView {
+            response: MyAccountCapabilitiesResponse {
+                can_view_my_permissions: true,
+            },
+            rendered: view.rendered,
+        })
+    }
+
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race
     /// scenario to prove `consume_invitation`'s atomicity. The default
@@ -235,6 +333,13 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
+
+    /// Seed one permission grant (and optional constraint) into the
+    /// harness backing store for BDD fixtures.
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()>;
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
@@ -280,6 +385,8 @@ pub enum HarnessOutcome {
     AcceptedInvitation(HarnessAcceptance),
     /// Account-flow taxonomy failure (with the wire `code`).
     Failure(AccountFailureReason),
+    /// Non-account taxonomy failure with a stable wire `code`.
+    FailureCode(String),
     /// Non-taxonomy infrastructure failure.
     Other(String),
 }
@@ -292,6 +399,7 @@ impl HarnessOutcome {
     pub fn failure_code(&self) -> Option<String> {
         match self {
             Self::Failure(reason) => Some(reason.code().to_owned()),
+            Self::FailureCode(code) => Some(code.clone()),
             Self::SignedUp(_)
             | Self::SignedIn(_)
             | Self::AcceptedInvitation(_)
@@ -309,6 +417,7 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
             entry.last_failure = Some(reason);
             HarnessOutcome::Failure(reason)
         }
+        HarnessError::FailureCode { code, .. } => HarnessOutcome::FailureCode(code),
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
 }
@@ -327,6 +436,32 @@ pub fn event_kinds(events: &[EventEnvelope]) -> Vec<String> {
                 .map(str::to_owned)
         })
         .collect()
+}
+
+/// Verify a read-only permissions check by comparing a pre-query
+/// checkpoint against later events and rejecting any new permission
+/// mutation kinds.
+pub fn assert_no_permission_request_or_grant_events(
+    event_ids_before: &HashSet<String, impl std::hash::BuildHasher>,
+    events_after: &[EventEnvelope],
+) -> HarnessResult<()> {
+    let mut forbidden = Vec::new();
+    for event in events_after {
+        if event_ids_before.contains(&event.id.to_string()) {
+            continue;
+        }
+        if let Some(kind) = event.payload.get("kind").and_then(Value::as_str)
+            && (kind == "permission_requested" || kind == "permission_granted")
+        {
+            forbidden.push(kind.to_owned());
+        }
+    }
+    if forbidden.is_empty() {
+        return Ok(());
+    }
+    Err(HarnessError::Transport(format!(
+        "permissions view should be read-only; saw forbidden events {forbidden:?}"
+    )))
 }
 
 /// Track concurrent invitation-acceptance outcomes for the falsification
@@ -348,6 +483,9 @@ impl ConcurrentAcceptanceTally {
             Ok(_) => self.successes += 1,
             Err(HarnessError::Account(reason, _)) => {
                 let code = reason.code().to_owned();
+                *self.failures_by_code.entry(code).or_insert(0) += 1;
+            }
+            Err(HarnessError::FailureCode { code, .. }) => {
                 *self.failures_by_code.entry(code).or_insert(0) += 1;
             }
             Err(HarnessError::Transport(msg)) => self.other.push(msg),

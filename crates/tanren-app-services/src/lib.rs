@@ -7,13 +7,17 @@
 
 pub mod account;
 pub mod events;
+pub mod permissions;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    InterfaceError, InterfaceErrorCode, MyAccountCapabilitiesResponse, MyPermissionsFailureReason,
+    MyPermissionsRequest, MyPermissionsResponse, SignInRequest, SignInResponse, SignUpRequest,
+    SignUpResponse,
 };
+use tanren_identity_policy::AccountId;
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 pub use tanren_store::{AccountStore, Store};
 
@@ -199,6 +203,91 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Read-only self-permission query. Resolves identity from the
+    /// authenticated session/account context and returns the caller's
+    /// effective permissions.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Permissions`] when the requested
+    /// account does not match the authenticated account context.
+    /// Returns [`AppServiceError::Store`] for unexpected database
+    /// failures.
+    pub async fn my_permissions<S>(
+        &self,
+        store: &S,
+        context: MyPermissionsContext,
+        request: MyPermissionsRequest,
+    ) -> Result<MyPermissionsResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        permissions::my_permissions(store, context, request).await
+    }
+
+    /// Resolve capability metadata for the self-permissions view using
+    /// the same authorization model as [`Handlers::my_permissions`].
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Permissions`] when the requested
+    /// account does not match the authenticated account context.
+    pub fn my_permissions_capabilities(
+        &self,
+        context: MyPermissionsContext,
+    ) -> Result<MyAccountCapabilitiesResponse, AppServiceError> {
+        permissions::my_permissions_capabilities(context)
+    }
+}
+
+/// Session/account context for the self-permission query.
+///
+/// The app-service handler resolves the actor from this context and
+/// enforces self-scope (`requested_account_id == session_account_id`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsContext {
+    /// Account id bound to the authenticated session.
+    session_account_id: AccountId,
+    /// Account id the caller is trying to introspect.
+    requested_account_id: AccountId,
+}
+
+impl MyPermissionsContext {
+    /// Construct a context for the common self-scoped path where the
+    /// target account is the authenticated account.
+    #[must_use]
+    pub const fn self_scoped(account_id: AccountId) -> Self {
+        Self {
+            session_account_id: account_id,
+            requested_account_id: account_id,
+        }
+    }
+
+    /// Construct a context where the caller is attempting to introspect
+    /// a specific target account. Callers must supply typed account ids.
+    #[must_use]
+    pub const fn with_requested_account(
+        session_account_id: AccountId,
+        requested_account_id: AccountId,
+    ) -> Self {
+        Self {
+            session_account_id,
+            requested_account_id,
+        }
+    }
+
+    /// Account id bound to the authenticated session.
+    #[must_use]
+    pub const fn session_account_id(self) -> AccountId {
+        self.session_account_id
+    }
+
+    /// Account id being introspected by this request.
+    #[must_use]
+    pub const fn requested_account_id(self) -> AccountId {
+        self.requested_account_id
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +304,30 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+    /// A self-permission query failed taxonomy checks.
+    #[error("permissions: {}", .0.code())]
+    Permissions(MyPermissionsFailureReason),
+}
+
+impl AppServiceError {
+    /// Convert an app-service failure into the canonical cross-interface
+    /// `{code, summary}` body.
+    #[must_use]
+    pub fn into_interface_error(self) -> InterfaceError {
+        match self {
+            Self::Account(reason) => {
+                InterfaceError::new(reason.interface_error_code(), reason.summary())
+            }
+            Self::Permissions(reason) => {
+                InterfaceError::new(reason.interface_error_code(), reason.summary())
+            }
+            Self::InvalidInput(message) => {
+                InterfaceError::new(InterfaceErrorCode::ValidationFailed, message)
+            }
+            Self::Store(_) => InterfaceError::new(
+                InterfaceErrorCode::InternalError,
+                "Tanren encountered an internal error.",
+            ),
+        }
+    }
 }

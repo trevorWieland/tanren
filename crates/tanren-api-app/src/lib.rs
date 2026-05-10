@@ -60,19 +60,28 @@ use tower_http::cors::CorsLayer;
 #[cfg(any(test, feature = "test-hooks"))]
 use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
-use crate::routes::build_router;
+use crate::routes::{build_router, openapi_document};
 
-pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
 };
+pub use tanren_contract::InterfaceError;
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 const CORS_ORIGINS_ENV: &str = "TANREN_API_CORS_ORIGINS";
+
+/// Export the API's `utoipa` `OpenAPI` document as canonical pretty JSON.
+///
+/// # Errors
+///
+/// Returns an error if the `OpenAPI` document cannot be serialized.
+pub fn openapi_json_pretty() -> Result<String> {
+    serde_json::to_string_pretty(&openapi_document()).context("serialize OpenAPI document")
+}
 
 /// Configuration for the tanren-api runtime.
 #[derive(Debug, Clone)]

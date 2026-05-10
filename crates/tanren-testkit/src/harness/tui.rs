@@ -1,19 +1,10 @@
-//! `@tui` harness — currently delegates to [`super::InProcessHarness`].
+//! `@tui` harness — uses the in-process service harness for stateful
+//! account actions, and renders self-permissions through the real
+//! `tanren-tui-app` ratatui draw path for empirical visibility checks.
 //!
-//! TODO(R-0001 sub-11 or follow-up): wire `expectrl` + `portable-pty`
-//! to drive the `tanren-tui` binary inside a real pseudo-terminal.
-//! The ratatui screen-scrape path was prototyped but proved too
-//! fragile to commit as the default — the `expectrl` workspace dep
-//! is staged in `Cargo.toml [workspace.dependencies]` so the next
-//! iteration can import it without further dependency churn.
-//!
-//! Until that lands, every `@tui` scenario routes through the
-//! direct-`Handlers` in-process harness — the same surface every
-//! interface delegates to via the equivalent-operations rule in
-//! `docs/architecture/subsystems/interfaces.md`. The wire harness
-//! coverage check (`xtask check-bdd-wire-coverage`) is satisfied
-//! because step bodies dispatch through the `AccountHarness` trait,
-//! which keeps `Handlers::*` invisible from `tanren-bdd`.
+//! TODO(R-0001 sub-11 or follow-up): replace the remaining service
+//! actions with a full `expectrl` + `portable-pty` driver against the
+//! `tanren-tui` binary.
 
 use async_trait::async_trait;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
@@ -21,8 +12,9 @@ use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessMyPermissionsQuery,
+    HarnessPermissionGrantFixture, HarnessPermissionsCapabilityView, HarnessPermissionsView,
+    HarnessResult, HarnessSession,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -67,8 +59,54 @@ impl AccountHarness for TuiHarness {
         self.inner.accept_invitation(req).await
     }
 
+    async fn my_permissions(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        let view = self
+            .inner
+            .my_permissions_query(session_account_id, requested_account_id, query)
+            .await?;
+        Ok(HarnessPermissionsView {
+            rendered: tanren_tui_app::render_my_permissions_screen(&view.response),
+            response: view.response,
+        })
+    }
+
+    async fn my_permissions_capability(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsCapabilityView> {
+        self.inner
+            .my_permissions_capability(session_account_id, requested_account_id)
+            .await
+    }
+
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
         self.inner.seed_invitation(fixture).await
+    }
+
+    async fn seed_permission_grant(
+        &mut self,
+        fixture: HarnessPermissionGrantFixture,
+    ) -> HarnessResult<()> {
+        self.inner.seed_permission_grant(fixture).await
     }
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {

@@ -5,10 +5,12 @@
 use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, SignInRequest,
-    SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, MyPermissionEntry, MyPermissionsResponse,
+    MyPermissionsStaleness, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
-use tanren_identity_policy::{Email, InvitationToken, ValidationError};
+use tanren_identity_policy::{
+    Email, InvitationToken, PermissionGrantSource, PolicyConstraintSource, ValidationError,
+};
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -103,17 +105,108 @@ pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> 
     }
 }
 
-pub(crate) fn format_failure(reason: AccountFailureReason) -> String {
-    format!("{}: {}", reason.code(), reason.summary())
+pub(crate) fn my_permissions_outcome(response: &MyPermissionsResponse) -> OutcomeView {
+    let mut lines = Vec::new();
+    let request_cursor = response.page.request_cursor.as_deref().unwrap_or("none");
+    let next_cursor = response.page.next_cursor.as_deref().unwrap_or("none");
+    lines.push(format!(
+        "page limit={} returned={} request_cursor={} next_cursor={}",
+        response.page.limit, response.page.returned, request_cursor, next_cursor
+    ));
+    lines.push(format!(
+        "read_metadata source={} generated_at={} staleness={} max_permission_grant_id={} max_permission_constraint_id={}",
+        response.read_metadata.source,
+        response.read_metadata.generated_at.to_rfc3339(),
+        format_staleness(response.read_metadata.staleness),
+        response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_grant_id
+            .as_deref()
+            .unwrap_or("none"),
+        response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_constraint_id
+            .as_deref()
+            .unwrap_or("none"),
+    ));
+    if response.organizations.is_empty() && response.projects.is_empty() {
+        lines.push("permissions=none".to_owned());
+    } else {
+        lines.push("organizations".to_owned());
+        for organization in &response.organizations {
+            lines.push(format!("  org_id={}", organization.org_id));
+            append_permission_lines(&mut lines, &organization.permissions);
+        }
+        lines.push("projects".to_owned());
+        for project in &response.projects {
+            lines.push(format!("  project_id={}", project.project_id));
+            append_permission_lines(&mut lines, &project.permissions);
+        }
+    }
+    OutcomeView {
+        title: "My permissions",
+        lines,
+    }
+}
+
+fn append_permission_lines(lines: &mut Vec<String>, permissions: &[MyPermissionEntry]) {
+    for permission in permissions {
+        let (constraint_reason, constraint_source, constraint_source_reference) =
+            permission.policy_constraint.as_ref().map_or_else(
+                || ("none".to_owned(), "none".to_owned(), "none".to_owned()),
+                |constraint| {
+                    (
+                        constraint.reason.to_string(),
+                        format_constraint_source(constraint.source),
+                        constraint.source_reference.clone(),
+                    )
+                },
+            );
+        lines.push(format!(
+            "    permission={} state={:?} source={} source_reference={} constraint_reason={} constraint_source={} constraint_source_reference={}",
+            permission.permission,
+            permission.effective_state,
+            format_grant_source(&permission.grant_source),
+            permission.grant_source_reference,
+            constraint_reason,
+            constraint_source,
+            constraint_source_reference,
+        ));
+    }
+}
+
+fn format_grant_source(source: &PermissionGrantSource) -> String {
+    match source {
+        PermissionGrantSource::Direct => "direct".to_owned(),
+        PermissionGrantSource::RoleTemplate { role_template } => {
+            format!("role_template:{role_template}")
+        }
+    }
+}
+
+fn format_constraint_source(source: PolicyConstraintSource) -> String {
+    match source {
+        PolicyConstraintSource::OrganizationPolicy => "organization_policy".to_owned(),
+        PolicyConstraintSource::ProjectPolicy => "project_policy".to_owned(),
+    }
+}
+
+fn format_staleness(staleness: MyPermissionsStaleness) -> &'static str {
+    match staleness {
+        MyPermissionsStaleness::Fresh => "fresh",
+        MyPermissionsStaleness::PotentiallyStale => "potentially_stale",
+    }
 }
 
 pub(crate) fn render_error(err: AppServiceError) -> String {
-    match err {
-        AppServiceError::Account(reason) => format_failure(reason),
-        AppServiceError::InvalidInput(message) => format!("validation_failed: {message}"),
-        AppServiceError::Store(err) => format!("internal_error: {err}"),
-        _ => "internal_error: unknown app-service failure".to_owned(),
-    }
+    let interface_error = err.into_interface_error();
+    format!(
+        "{}: {}",
+        interface_error.code.as_str(),
+        interface_error.summary
+    )
 }
 
 fn validation_message(err: &ValidationError) -> String {
