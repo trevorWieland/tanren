@@ -6,9 +6,9 @@
 
 use chrono::Utc;
 use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, UserCredentialId, UserCredentialStatus,
-    UserCredentialWrite, UserSettingKey, validate_user_credential_kind,
-    validate_user_credential_value, validate_user_setting,
+    ConfigurationValidationFailure, OwnerScope, UserCredentialId, UserCredentialSealContext,
+    UserCredentialStatus, UserSettingKey, seal_user_credential_value_from_env,
+    validate_user_credential_kind, validate_user_credential_value, validate_user_setting,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
@@ -239,17 +239,23 @@ where
         return Err(item_not_found());
     }
     validate_user_credential_kind(request.kind).map_err(validation_error)?;
-
-    let write = UserCredentialWrite {
-        kind: request.kind,
-        owner_scope: context.requested_owner_scope(),
-        value: request.value,
-    };
-    write.validate().map_err(validation_error)?;
+    validate_user_credential_value(&request.value).map_err(validation_error)?;
 
     let now = clock.now();
+    let item_id = UserCredentialId::fresh();
+    let sealed_value = seal_user_credential_value_from_env(
+        UserCredentialSealContext {
+            credential_id: item_id,
+            owner_scope: context.requested_owner_scope(),
+            credential_kind: request.kind,
+        },
+        request.value,
+    )
+    .await
+    .map_err(|err| map_sealing_error(&err))?;
+
     let item = store
-        .add_user_credential(write, CREATE_STATUS, now)
+        .add_user_credential(sealed_value, CREATE_STATUS, now)
         .await
         .map_err(map_store_error)?;
 
@@ -274,12 +280,29 @@ where
     ensure_owner_scope(context)?;
     validate_user_credential_value(&request.value).map_err(validation_error)?;
 
+    let existing_item = store
+        .get_user_credential(item_id, context.requested_owner_scope())
+        .await
+        .map_err(map_store_error)?
+        .ok_or_else(item_not_found)?;
+
+    let sealed_value = seal_user_credential_value_from_env(
+        UserCredentialSealContext {
+            credential_id: item_id,
+            owner_scope: context.requested_owner_scope(),
+            credential_kind: existing_item.kind,
+        },
+        request.value,
+    )
+    .await
+    .map_err(|err| map_sealing_error(&err))?;
+
     let now = clock.now();
     let Some(item) = store
         .update_user_credential(
             item_id,
             context.requested_owner_scope(),
-            request.value,
+            sealed_value,
             UPDATE_STATUS,
             now,
         )
@@ -420,6 +443,14 @@ fn map_store_error(err: StoreError) -> AppServiceError {
         StoreError::InvalidConfiguration(detail) => validation_error(detail),
         other => AppServiceError::Store(other),
     }
+}
+
+fn map_sealing_error(
+    err: &tanren_configuration_secrets::CredentialSealingFailure,
+) -> AppServiceError {
+    AppServiceError::Store(StoreError::CredentialEncryption {
+        detail: err.to_string(),
+    })
 }
 
 fn validation_error(detail: ConfigurationValidationFailure) -> AppServiceError {

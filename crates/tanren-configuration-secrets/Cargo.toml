@@ -12,11 +12,16 @@ description = "Configuration and Secrets subsystem: configuration tiers, inherit
 workspace = true
 
 [dependencies]
+argon2 = { workspace = true }
+chacha20poly1305 = { workspace = true }
 chrono = { workspace = true }
+rand = { workspace = true }
 schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
+tokio = { workspace = true }
 utoipa = { workspace = true }
 uuid = { workspace = true }
+zeroize = { workspace = true }

@@ -371,7 +371,7 @@ fn parse_owner_scope(raw: &str, account_id: AccountId) -> Result<OwnerScope, Sto
     }
 }
 
-fn parse_user_item_kind(raw: &str) -> Result<UserCredentialKind, StoreError> {
+pub(crate) fn parse_user_item_kind(raw: &str) -> Result<UserCredentialKind, StoreError> {
     parse_user_credential_kind_registry(raw).map_err(|_| StoreError::InvalidStoreValue {
         column: "user_credentials.kind",
         detail: raw.to_owned(),

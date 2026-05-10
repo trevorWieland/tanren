@@ -27,9 +27,8 @@
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use secrecy::SecretString;
 use tanren_configuration_secrets::{
-    OwnerScope, UserCredentialId, UserCredentialStatus, UserCredentialWrite, UserSettingKey,
+    OwnerScope, SealedUserCredentialValue, UserCredentialId, UserCredentialStatus, UserSettingKey,
     UserSettingValue,
 };
 use tanren_identity_policy::{
@@ -296,8 +295,9 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 }
 
 /// Port for user-tier configuration and user-owned credential metadata + value
-/// persistence. Credential writes accept plaintext once and persist encrypted
-/// value bytes; reads return metadata only.
+/// persistence. Credential writes receive already-sealed payloads from the
+/// configuration-secret adapter contract and persist them as-is; reads return
+/// metadata only.
 #[async_trait]
 pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
     /// List one page of user-tier settings for an account.
@@ -330,20 +330,21 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
         key: UserSettingKey,
     ) -> Result<bool, StoreError>;
 
-    /// Create one user-owned credential metadata row and encrypted value row.
+    /// Create one user-owned credential metadata row and persist one sealed
+    /// value payload.
     async fn add_user_credential(
         &self,
-        write: UserCredentialWrite,
+        sealed_value: SealedUserCredentialValue,
         status: UserCredentialStatus,
         now: DateTime<Utc>,
     ) -> Result<UserOwnedItemRecord, StoreError>;
 
-    /// Update value bytes and status for one existing user-owned credential.
+    /// Update one user-owned credential with a new sealed payload and status.
     async fn update_user_credential(
         &self,
         id: UserCredentialId,
         owner_scope: OwnerScope,
-        value: SecretString,
+        sealed_value: SealedUserCredentialValue,
         status: UserCredentialStatus,
         now: DateTime<Utc>,
     ) -> Result<Option<UserOwnedItemRecord>, StoreError>;

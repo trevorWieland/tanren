@@ -14,7 +14,12 @@ use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+mod secret_store;
 mod user_registry;
+pub use secret_store::{
+    CREDENTIAL_SEAL_PASSPHRASE_ENV, CredentialSealScheme, CredentialSealingFailure,
+    SealedUserCredentialValue, UserCredentialSealContext, seal_user_credential_value_from_env,
+};
 pub use user_registry::{
     parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,
     user_setting_key_wire_name, validate_user_credential_kind, validate_user_setting,
@@ -448,4 +453,7 @@ pub enum ConfigSecretsError {
     /// Installation credential-seal configuration failed validation.
     #[error("invalid credential seal configuration: {0}")]
     CredentialSealConfiguration(#[from] CredentialSealPassphraseValidationFailure),
+    /// Runtime credential sealing failed.
+    #[error(transparent)]
+    CredentialSealing(#[from] CredentialSealingFailure),
 }
