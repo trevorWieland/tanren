@@ -16,9 +16,9 @@ mod plan;
 mod writer;
 mod writer_tx;
 
-pub use cli::InstallCommand;
+pub use cli::{DriftCommand, InstallCommand};
 pub use drift::{InstallDriftEntry, InstallDriftReport, InstallDriftStatus};
-pub use error::{InstallDriftError, InstallError};
+pub use error::{InstallDriftCommandError, InstallDriftError, InstallError};
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;

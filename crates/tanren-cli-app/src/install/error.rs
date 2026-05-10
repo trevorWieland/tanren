@@ -83,6 +83,33 @@ impl From<InstallError> for InstallCommandError {
     }
 }
 
+/// Typed `tanren-cli drift` command failures at the CLI-library boundary.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum InstallDriftCommandError {
+    /// Input, path, catalog, or manifest validation failed before analysis.
+    #[error("error: drift_check_failed — {source}")]
+    DriftCheckFailed {
+        #[source]
+        source: InstallDriftError,
+    },
+    /// Drift was detected in one or more install-managed repository paths.
+    #[error("error: drift_detected — install-managed drift found in {drift_count} path(s)")]
+    DriftDetected { drift_count: usize },
+    /// Emitting drift output to stdout failed.
+    #[error("error: drift_check_failed — write drift report to stdout: {source}")]
+    StdoutWriteFailure {
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+impl From<InstallDriftError> for InstallDriftCommandError {
+    fn from(source: InstallDriftError) -> Self {
+        Self::DriftCheckFailed { source }
+    }
+}
+
 /// Typed read-only drift check failures.
 #[derive(Debug, Error)]
 #[non_exhaustive]
