@@ -8,10 +8,12 @@ use axum::response::{IntoResponse, Response};
 use chrono::Utc;
 use secrecy::SecretString;
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
 use tanren_identity_policy::{AccountId, SessionToken};
 
 pub(crate) const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
+const BOOTSTRAP_COMPARE_KEY: [u8; 32] = *b"tanren-mcp-bootstrap-compare-key";
 
 #[derive(Debug, Clone)]
 pub(crate) struct AuthConfig {
@@ -153,8 +155,7 @@ pub(crate) async fn require_authenticated_principal(
             .config
             .bootstrap_key
             .as_ref()
-            .map(secrecy::ExposeSecret::expose_secret)
-            .filter(|expected| constant_time_eq(presented.as_bytes(), expected.as_bytes()))
+            .filter(|expected| bootstrap_key_matches(presented, expected))
             .map(|_| AuthenticatedPrincipal::Bootstrap),
         Err(err) => {
             tracing::error!(
@@ -195,10 +196,25 @@ fn error_body(code: &str, summary: &str) -> serde_json::Value {
     })
 }
 
-fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
-    if a.len() != b.len() {
-        return false;
-    }
+fn bootstrap_key_matches(presented: &str, expected: &SecretString) -> bool {
+    let expected_digest = bootstrap_compare_digest(secrecy::ExposeSecret::expose_secret(expected));
+    let presented_digest = bootstrap_compare_digest(presented);
+    fixed_time_eq_digest(&expected_digest, &presented_digest)
+}
+
+fn bootstrap_compare_digest(value: &str) -> [u8; 32] {
+    let value_len = value.len() as u64;
+    let mut hasher = Sha256::new();
+    hasher.update(BOOTSTRAP_COMPARE_KEY);
+    hasher.update(value_len.to_be_bytes());
+    hasher.update(value.as_bytes());
+
+    let mut digest = [0_u8; 32];
+    digest.copy_from_slice(&hasher.finalize());
+    digest
+}
+
+fn fixed_time_eq_digest(a: &[u8; 32], b: &[u8; 32]) -> bool {
     let mut diff: u8 = 0;
     for (x, y) in a.iter().zip(b.iter()) {
         diff |= x ^ y;

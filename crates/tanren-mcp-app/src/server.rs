@@ -4,7 +4,7 @@ use std::sync::Arc;
 use anyhow::{Context, Result, bail};
 use axum::Json;
 use axum::Router;
-use axum::http::{HeaderValue, Method, header};
+use axum::http::{HeaderValue, Method, Uri, header};
 use axum::middleware;
 use axum::routing::get;
 use rmcp::transport::streamable_http_server::{
@@ -264,7 +264,31 @@ fn parse_required_cors_allowlist(raw: Option<&str>) -> Result<CorsAllowlist> {
     for token in raw.split(',') {
         let origin = token.trim();
         if origin.is_empty() {
-            continue;
+            bail!(
+                "{CORS_ORIGINS_ENV} includes an empty token; provide only explicit comma-separated origins"
+            );
+        }
+        if origin == "*" || origin.eq_ignore_ascii_case("null") || origin.contains('*') {
+            bail!(
+                "{CORS_ORIGINS_ENV} forbids `*` and `null`; provide only explicit HTTP(S) origins"
+            );
+        }
+        if !origin.starts_with("http://") && !origin.starts_with("https://") {
+            bail!("{CORS_ORIGINS_ENV} origin `{origin}` must start with http:// or https://");
+        }
+        let parsed_origin: Uri = origin
+            .parse()
+            .with_context(|| format!("parse CORS origin `{origin}` as URI"))?;
+        let has_http_scheme = matches!(parsed_origin.scheme_str(), Some("http" | "https"));
+        if !has_http_scheme
+            || parsed_origin.authority().is_none()
+            || parsed_origin
+                .path_and_query()
+                .is_some_and(|value| value.as_str() != "/")
+        {
+            bail!(
+                "{CORS_ORIGINS_ENV} origin `{origin}` must be a valid HTTP(S) origin without path, query, or fragment"
+            );
         }
         let value = HeaderValue::from_str(origin)
             .with_context(|| format!("parse CORS origin `{origin}` as HeaderValue"))?;
