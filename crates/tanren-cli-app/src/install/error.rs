@@ -43,3 +43,42 @@ pub enum InstallError {
     #[error("failed removing '{path}': {message}")]
     RemoveFailure { path: String, message: String },
 }
+
+/// Typed `tanren-cli install` command failures at the CLI-library boundary.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum InstallCommandError {
+    /// Input or selection validation failed before writes occurred.
+    #[error("error: validation_failed — {source}")]
+    ValidationFailed {
+        #[source]
+        source: InstallError,
+    },
+    /// Install planning or application failed.
+    #[error("error: install_failed — {source}")]
+    InstallFailed {
+        #[source]
+        source: InstallError,
+    },
+    /// Emitting success output to stdout failed.
+    #[error("error: install_failed — write install report to stdout: {source}")]
+    StdoutWriteFailure {
+        #[source]
+        source: std::io::Error,
+    },
+}
+
+impl From<InstallError> for InstallCommandError {
+    fn from(source: InstallError) -> Self {
+        match source {
+            InstallError::UnsupportedProfile { .. }
+            | InstallError::UnsupportedIntegration { .. }
+            | InstallError::EmptyIntegrationSelection
+            | InstallError::InvalidRepositoryPath { .. }
+            | InstallError::InvalidInstallManifest { .. }
+            | InstallError::UnsafeRepositoryPath { .. }
+            | InstallError::RepositoryPathNotDirectory { .. } => Self::ValidationFailed { source },
+            _ => Self::InstallFailed { source },
+        }
+    }
+}

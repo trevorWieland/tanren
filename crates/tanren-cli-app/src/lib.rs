@@ -126,7 +126,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
-        Some(Command::Install(command)) => command.run(),
+        Some(Command::Install(command)) => command.run().map_err(anyhow::Error::new),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

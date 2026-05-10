@@ -3,10 +3,9 @@
 use std::io::Write;
 use std::path::PathBuf;
 
-use anyhow::{Result, anyhow};
 use clap::Args;
 
-use crate::install::error::InstallError;
+use crate::install::error::InstallCommandError;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::{InstallReport, apply_install};
 
@@ -26,13 +25,13 @@ pub struct InstallCommand {
 
 impl InstallCommand {
     /// Validate install inputs, apply install, and emit a concise outcome report.
-    pub fn run(&self) -> Result<()> {
+    pub fn run(&self) -> Result<(), InstallCommandError> {
         let report = apply_install(&self.repo, &self.profile, self.integrations.as_deref())
-            .map_err(|err| classify_install_error(&err))?;
+            .map_err(InstallCommandError::from)?;
         self.write_success_report(&report)
     }
 
-    fn write_success_report(&self, report: &InstallReport) -> Result<()> {
+    fn write_success_report(&self, report: &InstallReport) -> Result<(), InstallCommandError> {
         let repository = self
             .repo
             .canonicalize()
@@ -48,7 +47,8 @@ impl InstallCommand {
             report.removed.len(),
             report.restored.len(),
             report.preserved.len(),
-        )?;
+        )
+        .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
         writeln!(
             handle,
             "paths created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
@@ -57,7 +57,8 @@ impl InstallCommand {
             format_path_list(&report.removed),
             format_path_list(&report.restored),
             format_path_list(&report.preserved),
-        )?;
+        )
+        .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
         Ok(())
     }
 }
@@ -68,19 +69,4 @@ fn format_path_list(paths: &[RepoRelativePath]) -> String {
         .map(RepoRelativePath::as_str)
         .collect::<Vec<_>>()
         .join(",")
-}
-
-fn classify_install_error(err: &InstallError) -> anyhow::Error {
-    match err {
-        InstallError::UnsupportedProfile { .. }
-        | InstallError::UnsupportedIntegration { .. }
-        | InstallError::EmptyIntegrationSelection
-        | InstallError::InvalidRepositoryPath { .. }
-        | InstallError::InvalidInstallManifest { .. }
-        | InstallError::UnsafeRepositoryPath { .. }
-        | InstallError::RepositoryPathNotDirectory { .. } => {
-            anyhow!("error: validation_failed — {err}")
-        }
-        _ => anyhow!("error: install_failed — {err}"),
-    }
 }
