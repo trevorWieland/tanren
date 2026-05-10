@@ -1,6 +1,7 @@
 //! Tanren MCP (Model Context Protocol) server — runtime library.
 //!
 //! R-0001 (sub-8) promotes the runtime out of `bin/tanren-mcp/src/main.rs`.
+#![deny(clippy::disallowed_types)]
 
 use anyhow::{Context, Result};
 use axum::Router;
@@ -34,13 +35,12 @@ use tanren_provider_integrations::{SourceControlProvider, production_source_cont
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
 use tower::ServiceBuilder;
-use tower_http::cors::{Any, CorsLayer};
 use tracing::error;
 
 mod http;
 
 use crate::http::{
-    AuthConfig, AuthState, AuthenticatedMcpCredential, health, require_api_key,
+    AuthConfig, AuthState, AuthenticatedMcpCredential, cors_layer, health, require_api_key,
     streamable_http_config,
 };
 
@@ -376,15 +376,10 @@ fn build_router(
         .layer(middleware::from_fn_with_state(auth_state, require_api_key))
         .service(mcp_service);
 
-    let cors = CorsLayer::new()
-        .allow_origin(Any)
-        .allow_methods(Any)
-        .allow_headers(Any);
-
     Router::new()
         .route("/health", get(health))
         .nest_service("/mcp", mcp_with_auth)
-        .layer(cors)
+        .layer(cors_layer())
 }
 
 /// Build the MCP axum router around a caller-supplied `Arc<Store>` and a

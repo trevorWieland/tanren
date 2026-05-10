@@ -3,7 +3,7 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::extract::Request;
-use axum::http::{HeaderMap, StatusCode, header};
+use axum::http::{HeaderMap, HeaderName, HeaderValue, Method, StatusCode, header};
 use axum::middleware::Next;
 use axum::response::{IntoResponse, Response};
 use chrono::Utc;
@@ -14,9 +14,12 @@ use serde_json::json;
 use tanren_app_services::{AccountStore, Handlers, Store};
 use tanren_identity_policy::{AccountId, SessionToken};
 use tokio_util::sync::CancellationToken;
+use tower_http::cors::CorsLayer;
 
 const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
 const ALLOWED_HOSTS_ENV: &str = "TANREN_MCP_ALLOWED_HOSTS";
+const CORS_ORIGINS_ENV: &str = "TANREN_MCP_CORS_ORIGINS";
+const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub(super) struct HealthResponse {
@@ -181,6 +184,54 @@ pub(super) fn streamable_http_config(
         "Host-header validation extended via {ALLOWED_HOSTS_ENV}"
     );
     base.with_allowed_hosts(hosts)
+}
+
+pub(super) fn cors_layer() -> CorsLayer {
+    CorsLayer::new()
+        .allow_origin(parse_cors_origins(
+            env::var(CORS_ORIGINS_ENV).ok().as_deref(),
+        ))
+        .allow_methods([Method::POST, Method::GET, Method::DELETE, Method::OPTIONS])
+        .allow_headers([
+            header::AUTHORIZATION,
+            header::CONTENT_TYPE,
+            header::ACCEPT,
+            HeaderName::from_static("x-api-key"),
+            HeaderName::from_static("mcp-session-id"),
+            HeaderName::from_static("mcp-protocol-version"),
+            HeaderName::from_static("last-event-id"),
+        ])
+        .expose_headers([HeaderName::from_static("mcp-session-id")])
+}
+
+fn parse_cors_origins(raw: Option<&str>) -> Vec<HeaderValue> {
+    let trimmed = raw.map_or("", str::trim);
+    if trimmed.is_empty() {
+        return vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)];
+    }
+    let mut out = Vec::new();
+    for token in trimmed.split(',') {
+        let origin = token.trim();
+        if origin.is_empty() {
+            continue;
+        }
+        match HeaderValue::from_str(origin) {
+            Ok(value) => out.push(value),
+            Err(err) => {
+                tracing::warn!(
+                    target: "tanren_mcp",
+                    env_var = CORS_ORIGINS_ENV,
+                    origin,
+                    error = %err,
+                    "Ignoring invalid CORS origin"
+                );
+            }
+        }
+    }
+    if out.is_empty() {
+        return vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)];
+    }
+    out
 }
 
 fn error_body(code: &str, summary: &str) -> serde_json::Value {
