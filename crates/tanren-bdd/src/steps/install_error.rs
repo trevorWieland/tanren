@@ -119,6 +119,8 @@ pub(crate) enum InstallStepError {
         "account harness context unavailable; scenario before-hook dispatch did not initialize"
     )]
     AccountContextUnavailable,
+    #[error("world setup failed during scenario before-hook: {source}")]
+    SetupFailed { source: Box<InstallStepError> },
 }
 
 pub(crate) type InstallStepResult<T> = Result<T, InstallStepError>;

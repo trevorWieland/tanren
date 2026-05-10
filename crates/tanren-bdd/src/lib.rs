@@ -9,7 +9,6 @@
 //! `@mcp` drives the rmcp client, etc. `xtask check-bdd-wire-coverage`
 //! mechanically rejects any step body that calls
 //! `tanren_app_services::Handlers::*` directly.
-
 pub mod steps;
 
 use cucumber::World as CucumberWorld;
@@ -17,25 +16,66 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::steps::install::{InstallContext, InstallStepError, InstallStepResult};
-use tanren_testkit::install_contract::{
-    InstallProofIntegration, InstallProofProfile, parse_install_integration_selection,
-};
+use tanren_testkit::install_contract::{InstallProofProfile, parse_install_integration_selection};
 use tanren_testkit::{
     ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome, InProcessHarness,
     InstallCommandKind, InstallHarness, McpHarness, TuiHarness, WebHarness,
 };
-
+/// Explicit world setup state machine.
+///
+/// Replaces the previous `Option<AccountContext>` +
+/// `Option<InstallStepError>` pair. Each variant is a distinct, named
+/// state the world can be in — no `take()` consumption needed to
+/// inspect setup errors.
+#[derive(Debug, Default)]
+enum WorldSetupState {
+    /// World has not been initialized by a `Before` hook.
+    #[default]
+    NotInitialized,
+    /// Account harness is ready; install context is separate.
+    Ready {
+        account: Box<AccountContext>,
+        install: Option<InstallContext>,
+    },
+    /// Setup failed during the `Before` hook; the typed error is
+    /// preserved for step bodies to inspect without consuming it.
+    SetupFailed(InstallStepError),
+}
+/// Determine whether scenario tags indicate an install-command fixture
+/// is needed. Install fixtures are selected from behavior/interface
+/// needs: any scenario tagged with a behavior that requires install
+/// command fixture support (B-0068, B-0069, B-0070) needs the fixture,
+/// regardless of which interface tag carries the scenario.
+fn install_context_needed_from_tags<I, S>(tags: I) -> bool
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<str>,
+{
+    let mut found_install_behavior = false;
+    let mut found_interface = false;
+    for tag in tags {
+        let raw = tag.as_ref();
+        let normalized = raw.strip_prefix('@').unwrap_or(raw);
+        match normalized {
+            "B-0068" | "B-0069" | "B-0070" => found_install_behavior = true,
+            "api" | "cli" | "mcp" | "tui" | "web" => found_interface = true,
+            _ => {}
+        }
+    }
+    found_install_behavior && found_interface
+}
 /// Cucumber `World` shared across all Tanren BDD scenarios.
+///
+/// Install setup state is carried explicitly and separately from
+/// account-flow state. The [`WorldSetupState`] enum makes the current
+/// lifecycle phase machine-readable and prevents the need to consume
+/// setup errors with `take()`.
 #[derive(Debug, Default, CucumberWorld)]
 pub struct TanrenWorld {
     /// Deterministic fixture seed.
     pub seed: FixtureSeed,
-    /// Lazily initialized account-flow context.
-    pub account: Option<AccountContext>,
-    /// Typed setup error captured by the scenario `Before` hook.
-    install_setup_error: Option<InstallStepError>,
+    setup_state: WorldSetupState,
 }
-
 impl TanrenWorld {
     /// Construct (or return) the lazy account context.
     #[tracing::instrument(
@@ -45,20 +85,55 @@ impl TanrenWorld {
         fields(command_kind = "bdd.account.ensure_context")
     )]
     pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
-        match &mut self.account {
-            Some(account) => account,
-            slot @ None => slot.insert(AccountContext::new_in_process().await),
+        let state = std::mem::take(&mut self.setup_state);
+        let (account, install) = match state {
+            WorldSetupState::NotInitialized => (AccountContext::new_in_process().await, None),
+            WorldSetupState::Ready { account, install } => (*account, install),
+            WorldSetupState::SetupFailed(error) => {
+                let account = AccountContext::new_in_process().await;
+                tracing::warn!(
+                    error = %error,
+                    "scenario before-hook failed; falling back to in-process account context"
+                );
+                (account, None)
+            }
+        };
+        self.setup_state = WorldSetupState::Ready {
+            account: Box::new(account),
+            install,
+        };
+        match &mut self.setup_state {
+            WorldSetupState::Ready { account, .. } => account,
+            _ => unreachable!("just set Ready"),
         }
     }
-
     /// Construct (or return) the lazy install context.
     pub(crate) fn ensure_install_ctx(&mut self) -> Result<&mut InstallContext, InstallStepError> {
-        self.require_account_ctx()?.ensure_install_ctx()
+        self.propagate_setup_failure()?;
+        if matches!(
+            &self.setup_state,
+            WorldSetupState::Ready { install: None, .. }
+        ) {
+            let ctx = InstallContext::new()?;
+            self.set_install_ctx(ctx);
+        }
+        match &mut self.setup_state {
+            WorldSetupState::Ready {
+                install: Some(ctx), ..
+            } => Ok(ctx),
+            WorldSetupState::Ready { install: None, .. } => {
+                Err(InstallStepError::InstallContextUnavailable)
+            }
+            _ => unreachable!("propagate_setup_failure handles these"),
+        }
     }
-
     /// Reset the install context for the current scenario.
     pub(crate) fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
-        self.require_account_ctx()?.reset_install_ctx()
+        self.propagate_setup_failure()?;
+        self.require_account_ctx_mut()?;
+        let ctx = InstallContext::new()?;
+        self.set_install_ctx(ctx);
+        Ok(())
     }
 
     #[tracing::instrument(
@@ -103,14 +178,29 @@ impl TanrenWorld {
                 .map_or(0, std::collections::BTreeSet::len),
         );
 
-        self.require_account_ctx()?
-            .run_install(
-                valid_profile,
-                valid_integrations.as_ref(),
-                raw_profile,
-                raw_integrations,
-            )
-            .await
+        match &mut self.setup_state {
+            WorldSetupState::Ready {
+                account,
+                install: Some(install),
+            } => {
+                install
+                    .run_install(
+                        account.harness.as_mut(),
+                        valid_profile,
+                        valid_integrations.as_ref(),
+                        raw_profile,
+                        raw_integrations,
+                    )
+                    .await
+            }
+            WorldSetupState::Ready { install: None, .. } => {
+                Err(InstallStepError::InstallContextUnavailable)
+            }
+            WorldSetupState::NotInitialized => Err(InstallStepError::AccountContextUnavailable),
+            WorldSetupState::SetupFailed(_) => {
+                unreachable!("propagate_setup_failure must be called first")
+            }
+        }
     }
 
     #[tracing::instrument(
@@ -155,29 +245,39 @@ impl TanrenWorld {
                 .map_or(0, std::collections::BTreeSet::len),
         );
 
-        self.require_account_ctx()?
-            .run_drift(
-                valid_profile,
-                valid_integrations.as_ref(),
-                raw_profile,
-                raw_integrations,
-            )
-            .await
-    }
-
-    fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
-        if let Some(error) = self.install_setup_error.take() {
-            return Err(error);
+        match &mut self.setup_state {
+            WorldSetupState::Ready {
+                account,
+                install: Some(install),
+            } => {
+                install
+                    .run_drift(
+                        account.harness.as_mut(),
+                        valid_profile,
+                        valid_integrations.as_ref(),
+                        raw_profile,
+                        raw_integrations,
+                    )
+                    .await
+            }
+            WorldSetupState::Ready { install: None, .. } => {
+                Err(InstallStepError::InstallContextUnavailable)
+            }
+            WorldSetupState::NotInitialized => Err(InstallStepError::AccountContextUnavailable),
+            WorldSetupState::SetupFailed(_) => {
+                unreachable!("propagate_setup_failure must be called first")
+            }
         }
-        self.account
-            .as_mut()
-            .ok_or(InstallStepError::AccountContextUnavailable)
     }
-
     /// Refresh the account context with the harness chosen for the
     /// supplied scenario tags. Cucumber-rs does not give step bodies
     /// access to the active scenario's tags, so the BDD bin invokes
     /// this from a `Before` hook.
+    ///
+    /// Install fixture setup is selected from behavior/interface needs
+    /// rather than hard-coded tag checks — any scenario tagged with an
+    /// install-related behavior (B-0068, B-0069, B-0070) and an interface
+    /// tag gets the shared install-command fixture context.
     #[tracing::instrument(
         name = "bdd_world_install_harness_for_tags",
         level = "debug",
@@ -189,89 +289,116 @@ impl TanrenWorld {
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
-        self.install_setup_error = None;
         let tags: Vec<String> = tags
             .into_iter()
             .map(|tag| tag.as_ref().to_owned())
             .collect();
         let kind = HarnessKind::from_tags(tags.iter().map(String::as_str));
         tracing::Span::current().record("harness_kind", tracing::field::debug(kind));
-        let mut ctx = AccountContext::new_for(kind).await;
-        if tags
-            .iter()
-            .any(|tag| tag.strip_prefix('@').unwrap_or(tag) == "cli")
-        {
-            ctx.install = Some(InstallContext::new()?);
-        }
-        self.account = Some(ctx);
+
+        let needs_install = install_context_needed_from_tags(tags.iter().map(String::as_str));
+        let install = if needs_install {
+            Some(InstallContext::new()?)
+        } else {
+            None
+        };
+
+        let account = AccountContext::new_for(kind).await;
+        self.setup_state = WorldSetupState::Ready {
+            account: Box::new(account),
+            install,
+        };
         Ok(())
     }
-
+    /// Store a setup failure so that subsequent step bodies observe the
+    /// typed error. Unlike the previous `take()` approach, the error is
+    /// preserved in the [`WorldSetupState::SetupFailed`] variant and
+    /// read via [`propagate_setup_failure`] without consumption.
     fn store_install_setup_error(&mut self, error: InstallStepError) {
-        self.account = None;
-        self.install_setup_error = Some(error);
+        self.setup_state = WorldSetupState::SetupFailed(error);
+    }
+    /// If the world is in [`WorldSetupState::SetupFailed`], extract the
+    /// error and transition the world to `NotInitialized`. Unlike the
+    /// previous `take()` on `Option<InstallStepError>`, this method
+    /// replaces the entire setup state atomically and does not leave a
+    /// partially-consumed `Option` behind.
+    fn propagate_setup_failure(&mut self) -> InstallStepResult<()> {
+        if matches!(&self.setup_state, WorldSetupState::SetupFailed(_)) {
+            let state = std::mem::take(&mut self.setup_state);
+            match state {
+                WorldSetupState::SetupFailed(error) => {
+                    return Err(InstallStepError::SetupFailed {
+                        source: Box::new(error),
+                    });
+                }
+                _ => unreachable!("guarded by matches! above"),
+            }
+        }
+        Ok(())
+    }
+    /// Obtain a mutable reference to the account context, propagating
+    /// setup failures or missing-context errors.
+    fn require_account_ctx_mut(&mut self) -> InstallStepResult<&mut AccountContext> {
+        self.propagate_setup_failure()?;
+        match &mut self.setup_state {
+            WorldSetupState::Ready { account, .. } => Ok(account),
+            WorldSetupState::NotInitialized => Err(InstallStepError::AccountContextUnavailable),
+            WorldSetupState::SetupFailed(_) => {
+                unreachable!("propagate_setup_failure handled SetupFailed")
+            }
+        }
+    }
+    /// Set the install context slot within the Ready variant.
+    fn set_install_ctx(&mut self, ctx: InstallContext) {
+        if let WorldSetupState::Ready { install, .. } = &mut self.setup_state {
+            *install = Some(ctx);
+        }
     }
 }
 
-/// Per-scenario state carried by the cucumber world. Tracks per-actor
-/// outcomes plus the active wire harness — all transport-specific
-/// state lives inside the harness implementation.
+/// Per-scenario account-flow context.
+///
+/// Owns the per-interface wire harness and per-actor state for account-
+/// flow scenarios (sign-up, sign-in, accept-invitation). Install fixture
+/// state is carried separately on [`TanrenWorld`] to decouple install-
+/// flow concerns from account-flow concerns.
+#[derive(Debug)]
 pub struct AccountContext {
-    /// Active wire harness for the current scenario.
-    pub harness: Box<dyn InstallHarness>,
-    /// Registry of actors by display name.
-    pub actors: HashMap<String, ActorState>,
-    /// The most recent action's outcome.
-    pub last_outcome: Option<HarnessOutcome>,
-    /// Per-scenario invitation tokens recorded by `Given a pending
-    /// invitation token "..."` style steps.
-    pub invitations: HashSet<String>,
-    /// Install-flow fixture state for CLI-tagged scenarios.
-    pub(crate) install: Option<InstallContext>,
-}
-
-impl std::fmt::Debug for AccountContext {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("AccountContext")
-            .field("harness_kind", &self.harness.kind())
-            .field("actors", &self.actors.keys().collect::<Vec<_>>())
-            .field("invitations", &self.invitations)
-            .field("has_install_ctx", &self.install.is_some())
-            .field(
-                "last_outcome",
-                &self.last_outcome.as_ref().map(short_outcome_label),
-            )
-            .finish()
-    }
+    harness: Box<dyn InstallHarness>,
+    actors: HashMap<String, ActorState>,
+    last_outcome: Option<HarnessOutcome>,
+    invitations: HashSet<String>,
 }
 
 impl AccountContext {
-    /// Build a context with the in-process harness — used for
-    /// untagged scenarios.
-    pub async fn new_in_process() -> Self {
-        Self::new_for(HarnessKind::InProcess).await
+    /// Build an in-process account context as the default/fallback.
+    async fn new_in_process() -> Self {
+        let harness: Box<dyn InstallHarness> = Box::new(
+            InProcessHarness::new(HarnessKind::InProcess)
+                .await
+                .expect("InProcessHarness::new"),
+        );
+        Self {
+            harness,
+            actors: HashMap::new(),
+            last_outcome: None,
+            invitations: HashSet::new(),
+        }
     }
 
-    /// Build a context with the harness matching the supplied tag
-    /// kind. Falls back to the in-process harness if the requested
-    /// transport fails to come up (e.g. a missing CLI binary on a
-    /// fresh checkout) — the failure is recorded in `last_outcome`
-    /// so it surfaces during the first step rather than blocking
-    /// scenario discovery.
-    pub async fn new_for(kind: HarnessKind) -> Self {
+    /// Build an account context for the requested harness kind.
+    async fn new_for(kind: HarnessKind) -> Self {
         let harness: Box<dyn InstallHarness> = match kind {
             HarnessKind::InProcess => Box::new(
                 InProcessHarness::new(kind)
                     .await
-                    .expect("ephemeral SQLite must connect for BDD"),
+                    .expect("InProcessHarness::new"),
             ),
             HarnessKind::Api => Box::new(ApiHarness::spawn().await.expect("ApiHarness::spawn")),
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
+            // PR 11: real-browser proof via playwright-bdd; Rust keeps in-process fallback.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
@@ -279,97 +406,7 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
-            install: None,
         }
-    }
-
-    fn ensure_install_ctx(&mut self) -> InstallStepResult<&mut InstallContext> {
-        self.install
-            .as_mut()
-            .ok_or(InstallStepError::InstallContextUnavailable)
-    }
-
-    fn reset_install_ctx(&mut self) -> InstallStepResult<()> {
-        self.install = Some(InstallContext::new()?);
-        Ok(())
-    }
-
-    #[tracing::instrument(
-        name = "bdd_account_ctx_run_install",
-        level = "debug",
-        skip(self),
-        fields(
-            command_kind = %InstallCommandKind::Install,
-            harness_kind = tracing::field::Empty,
-            profile = %profile.as_str(),
-            integration_count = integrations.as_ref().map_or(0, |s| s.len())
-        )
-    )]
-    async fn run_install(
-        &mut self,
-        profile: InstallProofProfile,
-        integrations: Option<&std::collections::BTreeSet<InstallProofIntegration>>,
-        raw_profile: Option<String>,
-        raw_integrations: Option<String>,
-    ) -> InstallStepResult<()> {
-        tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
-        let install = self
-            .install
-            .as_mut()
-            .ok_or(InstallStepError::InstallContextUnavailable)?;
-        install
-            .run_install(
-                self.harness.as_mut(),
-                profile,
-                integrations,
-                raw_profile,
-                raw_integrations,
-            )
-            .await
-    }
-
-    #[tracing::instrument(
-        name = "bdd_account_ctx_run_drift",
-        level = "debug",
-        skip(self),
-        fields(
-            command_kind = %InstallCommandKind::Drift,
-            harness_kind = tracing::field::Empty,
-            profile = %profile.as_str(),
-            integration_count = integrations.as_ref().map_or(0, |s| s.len())
-        )
-    )]
-    async fn run_drift(
-        &mut self,
-        profile: InstallProofProfile,
-        integrations: Option<&std::collections::BTreeSet<InstallProofIntegration>>,
-        raw_profile: Option<String>,
-        raw_integrations: Option<String>,
-    ) -> InstallStepResult<()> {
-        tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
-        let install = self
-            .install
-            .as_mut()
-            .ok_or(InstallStepError::InstallContextUnavailable)?;
-        install
-            .run_drift(
-                self.harness.as_mut(),
-                profile,
-                integrations,
-                raw_profile,
-                raw_integrations,
-            )
-            .await
-    }
-}
-
-fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
-    match outcome {
-        HarnessOutcome::SignedUp(_) => "SignedUp",
-        HarnessOutcome::SignedIn(_) => "SignedIn",
-        HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
-        HarnessOutcome::Failure(_) => "Failure",
-        HarnessOutcome::Other(_) => "Other",
     }
 }
 
@@ -395,7 +432,7 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
 mod tests {
     //! Unit-test guards for the BDD harness machinery itself.
 
-    use super::TanrenWorld;
+    use super::{TanrenWorld, WorldSetupState, install_context_needed_from_tags};
     use tanren_testkit::FixtureSeed;
 
     #[test]
@@ -408,9 +445,56 @@ mod tests {
     fn world_seed_round_trips() {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
-            account: None,
-            install_setup_error: None,
+            setup_state: WorldSetupState::NotInitialized,
         };
         assert_eq!(world.seed.value(), 42);
+    }
+
+    #[test]
+    fn install_context_needed_for_b0068_with_cli() {
+        let tags = &["@B-0068", "@positive", "@cli"];
+        assert!(install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_needed_for_b0069_with_cli() {
+        let tags = &["@B-0069", "@positive", "@cli"];
+        assert!(install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_needed_for_b0070_with_cli() {
+        let tags = &["@B-0070", "@positive", "@cli"];
+        assert!(install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_not_needed_for_account_only() {
+        let tags = &["@B-0043", "@positive", "@api"];
+        assert!(!install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_not_needed_without_interface() {
+        let tags = &["@B-0068", "@positive"];
+        assert!(!install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_not_needed_without_behavior() {
+        let tags = &["@positive", "@cli"];
+        assert!(!install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_needed_for_b0068_with_api() {
+        let tags = &["@B-0068", "@positive", "@api"];
+        assert!(install_context_needed_from_tags(tags));
+    }
+
+    #[test]
+    fn install_context_needed_for_b0069_with_mcp() {
+        let tags = &["@B-0069", "@positive", "@mcp"];
+        assert!(install_context_needed_from_tags(tags));
     }
 }

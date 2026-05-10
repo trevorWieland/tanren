@@ -63,7 +63,7 @@ async fn given_expired_invitation(world: &mut TanrenWorld, token: String) {
 #[given(expr = "{word} has signed up with email {string} and password {string}")]
 async fn given_signed_up(world: &mut TanrenWorld, actor: String, email: String, password: String) {
     do_sign_up(world, actor, email, password, "Background actor".to_owned()).await;
-    let ctx = world.account.as_mut().expect("ctx initialized");
+    let ctx = world.ensure_account_ctx().await;
     assert!(
         matches!(ctx.last_outcome, Some(HarnessOutcome::SignedUp(_))),
         "background sign-up step must succeed (got {:?})",
