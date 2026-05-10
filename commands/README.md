@@ -13,6 +13,52 @@ adopting repository.
 Use `tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`
 to materialize command assets in a target repository.
 
+## Read-Only Drift Contract Reference
+
+Use `tanren-cli drift --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`
+to analyze install-managed assets without writing files.
+
+Stable output contract (line 1):
+
+```text
+status=<ok|drift> command=drift repo=<repo_arg_or_redacted> profile=<profile> integrations=<csv_or_all> clean=<u32> changed_generated=<u32> missing_generated=<u32> missing_preserved=<u32> accepted_preserved=<u32> drift=<u32>
+```
+
+Stable output contract (line 2):
+
+```text
+paths clean=[<repo-relative-path,...>] changed_generated=[<repo-relative-path,...>] missing_generated=[<repo-relative-path,...>] missing_preserved=[<repo-relative-path,...>] accepted_preserved=[<repo-relative-path,...>]
+```
+
+Field domains:
+
+- `status`: `ok` when `drift=0`; `drift` when `drift>0`.
+- `drift`: total drift count (`changed_generated + missing_generated + missing_preserved`).
+- `clean`: count of install-managed paths that match generated or preserved expectations.
+- `changed_generated` / `missing_generated`: generated-asset drift counts.
+- `missing_preserved`: preserved standards deleted from the repository.
+- `accepted_preserved`: preserved standards edited by the user and accepted as non-drift.
+- `paths ...`: repository-relative path lists (never absolute host paths).
+
+Command outcomes:
+
+- Clean install-managed state: exit 0 with `status=ok command=drift` and
+  `drift=0`; path lists remain repo-relative.
+- Generated asset drift: non-zero exit with
+  `status=drift command=drift` and repo-relative paths under
+  `changed_generated` and/or `missing_generated`.
+- Missing preserved standards: non-zero exit with
+  `status=drift command=drift` and repo-relative paths under
+  `missing_preserved`.
+- Accepted preserved edits: exit 0 with `status=ok command=drift` and
+  repo-relative paths under `accepted_preserved`.
+
+Ownership boundaries:
+
+- Drift command is read-only diagnostics only (R-0024 / B-0069).
+- Install remediation remains `tanren-cli install` ownership (R-0023 / B-0068).
+- Upgrade-time behavior remains `tanren-cli upgrade` ownership (R-0026).
+
 Lifecycle and ownership rules are canonical in
 [`docs/architecture/delivery.md`](../docs/architecture/delivery.md). This
 directory does not redefine install/preview/upgrade/uninstall semantics.

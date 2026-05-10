@@ -1523,8 +1523,8 @@
       "depends_on": [
         "R-0023"
       ],
-      "scope": "A read-only drift check that runs against an installed repository and reports whether generated assets and preserved standards match what a fresh install would produce. Cover: drift in generated assets is reported; missing preserved standards are reported as drift; user-edited preserved standards are accepted as non-drift; the check leaves the repository unchanged.",
-      "boundary_with_neighbors": "R-0023 owns install. R-0026 owns upgrade (which may run drift internally before applying). This node is a read-only sibling \u2014 it only reports.",
+      "scope": "A read-only CLI drift check (`tanren-cli drift --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`) that runs against an installed repository and reports whether generated assets and preserved standards match what a fresh install would produce. The output contract is stable: line 1 includes `status=<ok|drift> command=drift` plus `clean`, `changed_generated`, `missing_generated`, `missing_preserved`, `accepted_preserved`, and `drift` counts; line 2 includes repo-relative `paths` lists for the same categories. Cover: clean repos return `status=ok command=drift` with `drift=0`; generated-asset drift is reported as `changed_generated`/`missing_generated`; missing preserved standards are reported as `missing_preserved`; user-edited preserved standards are accepted as non-drift under `accepted_preserved`; path lists are repo-relative; the check leaves the repository unchanged.",
+      "boundary_with_neighbors": "R-0023 owns mutating install/remediation. R-0026 owns mutating upgrade behavior (which may consume drift diagnostics internally). This node is read-only diagnostics only \u2014 it reports and exits non-zero on drift, but does not write.",
       "expected_evidence": [
         {
           "kind": "bdd",
@@ -1537,19 +1537,19 @@
             "falsification"
           ],
           "witness_command": "just tests",
-          "description": "Positive: against a freshly-installed repo, drift is reported as none. Positive: modify a generated asset; drift check reports drift. Positive: delete a preserved standard; drift check reports it as missing. Positive: edit a preserved standard manually; drift check reports it as accepted (not drift). Falsification: the drift check leaves no file modifications behind. Falsification: a missing generated asset is reported as drift even when a preserved standard is unchanged."
+          "description": "Positive: against a freshly-installed repo, drift reports `status=ok command=drift` with `drift=0` and zeroed drift counters. Positive: modify or delete a generated asset; drift reports `status=drift command=drift` with the repo-relative path in `changed_generated` or `missing_generated`. Positive: delete a preserved standard; drift reports `status=drift command=drift` with the path in `missing_preserved`. Positive: edit a preserved standard manually; drift reports `status=ok command=drift` with the path in `accepted_preserved`. Falsification: the drift check leaves no file modifications behind."
         }
       ],
       "playbook": [
-        "Fresh repo install. Run drift check; verify it reports no drift.",
-        "Modify a generated asset (e.g., edit a generated command file). Re-run drift; verify drift is reported with the offending path.",
-        "Delete a preserved standard. Re-run drift; verify it's reported as missing.",
-        "Edit a preserved standard. Re-run drift; verify it's accepted as non-drift.",
+        "Fresh repo install. Run `tanren-cli drift --profile rust-cargo`; verify `status=ok command=drift` with `drift=0`.",
+        "Modify or delete a generated asset. Re-run drift; verify `status=drift command=drift` and repo-relative path reporting in `changed_generated`/`missing_generated`.",
+        "Delete a preserved standard. Re-run drift; verify `status=drift command=drift` and repo-relative path reporting in `missing_preserved`.",
+        "Edit a preserved standard. Re-run drift; verify `status=ok command=drift` and repo-relative path reporting in `accepted_preserved`.",
         "After every check, run `git status`; verify the working tree is unchanged by the check itself."
       ],
       "rationale": "Drift is a CLI-only diagnostic. Distinct from install (mutating) and upgrade (mutating with preview). Worth its own spec because the read-only invariant is a security/safety property worth proving on its own.",
       "risks": [
-        "The drift check's notion of 'matching' is design-dependent (byte-identical? canonical-form-identical?). Settle during shaping."
+        "CLI output field names are part of the command contract; changing them requires synchronized doc, BDD, and consumer updates."
       ]
     },
     {
