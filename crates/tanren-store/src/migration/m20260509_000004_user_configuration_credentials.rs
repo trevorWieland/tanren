@@ -93,8 +93,8 @@ impl Migration {
                     .name("idx_user_config_values_account_updated_key")
                     .table(UserConfigValues::Table)
                     .col(UserConfigValues::AccountId)
-                    .col(UserConfigValues::UpdatedAt)
-                    .col(UserConfigValues::Key)
+                    .col((UserConfigValues::UpdatedAt, IndexOrder::Desc))
+                    .col((UserConfigValues::Key, IndexOrder::Asc))
                     .to_owned(),
             )
             .await
