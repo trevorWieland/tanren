@@ -30,6 +30,21 @@ pub struct ConnectProjectRepositoryCookieRequest {
     pub select_as_active: bool,
 }
 
+impl ConnectProjectRepositoryCookieRequest {
+    /// Build a full bearer-scoped request by injecting the session account.
+    #[must_use]
+    pub fn into_bearer_request(
+        self,
+        owning_account_id: AccountId,
+    ) -> ConnectProjectRepositoryRequest {
+        ConnectProjectRepositoryRequest {
+            owning_account_id,
+            repository: self.repository,
+            select_as_active: self.select_as_active,
+        }
+    }
+}
+
 /// Successful repository-connection response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ConnectProjectRepositoryResponse {
@@ -60,6 +75,19 @@ pub struct CreateProjectCookieRequest {
     pub designated_host: DesignatedHost,
     /// Whether the newly created project should be active immediately.
     pub select_as_active: bool,
+}
+
+impl CreateProjectCookieRequest {
+    /// Build a full bearer-scoped request by injecting the session account.
+    #[must_use]
+    pub fn into_bearer_request(self, owning_account_id: AccountId) -> CreateProjectRequest {
+        CreateProjectRequest {
+            owning_account_id,
+            repository: self.repository,
+            designated_host: self.designated_host,
+            select_as_active: self.select_as_active,
+        }
+    }
 }
 
 /// Successful project-creation response.
@@ -102,6 +130,17 @@ pub struct ListVisibleProjectsCookieRequest {
     pub page: ProjectPageRequest,
 }
 
+impl ListVisibleProjectsCookieRequest {
+    /// Build a full bearer-scoped request by injecting the session account.
+    #[must_use]
+    pub fn into_bearer_request(self, owning_account_id: AccountId) -> ListVisibleProjectsRequest {
+        ListVisibleProjectsRequest {
+            owning_account_id,
+            page: self.page,
+        }
+    }
+}
+
 /// Query request for reading active-project metadata.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ActiveProjectRequest {
@@ -113,6 +152,14 @@ pub struct ActiveProjectRequest {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
 #[serde(deny_unknown_fields)]
 pub struct ActiveProjectCookieRequest {}
+
+impl ActiveProjectCookieRequest {
+    /// Build a full bearer-scoped request by injecting the session account.
+    #[must_use]
+    pub fn into_bearer_request(self, owning_account_id: AccountId) -> ActiveProjectRequest {
+        ActiveProjectRequest { owning_account_id }
+    }
+}
 
 /// Active-project projection for an account.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]

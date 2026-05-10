@@ -268,14 +268,14 @@ async fn run_connect_repository(
         .connect_project_repository(
             &store,
             provider,
-            ConnectExistingRepositoryCommand {
+            ConnectExistingRepositoryCommand::new(
                 actor_account_id,
-                request: ConnectProjectRepositoryRequest {
+                ConnectProjectRepositoryRequest {
                     owning_account_id,
                     repository,
                     select_as_active,
                 },
-            },
+            ),
         )
         .await
         .map_err(project_error)
@@ -298,15 +298,15 @@ async fn run_create_project(
         .create_project(
             &store,
             provider,
-            CreateNewProjectCommand {
+            CreateNewProjectCommand::new(
                 actor_account_id,
-                request: CreateProjectRequest {
+                CreateProjectRequest {
                     owning_account_id,
                     repository,
                     designated_host,
                     select_as_active,
                 },
-            },
+            ),
         )
         .await
         .map_err(project_error)
@@ -324,13 +324,13 @@ async fn run_list_projects(
     handlers
         .list_visible_projects(
             &store,
-            ListVisibleProjectsQuery {
+            ListVisibleProjectsQuery::new(
                 actor_account_id,
-                request: ListVisibleProjectsRequest {
+                ListVisibleProjectsRequest {
                     owning_account_id,
                     page: ProjectPageRequest::default(),
                 },
-            },
+            ),
         )
         .await
         .map_err(project_error)
@@ -348,10 +348,7 @@ async fn run_active_project(
     handlers
         .active_project(
             &store,
-            ActiveProjectQuery {
-                actor_account_id,
-                request: ActiveProjectRequest { owning_account_id },
-            },
+            ActiveProjectQuery::new(actor_account_id, ActiveProjectRequest { owning_account_id }),
         )
         .await
         .map_err(project_error)

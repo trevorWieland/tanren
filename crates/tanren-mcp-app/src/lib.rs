@@ -171,10 +171,7 @@ impl TanrenMcp {
             .connect_project_repository(
                 self.store.as_ref(),
                 self.source_control.as_ref(),
-                ConnectExistingRepositoryCommand {
-                    actor_account_id,
-                    request,
-                },
+                ConnectExistingRepositoryCommand::new(actor_account_id, request),
             )
             .await
         {
@@ -202,10 +199,7 @@ impl TanrenMcp {
             .create_project(
                 self.store.as_ref(),
                 self.source_control.as_ref(),
-                CreateNewProjectCommand {
-                    actor_account_id,
-                    request,
-                },
+                CreateNewProjectCommand::new(actor_account_id, request),
             )
             .await
         {
@@ -232,10 +226,7 @@ impl TanrenMcp {
             .handlers
             .list_visible_projects(
                 self.store.as_ref(),
-                ListVisibleProjectsQuery {
-                    actor_account_id,
-                    request,
-                },
+                ListVisibleProjectsQuery::new(actor_account_id, request),
             )
             .await
         {
@@ -262,10 +253,7 @@ impl TanrenMcp {
             .handlers
             .active_project(
                 self.store.as_ref(),
-                ActiveProjectQuery {
-                    actor_account_id,
-                    request,
-                },
+                ActiveProjectQuery::new(actor_account_id, request),
             )
             .await
         {

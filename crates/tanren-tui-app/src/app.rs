@@ -295,10 +295,7 @@ impl App {
             .block_on(self.handlers.connect_project_repository(
                 store,
                 self.source_control.as_ref(),
-                ConnectExistingRepositoryCommand {
-                    actor_account_id,
-                    request,
-                },
+                ConnectExistingRepositoryCommand::new(actor_account_id, request),
             )) {
             Ok(response) => self.screen = Screen::Outcome(connect_repository_outcome(&response)),
             Err(reason) => {
@@ -326,10 +323,7 @@ impl App {
         match self.runtime.block_on(self.handlers.create_project(
             store,
             self.source_control.as_ref(),
-            CreateNewProjectCommand {
-                actor_account_id,
-                request,
-            },
+            CreateNewProjectCommand::new(actor_account_id, request),
         )) {
             Ok(response) => self.screen = Screen::Outcome(create_project_outcome(&response)),
             Err(reason) => {
@@ -356,10 +350,7 @@ impl App {
         };
         match self.runtime.block_on(self.handlers.list_visible_projects(
             store,
-            ListVisibleProjectsQuery {
-                actor_account_id,
-                request,
-            },
+            ListVisibleProjectsQuery::new(actor_account_id, request),
         )) {
             Ok(response) => self.screen = Screen::Outcome(list_projects_outcome(&response)),
             Err(reason) => {
@@ -384,13 +375,10 @@ impl App {
             Ok(actor_account_id) => actor_account_id,
             Err(message) => return self.set_form_error(FormKind::ActiveProject, message),
         };
-        match self.runtime.block_on(self.handlers.active_project(
-            store,
-            ActiveProjectQuery {
-                actor_account_id,
-                request,
-            },
-        )) {
+        match self.runtime.block_on(
+            self.handlers
+                .active_project(store, ActiveProjectQuery::new(actor_account_id, request)),
+        ) {
             Ok(response) => self.screen = Screen::Outcome(active_project_outcome(&response)),
             Err(reason) => {
                 self.set_form_error(FormKind::ActiveProject, render_project_error(reason));

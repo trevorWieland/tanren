@@ -19,11 +19,9 @@ use tanren_app_services::project::{
 };
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureCode, AccountView, ActiveProjectCookieRequest,
-    ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryCookieRequest,
-    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CookieSessionEnvelope,
-    CreateProjectCookieRequest, CreateProjectRequest, CreateProjectResponse,
-    ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest, ProjectCollectionView,
-    SignInRequest, SignUpRequest,
+    ActiveProjectView, ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryResponse,
+    CookieSessionEnvelope, CreateProjectCookieRequest, CreateProjectResponse,
+    ListVisibleProjectsCookieRequest, ProjectCollectionView, SignInRequest, SignUpRequest,
 };
 use tanren_contract::{AccountFailureBody, ProjectFailureBody};
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
@@ -301,14 +299,10 @@ pub(crate) async fn connect_project_repository_route(
         .connect_project_repository(
             state.store.as_ref(),
             state.source_control.as_ref(),
-            ConnectExistingRepositoryCommand {
+            ConnectExistingRepositoryCommand::new(
                 actor_account_id,
-                request: ConnectProjectRepositoryRequest {
-                    owning_account_id: actor_account_id,
-                    repository: request.repository,
-                    select_as_active: request.select_as_active,
-                },
-            },
+                request.into_bearer_request(actor_account_id),
+            ),
         )
         .await
     {
@@ -349,15 +343,10 @@ pub(crate) async fn create_project_route(
         .create_project(
             state.store.as_ref(),
             state.source_control.as_ref(),
-            CreateNewProjectCommand {
+            CreateNewProjectCommand::new(
                 actor_account_id,
-                request: CreateProjectRequest {
-                    owning_account_id: actor_account_id,
-                    repository: request.repository,
-                    designated_host: request.designated_host,
-                    select_as_active: request.select_as_active,
-                },
-            },
+                request.into_bearer_request(actor_account_id),
+            ),
         )
         .await
     {
@@ -392,13 +381,10 @@ pub(crate) async fn list_visible_projects_route(
         .handlers
         .list_visible_projects(
             state.store.as_ref(),
-            ListVisibleProjectsQuery {
+            ListVisibleProjectsQuery::new(
                 actor_account_id,
-                request: ListVisibleProjectsRequest {
-                    owning_account_id: actor_account_id,
-                    page: request.page,
-                },
-            },
+                request.into_bearer_request(actor_account_id),
+            ),
         )
         .await
     {
@@ -423,7 +409,7 @@ pub(crate) async fn list_visible_projects_route(
 pub(crate) async fn active_project_route(
     State(state): State<AppState>,
     session: Session,
-    ProjectValidatedJson(_request): ProjectValidatedJson<ActiveProjectCookieRequest>,
+    ProjectValidatedJson(request): ProjectValidatedJson<ActiveProjectCookieRequest>,
 ) -> Response {
     let actor_account_id = match session_actor_account_id(&session).await {
         Ok(id) => id,
@@ -433,12 +419,10 @@ pub(crate) async fn active_project_route(
         .handlers
         .active_project(
             state.store.as_ref(),
-            ActiveProjectQuery {
+            ActiveProjectQuery::new(
                 actor_account_id,
-                request: ActiveProjectRequest {
-                    owning_account_id: actor_account_id,
-                },
-            },
+                request.into_bearer_request(actor_account_id),
+            ),
         )
         .await
     {

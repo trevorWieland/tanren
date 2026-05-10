@@ -34,6 +34,17 @@ pub struct ConnectExistingRepositoryCommand {
     pub request: ConnectProjectRepositoryRequest,
 }
 
+impl ConnectExistingRepositoryCommand {
+    /// Build a command envelope from an authenticated actor and a request.
+    #[must_use]
+    pub fn new(actor_account_id: AccountId, request: ConnectProjectRepositoryRequest) -> Self {
+        Self {
+            actor_account_id,
+            request,
+        }
+    }
+}
+
 /// Command envelope for creating a new project repository.
 #[derive(Debug, Clone)]
 pub struct CreateNewProjectCommand {
@@ -41,6 +52,17 @@ pub struct CreateNewProjectCommand {
     pub actor_account_id: AccountId,
     /// Command payload.
     pub request: CreateProjectRequest,
+}
+
+impl CreateNewProjectCommand {
+    /// Build a command envelope from an authenticated actor and a request.
+    #[must_use]
+    pub fn new(actor_account_id: AccountId, request: CreateProjectRequest) -> Self {
+        Self {
+            actor_account_id,
+            request,
+        }
+    }
 }
 
 /// Query envelope for listing visible projects.
@@ -52,6 +74,17 @@ pub struct ListVisibleProjectsQuery {
     pub request: ListVisibleProjectsRequest,
 }
 
+impl ListVisibleProjectsQuery {
+    /// Build a query envelope from an authenticated actor and a request.
+    #[must_use]
+    pub fn new(actor_account_id: AccountId, request: ListVisibleProjectsRequest) -> Self {
+        Self {
+            actor_account_id,
+            request,
+        }
+    }
+}
+
 /// Query envelope for reading active-project metadata.
 #[derive(Debug, Clone)]
 pub struct ActiveProjectQuery {
@@ -59,6 +92,17 @@ pub struct ActiveProjectQuery {
     pub actor_account_id: AccountId,
     /// Query payload.
     pub request: ActiveProjectRequest,
+}
+
+impl ActiveProjectQuery {
+    /// Build a query envelope from an authenticated actor and a request.
+    #[must_use]
+    pub fn new(actor_account_id: AccountId, request: ActiveProjectRequest) -> Self {
+        Self {
+            actor_account_id,
+            request,
+        }
+    }
 }
 
 pub(crate) async fn connect_existing_repository<S, P>(
