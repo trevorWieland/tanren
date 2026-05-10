@@ -246,9 +246,7 @@ async fn then_second_account_active(world: &mut TanrenWorld, actor: String, surf
     );
 }
 
-#[then(
-    expr = "{word} sees personal and organization availability separated by account via the {word}"
-)]
+#[then(expr = "{word} sees project availability scoped to the selected account via the {word}")]
 async fn then_org_visibility_changes(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
     let ctx = world.ensure_account_ctx().await;
@@ -284,6 +282,14 @@ async fn then_org_visibility_changes(world: &mut TanrenWorld, actor: String, sur
         .iter()
         .find(|entry| entry.account.id == second_account_id)
         .expect("second account must be visible");
+    assert!(
+        second.is_active,
+        "second account should own the active availability scope after switching"
+    );
+    assert!(
+        !first.is_active,
+        "first account should not stay active after switching to second"
+    );
     assert!(
         first.account.org.is_none(),
         "first account should be personal/no-org"

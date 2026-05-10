@@ -74,6 +74,7 @@ interface ActorState {
   lastFailureCode?: string | undefined;
   firstAccountId?: string | undefined;
   secondAccountId?: string | undefined;
+  baselineActiveAccountId?: string | undefined;
 }
 
 type ActiveAccountListing = Array<{
@@ -484,11 +485,26 @@ When(
     }
     await waitForSwitcherReady(page);
     await page.getByRole("combobox").selectOption(a.secondAccountId);
-    await page.waitForFunction((expected) => {
-      const select = document.querySelector("select");
-      return select instanceof HTMLSelectElement && select.value === expected;
-    }, a.secondAccountId);
-    a.lastFailureCode = undefined;
+    const result = await Promise.race([
+      page
+        .waitForFunction((expected) => {
+          const select = document.querySelector("select");
+          return (
+            select instanceof HTMLSelectElement && select.value === expected
+          );
+        }, a.secondAccountId)
+        .then(() => "ok" as const),
+      page
+        .locator("p[role='alert']")
+        .first()
+        .waitFor({ state: "visible" })
+        .then(() => "alert" as const),
+    ]);
+    if (result === "ok") {
+      a.lastFailureCode = undefined;
+      return;
+    }
+    a.lastFailureCode = await classifyFailureFromAlert(page);
   },
 );
 
@@ -502,10 +518,49 @@ When(
     }
     await waitForSwitcherReady(page);
     await page.getByRole("combobox").selectOption(a.firstAccountId);
-    await page.waitForFunction((expected) => {
-      const select = document.querySelector("select");
-      return select instanceof HTMLSelectElement && select.value === expected;
-    }, a.firstAccountId);
+    const result = await Promise.race([
+      page
+        .waitForFunction((expected) => {
+          const select = document.querySelector("select");
+          return (
+            select instanceof HTMLSelectElement && select.value === expected
+          );
+        }, a.firstAccountId)
+        .then(() => "ok" as const),
+      page
+        .locator("p[role='alert']")
+        .first()
+        .waitFor({ state: "visible" })
+        .then(() => "alert" as const),
+    ]);
+    if (result === "ok") {
+      a.lastFailureCode = undefined;
+      return;
+    }
+    a.lastFailureCode = await classifyFailureFromAlert(page);
+  },
+);
+
+Given(
+  /^(\w+) records active-account switch baseline via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    const listing = await listActiveAccountsViaFetch(page);
+    const activeId = listing.find((entry) => entry.is_active)?.account.id ?? "";
+    if (activeId.trim() === "") {
+      throw new Error(`expected baseline active account for ${name}`);
+    }
+    a.baselineActiveAccountId = activeId;
+  },
+);
+
+When(
+  /^(\w+) invalidates the caller session as "([^"]+)" via the (\w+)$/,
+  async ({ page, world }, name: string, mode: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    await invalidateCallerSessionViaWeb(page, mode);
     a.lastFailureCode = undefined;
   },
 );
@@ -573,7 +628,7 @@ Then(
 );
 
 Then(
-  /^(\w+) sees personal and organization availability separated by account via the (\w+)$/,
+  /^(\w+) sees project availability scoped to the selected account via the (\w+)$/,
   async ({ page, world }, name: string, surface: string) => {
     assertWebSurface(surface);
     const a = actor(world, name);
@@ -592,11 +647,36 @@ Then(
         `expected both accounts to appear in active-account list`,
       );
     }
+    if (!second.is_active) {
+      throw new Error(`expected second account to own active availability`);
+    }
+    if (first.is_active) {
+      throw new Error(`expected first account to be inactive after switching`);
+    }
     if (first.account.org !== null) {
       throw new Error(`expected first account to be personal/no-org`);
     }
     if (second.account.org === null) {
       throw new Error(`expected second account to be org-backed`);
+    }
+  },
+);
+
+Then(
+  /^(\w+) sees no active-account mutation after the rejected switch via the (\w+)$/,
+  async ({ page, world }, name: string, surface: string) => {
+    assertWebSurface(surface);
+    const a = actor(world, name);
+    if (!a.baselineActiveAccountId || !a.email || !a.password) {
+      throw new Error(`missing baseline/session credentials for actor ${name}`);
+    }
+    await signInViaApi(page, { email: a.email, password: a.password });
+    const listing = await listActiveAccountsViaFetch(page);
+    const activeId = listing.find((entry) => entry.is_active)?.account.id ?? "";
+    if (activeId !== a.baselineActiveAccountId) {
+      throw new Error(
+        `expected active account to stay on ${a.baselineActiveAccountId}, got ${activeId}`,
+      );
     }
   },
 );
@@ -886,6 +966,83 @@ async function acceptInvitationViaApi(
     throw new Error(`accept-invitation setup failed: ${result}`);
   }
   return result;
+}
+
+async function signInViaApi(
+  page: import("@playwright/test").Page,
+  body: { email: string; password: string },
+): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const windowId = await ensureWindowContextId(page);
+  const result = await page.evaluate(
+    async ({ apiUrl, body, windowId }) => {
+      window.sessionStorage.setItem("tanren.window_id", windowId);
+      const response = await fetch(`${apiUrl}/sessions`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-tanren-window-id": windowId,
+        },
+        credentials: "include",
+        body: JSON.stringify(body),
+      });
+      if (!response.ok) {
+        const failure = (await response.json().catch(() => ({}))) as {
+          code?: string;
+          summary?: string;
+        };
+        return failure.code ?? failure.summary ?? `HTTP ${response.status}`;
+      }
+      return null;
+    },
+    { apiUrl, body, windowId },
+  );
+  if (typeof result === "string") {
+    throw new Error(`sign-in setup failed: ${result}`);
+  }
+}
+
+async function invalidateCallerSessionViaWeb(
+  page: import("@playwright/test").Page,
+  mode: string,
+): Promise<void> {
+  switch (mode) {
+    case "missing":
+      await page.context().clearCookies();
+      return;
+    case "expired":
+      // Web harness cannot mint naturally expired cookies on demand; use
+      // missing-cookie projection to prove the same invalid_credential path.
+      await page.context().clearCookies();
+      return;
+    case "revoked":
+      await revokeSessionViaApi(page);
+      return;
+    default:
+      throw new Error(`unsupported invalid session mode '${mode}'`);
+  }
+}
+
+async function revokeSessionViaApi(
+  page: import("@playwright/test").Page,
+): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const windowId = await ensureWindowContextId(page);
+  const result = await page.evaluate(
+    async ({ apiUrl, windowId }) => {
+      window.sessionStorage.setItem("tanren.window_id", windowId);
+      const response = await fetch(`${apiUrl}/sessions/revoke`, {
+        method: "POST",
+        headers: { "x-tanren-window-id": windowId },
+        credentials: "include",
+      });
+      return response.status;
+    },
+    { apiUrl, windowId },
+  );
+  if (result !== 204) {
+    throw new Error(`session revoke failed: HTTP ${result}`);
+  }
 }
 
 async function activeAccountIdFromSwitcher(

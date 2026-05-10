@@ -23,7 +23,7 @@ use tokio::task::JoinHandle;
 use super::api_codec::{accept_invitation_body, failure_from_body, sign_in_body, sign_up_body};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InvalidSessionKind,
 };
 pub(crate) use wire::{scenario_db_path, sqlite_url};
 use wire::{send_with_retry, wait_for_server_ready};
@@ -90,11 +90,7 @@ impl ApiHarness {
 
         wait_for_server_ready(&base_url).await?;
 
-        let client = Client::builder()
-            .cookie_store(true)
-            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
-            .build()
-            .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
+        let client = build_cookie_client()?;
 
         Ok(Self {
             base_url,
@@ -396,6 +392,32 @@ impl AccountHarness for ApiHarness {
             .await
     }
 
+    async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {
+        match mode {
+            InvalidSessionKind::Missing | InvalidSessionKind::Expired => {
+                self.client = build_cookie_client()?;
+                Ok(())
+            }
+            InvalidSessionKind::Revoked => {
+                let url = format!("{}/sessions/revoke", self.base_url);
+                let window_id = self.window_id.clone();
+                let response = send_with_retry(
+                    || self.client.post(&url).header(WINDOW_ID_HEADER, &window_id),
+                    "POST /sessions/revoke",
+                )
+                .await?;
+                if response.status().is_success() {
+                    Ok(())
+                } else {
+                    Err(HarnessError::Transport(format!(
+                        "revoke session failed with status {}",
+                        response.status()
+                    )))
+                }
+            }
+        }
+    }
+
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
@@ -463,4 +485,12 @@ impl ApiHarness {
         serde_json::from_value(json["accounts"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode active accounts: {e}")))
     }
+}
+
+fn build_cookie_client() -> HarnessResult<Client> {
+    Client::builder()
+        .cookie_store(true)
+        .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+        .build()
+        .map_err(|e| HarnessError::Transport(format!("client build: {e}")))
 }

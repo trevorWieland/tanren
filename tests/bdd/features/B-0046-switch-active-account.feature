@@ -14,7 +14,7 @@ Feature: Switch the active account
       Given alice holds two signed-in accounts via the api
       When alice switches the active account to the second account via the api
       Then alice sees the second account as active via the api
-      And alice sees personal and organization availability separated by account via the api
+      And alice sees project availability scoped to the selected account via the api
       When alice switches the active account back to the first account via the api
       Then alice sees the first account as active without re-authentication via the api
       And a "active_account_switched" event is recorded
@@ -32,6 +32,33 @@ Feature: Switch the active account
       When alice switches the active account to an unsigned account via the api
       Then the request fails with code "target_account_not_signed_in"
       And a "active_account_switch_rejected" event is recorded
+
+    @falsification @api
+    Scenario: API rejects switching with a missing caller session
+      Given alice holds two signed-in accounts via the api
+      And alice records active-account switch baseline via the api
+      And alice invalidates the caller session as "missing" via the api
+      When alice switches the active account to the second account via the api
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the api
+
+    @falsification @api
+    Scenario: API rejects switching with an expired caller session
+      Given alice holds two signed-in accounts via the api
+      And alice records active-account switch baseline via the api
+      And alice invalidates the caller session as "expired" via the api
+      When alice switches the active account to the second account via the api
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the api
+
+    @falsification @api
+    Scenario: API rejects switching with a revoked caller session
+      Given alice holds two signed-in accounts via the api
+      And alice records active-account switch baseline via the api
+      And alice invalidates the caller session as "revoked" via the api
+      When alice switches the active account to the second account via the api
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the api
 
     @falsification @api
     Scenario: API rejects non-UUID window ids without mutating active state
@@ -54,7 +81,7 @@ Feature: Switch the active account
       Given alice holds two signed-in accounts via the web
       When alice switches the active account to the second account via the web
       Then alice sees the second account as active via the web
-      And alice sees personal and organization availability separated by account via the web
+      And alice sees project availability scoped to the selected account via the web
       When alice switches the active account back to the first account via the web
       Then alice sees the first account as active without re-authentication via the web
 
@@ -70,6 +97,33 @@ Feature: Switch the active account
       Given alice holds one signed-in account via the web
       When alice switches the active account to an unsigned account via the web
       Then the request fails with code "target_account_not_signed_in"
+
+    @falsification @web
+    Scenario: Web rejects switching with a missing caller session
+      Given alice holds two signed-in accounts via the web
+      And alice records active-account switch baseline via the web
+      And alice invalidates the caller session as "missing" via the web
+      When alice switches the active account to the second account via the web
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the web
+
+    @falsification @web
+    Scenario: Web rejects switching with an expired caller session
+      Given alice holds two signed-in accounts via the web
+      And alice records active-account switch baseline via the web
+      And alice invalidates the caller session as "expired" via the web
+      When alice switches the active account to the second account via the web
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the web
+
+    @falsification @web
+    Scenario: Web rejects switching with a revoked caller session
+      Given alice holds two signed-in accounts via the web
+      And alice records active-account switch baseline via the web
+      And alice invalidates the caller session as "revoked" via the web
+      When alice switches the active account to the second account via the web
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the web
 
     @falsification @web
     Scenario: Web rejects non-UUID window ids without mutating active state
@@ -92,7 +146,7 @@ Feature: Switch the active account
       Given alice holds two signed-in accounts via the cli
       When alice switches the active account to the second account via the cli
       Then alice sees the second account as active via the cli
-      And alice sees personal and organization availability separated by account via the cli
+      And alice sees project availability scoped to the selected account via the cli
       When alice switches the active account back to the first account via the cli
       Then alice sees the first account as active without re-authentication via the cli
 
@@ -110,6 +164,33 @@ Feature: Switch the active account
       Then the request fails with code "target_account_not_signed_in"
 
     @falsification @cli
+    Scenario: CLI rejects switching with a missing caller session
+      Given alice holds two signed-in accounts via the cli
+      And alice records active-account switch baseline via the cli
+      And alice invalidates the caller session as "missing" via the cli
+      When alice switches the active account to the second account via the cli
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the cli
+
+    @falsification @cli
+    Scenario: CLI rejects switching with an expired caller session
+      Given alice holds two signed-in accounts via the cli
+      And alice records active-account switch baseline via the cli
+      And alice invalidates the caller session as "expired" via the cli
+      When alice switches the active account to the second account via the cli
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the cli
+
+    @falsification @cli
+    Scenario: CLI rejects switching with a revoked caller session
+      Given alice holds two signed-in accounts via the cli
+      And alice records active-account switch baseline via the cli
+      And alice invalidates the caller session as "revoked" via the cli
+      When alice switches the active account to the second account via the cli
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the cli
+
+    @falsification @cli
     Scenario: CLI switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the cli
       When alice switches the active account to the first account in window "33333333-3333-4333-8333-33333333333a" via the cli
@@ -123,7 +204,7 @@ Feature: Switch the active account
       Given alice holds two signed-in accounts via the mcp
       When alice switches the active account to the second account via the mcp
       Then alice sees the second account as active via the mcp
-      And alice sees personal and organization availability separated by account via the mcp
+      And alice sees project availability scoped to the selected account via the mcp
       When alice switches the active account back to the first account via the mcp
       Then alice sees the first account as active without re-authentication via the mcp
 
@@ -141,6 +222,33 @@ Feature: Switch the active account
       Then the request fails with code "target_account_not_signed_in"
 
     @falsification @mcp
+    Scenario: MCP rejects switching with a missing caller session
+      Given alice holds two signed-in accounts via the mcp
+      And alice records active-account switch baseline via the mcp
+      And alice invalidates the caller session as "missing" via the mcp
+      When alice switches the active account to the second account via the mcp
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the mcp
+
+    @falsification @mcp
+    Scenario: MCP rejects switching with an expired caller session
+      Given alice holds two signed-in accounts via the mcp
+      And alice records active-account switch baseline via the mcp
+      And alice invalidates the caller session as "expired" via the mcp
+      When alice switches the active account to the second account via the mcp
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the mcp
+
+    @falsification @mcp
+    Scenario: MCP rejects switching with a revoked caller session
+      Given alice holds two signed-in accounts via the mcp
+      And alice records active-account switch baseline via the mcp
+      And alice invalidates the caller session as "revoked" via the mcp
+      When alice switches the active account to the second account via the mcp
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the mcp
+
+    @falsification @mcp
     Scenario: MCP switch in one window does not leak into another window
       Given alice holds two signed-in accounts via the mcp
       When alice switches the active account to the first account in window "44444444-4444-4444-8444-44444444444a" via the mcp
@@ -154,7 +262,7 @@ Feature: Switch the active account
       Given alice holds two signed-in accounts via the tui
       When alice switches the active account to the second account via the tui
       Then alice sees the second account as active via the tui
-      And alice sees personal and organization availability separated by account via the tui
+      And alice sees project availability scoped to the selected account via the tui
       When alice switches the active account back to the first account via the tui
       Then alice sees the first account as active without re-authentication via the tui
 
@@ -170,6 +278,33 @@ Feature: Switch the active account
       Given alice holds one signed-in account via the tui
       When alice switches the active account to an unsigned account via the tui
       Then the request fails with code "target_account_not_signed_in"
+
+    @falsification @tui
+    Scenario: TUI rejects switching with a missing caller session
+      Given alice holds two signed-in accounts via the tui
+      And alice records active-account switch baseline via the tui
+      And alice invalidates the caller session as "missing" via the tui
+      When alice switches the active account to the second account via the tui
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the tui
+
+    @falsification @tui
+    Scenario: TUI rejects switching with an expired caller session
+      Given alice holds two signed-in accounts via the tui
+      And alice records active-account switch baseline via the tui
+      And alice invalidates the caller session as "expired" via the tui
+      When alice switches the active account to the second account via the tui
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the tui
+
+    @falsification @tui
+    Scenario: TUI rejects switching with a revoked caller session
+      Given alice holds two signed-in accounts via the tui
+      And alice records active-account switch baseline via the tui
+      And alice invalidates the caller session as "revoked" via the tui
+      When alice switches the active account to the second account via the tui
+      Then the request fails with code "invalid_credential"
+      And alice sees no active-account mutation after the rejected switch via the tui
 
     @falsification @tui
     Scenario: TUI switch in one window does not leak into another window

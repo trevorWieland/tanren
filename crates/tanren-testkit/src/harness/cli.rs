@@ -7,6 +7,7 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
+use std::collections::BTreeMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
@@ -15,11 +16,12 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
+use serde::{Deserialize, Serialize};
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest, SignedInAccountView,
 };
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_identity_policy::{AccountId, Identifier, OrgId, SessionToken};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -28,7 +30,7 @@ use super::api::{scenario_db_path, sqlite_url};
 use super::api_codec::code_to_reason;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InvalidSessionKind,
 };
 
 /// `@cli` wire harness.
@@ -291,6 +293,81 @@ impl AccountHarness for CliHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {
+        match mode {
+            InvalidSessionKind::Missing => {
+                let _ = std::fs::remove_file(&self.session_file);
+                Ok(())
+            }
+            InvalidSessionKind::Expired => {
+                let mut session = read_cli_session_file(&self.session_file)?;
+                let now = Utc::now();
+                for entry in &mut session.signed_in {
+                    let expired_token = SessionToken::generate();
+                    self.store
+                        .insert_session(
+                            expired_token.clone(),
+                            entry.account_id,
+                            now - Duration::days(2),
+                            now - Duration::days(1),
+                        )
+                        .await
+                        .map_err(|e| {
+                            HarnessError::Transport(format!("insert expired session: {e}"))
+                        })?;
+                    entry.token = expired_token;
+                }
+                write_cli_session_file(&self.session_file, &session)?;
+                Ok(())
+            }
+            InvalidSessionKind::Revoked => {
+                let mut session = read_cli_session_file(&self.session_file)?;
+                for entry in &mut session.signed_in {
+                    entry.token = SessionToken::generate();
+                }
+                write_cli_session_file(&self.session_file, &session)?;
+                Ok(())
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+struct CliSessionFile {
+    #[serde(default = "session_file_version")]
+    version: u32,
+    #[serde(default)]
+    signed_in: Vec<CliSignedInSession>,
+    #[serde(default)]
+    active_account_by_window: BTreeMap<String, AccountId>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct CliSignedInSession {
+    account_id: AccountId,
+    token: SessionToken,
+}
+
+fn session_file_version() -> u32 {
+    1
+}
+
+fn read_cli_session_file(path: &std::path::Path) -> HarnessResult<CliSessionFile> {
+    if !path.exists() {
+        return Ok(CliSessionFile::default());
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| HarnessError::Transport(format!("read session file: {e}")))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| HarnessError::Transport(format!("decode session file: {e}")))
+}
+
+fn write_cli_session_file(path: &std::path::Path, session: &CliSessionFile) -> HarnessResult<()> {
+    let raw = serde_json::to_string_pretty(session)
+        .map_err(|e| HarnessError::Transport(format!("encode session file: {e}")))?;
+    std::fs::write(path, raw)
+        .map_err(|e| HarnessError::Transport(format!("write session file: {e}")))
 }
 
 fn decode_active_accounts(stdout: &[u8]) -> HarnessResult<Vec<SignedInAccountView>> {

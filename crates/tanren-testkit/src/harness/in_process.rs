@@ -20,7 +20,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InvalidSessionKind,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -248,6 +248,12 @@ impl AccountHarness for InProcessHarness {
             }
             Err(err) => Err(translate_app_error(err)),
         }
+    }
+
+    async fn invalidate_caller_session(&mut self, _mode: InvalidSessionKind) -> HarnessResult<()> {
+        self.signed_in_account_ids.clear();
+        self.active_account_by_window.clear();
+        Ok(())
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {

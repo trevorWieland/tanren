@@ -20,7 +20,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
     SignedInAccountView, SwitchActiveAccountRequest,
 };
-use tanren_identity_policy::AccountId;
+use tanren_identity_policy::{AccountId, SessionToken};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -29,7 +29,7 @@ use super::api::{scenario_db_path, sqlite_url};
 use super::api_codec::code_to_reason;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InvalidSessionKind,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -39,8 +39,10 @@ const DEFAULT_WINDOW_KEY: &str = "_default";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    endpoint: String,
     clients: HashMap<String, RunningService<RoleClient, ClientInfo>>,
     active_account_by_window: HashMap<String, AccountId>,
+    session_tokens_by_account: HashMap<AccountId, SessionToken>,
     server: Option<JoinHandle<()>>,
 }
 
@@ -89,15 +91,18 @@ impl McpHarness {
                 .await;
         });
 
-        let client = Self::connect_client(&format!("http://{local_addr}/mcp")).await?;
+        let endpoint = format!("http://{local_addr}/mcp");
+        let client = Self::connect_client(&endpoint).await?;
         let mut clients = HashMap::new();
         clients.insert(DEFAULT_WINDOW_KEY.to_owned(), client);
 
         Ok(Self {
             store,
             db_path,
+            endpoint,
             clients,
             active_account_by_window: HashMap::new(),
+            session_tokens_by_account: HashMap::new(),
             server: Some(server),
         })
     }
@@ -178,6 +183,9 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.create", body).await?;
         let session = decode_session(&payload)?;
+        let token = decode_session_token(&payload)?;
+        self.session_tokens_by_account
+            .insert(session.account_id, token);
         self.active_account_by_window
             .insert(DEFAULT_WINDOW_KEY.to_owned(), session.account_id);
         Ok(session)
@@ -190,6 +198,9 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.sign_in", body).await?;
         let session = decode_session(&payload)?;
+        let token = decode_session_token(&payload)?;
+        self.session_tokens_by_account
+            .insert(session.account_id, token);
         self.active_account_by_window
             .insert(DEFAULT_WINDOW_KEY.to_owned(), session.account_id);
         Ok(session)
@@ -207,6 +218,9 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        let token = decode_session_token(&payload)?;
+        self.session_tokens_by_account
+            .insert(session.account_id, token);
         self.active_account_by_window
             .insert(DEFAULT_WINDOW_KEY.to_owned(), session.account_id);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
@@ -293,6 +307,16 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {
+        let _ = mode;
+        let client = Self::connect_client(&self.endpoint).await?;
+        self.clients.clear();
+        self.clients.insert(DEFAULT_WINDOW_KEY.to_owned(), client);
+        self.active_account_by_window.clear();
+        self.session_tokens_by_account.clear();
+        Ok(())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {
@@ -321,6 +345,15 @@ fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
         expires_at,
         has_token: token_present,
     })
+}
+
+fn decode_session_token(payload: &Value) -> HarnessResult<SessionToken> {
+    let raw = payload["session"]["token"]
+        .as_str()
+        .ok_or_else(|| HarnessError::Transport("missing session.token".to_owned()))?;
+    Ok(SessionToken::from_secret(SecretString::from(
+        raw.to_owned(),
+    )))
 }
 
 fn failure_from_payload(payload: &Value) -> HarnessError {

@@ -32,7 +32,7 @@ use uuid::Uuid;
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InvalidSessionKind,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -114,6 +114,10 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {
+        self.inner.invalidate_caller_session(mode).await
     }
 }
 

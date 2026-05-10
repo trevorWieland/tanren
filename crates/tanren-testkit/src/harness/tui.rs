@@ -11,7 +11,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
     SignedInAccountView,
 };
-use tanren_identity_policy::{AccountId, Identifier};
+use tanren_identity_policy::{AccountId, Identifier, SessionToken};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation, Store};
 
 use self::driver::{
@@ -23,7 +23,7 @@ use super::api_codec::code_to_reason;
 use super::cli::locate_workspace_binary;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, InvalidSessionKind,
 };
 
 mod driver;
@@ -407,6 +407,44 @@ impl AccountHarness for TuiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {
+        match mode {
+            InvalidSessionKind::Missing => {
+                let _ = std::fs::remove_file(&self.session_file);
+                Ok(())
+            }
+            InvalidSessionKind::Expired => {
+                let mut session = read_tui_session_file(&self.session_file)?;
+                let now = Utc::now();
+                for entry in &mut session.signed_in {
+                    let expired_token = SessionToken::generate();
+                    self.store
+                        .insert_session(
+                            expired_token.clone(),
+                            entry.account_id,
+                            now - Duration::days(2),
+                            now - Duration::days(1),
+                        )
+                        .await
+                        .map_err(|e| {
+                            HarnessError::Transport(format!("insert expired session: {e}"))
+                        })?;
+                    entry.token = expired_token;
+                }
+                write_tui_session_file(&self.session_file, &session)?;
+                Ok(())
+            }
+            InvalidSessionKind::Revoked => {
+                let mut session = read_tui_session_file(&self.session_file)?;
+                for entry in &mut session.signed_in {
+                    entry.token = SessionToken::generate();
+                }
+                write_tui_session_file(&self.session_file, &session)?;
+                Ok(())
+            }
+        }
+    }
 }
 
 fn marker(active: bool) -> &'static str {
@@ -419,4 +457,21 @@ fn classify_account_failure(code: &str) -> HarnessError {
     } else {
         HarnessError::Transport(format!("unrecognized tui failure code: {code}"))
     }
+}
+
+fn read_tui_session_file(path: &std::path::Path) -> HarnessResult<TuiSessionFile> {
+    if !path.exists() {
+        return Ok(TuiSessionFile::default());
+    }
+    let raw = std::fs::read_to_string(path)
+        .map_err(|e| HarnessError::Transport(format!("read session file: {e}")))?;
+    serde_json::from_str(&raw)
+        .map_err(|e| HarnessError::Transport(format!("decode session file: {e}")))
+}
+
+fn write_tui_session_file(path: &std::path::Path, session: &TuiSessionFile) -> HarnessResult<()> {
+    let raw = serde_json::to_string_pretty(session)
+        .map_err(|e| HarnessError::Transport(format!("encode session file: {e}")))?;
+    std::fs::write(path, raw)
+        .map_err(|e| HarnessError::Transport(format!("write session file: {e}")))
 }

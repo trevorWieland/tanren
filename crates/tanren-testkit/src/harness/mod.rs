@@ -91,6 +91,18 @@ pub enum HarnessKind {
     Web,
 }
 
+/// Invalid caller-session state injected by BDD harnesses to prove
+/// missing/expired/revoked active-account rejection behavior.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum InvalidSessionKind {
+    /// No usable caller session is present.
+    Missing,
+    /// Caller session material exists but should validate as expired.
+    Expired,
+    /// Caller session material exists but should validate as revoked.
+    Revoked,
+}
+
 impl HarnessKind {
     /// Map the cucumber scenario tags onto the harness to instantiate.
     /// The closed allowlist of interface tags is the single source of
@@ -269,6 +281,13 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         self.switch_active_account(target_account_id).await
     }
 
+    /// Inject an invalid caller-session mode for subsequent
+    /// active-account list/switch calls.
+    async fn invalidate_caller_session(&mut self, mode: InvalidSessionKind) -> HarnessResult<()> {
+        let _ = mode;
+        Ok(())
+    }
+
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
 }
@@ -300,6 +319,9 @@ pub struct ActorState {
     pub accept_invitation: Option<HarnessAcceptance>,
     /// Last failure (taxonomy code), if any.
     pub last_failure: Option<AccountFailureReason>,
+    /// Baseline `active_account_switched` event count captured before an
+    /// invalid-session switch attempt.
+    pub active_account_switched_event_count_before: Option<usize>,
 }
 
 /// Outcome of the most recent action.
