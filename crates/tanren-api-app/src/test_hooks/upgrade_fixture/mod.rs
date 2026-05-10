@@ -9,14 +9,16 @@ use axum::Json;
 use axum::extract::{Path as AxumPath, State};
 use axum::http::StatusCode;
 use serde::Deserialize;
-use serde::Serialize;
 use serde_json::Value;
 use tanren_delivery::install::contract::append_stale_generated_manifest_entry;
 use tanren_delivery::install::{RepoRelativePath, apply_install, run_upgrade_witness, sha256_hex};
 use tokio::sync::Mutex;
 
 use self::snapshot::{RepositorySnapshot, capture_scoped_snapshot};
-use self::types::{FixtureAction, FixtureId, SnapshotLabel};
+use self::types::{
+    CommandResult, FilePathBody, FileWriteBody, FixtureAction, FixtureId, InstallSeedBody,
+    SnapshotBody, SnapshotLabel,
+};
 use super::TestHooksState;
 use super::limits;
 
@@ -51,36 +53,6 @@ struct UpgradeFixtureState {
     tracked_snapshot_paths: BTreeSet<String>,
     snapshot_before_last_run: Option<RepositorySnapshot>,
     last_run: Option<CommandResult>,
-}
-
-#[derive(Debug, Clone, Serialize)]
-struct CommandResult {
-    stdout: String,
-    status: i32,
-    success: bool,
-}
-
-#[derive(Debug, Deserialize)]
-struct FileWriteBody {
-    path: String,
-    content: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct FilePathBody {
-    path: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct InstallSeedBody {
-    snapshot_label: String,
-    profile: String,
-    integrations: String,
-}
-
-#[derive(Debug, Deserialize)]
-struct SnapshotBody {
-    label: String,
 }
 
 pub(crate) async fn upgrade_fixture_action_route(
@@ -186,12 +158,17 @@ fn dispatch_action(
 }
 
 fn last_run_json(st: &UpgradeFixtureState) -> Json<Value> {
-    match st.last_run.as_ref() {
-        Some(r) => Json(
-            serde_json::json!({"ok": true, "stdout": r.stdout, "status": r.status, "success": r.success}),
-        ),
-        None => Json(serde_json::json!({"ok": true, "stdout": "", "status": 0, "success": false})),
+    let Some(r) = st.last_run.as_ref() else {
+        return Json(serde_json::json!({"ok": true, "stdout": "", "status": 0, "success": false}));
+    };
+    let mut obj = serde_json::json!({"ok": true, "stdout": r.stdout, "status": r.status, "success": r.success});
+    if let Some(ref outcome) = r.apply_outcome {
+        obj.as_object_mut().expect("json object").insert(
+            "apply_outcome".to_owned(),
+            serde_json::to_value(outcome).expect("serialize outcome"),
+        );
     }
+    Json(obj)
 }
 
 // -- Action implementations -----------------------------------------------
@@ -308,22 +285,20 @@ fn action_run_upgrade(
     let snapshot = capture_scoped_snapshot(&root, workspace_root, &st.tracked_snapshot_paths)?;
     st.snapshot_before_last_run = Some(snapshot);
     let result = run_upgrade_witness(&root, confirm);
-    match result {
-        Ok(run) => {
-            st.last_run = Some(CommandResult {
-                stdout: run.stdout(),
-                status: 0,
-                success: true,
-            });
-        }
-        Err(err) => {
-            st.last_run = Some(CommandResult {
-                stdout: err.to_string(),
-                status: 1,
-                success: false,
-            });
-        }
-    }
+    st.last_run = Some(match result {
+        Ok(run) => CommandResult {
+            stdout: run.stdout(),
+            status: 0,
+            success: true,
+            apply_outcome: run.apply_outcome,
+        },
+        Err(err) => CommandResult {
+            stdout: err.to_string(),
+            status: 1,
+            success: false,
+            apply_outcome: None,
+        },
+    });
     Ok(())
 }
 

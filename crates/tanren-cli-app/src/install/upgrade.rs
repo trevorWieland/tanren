@@ -7,8 +7,10 @@ use clap::Args;
 
 use super::error::UpgradeCommandError;
 use tanren_delivery::install::{
-    UpgradeApplyOutcome, UpgradePreview, UpgradePreviewReport, apply_upgrade, preview_upgrade,
+    UpgradeApplyConfirmation, UpgradeApplyOutcome, UpgradePreview, UpgradePreviewReport,
+    apply_upgrade, preview_upgrade,
 };
+use tanren_delivery::install::{encode_field, format_encoded_path_list};
 
 /// `tanren-cli upgrade` arguments.
 #[derive(Debug, Clone, Args)]
@@ -32,35 +34,37 @@ impl UpgradeCommand {
             return self.write_confirmation_required(&preview);
         }
 
-        let apply_outcome = apply_upgrade(&preview).map_err(UpgradeCommandError::from)?;
-        self.write_apply_result(apply_outcome)
+        let apply_outcome = apply_upgrade(&preview, UpgradeApplyConfirmation::confirmed())
+            .map_err(UpgradeCommandError::from)?;
+        self.write_apply_result(&apply_outcome)
     }
 
     fn write_preview_report(
         &self,
-        preview: &UpgradePreviewReport,
+        report: &UpgradePreviewReport,
     ) -> Result<(), UpgradeCommandError> {
         let repository = display_repository_argument(&self.repo);
-        let render = preview.render();
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         writeln!(
             handle,
             "status=preview command=upgrade repo={} changed={} destructive={} preserved={} concerns={}",
             repository,
-            render.changed_count(),
-            render.destructive_count(),
-            render.preserved_count(),
-            render.concern_count(),
+            report.changed().len(),
+            report.destructive().len(),
+            report.preserved().len(),
+            report.compatibility_concerns().len(),
         )
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
         writeln!(
             handle,
-            "preview changed=[{}] destructive=[{}] preserved=[{}] concerns=[{}]",
-            render.changed_paths_csv(),
-            render.destructive_paths_csv(),
-            render.preserved_paths_csv(),
-            render.concern_codes_csv(),
+            "preview changed=[{}] destructive=[{}] restored=[{}] removed=[{}] preserved=[{}] concerns=[{}]",
+            format_encoded_path_list(report.changed()),
+            format_encoded_path_list(report.destructive()),
+            format_encoded_path_list(report.restored()),
+            format_encoded_path_list(report.removed()),
+            format_encoded_path_list(report.preserved()),
+            report.compatibility_concerns().iter().map(tanren_delivery::install::UpgradeCompatibilityConcern::as_code).collect::<Vec<_>>().join(","),
         )
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
         Ok(())
@@ -83,13 +87,13 @@ impl UpgradeCommand {
 
     fn write_apply_result(
         &self,
-        apply_outcome: UpgradeApplyOutcome,
+        apply_outcome: &UpgradeApplyOutcome,
     ) -> Result<(), UpgradeCommandError> {
         let repository = display_repository_argument(&self.repo);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         match apply_outcome {
-            UpgradeApplyOutcome::NoInstallManifestNoop => writeln!(
+            UpgradeApplyOutcome::NoManifestNoop => writeln!(
                 handle,
                 "status=noop command=upgrade repo={repository} confirm=true applied=false outcome=no_manifest_noop created=0 updated=0 removed=0 restored=0 preserved=0",
             )
@@ -109,11 +113,11 @@ impl UpgradeCommand {
                 writeln!(
                     handle,
                     "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
-                    format_path_list(&report.created),
-                    format_path_list(&report.updated),
-                    format_path_list(&report.removed),
-                    format_path_list(&report.restored),
-                    format_path_list(&report.preserved),
+                    format_encoded_path_list_from_str(&report.created),
+                    format_encoded_path_list_from_str(&report.updated),
+                    format_encoded_path_list_from_str(&report.removed),
+                    format_encoded_path_list_from_str(&report.restored),
+                    format_encoded_path_list_from_str(&report.preserved),
                 )
                 .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })
             }
@@ -136,10 +140,10 @@ fn display_repository_argument(path: &Path) -> String {
     }
 }
 
-fn format_path_list(paths: &[tanren_delivery::install::RepoRelativePath]) -> String {
+fn format_encoded_path_list_from_str(paths: &[String]) -> String {
     paths
         .iter()
-        .map(tanren_delivery::install::RepoRelativePath::as_str)
+        .map(|p| encode_field(p.as_str()))
         .collect::<Vec<_>>()
         .join(",")
 }

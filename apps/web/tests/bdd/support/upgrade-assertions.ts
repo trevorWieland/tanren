@@ -8,19 +8,33 @@ export function assertUpgradeApplySuccess(world: UpgradeWorld): void {
   const run = assertSuccess(world.lastRun, "upgrade apply");
   assertIncludes(run.stdout, "status=ok command=upgrade");
   assertIncludes(run.stdout, "confirm=true applied=true");
-  assertUpgradeApplyOutcome(run, "applied");
-  assertIncludes(run.stdout, "applied created=[");
-  assertIncludes(run.stdout, "updated=[");
-  assertIncludes(run.stdout, "removed=[");
-  assertIncludes(run.stdout, "restored=[");
-  assertIncludes(run.stdout, "preserved=[");
+  assertStructuredApplyOutcome(run, "applied");
+  if (!run.applyOutcome?.report) {
+    throw new Error("expected apply outcome to include a report summary");
+  }
+  const report = run.applyOutcome.report;
+  if (!Array.isArray(report.created)) {
+    throw new Error("expected report.created to be an array");
+  }
+  if (!Array.isArray(report.updated)) {
+    throw new Error("expected report.updated to be an array");
+  }
+  if (!Array.isArray(report.removed)) {
+    throw new Error("expected report.removed to be an array");
+  }
+  if (!Array.isArray(report.restored)) {
+    throw new Error("expected report.restored to be an array");
+  }
+  if (!Array.isArray(report.preserved)) {
+    throw new Error("expected report.preserved to be an array");
+  }
 }
 
 export function assertUpgradeApplyNoop(world: UpgradeWorld): void {
   const run = assertSuccess(world.lastRun, "upgrade apply");
   assertIncludes(run.stdout, "status=noop command=upgrade");
   assertIncludes(run.stdout, "confirm=true applied=false");
-  assertUpgradeApplyOutcome(run, "no_manifest_noop");
+  assertStructuredApplyOutcome(run, "no_manifest_noop");
 }
 
 export function assertUpgradePreviewSuccess(world: UpgradeWorld): void {
@@ -32,6 +46,8 @@ export function assertUpgradePreviewReported(world: UpgradeWorld): void {
   assertIncludes(run.stdout, "status=preview command=upgrade");
   assertIncludes(run.stdout, "preview changed=[");
   assertIncludes(run.stdout, "destructive=[");
+  assertIncludes(run.stdout, "restored=[");
+  assertIncludes(run.stdout, "removed=[");
   assertIncludes(run.stdout, "preserved=[");
   assertIncludes(run.stdout, "concerns=[");
 }
@@ -82,13 +98,18 @@ function assertIncludes(haystack: string, needle: string): void {
   }
 }
 
-function assertUpgradeApplyOutcome(
+function assertStructuredApplyOutcome(
   run: CommandResult,
   expected: UpgradeApplyOutcomeLabel,
 ): void {
-  if (run.upgradeApplyOutcome !== expected) {
+  if (!run.applyOutcome) {
     throw new Error(
-      `expected upgrade apply outcome '${expected}' but found '${run.upgradeApplyOutcome ?? "undefined"}'`,
+      `expected structured apply outcome '${expected}' but found none`,
+    );
+  }
+  if (run.applyOutcome.outcome !== expected) {
+    throw new Error(
+      `expected upgrade apply outcome '${expected}' but found '${run.applyOutcome.outcome}'`,
     );
   }
 }

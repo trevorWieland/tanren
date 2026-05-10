@@ -4,11 +4,10 @@
 use std::fmt;
 use std::str::FromStr;
 
+use super::super::limits;
 use axum::http::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
-
-use super::super::limits;
 
 /// Scenario-scoped fixture identifier — each BDD scenario keys its
 /// repository fixture state under a [`FixtureId`].
@@ -93,4 +92,36 @@ impl FromStr for FixtureAction {
             )),
         }
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub(super) struct CommandResult {
+    pub(super) stdout: String,
+    pub(super) status: i32,
+    pub(super) success: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub(super) apply_outcome: Option<tanren_delivery::install::UpgradeApplyOutcome>,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct FileWriteBody {
+    pub(super) path: String,
+    pub(super) content: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct FilePathBody {
+    pub(super) path: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct InstallSeedBody {
+    pub(super) snapshot_label: String,
+    pub(super) profile: String,
+    pub(super) integrations: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct SnapshotBody {
+    pub(super) label: String,
 }

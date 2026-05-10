@@ -9,7 +9,9 @@ use crate::install::error::InstallError;
 use crate::install::plan::{build_install_plan_from_state, load_repository_install_state};
 use crate::install::{InstallIntegration, InstallPlan, InstallReport};
 
-pub use report::UpgradePreviewReport;
+pub use report::{
+    UpgradeCompatibilityConcern, UpgradePreviewReport, encode_field, format_encoded_path_list,
+};
 
 /// Upgrade planner boundary for manifest-driven upgrade previews.
 #[derive(Debug, Clone, Copy, Default)]
@@ -77,11 +79,38 @@ pub fn preview_upgrade(repository: &Path) -> Result<UpgradePreview, InstallError
     UpgradePlanner::preview(repository)
 }
 
-/// Reason an upgrade apply operation was blocked before mutating files.
+/// Explicit confirmation token required before upgrade apply proceeds.
+///
+/// The caller constructs [`UpgradeApplyConfirmation::confirmed`] only after
+/// the user or automation layer has acknowledged the preview. This prevents
+/// accidental applies without confirmation.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct UpgradeApplyConfirmation {
+    confirmed: bool,
+}
+
+impl UpgradeApplyConfirmation {
+    /// Create a confirmed apply token.
+    #[must_use]
+    pub const fn confirmed() -> Self {
+        Self { confirmed: true }
+    }
+
+    /// Whether the token represents explicit confirmation.
+    #[must_use]
+    pub const fn is_confirmed(self) -> bool {
+        self.confirmed
+    }
+}
+
+/// Reason an upgrade apply operation was blocked before mutating files.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
 pub enum UpgradeApplyBlockedReason {
     /// Preview did not produce an applyable plan.
     PreviewNotApplicable,
+    /// Caller did not supply explicit confirmation.
+    ConfirmationRequired,
 }
 
 impl UpgradeApplyBlockedReason {
@@ -89,19 +118,63 @@ impl UpgradeApplyBlockedReason {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::PreviewNotApplicable => "preview_not_applicable",
+            Self::ConfirmationRequired => "confirmation_required",
         }
     }
 }
 
 /// Typed outcome for applying an upgrade preview.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(tag = "outcome", rename_all = "snake_case")]
 pub enum UpgradeApplyOutcome {
     /// No install manifest was present, so apply is a no-op.
-    NoInstallManifestNoop,
+    NoManifestNoop,
     /// Upgrade plan applied successfully.
-    Applied { report: InstallReport },
+    Applied { report: ApplyReportSummary },
     /// Apply did not run because a precondition was not met.
     Blocked { reason: UpgradeApplyBlockedReason },
+}
+
+/// Summary of an applied install report suitable for serialization.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct ApplyReportSummary {
+    pub created: Vec<String>,
+    pub updated: Vec<String>,
+    pub removed: Vec<String>,
+    pub restored: Vec<String>,
+    pub preserved: Vec<String>,
+}
+
+impl ApplyReportSummary {
+    fn from_report(report: &InstallReport) -> Self {
+        Self {
+            created: report
+                .created
+                .iter()
+                .map(|p| p.as_str().to_owned())
+                .collect(),
+            updated: report
+                .updated
+                .iter()
+                .map(|p| p.as_str().to_owned())
+                .collect(),
+            removed: report
+                .removed
+                .iter()
+                .map(|p| p.as_str().to_owned())
+                .collect(),
+            restored: report
+                .restored
+                .iter()
+                .map(|p| p.as_str().to_owned())
+                .collect(),
+            preserved: report
+                .preserved
+                .iter()
+                .map(|p| p.as_str().to_owned())
+                .collect(),
+        }
+    }
 }
 
 impl UpgradeApplyOutcome {
@@ -112,7 +185,7 @@ impl UpgradeApplyOutcome {
     #[must_use]
     pub const fn label(&self) -> &'static str {
         match self {
-            Self::NoInstallManifestNoop => Self::NO_MANIFEST_NOOP_LABEL,
+            Self::NoManifestNoop => Self::NO_MANIFEST_NOOP_LABEL,
             Self::Applied { .. } => Self::APPLIED_LABEL,
             Self::Blocked { .. } => Self::BLOCKED_LABEL,
         }
@@ -120,13 +193,25 @@ impl UpgradeApplyOutcome {
 }
 
 /// Apply a previously generated upgrade preview through the install writer.
-pub fn apply_upgrade(preview: &UpgradePreview) -> Result<UpgradeApplyOutcome, InstallError> {
+///
+/// Requires explicit [`UpgradeApplyConfirmation`] to proceed. Returns a typed
+/// [`UpgradeApplyOutcome`] instead of a status integer.
+pub fn apply_upgrade(
+    preview: &UpgradePreview,
+    confirmation: UpgradeApplyConfirmation,
+) -> Result<UpgradeApplyOutcome, InstallError> {
+    if !confirmation.is_confirmed() {
+        return Ok(UpgradeApplyOutcome::Blocked {
+            reason: UpgradeApplyBlockedReason::ConfirmationRequired,
+        });
+    }
     if let UpgradePreview::Planned { plan, .. } = preview {
         let report = super::apply_validated_plan(plan.as_ref())?;
-        return Ok(UpgradeApplyOutcome::Applied { report });
+        let summary = ApplyReportSummary::from_report(&report);
+        return Ok(UpgradeApplyOutcome::Applied { report: summary });
     }
     if matches!(preview, UpgradePreview::NoInstallManifest { .. }) {
-        return Ok(UpgradeApplyOutcome::NoInstallManifestNoop);
+        return Ok(UpgradeApplyOutcome::NoManifestNoop);
     }
     Ok(UpgradeApplyOutcome::Blocked {
         reason: UpgradeApplyBlockedReason::PreviewNotApplicable,
@@ -135,10 +220,16 @@ pub fn apply_upgrade(preview: &UpgradePreview) -> Result<UpgradeApplyOutcome, In
 
 /// Structured outcome for web/API witnesses that need the same observable
 /// upgrade report without shelling out to the CLI binary.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
 pub struct UpgradeWitnessRun {
     /// Canonical stdout lines that mirror `tanren-cli upgrade` output.
     pub stdout_lines: Vec<String>,
+    /// Structured preview report with typed fields.
+    pub preview: UpgradePreviewReport,
+    /// Structured apply outcome (absent when confirm=false).
+    pub apply_outcome: Option<UpgradeApplyOutcome>,
+    /// Whether the overall run succeeded.
+    pub success: bool,
 }
 
 impl UpgradeWitnessRun {
@@ -150,29 +241,31 @@ impl UpgradeWitnessRun {
 }
 
 /// Run `upgrade` in-process and render the same machine-readable witness lines
-/// the CLI prints to stdout.
+/// the CLI prints to stdout, alongside structured typed fields.
 pub fn run_upgrade_witness(
     repository: &Path,
     confirm: bool,
 ) -> Result<UpgradeWitnessRun, InstallError> {
     let preview = preview_upgrade(repository)?;
     let mut lines = Vec::new();
-    let render = preview.report().render();
+    let report = preview.report();
 
     lines.push(format!(
         "status=preview command=upgrade repo={} changed={} destructive={} preserved={} concerns={}",
         display_repository_argument(repository),
-        render.changed_count(),
-        render.destructive_count(),
-        render.preserved_count(),
-        render.concern_count(),
+        report.changed().len(),
+        report.destructive().len(),
+        report.preserved().len(),
+        report.compatibility_concerns().len(),
     ));
     lines.push(format!(
-        "preview changed=[{}] destructive=[{}] preserved=[{}] concerns=[{}]",
-        render.changed_paths_csv(),
-        render.destructive_paths_csv(),
-        render.preserved_paths_csv(),
-        render.concern_codes_csv(),
+        "preview changed=[{}] destructive=[{}] restored=[{}] removed=[{}] preserved=[{}] concerns=[{}]",
+        format_encoded_path_list(report.changed()),
+        format_encoded_path_list(report.destructive()),
+        format_encoded_path_list(report.restored()),
+        format_encoded_path_list(report.removed()),
+        format_encoded_path_list(report.preserved()),
+        report.compatibility_concerns().iter().map(UpgradeCompatibilityConcern::as_code).collect::<Vec<_>>().join(","),
     ));
 
     if !confirm {
@@ -183,17 +276,20 @@ pub fn run_upgrade_witness(
         ));
         return Ok(UpgradeWitnessRun {
             stdout_lines: lines,
+            preview: report.clone(),
+            apply_outcome: None,
+            success: true,
         });
     }
 
-    let apply_outcome = apply_upgrade(&preview)?;
+    let apply_outcome = apply_upgrade(&preview, UpgradeApplyConfirmation::confirmed())?;
 
-    match apply_outcome {
-        UpgradeApplyOutcome::NoInstallManifestNoop => {
+    match &apply_outcome {
+        UpgradeApplyOutcome::NoManifestNoop => {
             lines.push(format!(
                 "status=noop command=upgrade repo={} confirm=true applied=false outcome={} created=0 updated=0 removed=0 restored=0 preserved=0",
                 display_repository_argument(repository),
-                UpgradeApplyOutcome::NoInstallManifestNoop.label(),
+                UpgradeApplyOutcome::NoManifestNoop.label(),
             ));
         }
         UpgradeApplyOutcome::Applied { report } => {
@@ -209,18 +305,18 @@ pub fn run_upgrade_witness(
             ));
             lines.push(format!(
                 "applied created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
-                format_path_list(&report.created),
-                format_path_list(&report.updated),
-                format_path_list(&report.removed),
-                format_path_list(&report.restored),
-                format_path_list(&report.preserved),
+                format_encoded_path_list_from_str(&report.created),
+                format_encoded_path_list_from_str(&report.updated),
+                format_encoded_path_list_from_str(&report.removed),
+                format_encoded_path_list_from_str(&report.restored),
+                format_encoded_path_list_from_str(&report.preserved),
             ));
         }
         UpgradeApplyOutcome::Blocked { reason } => {
             lines.push(format!(
                 "status=blocked command=upgrade repo={} confirm=true applied=false outcome={} reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
                 display_repository_argument(repository),
-                UpgradeApplyOutcome::Blocked { reason }.label(),
+                UpgradeApplyOutcome::Blocked { reason: *reason }.label(),
                 reason.as_str(),
             ));
         }
@@ -228,6 +324,9 @@ pub fn run_upgrade_witness(
 
     Ok(UpgradeWitnessRun {
         stdout_lines: lines,
+        preview: preview.report().clone(),
+        apply_outcome: Some(apply_outcome),
+        success: true,
     })
 }
 
@@ -239,10 +338,10 @@ fn display_repository_argument(path: &Path) -> String {
     }
 }
 
-fn format_path_list(paths: &[crate::install::manifest::RepoRelativePath]) -> String {
+fn format_encoded_path_list_from_str(paths: &[String]) -> String {
     paths
         .iter()
-        .map(crate::install::manifest::RepoRelativePath::as_str)
+        .map(|p| encode_field(p.as_str()))
         .collect::<Vec<_>>()
         .join(",")
 }
