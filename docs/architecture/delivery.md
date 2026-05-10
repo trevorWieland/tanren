@@ -494,6 +494,30 @@ accepted as source input.
 When a user wants to turn a manual file change into canonical state, they use a
 typed import or edit action that validates the change and emits events.
 
+### Drift Output Contract
+
+The `tanren-cli drift` command emits structured output following a bounded
+summary-plus-detail contract. Output is designed for programmatic consumption
+by harnesses, CI gates, and operator tooling.
+
+**Summary line** (first line):
+
+```
+summary status=<ok|drift> command=drift repo=<repo> profile=<profile> integrations=<csv> clean=<n> changed_generated=<n> missing_generated=<n> missing_preserved=<n> accepted_preserved=<n> drift=<n>
+```
+
+**Detail records** (one per install-managed path, starting from the second
+line):
+
+```
+detail status=<clean|changed_generated|missing_generated|missing_preserved|accepted_preserved> path=<repo-relative-path>
+```
+
+Summary and detail record field names are contract-owned. Path lists are not
+emitted as single large bracketed fields; each path appears in its own bounded
+detail record. Consumers parse drift output once into typed summary and detail
+structures and assert against fields rather than scanning for substrings.
+
 ## Install Preview
 
 Delivery supports previews for stack setup, repo bootstrap, projection

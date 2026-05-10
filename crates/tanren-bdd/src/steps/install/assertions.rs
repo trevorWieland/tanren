@@ -1,6 +1,7 @@
 use std::fs;
 
 use crate::steps::install::context::InstallCommandOutcome;
+use tanren_testkit::{DriftCommandStatus, DriftOutput, DriftPathStatus, parse_drift_output};
 
 use super::context::InstallContext;
 use super::manifest_helpers;
@@ -84,14 +85,35 @@ impl InstallContext {
 
     pub(crate) fn assert_drift_output_reports_no_drift(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        for expected in [
-            "status=ok command=drift",
-            "drift=0",
-            "changed_generated=0",
-            "missing_generated=0",
-            "missing_preserved=0",
-        ] {
-            ensure_stdout_contains(run, expected)?;
+        let output = parse_drift_output_or_err(run)?;
+        if output.status() != DriftCommandStatus::Ok {
+            return Err(InstallStepError::DriftCommandExpectedSuccess {
+                diagnostic: run.redacted_diagnostic(),
+            });
+        }
+        if output.drift_count() != 0 {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: "drift=0".to_owned(),
+                diagnostic: run.redacted_diagnostic(),
+            });
+        }
+        if output.changed_generated_count() != 0 {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: "changed_generated=0".to_owned(),
+                diagnostic: run.redacted_diagnostic(),
+            });
+        }
+        if output.missing_generated_count() != 0 {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: "missing_generated=0".to_owned(),
+                diagnostic: run.redacted_diagnostic(),
+            });
+        }
+        if output.missing_preserved_count() != 0 {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: "missing_preserved=0".to_owned(),
+                diagnostic: run.redacted_diagnostic(),
+            });
         }
         Ok(())
     }
@@ -101,8 +123,14 @@ impl InstallContext {
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        ensure_stdout_contains(run, "status=drift command=drift")?;
-        ensure_stdout_list_field_contains(run, DriftListField::ChangedGenerated, relative_path)
+        let output = parse_drift_output_or_err(run)?;
+        ensure_drift_status(&output, DriftCommandStatus::Drift, run)?;
+        ensure_detail_contains(
+            &output,
+            DriftPathStatus::ChangedGenerated,
+            relative_path.as_str(),
+            run,
+        )
     }
 
     pub(crate) fn assert_drift_output_reports_missing_generated_asset(
@@ -110,8 +138,14 @@ impl InstallContext {
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        ensure_stdout_contains(run, "status=drift command=drift")?;
-        ensure_stdout_list_field_contains(run, DriftListField::MissingGenerated, relative_path)
+        let output = parse_drift_output_or_err(run)?;
+        ensure_drift_status(&output, DriftCommandStatus::Drift, run)?;
+        ensure_detail_contains(
+            &output,
+            DriftPathStatus::MissingGenerated,
+            relative_path.as_str(),
+            run,
+        )
     }
 
     pub(crate) fn assert_drift_output_reports_missing_preserved_standard(
@@ -119,8 +153,14 @@ impl InstallContext {
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        ensure_stdout_contains(run, "status=drift command=drift")?;
-        ensure_stdout_list_field_contains(run, DriftListField::MissingPreserved, relative_path)
+        let output = parse_drift_output_or_err(run)?;
+        ensure_drift_status(&output, DriftCommandStatus::Drift, run)?;
+        ensure_detail_contains(
+            &output,
+            DriftPathStatus::MissingPreserved,
+            relative_path.as_str(),
+            run,
+        )
     }
 
     pub(crate) fn assert_drift_output_reports_accepted_preserved_edit(
@@ -128,21 +168,31 @@ impl InstallContext {
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        ensure_stdout_contains(run, "status=ok command=drift")?;
-        ensure_stdout_list_field_contains(run, DriftListField::AcceptedPreserved, relative_path)
+        let output = parse_drift_output_or_err(run)?;
+        ensure_drift_status(&output, DriftCommandStatus::Ok, run)?;
+        ensure_detail_contains(
+            &output,
+            DriftPathStatus::AcceptedPreserved,
+            relative_path.as_str(),
+            run,
+        )
     }
 
-    pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
-        // This is a secondary read-only witness for BDD runs. Canonical drift
-        // authority remains event-backed projection state and drift reporting.
-        let before = self
-            .fixture_proof_snapshot_before_last_run
-            .as_ref()
-            .ok_or(InstallStepError::MissingSnapshotBeforeRun)?;
-        let after =
-            crate::steps::install_snapshot::RepositorySnapshot::capture(&self.repository_root)?;
-        if &after != before {
-            return Err(InstallStepError::RepositorySnapshotMismatch);
+    pub(crate) fn assert_no_absolute_repository_path_leaked(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        for line in run.stdout().lines() {
+            if line.contains("/tmp/") || line.contains("/home/") {
+                return Err(InstallStepError::OutputLeakedAbsoluteRepositoryPath {
+                    diagnostic: run.redacted_diagnostic(),
+                });
+            }
+        }
+        for line in run.stderr().lines() {
+            if line.contains("/tmp/") || line.contains("/home/") {
+                return Err(InstallStepError::OutputLeakedAbsoluteRepositoryPath {
+                    diagnostic: run.redacted_diagnostic(),
+                });
+            }
         }
         Ok(())
     }
@@ -158,14 +208,18 @@ impl InstallContext {
         Ok(())
     }
 
-    pub(crate) fn assert_no_absolute_repository_path_leaked(&self) -> InstallStepResult<()> {
+    pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        let repository_path = self.repository_root.display().to_string();
-        if run.stdout().contains(&repository_path) || run.stderr().contains(&repository_path) {
-            return Err(InstallStepError::OutputLeakedAbsoluteRepositoryPath {
-                diagnostic: run.redacted_diagnostic(),
-            });
+        let before = self
+            .fixture_proof_snapshot_before_last_run
+            .as_ref()
+            .ok_or(InstallStepError::MissingSnapshotBeforeRun)?;
+        let after =
+            crate::steps::install_snapshot::RepositorySnapshot::capture(&self.repository_root)?;
+        if before != &after {
+            return Err(InstallStepError::RepositorySnapshotMismatch);
         }
+        let _ = run;
         Ok(())
     }
 
@@ -285,52 +339,55 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
     Ok(())
 }
 
-fn ensure_stdout_list_field_contains(
+fn parse_drift_output_or_err(run: &InstallCommandOutcome) -> InstallStepResult<DriftOutput> {
+    parse_drift_output(run.stdout()).map_err(|_| InstallStepError::StdoutMissingExpected {
+        expected: "valid drift output".to_owned(),
+        diagnostic: run.redacted_diagnostic(),
+    })
+}
+
+fn ensure_drift_status(
+    output: &DriftOutput,
+    expected: DriftCommandStatus,
     run: &InstallCommandOutcome,
-    field: DriftListField,
-    path: &RepositoryRelativePath,
 ) -> InstallStepResult<()> {
-    let field_name = field.as_str();
-    let marker = format!("{field_name}=[");
-    let value_start = run.stdout().find(marker.as_str()).ok_or_else(|| {
-        InstallStepError::StdoutMissingExpected {
-            expected: marker.clone(),
-            diagnostic: run.redacted_diagnostic(),
-        }
-    })?;
-    let items_start = value_start + marker.len();
-    let remainder = &run.stdout()[items_start..];
-    let closing = remainder
-        .find(']')
-        .ok_or_else(|| InstallStepError::StdoutMissingExpected {
-            expected: format!("{field_name} list closing bracket"),
-            diagnostic: run.redacted_diagnostic(),
-        })?;
-    let list = &remainder[..closing];
-    if !list.split(',').any(|item| item == path.as_str()) {
+    if output.status() != expected {
         return Err(InstallStepError::StdoutMissingExpected {
-            expected: format!("{field_name} contains {}", path.as_str()),
+            expected: format!(
+                "status={}",
+                match expected {
+                    DriftCommandStatus::Ok => "ok",
+                    DriftCommandStatus::Drift => "drift",
+                }
+            ),
             diagnostic: run.redacted_diagnostic(),
         });
     }
     Ok(())
 }
 
-#[derive(Clone, Copy)]
-enum DriftListField {
-    ChangedGenerated,
-    MissingGenerated,
-    MissingPreserved,
-    AcceptedPreserved,
-}
-
-impl DriftListField {
-    fn as_str(self) -> &'static str {
-        match self {
-            Self::ChangedGenerated => "changed_generated",
-            Self::MissingGenerated => "missing_generated",
-            Self::MissingPreserved => "missing_preserved",
-            Self::AcceptedPreserved => "accepted_preserved",
-        }
+fn ensure_detail_contains(
+    output: &DriftOutput,
+    expected_status: DriftPathStatus,
+    path: &str,
+    run: &InstallCommandOutcome,
+) -> InstallStepResult<()> {
+    let found = output
+        .details()
+        .iter()
+        .any(|record| record.status() == expected_status && record.path() == path);
+    if !found {
+        let status_label = match expected_status {
+            DriftPathStatus::ChangedGenerated => "changed_generated",
+            DriftPathStatus::MissingGenerated => "missing_generated",
+            DriftPathStatus::MissingPreserved => "missing_preserved",
+            DriftPathStatus::AcceptedPreserved => "accepted_preserved",
+            DriftPathStatus::Clean => "clean",
+        };
+        return Err(InstallStepError::StdoutMissingExpected {
+            expected: format!("detail status={status_label} path={path}"),
+            diagnostic: run.redacted_diagnostic(),
+        });
     }
+    Ok(())
 }

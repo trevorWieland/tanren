@@ -298,18 +298,7 @@ impl InstallHarness for CliHarness {
             "binary_path",
             tracing::field::display(self.binary.display()),
         );
-        let integrations_csv = format_integrations_csv(request.integrations.as_ref());
-        let mut args = vec![
-            OsString::from("install"),
-            OsString::from("--repo"),
-            request.repository_root.as_os_str().to_owned(),
-            OsString::from("--profile"),
-            OsString::from(request.profile.as_str()),
-        ];
-        if !integrations_csv.is_empty() {
-            args.push(OsString::from("--integrations"));
-            args.push(OsString::from(integrations_csv));
-        }
+        let args = build_install_args("install", &request);
         let output =
             run_binary_command(&self.binary, InstallCommandKind::Install.as_str(), args).await?;
         Ok(CliCommandOutcome::from(output))
@@ -335,22 +324,34 @@ impl InstallHarness for CliHarness {
             "binary_path",
             tracing::field::display(self.binary.display()),
         );
-        let integrations_csv = format_integrations_csv(request.integrations.as_ref());
-        let mut args = vec![
-            OsString::from("drift"),
-            OsString::from("--repo"),
-            request.repository_root.as_os_str().to_owned(),
-            OsString::from("--profile"),
-            OsString::from(request.profile.as_str()),
-        ];
-        if !integrations_csv.is_empty() {
-            args.push(OsString::from("--integrations"));
-            args.push(OsString::from(integrations_csv));
-        }
+        let args = build_install_args("drift", &request);
         let output =
             run_binary_command(&self.binary, InstallCommandKind::Drift.as_str(), args).await?;
         Ok(CliCommandOutcome::from(output))
     }
+}
+
+fn build_install_args(subcommand: &str, request: &InstallCommandRequest) -> Vec<OsString> {
+    let profile_label = request
+        .raw_profile
+        .as_deref()
+        .unwrap_or(request.profile.as_str());
+    let integrations_csv = match &request.raw_integrations {
+        Some(raw) => raw.clone(),
+        None => format_integrations_csv(request.integrations.as_ref()),
+    };
+    let mut args = vec![
+        OsString::from(subcommand),
+        OsString::from("--repo"),
+        request.repository_root.as_os_str().to_owned(),
+        OsString::from("--profile"),
+        OsString::from(profile_label),
+    ];
+    if !integrations_csv.is_empty() {
+        args.push(OsString::from("--integrations"));
+        args.push(OsString::from(integrations_csv));
+    }
+    args
 }
 
 /// Format an integration set as comma-separated CLI text.

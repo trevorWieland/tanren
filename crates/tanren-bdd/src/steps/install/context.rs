@@ -58,6 +58,8 @@ impl InstallContext {
         harness: &mut dyn InstallHarness,
         profile: InstallProofProfile,
         integrations: Option<&BTreeSet<InstallProofIntegration>>,
+        raw_profile: Option<String>,
+        raw_integrations: Option<String>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(harness.kind()));
         let before = RepositorySnapshot::capture(&self.repository_root)?;
@@ -66,6 +68,8 @@ impl InstallContext {
                 repository_root: self.repository_root.clone(),
                 profile,
                 integrations: integrations.cloned(),
+                raw_profile,
+                raw_integrations,
             })
             .await
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
@@ -90,6 +94,8 @@ impl InstallContext {
         harness: &mut dyn InstallHarness,
         profile: InstallProofProfile,
         integrations: Option<&BTreeSet<InstallProofIntegration>>,
+        raw_profile: Option<String>,
+        raw_integrations: Option<String>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(harness.kind()));
         let before = RepositorySnapshot::capture(&self.repository_root)?;
@@ -98,6 +104,8 @@ impl InstallContext {
                 repository_root: self.repository_root.clone(),
                 profile,
                 integrations: integrations.cloned(),
+                raw_profile,
+                raw_integrations,
             })
             .await
             .map_err(|source| InstallStepError::RunDriftCommand { source })?;

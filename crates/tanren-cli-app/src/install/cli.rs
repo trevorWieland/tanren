@@ -121,7 +121,7 @@ impl DriftCommand {
         let mut handle = stdout.lock();
         writeln!(
             handle,
-            "status={} command=drift repo={} profile={} integrations={} clean={} changed_generated={} missing_generated={} missing_preserved={} accepted_preserved={} drift={}",
+            "summary status={} command=drift repo={} profile={} integrations={} clean={} changed_generated={} missing_generated={} missing_preserved={} accepted_preserved={} drift={}",
             status,
             repository,
             selection.profile.as_str(),
@@ -134,16 +134,42 @@ impl DriftCommand {
             report.drift_count(),
         )
         .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
-        writeln!(
-            handle,
-            "paths clean=[{}] changed_generated=[{}] missing_generated=[{}] missing_preserved=[{}] accepted_preserved=[{}]",
-            format_path_list(&summary.clean),
-            format_path_list(&summary.changed_generated),
-            format_path_list(&summary.missing_generated),
-            format_path_list(&summary.missing_preserved),
-            format_path_list(&summary.accepted_preserved),
-        )
-        .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+        for path in &summary.changed_generated {
+            writeln!(
+                handle,
+                "detail status=changed_generated path={}",
+                path.as_str()
+            )
+            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+        }
+        for path in &summary.missing_generated {
+            writeln!(
+                handle,
+                "detail status=missing_generated path={}",
+                path.as_str()
+            )
+            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+        }
+        for path in &summary.missing_preserved {
+            writeln!(
+                handle,
+                "detail status=missing_preserved path={}",
+                path.as_str()
+            )
+            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+        }
+        for path in &summary.accepted_preserved {
+            writeln!(
+                handle,
+                "detail status=accepted_preserved path={}",
+                path.as_str()
+            )
+            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+        }
+        for path in &summary.clean {
+            writeln!(handle, "detail status=clean path={}", path.as_str())
+                .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+        }
         Ok(())
     }
 }

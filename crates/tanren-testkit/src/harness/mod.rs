@@ -212,10 +212,16 @@ impl std::fmt::Display for InstallCommandKind {
 /// Typed request shape for running installer and drift CLI commands
 /// through the install harness contract.
 ///
+/// Typed request shape for running installer and drift CLI commands
+/// through the install harness contract.
+///
 /// Profile and integration inputs are parsed into typed install-proof
 /// identifiers at the BDD layer *before* constructing this request, so
 /// downstream tracing fields record validated/redacted labels rather
-/// than raw user-supplied strings.
+/// than raw user-supplied strings. When the BDD layer cannot parse the
+/// raw values (falsification scenarios pass invalid inputs intentionally),
+/// the raw strings flow through via `raw_profile` / `raw_integrations` so
+/// the CLI binary handles validation and the step captures the exit code.
 #[derive(Debug, Clone)]
 pub struct InstallCommandRequest {
     /// Repository root passed to `--repo`.
@@ -227,6 +233,14 @@ pub struct InstallCommandRequest {
     /// `--integrations` CSV at the BDD step boundary. `None` means
     /// "all default integrations".
     pub integrations: Option<BTreeSet<InstallProofIntegration>>,
+    /// Raw profile string forwarded when typed parsing fails
+    /// (falsification scenarios with invalid profile names).
+    /// When `Some`, the CLI harness uses this instead of `profile.as_str()`.
+    pub raw_profile: Option<String>,
+    /// Raw integrations CSV forwarded when typed parsing fails
+    /// (falsification scenarios with invalid integration names).
+    /// When `Some`, the CLI harness uses this instead of the typed set.
+    pub raw_integrations: Option<String>,
 }
 
 /// Specification for an invitation seeded into the harness's backing

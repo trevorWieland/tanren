@@ -76,26 +76,40 @@ impl TanrenWorld {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
-        let typed_profile = profile.parse::<InstallProofProfile>().map_err(|_err| {
-            InstallStepError::ProfileParseFailed {
-                profile: profile.to_owned(),
-            }
-        })?;
-        tracing::Span::current().record("profile", tracing::field::display(typed_profile.as_str()));
-        let typed_integrations = if let Some(csv) = integrations {
-            let set = parse_install_integration_selection(csv).map_err(|_err| {
-                InstallStepError::IntegrationParseFailed {
-                    integrations: csv.to_owned(),
-                }
-            })?;
-            tracing::Span::current().record("integration_count", set.len());
-            Some(set)
+        let typed_profile = profile.parse::<InstallProofProfile>();
+        let typed_integrations = integrations
+            .map(parse_install_integration_selection)
+            .transpose();
+
+        let raw_profile = if typed_profile.is_err() {
+            Some(profile.to_owned())
         } else {
-            tracing::Span::current().record("integration_count", 0);
             None
         };
+        let raw_integrations = if typed_integrations.as_ref().is_err() {
+            integrations.map(ToOwned::to_owned)
+        } else {
+            None
+        };
+
+        let valid_profile = typed_profile.unwrap_or(InstallProofProfile::RustCargo);
+        let valid_integrations = typed_integrations.unwrap_or(None);
+
+        tracing::Span::current().record("profile", tracing::field::display(valid_profile.as_str()));
+        tracing::Span::current().record(
+            "integration_count",
+            valid_integrations
+                .as_ref()
+                .map_or(0, std::collections::BTreeSet::len),
+        );
+
         self.require_account_ctx()?
-            .run_install(typed_profile, typed_integrations.as_ref())
+            .run_install(
+                valid_profile,
+                valid_integrations.as_ref(),
+                raw_profile,
+                raw_integrations,
+            )
             .await
     }
 
@@ -114,26 +128,40 @@ impl TanrenWorld {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
-        let typed_profile = profile.parse::<InstallProofProfile>().map_err(|_err| {
-            InstallStepError::ProfileParseFailed {
-                profile: profile.to_owned(),
-            }
-        })?;
-        tracing::Span::current().record("profile", tracing::field::display(typed_profile.as_str()));
-        let typed_integrations = if let Some(csv) = integrations {
-            let set = parse_install_integration_selection(csv).map_err(|_err| {
-                InstallStepError::IntegrationParseFailed {
-                    integrations: csv.to_owned(),
-                }
-            })?;
-            tracing::Span::current().record("integration_count", set.len());
-            Some(set)
+        let typed_profile = profile.parse::<InstallProofProfile>();
+        let typed_integrations = integrations
+            .map(parse_install_integration_selection)
+            .transpose();
+
+        let raw_profile = if typed_profile.is_err() {
+            Some(profile.to_owned())
         } else {
-            tracing::Span::current().record("integration_count", 0);
             None
         };
+        let raw_integrations = if typed_integrations.as_ref().is_err() {
+            integrations.map(ToOwned::to_owned)
+        } else {
+            None
+        };
+
+        let valid_profile = typed_profile.unwrap_or(InstallProofProfile::RustCargo);
+        let valid_integrations = typed_integrations.unwrap_or(None);
+
+        tracing::Span::current().record("profile", tracing::field::display(valid_profile.as_str()));
+        tracing::Span::current().record(
+            "integration_count",
+            valid_integrations
+                .as_ref()
+                .map_or(0, std::collections::BTreeSet::len),
+        );
+
         self.require_account_ctx()?
-            .run_drift(typed_profile, typed_integrations.as_ref())
+            .run_drift(
+                valid_profile,
+                valid_integrations.as_ref(),
+                raw_profile,
+                raw_integrations,
+            )
             .await
     }
 
@@ -281,6 +309,8 @@ impl AccountContext {
         &mut self,
         profile: InstallProofProfile,
         integrations: Option<&std::collections::BTreeSet<InstallProofIntegration>>,
+        raw_profile: Option<String>,
+        raw_integrations: Option<String>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
         let install = self
@@ -288,7 +318,13 @@ impl AccountContext {
             .as_mut()
             .ok_or(InstallStepError::InstallContextUnavailable)?;
         install
-            .run_install(self.harness.as_mut(), profile, integrations)
+            .run_install(
+                self.harness.as_mut(),
+                profile,
+                integrations,
+                raw_profile,
+                raw_integrations,
+            )
             .await
     }
 
@@ -307,6 +343,8 @@ impl AccountContext {
         &mut self,
         profile: InstallProofProfile,
         integrations: Option<&std::collections::BTreeSet<InstallProofIntegration>>,
+        raw_profile: Option<String>,
+        raw_integrations: Option<String>,
     ) -> InstallStepResult<()> {
         tracing::Span::current().record("harness_kind", tracing::field::debug(self.harness.kind()));
         let install = self
@@ -314,7 +352,13 @@ impl AccountContext {
             .as_mut()
             .ok_or(InstallStepError::InstallContextUnavailable)?;
         install
-            .run_drift(self.harness.as_mut(), profile, integrations)
+            .run_drift(
+                self.harness.as_mut(),
+                profile,
+                integrations,
+                raw_profile,
+                raw_integrations,
+            )
             .await
     }
 }

@@ -11,9 +11,14 @@
 
 #![cfg(feature = "test-hooks")]
 
+pub mod drift_output;
 pub mod harness;
 pub mod install_contract;
 
+pub use drift_output::{
+    DriftCommandStatus, DriftDetailRecord, DriftOutput, DriftOutputParseError, DriftPathStatus,
+    parse_drift_output,
+};
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, BoundedCapture, CAPTURE_BOUND, CliCommandOutcome,
     CliHarness, CommandExitStatus, ConcurrentAcceptanceTally, HarnessAcceptance, HarnessError,
