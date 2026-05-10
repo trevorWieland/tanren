@@ -117,10 +117,12 @@ export function CredentialsPanel({
     },
   ];
 
-  const selectableRows = rows.map((credential, index) => ({
-    itemId: userCredentialItemId(credential.id),
-    label: renderCredentialRowLabel(credential, index),
-  }));
+  const selectableRows = rows.flatMap((credential, index) => {
+    const itemId = userCredentialItemId(credential.id);
+    return itemId !== null
+      ? [{ itemId, label: renderCredentialRowLabel(credential, index) }]
+      : [];
+  });
 
   useEffect(() => {
     if (

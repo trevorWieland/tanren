@@ -54,8 +54,11 @@ export type UserCredentialItemId = string & {
 };
 
 export function userCredentialItemId(
-  value: UserCredentialView["id"],
-): UserCredentialItemId {
+  value: string,
+): UserCredentialItemId | null {
+  if (typeof value !== "string" || value.trim() === "") {
+    return null;
+  }
   return value as UserCredentialItemId;
 }
 
