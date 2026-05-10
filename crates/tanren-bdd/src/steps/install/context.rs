@@ -3,7 +3,9 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{AccountHarness, CliCommandOutcome, execute_tanren_cli};
+use tanren_testkit::{
+    AccountHarness, CliCommandOutcome, InstallProofRepositorySnapshot, execute_tanren_cli,
+};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -17,6 +19,7 @@ pub(crate) struct InstallContext {
     pub(super) repository_root: PathBuf,
     pub(super) baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
     pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
+    pub(super) uninstall_snapshot_before_last_run: Option<InstallProofRepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
 }
 
@@ -33,6 +36,7 @@ impl InstallContext {
             repository_root,
             baselines: BTreeMap::new(),
             snapshot_before_last_run: None,
+            uninstall_snapshot_before_last_run: None,
             last_run: None,
         })
     }
@@ -76,6 +80,8 @@ impl InstallContext {
         }
 
         let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let uninstall_before =
+            super::manifest_helpers::capture_uninstall_repository_snapshot(&self.repository_root)?;
         let rendered_args = render_cli_args(&args);
         let outcome = execute_tanren_cli(args).await.map_err(|source| {
             InstallStepError::RunInstallCommand {
@@ -85,6 +91,7 @@ impl InstallContext {
             }
         })?;
         self.snapshot_before_last_run = Some(before);
+        self.uninstall_snapshot_before_last_run = Some(uninstall_before);
         self.last_run = Some(outcome);
         Ok(())
     }
@@ -110,6 +117,8 @@ impl InstallContext {
         ];
 
         let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let uninstall_before =
+            super::manifest_helpers::capture_uninstall_repository_snapshot(&self.repository_root)?;
         let rendered_args = render_cli_args(&args);
         let outcome = execute_tanren_cli(args).await.map_err(|source| {
             InstallStepError::RunUninstallPreviewCommand {
@@ -119,6 +128,7 @@ impl InstallContext {
             }
         })?;
         self.snapshot_before_last_run = Some(before);
+        self.uninstall_snapshot_before_last_run = Some(uninstall_before);
         self.last_run = Some(outcome);
         Ok(())
     }
@@ -144,6 +154,8 @@ impl InstallContext {
         command_kind: InstallCommandKind,
     ) -> InstallStepResult<()> {
         let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let uninstall_before =
+            super::manifest_helpers::capture_uninstall_repository_snapshot(&self.repository_root)?;
         let harness_name = harness.kind().as_str().to_owned();
         let rendered_args = render_cli_args(&args);
         let outcome =
@@ -172,6 +184,7 @@ impl InstallContext {
                     }
                 })?;
         self.snapshot_before_last_run = Some(before);
+        self.uninstall_snapshot_before_last_run = Some(uninstall_before);
         self.last_run = Some(outcome);
         Ok(())
     }

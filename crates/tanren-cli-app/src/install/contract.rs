@@ -16,6 +16,12 @@ use crate::install::{
 };
 
 const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
+mod snapshot;
+pub use snapshot::{
+    InstallProofRepositorySnapshot, assert_repository_snapshot_matches_baseline,
+    assert_uninstall_no_install_keeps_repository_snapshot_unchanged,
+    assert_uninstall_preview_keeps_repository_snapshot_unchanged, capture_repository_snapshot,
+};
 
 #[cfg(feature = "test-hooks")]
 mod test_hooks;
@@ -68,6 +74,13 @@ pub enum InstallProofError {
         action: &'static str,
         source: std::io::Error,
     },
+    #[error("failed to derive repository-relative snapshot path for '{path}': {source}")]
+    SnapshotPathOutsideRoot {
+        path: PathBuf,
+        source: std::path::StripPrefixError,
+    },
+    #[error("snapshot path '{path}' violated repository-relative path contract: {source}")]
+    SnapshotPathContractRejected { path: String, source: InstallError },
     #[error("failed to parse install manifest '{manifest_path}' as TOML: {source}")]
     InstallManifestTomlParse {
         manifest_path: PathBuf,
@@ -79,6 +92,8 @@ pub enum InstallProofError {
     ExpectedFileToBeAbsent { path: PathBuf },
     #[error("expected repository file content to match recorded baseline: {path}")]
     ExpectedFileContentToMatchBaseline { path: PathBuf },
+    #[error("expected repository snapshot to match recorded baseline")]
+    ExpectedRepositorySnapshotToMatchBaseline,
     #[error("expected fixture path to be absent before manifest injection: {path}")]
     StaleManifestPathAlreadyPresent { path: String },
     #[error(

@@ -4,6 +4,7 @@
 //! temporary repository fixture. No installer internals are called directly.
 
 mod assertions;
+mod assertions_uninstall;
 mod context;
 mod manifest_helpers;
 mod repo_fixture;

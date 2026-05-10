@@ -133,6 +133,8 @@ pub enum InstallProofContractError {
 
 /// Delivery-owned proof failure type surfaced to BDD assertion mapping.
 pub use contract::InstallProofError;
+/// Snapshot type used by uninstall preview/no-op proof assertions.
+pub type InstallProofRepositorySnapshot = contract::InstallProofRepositorySnapshot;
 /// Delivery-owned repository-relative install path contract type.
 pub type InstallProofRepoRelativePath = RepoRelativePath;
 
@@ -181,6 +183,78 @@ pub fn assert_uninstall_preserves_baseline_file_content(
     contract::assert_uninstall_preserves_baseline_file_content(
         repository_root,
         relative_path,
+        baseline,
+    )
+}
+
+/// Assert uninstall preserved an edited standards fixture baseline.
+#[cfg(feature = "test-hooks")]
+pub fn assert_uninstall_preserves_standards_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &InstallProofRepoRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallProofError> {
+    assert_uninstall_preserves_baseline_file_content(repository_root, relative_path, baseline)
+}
+
+/// Assert uninstall preserved an edited spec fixture baseline.
+#[cfg(feature = "test-hooks")]
+pub fn assert_uninstall_preserves_spec_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &InstallProofRepoRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallProofError> {
+    assert_uninstall_preserves_baseline_file_content(repository_root, relative_path, baseline)
+}
+
+/// Assert uninstall preserved an edited source-signal fixture baseline.
+#[cfg(feature = "test-hooks")]
+pub fn assert_uninstall_preserves_source_signal_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &InstallProofRepoRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallProofError> {
+    assert_uninstall_preserves_baseline_file_content(repository_root, relative_path, baseline)
+}
+
+/// Assert uninstall preserved a drifted generated fixture baseline.
+#[cfg(feature = "test-hooks")]
+pub fn assert_uninstall_preserves_drifted_generated_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &InstallProofRepoRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallProofError> {
+    assert_uninstall_preserves_baseline_file_content(repository_root, relative_path, baseline)
+}
+
+/// Capture a repository snapshot for uninstall preview/no-op proof assertions.
+#[cfg(feature = "test-hooks")]
+pub fn capture_uninstall_repository_snapshot(
+    repository_root: &Path,
+) -> Result<InstallProofRepositorySnapshot, InstallProofError> {
+    contract::capture_repository_snapshot(repository_root)
+}
+
+/// Assert uninstall preview leaves a repository snapshot unchanged.
+#[cfg(feature = "test-hooks")]
+pub fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
+    repository_root: &Path,
+    baseline: &InstallProofRepositorySnapshot,
+) -> Result<(), InstallProofError> {
+    contract::assert_uninstall_preview_keeps_repository_snapshot_unchanged(
+        repository_root,
+        baseline,
+    )
+}
+
+/// Assert uninstall no-install runs leave a repository snapshot unchanged.
+#[cfg(feature = "test-hooks")]
+pub fn assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
+    repository_root: &Path,
+    baseline: &InstallProofRepositorySnapshot,
+) -> Result<(), InstallProofError> {
+    contract::assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
+        repository_root,
         baseline,
     )
 }

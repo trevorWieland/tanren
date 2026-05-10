@@ -319,15 +319,15 @@ fn then_uninstall_preview_preserves_user_owned_files(
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_uninstall_preview_leaves_repository_snapshot_unchanged()?;
-    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(
+    ctx.assert_uninstall_preserves_spec_baseline_file_content(&RepositoryRelativePath::parse(
         DEFAULT_UNINSTALL_USER_SPEC_PATH.to_owned(),
     )?)?;
-    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(
-        DEFAULT_UNINSTALL_USER_SOURCE_PATH.to_owned(),
-    )?)?;
-    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(
-        DEFAULT_UNINSTALL_STANDARDS_PATH.to_owned(),
-    )?)?;
+    ctx.assert_uninstall_preserves_source_signal_baseline_file_content(
+        &RepositoryRelativePath::parse(DEFAULT_UNINSTALL_USER_SOURCE_PATH.to_owned())?,
+    )?;
+    ctx.assert_uninstall_preserves_standards_baseline_file_content(
+        &RepositoryRelativePath::parse(DEFAULT_UNINSTALL_STANDARDS_PATH.to_owned())?,
+    )?;
     Ok(())
 }
 
@@ -406,7 +406,7 @@ fn then_repository_file_contains(
 #[then(expr = "repository file {string} preserves its baseline content")]
 fn then_repository_file_preserved(world: &mut TanrenWorld, path: String) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
-    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(path)?)
+    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(path)?)
 }
 
 #[then(expr = "repository file {string} is replaced from its baseline content")]

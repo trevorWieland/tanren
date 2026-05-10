@@ -1,12 +1,19 @@
 use std::path::Path;
 
 use tanren_testkit::{
+    InstallProofRepositorySnapshot,
     assert_manifest_rust_cargo_defaults as contract_assert_manifest_rust_cargo_defaults,
     assert_rust_cargo_default_assets_installed as contract_assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed as contract_assert_rust_cargo_standards_installed,
     assert_selected_integration_command_assets as contract_assert_selected_integration_command_assets,
-    assert_uninstall_preserves_baseline_file_content as contract_assert_uninstall_preserves_baseline_file_content,
+    assert_uninstall_no_install_keeps_repository_snapshot_unchanged as contract_assert_uninstall_no_install_keeps_repository_snapshot_unchanged,
+    assert_uninstall_preserves_drifted_generated_baseline_file_content as contract_assert_uninstall_preserves_drifted_generated_baseline_file_content,
+    assert_uninstall_preserves_source_signal_baseline_file_content as contract_assert_uninstall_preserves_source_signal_baseline_file_content,
+    assert_uninstall_preserves_spec_baseline_file_content as contract_assert_uninstall_preserves_spec_baseline_file_content,
+    assert_uninstall_preserves_standards_baseline_file_content as contract_assert_uninstall_preserves_standards_baseline_file_content,
+    assert_uninstall_preview_keeps_repository_snapshot_unchanged as contract_assert_uninstall_preview_keeps_repository_snapshot_unchanged,
     assert_uninstall_removes_generated_assets_and_manifest as contract_assert_uninstall_removes_generated_assets_and_manifest,
+    capture_uninstall_repository_snapshot as contract_capture_uninstall_repository_snapshot,
 };
 
 use super::RepositoryRelativePath;
@@ -48,14 +55,79 @@ pub(crate) fn assert_uninstall_removes_generated_assets_and_manifest(
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
 
-pub(crate) fn assert_uninstall_preserves_baseline_file_content(
+pub(crate) fn assert_uninstall_preserves_standards_baseline_file_content(
     repository_root: &Path,
     relative_path: &RepositoryRelativePath,
     baseline: &[u8],
 ) -> Result<(), InstallStepError> {
-    contract_assert_uninstall_preserves_baseline_file_content(
+    contract_assert_uninstall_preserves_standards_baseline_file_content(
         repository_root,
         &relative_path.as_install_path()?,
+        baseline,
+    )
+    .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_preserves_spec_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &RepositoryRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_preserves_spec_baseline_file_content(
+        repository_root,
+        &relative_path.as_install_path()?,
+        baseline,
+    )
+    .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_preserves_source_signal_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &RepositoryRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_preserves_source_signal_baseline_file_content(
+        repository_root,
+        &relative_path.as_install_path()?,
+        baseline,
+    )
+    .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_preserves_drifted_generated_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &RepositoryRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_preserves_drifted_generated_baseline_file_content(
+        repository_root,
+        &relative_path.as_install_path()?,
+        baseline,
+    )
+    .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn capture_uninstall_repository_snapshot(
+    repository_root: &Path,
+) -> Result<InstallProofRepositorySnapshot, InstallStepError> {
+    contract_capture_uninstall_repository_snapshot(repository_root)
+        .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_preview_keeps_repository_snapshot_unchanged(
+    repository_root: &Path,
+    baseline: &InstallProofRepositorySnapshot,
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_preview_keeps_repository_snapshot_unchanged(repository_root, baseline)
+        .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
+    repository_root: &Path,
+    baseline: &InstallProofRepositorySnapshot,
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_no_install_keeps_repository_snapshot_unchanged(
+        repository_root,
         baseline,
     )
     .map_err(|source| InstallStepError::InstallProofFailure { source })

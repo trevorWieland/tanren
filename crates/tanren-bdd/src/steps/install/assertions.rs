@@ -218,6 +218,11 @@ impl InstallContext {
     }
 
     pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        if run.stdout.contains("status=ok command=uninstall") {
+            return self.assert_uninstall_no_install_leaves_repository_snapshot_unchanged();
+        }
+
         let before = self
             .snapshot_before_last_run
             .as_ref()
@@ -228,12 +233,6 @@ impl InstallContext {
             return Err(InstallStepError::RepositorySnapshotMismatch);
         }
         Ok(())
-    }
-
-    pub(crate) fn assert_uninstall_preview_leaves_repository_snapshot_unchanged(
-        &self,
-    ) -> InstallStepResult<()> {
-        self.assert_no_writes_since_last_run()
     }
 
     pub(crate) fn assert_stderr_contains(&self, expected: &str) -> InstallStepResult<()> {
@@ -297,30 +296,6 @@ impl InstallContext {
             return Err(InstallStepError::UnexpectedFileContent { path: absolute });
         }
         Ok(())
-    }
-
-    pub(crate) fn assert_file_content_preserved(
-        &self,
-        relative_path: &RepositoryRelativePath,
-    ) -> InstallStepResult<()> {
-        let baseline =
-            self.baselines
-                .get(relative_path)
-                .ok_or_else(|| InstallStepError::MissingBaseline {
-                    path: relative_path.as_str().to_owned(),
-                })?;
-        manifest_helpers::assert_uninstall_preserves_baseline_file_content(
-            &self.repository_root,
-            relative_path,
-            baseline,
-        )
-    }
-
-    pub(crate) fn assert_uninstall_preserves_baseline_file_content(
-        &self,
-        relative_path: &RepositoryRelativePath,
-    ) -> InstallStepResult<()> {
-        self.assert_file_content_preserved(relative_path)
     }
 
     pub(crate) fn assert_file_content_replaced(
