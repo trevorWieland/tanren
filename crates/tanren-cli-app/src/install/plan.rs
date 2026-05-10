@@ -137,7 +137,7 @@ impl InstallPlan {
 }
 
 /// Validate install inputs and repository state, then build the apply plan.
-pub fn build_install_plan(
+pub(super) fn build_install_plan(
     repository: &Path,
     profile: InstallProfile,
     integrations: &BTreeSet<InstallIntegration>,

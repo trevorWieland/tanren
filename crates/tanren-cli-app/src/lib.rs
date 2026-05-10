@@ -67,7 +67,7 @@ enum Command {
         action: AccountAction,
     },
     /// Bootstrap Tanren assets into a repository.
-    Install(install::cli::InstallCommand),
+    Install(install::InstallCommand),
 }
 
 #[derive(Debug, Subcommand)]

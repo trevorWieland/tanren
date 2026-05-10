@@ -28,7 +28,7 @@ impl InstallReport {
 }
 
 /// Apply a previously validated install plan.
-pub fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, InstallError> {
+pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, InstallError> {
     let prepared = prepare_apply(plan)?;
     let mut report = InstallReport {
         preserved: plan.preserved().to_vec(),

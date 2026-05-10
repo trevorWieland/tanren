@@ -4,20 +4,30 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::str::FromStr;
 
-pub mod catalog;
-pub mod cli;
+mod catalog;
+mod cli;
 #[cfg(feature = "test-hooks")]
 pub mod contract;
-pub mod error;
-pub mod manifest;
+mod error;
+mod manifest;
 mod path_guard;
-pub mod plan;
-pub mod writer;
+mod plan;
+mod writer;
 mod writer_tx;
 
+pub use cli::InstallCommand;
 pub use error::InstallError;
+#[cfg(feature = "test-hooks")]
+pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
 pub use writer::InstallReport;
+
+/// Calculate a hex SHA-256 digest for test fixture bytes.
+#[must_use]
+#[cfg(feature = "test-hooks")]
+pub fn sha256_hex(bytes: &[u8]) -> manifest::Sha256Hex {
+    manifest::sha256_hex(bytes)
+}
 
 /// Supported Tanren standards profiles for local repository bootstrap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]

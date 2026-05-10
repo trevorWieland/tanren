@@ -6,7 +6,7 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use tanren_cli_app::install::contract;
-use tanren_cli_app::install::manifest;
+use tanren_cli_app::install::{RepoRelativePath, sha256_hex};
 use thiserror::Error;
 
 /// Install manifest schema version asserted by the BDD install proofs.
@@ -140,7 +140,7 @@ pub enum InstallProofContractError {
 /// Delivery-owned proof failure type surfaced to BDD assertion mapping.
 pub use contract::InstallProofError;
 /// Delivery-owned repository-relative install path contract type.
-pub type InstallProofRepoRelativePath = manifest::RepoRelativePath;
+pub type InstallProofRepoRelativePath = RepoRelativePath;
 
 /// Assert the default rust-cargo install writes both command and standards assets.
 pub fn assert_rust_cargo_default_assets_installed(
@@ -202,5 +202,5 @@ pub fn read_workspace_catalog_file(
 #[must_use]
 #[cfg(feature = "test-hooks")]
 pub fn sha256_hex_string(bytes: &[u8]) -> String {
-    manifest::sha256_hex(bytes).to_string()
+    sha256_hex(bytes).to_string()
 }

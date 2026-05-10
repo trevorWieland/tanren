@@ -14,9 +14,9 @@ const NIBBLES: &[u8; 16] = b"0123456789abcdef";
 const SHA256_HEX_LENGTH: usize = 64;
 
 /// Install manifest schema version.
-pub const INSTALL_MANIFEST_VERSION: u32 = 1;
+pub(super) const INSTALL_MANIFEST_VERSION: u32 = 1;
 /// Repo-local metadata path for persisted install state.
-pub const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
+pub(super) const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
 
 /// Installed-asset classification used by install drift and apply planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -104,7 +104,7 @@ impl<'de> Deserialize<'de> for RepoRelativePath {
 
 /// Catalog asset entry before it becomes a file-write plan.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstallAssetProjection {
+pub(super) struct InstallAssetProjection {
     pub source_path: RepoRelativePath,
     pub destination_path: RepoRelativePath,
     pub content: &'static str,
@@ -203,7 +203,7 @@ impl InstallManifest {
 
 /// Convert projected assets into manifest rows.
 #[must_use]
-pub fn build_manifest_entries(assets: &[InstallAssetProjection]) -> Vec<ManifestEntry> {
+pub(super) fn build_manifest_entries(assets: &[InstallAssetProjection]) -> Vec<ManifestEntry> {
     assets
         .iter()
         .map(|asset| ManifestEntry {
@@ -218,7 +218,7 @@ pub fn build_manifest_entries(assets: &[InstallAssetProjection]) -> Vec<Manifest
 
 /// Hash bytes as lowercase SHA-256 hex.
 #[must_use]
-pub fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
+pub(super) fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
     let digest = Sha256::digest(bytes);
     let mut hex = String::with_capacity(digest.len() * 2);
     for byte in digest {

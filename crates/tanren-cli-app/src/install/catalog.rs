@@ -1,7 +1,6 @@
 //! Static install catalog for command and standards assets.
 
 use std::collections::BTreeSet;
-use std::path::Path;
 
 use crate::install::error::InstallError;
 use crate::install::manifest::{
@@ -281,7 +280,7 @@ const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
 const LEGACY_TRUSTED_GENERATED_DESTINATIONS: &[&str] = &[".codex/skills/retired-command.md"];
 
 /// Build the static install asset catalog for a profile + integration selection.
-pub fn build_install_asset_catalog(
+pub(super) fn build_install_asset_catalog(
     profile: InstallProfile,
     integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<Vec<InstallAssetProjection>, InstallError> {
@@ -320,8 +319,8 @@ pub fn build_install_asset_catalog(
 }
 
 /// Build a trusted registry of generated asset destinations across all profiles.
-pub fn build_trusted_generated_asset_registry() -> Result<BTreeSet<RepoRelativePath>, InstallError>
-{
+pub(super) fn build_trusted_generated_asset_registry()
+-> Result<BTreeSet<RepoRelativePath>, InstallError> {
     let mut registry = BTreeSet::new();
     for profile in [InstallProfile::RustCargo] {
         for asset in build_install_asset_catalog(profile, &InstallIntegration::all())? {
@@ -338,7 +337,8 @@ pub fn build_trusted_generated_asset_registry() -> Result<BTreeSet<RepoRelativeP
 
 /// Integration destination roots for a selected install invocation.
 #[must_use]
-pub fn generated_integration_destination_roots(
+#[cfg(feature = "test-hooks")]
+pub(super) fn generated_integration_destination_roots(
     integrations: &BTreeSet<InstallIntegration>,
 ) -> BTreeSet<&'static str> {
     integrations
@@ -349,7 +349,8 @@ pub fn generated_integration_destination_roots(
 
 /// Whether a path matches a selected integration command destination layout.
 #[must_use]
-pub fn is_current_generated_integration_destination(
+#[cfg(feature = "test-hooks")]
+pub(super) fn is_current_generated_integration_destination(
     path: &RepoRelativePath,
     destination_roots: &BTreeSet<&'static str>,
 ) -> bool {
@@ -391,6 +392,7 @@ const fn integration_destination_root(integration: InstallIntegration) -> &'stat
     }
 }
 
+#[cfg(feature = "test-hooks")]
 fn matches_generated_command_layout(path: &str, destination_root: &str) -> bool {
     let Some(filename) = path.strip_prefix(destination_root) else {
         return false;
@@ -398,7 +400,7 @@ fn matches_generated_command_layout(path: &str, destination_root: &str) -> bool 
     if filename.is_empty() || filename.contains('/') {
         return false;
     }
-    Path::new(filename)
+    std::path::Path::new(filename)
         .extension()
         .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
         && filename != ".md"
