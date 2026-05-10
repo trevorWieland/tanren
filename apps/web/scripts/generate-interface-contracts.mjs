@@ -20,188 +20,8 @@ const OUTPUT_PATH = resolve(
 );
 const CHECK_MODE = process.argv.includes("--check");
 
-const ENDPOINT_CONTRACT_PATHS = ["/me/capabilities", "/me/permissions"];
-const HTTP_METHODS = [
-  "get",
-  "post",
-  "put",
-  "patch",
-  "delete",
-  "options",
-  "head",
-  "trace",
-];
-const SCHEMA_REF_PREFIX = "#/components/schemas/";
-const RESPONSE_REF_PREFIX = "#/components/responses/";
-
-function refName(ref) {
-  if (!ref.startsWith(SCHEMA_REF_PREFIX)) {
-    throw new Error(`Unsupported schema reference: ${ref}`);
-  }
-  return ref.slice(SCHEMA_REF_PREFIX.length);
-}
-
-function responseRefName(ref) {
-  if (!ref.startsWith(RESPONSE_REF_PREFIX)) {
-    throw new Error(`Unsupported response reference: ${ref}`);
-  }
-  return ref.slice(RESPONSE_REF_PREFIX.length);
-}
-
 function isObject(value) {
   return typeof value === "object" && value !== null;
-}
-
-function collectSchemaReferences(schema, refs) {
-  if (!isObject(schema)) {
-    return;
-  }
-  if (schema.$ref) {
-    refs.add(refName(schema.$ref));
-    return;
-  }
-  if (Array.isArray(schema.oneOf)) {
-    for (const entry of schema.oneOf) {
-      collectSchemaReferences(entry, refs);
-    }
-  }
-  if (Array.isArray(schema.anyOf)) {
-    for (const entry of schema.anyOf) {
-      collectSchemaReferences(entry, refs);
-    }
-  }
-  if (Array.isArray(schema.allOf)) {
-    for (const entry of schema.allOf) {
-      collectSchemaReferences(entry, refs);
-    }
-  }
-  if (isObject(schema.properties)) {
-    for (const propertySchema of Object.values(schema.properties)) {
-      collectSchemaReferences(propertySchema, refs);
-    }
-  }
-  if (isObject(schema.items)) {
-    collectSchemaReferences(schema.items, refs);
-  }
-  if (isObject(schema.additionalProperties)) {
-    collectSchemaReferences(schema.additionalProperties, refs);
-  }
-}
-
-function collectResponseSchemaReferences(
-  openapi,
-  response,
-  schemaRefs,
-  visitedResponseRefs,
-) {
-  if (!isObject(response)) {
-    return;
-  }
-  if (typeof response.$ref === "string") {
-    const responseName = responseRefName(response.$ref);
-    if (visitedResponseRefs.has(responseName)) {
-      return;
-    }
-    visitedResponseRefs.add(responseName);
-    const components = openapi?.components;
-    if (!isObject(components) || !isObject(components.responses)) {
-      throw new Error("OpenAPI document is missing components.responses");
-    }
-    const resolved = components.responses[responseName];
-    if (!isObject(resolved)) {
-      throw new Error(`OpenAPI document is missing response: ${responseName}`);
-    }
-    collectResponseSchemaReferences(
-      openapi,
-      resolved,
-      schemaRefs,
-      visitedResponseRefs,
-    );
-    return;
-  }
-
-  const content = response.content;
-  if (!isObject(content)) {
-    return;
-  }
-  for (const mediaType of Object.values(content)) {
-    if (!isObject(mediaType)) {
-      continue;
-    }
-    collectSchemaReferences(mediaType.schema, schemaRefs);
-  }
-}
-
-function collectEndpointRootSchemas(openapi) {
-  const paths = openapi?.paths;
-  if (!isObject(paths)) {
-    throw new Error("OpenAPI document is missing paths");
-  }
-
-  const roots = new Set();
-  const visitedResponseRefs = new Set();
-  for (const path of ENDPOINT_CONTRACT_PATHS) {
-    const pathItem = paths[path];
-    if (!isObject(pathItem)) {
-      throw new Error(`OpenAPI document is missing path: ${path}`);
-    }
-    for (const method of HTTP_METHODS) {
-      const operation = pathItem[method];
-      if (!isObject(operation)) {
-        continue;
-      }
-      if (!isObject(operation.responses)) {
-        throw new Error(
-          `OpenAPI operation is missing responses: ${method.toUpperCase()} ${path}`,
-        );
-      }
-      for (const response of Object.values(operation.responses)) {
-        collectResponseSchemaReferences(
-          openapi,
-          response,
-          roots,
-          visitedResponseRefs,
-        );
-      }
-    }
-  }
-  if (roots.size === 0) {
-    throw new Error(
-      `No response schemas found for endpoint paths: ${ENDPOINT_CONTRACT_PATHS.join(", ")}`,
-    );
-  }
-  return [...roots].sort();
-}
-
-function resolveRenderOrder(schemas, rootSchemas) {
-  const rootSchemaSet = new Set(rootSchemas);
-  const seen = new Set();
-  const queue = [...rootSchemas];
-  while (queue.length > 0) {
-    const name = queue.shift();
-    if (typeof name !== "string") {
-      continue;
-    }
-    if (seen.has(name)) {
-      continue;
-    }
-    seen.add(name);
-    const schema = schemas[name];
-    if (!isObject(schema)) {
-      throw new Error(`OpenAPI document is missing schema: ${name}`);
-    }
-    const refs = new Set();
-    collectSchemaReferences(schema, refs);
-    for (const ref of refs) {
-      if (!seen.has(ref)) {
-        queue.push(ref);
-      }
-    }
-  }
-  const dependencies = [...seen]
-    .filter((name) => !rootSchemaSet.has(name))
-    .sort();
-  return [...rootSchemas, ...dependencies];
 }
 
 function loadOpenApi() {
@@ -243,35 +63,7 @@ function resolveContractSchemaOrder(openapi) {
   if (!isObject(schemas)) {
     throw new Error("OpenAPI document is missing components.schemas");
   }
-
-  const rootSchemas = collectEndpointRootSchemas(openapi);
-  const aliasOrder = resolveRenderOrder(schemas, rootSchemas);
-  for (const name of aliasOrder) {
-    const schema = schemas[name];
-    if (!isObject(schema)) {
-      throw new Error(`OpenAPI document is missing schema: ${name}`);
-    }
-  }
-  return aliasOrder;
-}
-
-function buildSchemaOnlyOpenApi(openapi, schemaNames) {
-  const schemas = openapi?.components?.schemas;
-  if (!isObject(schemas)) {
-    throw new Error("OpenAPI document is missing components.schemas");
-  }
-  const selectedSchemas = Object.fromEntries(
-    schemaNames.map((name) => [name, schemas[name]]),
-  );
-  return {
-    openapi: openapi.openapi,
-    info: openapi.info,
-    jsonSchemaDialect: openapi.jsonSchemaDialect,
-    paths: {},
-    components: {
-      schemas: selectedSchemas,
-    },
-  };
+  return Object.keys(schemas).sort();
 }
 
 function generateFile(openapi, renderedOpenApiTypes, aliasOrder) {
@@ -303,7 +95,7 @@ function generateFile(openapi, renderedOpenApiTypes, aliasOrder) {
     "",
     renderedOpenApiTypes.trimEnd(),
     "",
-    "// Re-export only interface-contract schemas reachable from /me endpoints.",
+    "// Re-export component schemas for ergonomic imports in web client code.",
     ...aliases,
     "",
     `export const INTERFACE_ERROR_CODES = [${codes.join(", ")}] as const;`,
@@ -320,8 +112,7 @@ function generateFile(openapi, renderedOpenApiTypes, aliasOrder) {
 async function main() {
   const openapi = loadOpenApi();
   const aliasOrder = resolveContractSchemaOrder(openapi);
-  const schemaOnlyOpenApi = buildSchemaOnlyOpenApi(openapi, aliasOrder);
-  const renderedOpenApiTypes = await renderOpenApiTypes(schemaOnlyOpenApi);
+  const renderedOpenApiTypes = await renderOpenApiTypes(openapi);
   const nextContent = formatTypescript(
     generateFile(openapi, renderedOpenApiTypes, aliasOrder),
   );
