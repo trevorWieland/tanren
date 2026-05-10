@@ -1,0 +1,22 @@
+[package]
+name = "tanren-delivery"
+version = "0.0.0"
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+description = "Shared delivery service: install planning, manifest management, upgrade preview/apply, catalog, and BDD fixture support. Owned by the delivery subsystem; consumed by CLI, API, and testkit crates."
+
+[lints]
+workspace = true
+
+[features]
+default = []
+test-hooks = []
+
+[dependencies]
+serde = { workspace = true }
+sha2 = { workspace = true }
+thiserror = { workspace = true }
+toml = { workspace = true }

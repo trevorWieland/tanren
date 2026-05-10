@@ -4170,8 +4170,8 @@ dependencies = [
  "serde_json",
  "sqlx",
  "tanren-app-services",
- "tanren-cli-app",
  "tanren-contract",
+ "tanren-delivery",
  "tanren-identity-policy",
  "tanren-store",
  "tokio",
@@ -4246,14 +4246,12 @@ dependencies = [
  "anyhow",
  "clap",
  "secrecy",
- "serde",
- "sha2",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-delivery",
  "tanren-identity-policy",
  "thiserror 2.0.18",
  "tokio",
- "toml",
 ]
 
 [[package]]
@@ -4284,6 +4282,16 @@ dependencies = [
  "tanren-identity-policy",
  "thiserror 2.0.18",
  "utoipa",
+]
+
+[[package]]
+name = "tanren-delivery"
+version = "0.0.0"
+dependencies = [
+ "serde",
+ "sha2",
+ "thiserror 2.0.18",
+ "toml",
 ]
 
 [[package]]
@@ -4462,8 +4470,8 @@ dependencies = [
  "serde_json",
  "tanren-api-app",
  "tanren-app-services",
- "tanren-cli-app",
  "tanren-contract",
+ "tanren-delivery",
  "tanren-identity-policy",
  "tanren-mcp-app",
  "tanren-store",

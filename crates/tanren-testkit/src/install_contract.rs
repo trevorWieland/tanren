@@ -5,8 +5,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use tanren_cli_app::install::contract;
-use tanren_cli_app::install::{RepoRelativePath, sha256_hex};
+use tanren_delivery::install::contract;
+use tanren_delivery::install::{RepoRelativePath, sha256_hex};
 use thiserror::Error;
 
 /// Install manifest schema version asserted by the BDD install proofs.

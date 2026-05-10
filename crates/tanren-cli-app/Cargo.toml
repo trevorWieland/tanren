@@ -13,17 +13,15 @@ workspace = true
 
 [features]
 default = []
-test-hooks = []
+test-hooks = ["tanren-delivery/test-hooks"]
 
 [dependencies]
 anyhow = { workspace = true }
 clap = { workspace = true }
 secrecy = { workspace = true }
-serde = { workspace = true }
-sha2 = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
+tanren-delivery = { workspace = true }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
-toml = { workspace = true }
 tokio = { workspace = true }

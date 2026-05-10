@@ -11,6 +11,7 @@ members = [
   "crates/tanren-bdd",
   "crates/tanren-behavior-proof",
   "crates/tanren-cli-app",
+  "crates/tanren-delivery",
   "crates/tanren-client-integrations",
   "crates/tanren-configuration-secrets",
   "crates/tanren-contract",
@@ -281,4 +282,5 @@ regex = "1"
 
 # Workspace crate dependencies shared by CLI and BDD install proof harnesses.
 tanren-cli-app = { path = "crates/tanren-cli-app" }
+tanren-delivery = { path = "crates/tanren-delivery" }
 tanren-testkit = { path = "crates/tanren-testkit" }

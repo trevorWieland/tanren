@@ -4,7 +4,7 @@ use std::path::Path;
 
 use axum::http::StatusCode;
 use serde::Serialize;
-use tanren_cli_app::install::sha256_hex;
+use tanren_delivery::install::sha256_hex;
 
 const INSTALL_MANIFEST_PATH: &str = ".tanren/install-manifest.toml";
 const TANREN_METADATA_ROOT: &str = ".tanren";

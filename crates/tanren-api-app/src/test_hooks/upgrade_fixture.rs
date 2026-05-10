@@ -11,8 +11,8 @@ use axum::http::StatusCode;
 use serde::Deserialize;
 use serde::Serialize;
 use serde_json::Value;
-use tanren_cli_app::install::contract::append_stale_generated_manifest_entry;
-use tanren_cli_app::install::{RepoRelativePath, apply_install, run_upgrade_witness, sha256_hex};
+use tanren_delivery::install::contract::append_stale_generated_manifest_entry;
+use tanren_delivery::install::{RepoRelativePath, apply_install, run_upgrade_witness, sha256_hex};
 use tokio::sync::Mutex;
 
 use self::snapshot::{RepositorySnapshot, capture_scoped_snapshot};
