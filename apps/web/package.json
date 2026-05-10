@@ -17,7 +17,7 @@
     "storybook:build": "storybook build",
     "storybook:test": "vitest run --project=storybook",
     "bddgen": "bddgen",
-    "contract:generate": "../../scripts/web-contract-generate.sh",
+    "contract:generate": "../../scripts/contract-generate.sh",
     "e2e": "bddgen && playwright test",
     "e2e:install": "playwright install --with-deps chromium"
   },

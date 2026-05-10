@@ -758,11 +758,11 @@ check-web-contract-sync:
     set -euo pipefail
     target="apps/web/src/lib/generated/api-contract.ts"
     before="$(sha256sum "${target}" | awk '{print $1}')"
-    just web-contract-generate
+    just contract-generate
     after="$(sha256sum "${target}" | awk '{print $1}')"
     if [[ "${before}" != "${after}" ]]; then
         echo "FAIL: ${target} is out of sync with canonical Rust OpenAPI."
-        echo "Run: just web-contract-generate"
+        echo "Run: just contract-generate"
         exit 1
     fi
 
@@ -876,10 +876,17 @@ ci:
 # Web frontend (apps/web/)
 # ============================================================================
 
-# Regenerate the web TypeScript API contract from the canonical Rust
-# OpenAPI source.
+# Regenerate the TypeScript API contract from the canonical Rust
+# OpenAPI source. This is the interface-owned entrypoint — all
+# first-party clients delegate here rather than owning generation
+# logic independently.
+contract-generate:
+    scripts/contract-generate.sh
+
+# Web projection of contract generation — delegates to the canonical
+# interface-owned entrypoint.
 web-contract-generate:
-    scripts/web-contract-generate.sh
+    just contract-generate
 
 # Install pnpm workspace dependencies. Lockfile must be up to date.
 web-install:

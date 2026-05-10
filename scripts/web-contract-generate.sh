@@ -1,19 +1,11 @@
 #!/usr/bin/env bash
+# scripts/web-contract-generate.sh — web projection of the interface-owned
+# contract generation path.
+#
+# Delegates to the canonical entrypoint (scripts/contract-generate.sh)
+# which builds the Rust OpenAPI binary and converts to TypeScript.
+# The web package does not own generation logic.
 set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-repo_root="$(cd "${script_dir}/.." && pwd)"
-openapi_json="$(mktemp -t tanren-openapi.XXXXXX.json)"
-contract_ts="${repo_root}/apps/web/src/lib/generated/api-contract.ts"
-
-cleanup() {
-    rm -f "${openapi_json}"
-}
-trap cleanup EXIT
-
-cd "${repo_root}"
-
-CARGO_INCREMENTAL=0 cargo build -p tanren-api-app --bin tanren-api-openapi --locked --quiet
-cargo run -q -p tanren-api-app --bin tanren-api-openapi --locked > "${openapi_json}"
-pnpm --filter @tanren/web exec openapi-typescript "${openapi_json}" --output "${contract_ts}"
-pnpm --filter @tanren/web exec prettier --write "${contract_ts}"
+exec "${script_dir}/contract-generate.sh" "$@"

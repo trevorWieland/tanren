@@ -391,9 +391,10 @@ The web UI must not define independent copies of API resources or error shapes.
 
 The committed first-party TypeScript projection is
 `apps/web/src/lib/generated/api-contract.ts`. The owning command is
-`just web-contract-generate`, which builds and runs
+`just contract-generate`, which builds and runs
 `tanren-api-openapi` with `cargo --locked` before invoking
-`openapi-typescript`. Drift is enforced by
+`openapi-typescript`. `just web-contract-generate` delegates to
+`just contract-generate`. Drift is enforced by
 `just check-web-contract-sync`.
 
 Contract generation failures are build failures.
