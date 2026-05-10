@@ -4487,14 +4487,8 @@ dependencies = [
 name = "tanren-client-integrations"
 version = "0.0.0"
 dependencies = [
- "reqwest",
- "secrecy",
  "serde",
- "serde_json",
- "tanren-contract",
- "tanren-identity-policy",
  "thiserror 2.0.18",
- "uuid",
 ]
 
 [[package]]
@@ -4726,12 +4720,16 @@ version = "0.0.0"
 dependencies = [
  "crossterm",
  "ratatui",
+ "reqwest",
  "secrecy",
- "tanren-client-integrations",
+ "serde",
+ "serde_json",
  "tanren-contract",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
  "tokio",
  "tracing",
+ "uuid",
 ]
 
 [[package]]

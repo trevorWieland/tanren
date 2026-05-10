@@ -16,7 +16,7 @@
 //! - `ui` hosts form-field factories, outcome adapters, and validation.
 //!
 //! The TUI runs against the HTTP control-plane via a typed app-service
-//! client boundary in `tanren-client-integrations`.
+//! client boundary in `app::api`.
 
 mod app;
 mod draw;

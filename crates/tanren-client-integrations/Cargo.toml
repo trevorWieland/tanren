@@ -12,11 +12,5 @@ description = "Client Integrations subsystem: inbound webhooks, subscriptions, i
 workspace = true
 
 [dependencies]
-reqwest = { workspace = true, features = ["cookies", "json"] }
-secrecy = { workspace = true }
 serde = { workspace = true }
-serde_json = { workspace = true }
-tanren-contract = { path = "../tanren-contract" }
-tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
-uuid = { workspace = true }

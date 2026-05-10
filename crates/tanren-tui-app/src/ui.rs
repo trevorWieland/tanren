@@ -2,11 +2,11 @@
 //! the TUI. Split out of `main.rs` to keep that file under the
 //! workspace 500-line budget.
 
-use secrecy::SecretString;
-use tanren_client_integrations::{
+use crate::app::api::{
     AcceptInvitationInput, CheckOrganizationPermissionInput, CreateOrganizationInput, SignInInput,
     SignUpInput,
 };
+use secrecy::SecretString;
 use tanren_contract::{
     AccountFailureReason, AccountView, CheckOrganizationPermissionResponse,
     CreateOrganizationResponse, ListOrganizationsResponse,

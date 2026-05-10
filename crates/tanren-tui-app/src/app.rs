@@ -1,5 +1,5 @@
 //! TUI screen state machine and submit dispatch.
-mod api;
+pub(crate) mod api;
 mod input;
 mod witness;
 

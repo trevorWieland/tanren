@@ -1,4 +1,4 @@
-use tanren_client_integrations::AcceptInvitationCookieResponse;
+use super::api::AcceptInvitationCookieResponse;
 use tanren_contract::{
     AccountView, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
     ListOrganizationsResponse,
