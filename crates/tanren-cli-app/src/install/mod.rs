@@ -44,7 +44,6 @@ pub(crate) enum InstallProfile {
 impl InstallProfile {
     /// Canonical profile identifier.
     #[must_use]
-    #[cfg(feature = "test-hooks")]
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::RustCargo => "rust-cargo",
@@ -79,7 +78,6 @@ pub(crate) enum InstallIntegration {
 impl InstallIntegration {
     /// Canonical integration identifier.
     #[must_use]
-    #[cfg(feature = "test-hooks")]
     pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
@@ -142,29 +140,27 @@ pub(crate) fn parse_integration_selection(
 /// Build a validated install plan from raw install inputs.
 pub(crate) fn plan_install(
     repository: &Path,
-    profile: &str,
-    integration_selection: Option<&str>,
+    profile: InstallProfile,
+    integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<InstallPlan, InstallError> {
-    let profile = InstallProfile::from_str(profile)?;
-    let integrations = parse_integration_selection(integration_selection)?;
-    plan::build_install_plan(repository, profile, &integrations)
+    plan::build_install_plan(repository, profile, integrations)
 }
 
 /// Validate install inputs, then apply the manifest-driven repository writes.
 pub(crate) fn apply_install(
     repository: &Path,
-    profile: &str,
-    integration_selection: Option<&str>,
+    profile: InstallProfile,
+    integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<InstallReport, InstallError> {
-    let plan = plan_install(repository, profile, integration_selection)?;
+    let plan = plan_install(repository, profile, integrations)?;
     writer::apply_install_plan(&plan)
 }
 
 /// Validate install inputs, then analyze repository drift without mutations.
 pub(crate) fn check_install_drift(
     repository: &Path,
-    profile: &str,
-    integration_selection: Option<&str>,
+    profile: InstallProfile,
+    integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<InstallDriftReport, InstallDriftError> {
-    drift::check_install_drift(repository, profile, integration_selection)
+    drift::check_install_drift(repository, profile, integrations)
 }

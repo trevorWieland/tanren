@@ -6,7 +6,7 @@ use std::path::Path;
 use crate::install::error::InstallDriftError;
 use crate::install::manifest::{PreservationPolicy, RepoRelativePath};
 use crate::install::plan::PlannedWriteKind;
-use crate::install::plan_install;
+use crate::install::{InstallIntegration, InstallProfile, plan_install};
 
 /// Typed drift status for one planned install asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -89,10 +89,10 @@ impl InstallDriftReport {
 /// Validate install inputs and analyze drift without mutating repository files.
 pub(super) fn check_install_drift(
     repository: &Path,
-    profile: &str,
-    integration_selection: Option<&str>,
+    profile: InstallProfile,
+    integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<InstallDriftReport, InstallDriftError> {
-    let plan = plan_install(repository, profile, integration_selection)?;
+    let plan = plan_install(repository, profile, integrations)?;
 
     let writes = plan
         .writes()

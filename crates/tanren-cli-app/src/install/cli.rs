@@ -1,14 +1,19 @@
 //! CLI adapters for install-related `tanren-cli` commands.
 
+use std::collections::BTreeSet;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::str::FromStr;
 
 use clap::Args;
 
 use crate::install::drift::InstallDriftStatus;
 use crate::install::error::{InstallCommandError, InstallDriftCommandError};
 use crate::install::manifest::RepoRelativePath;
-use crate::install::{InstallDriftReport, InstallReport, apply_install, check_install_drift};
+use crate::install::{
+    InstallDriftReport, InstallIntegration, InstallProfile, InstallReport, apply_install,
+    check_install_drift, parse_integration_selection,
+};
 
 /// `tanren-cli install` arguments.
 #[derive(Debug, Clone, Args)]
@@ -27,9 +32,14 @@ pub(crate) struct InstallCommand {
 impl InstallCommand {
     /// Validate install inputs, apply install, and emit a concise outcome report.
     pub(crate) fn run(&self) -> Result<(), InstallCommandError> {
-        let report = apply_install(&self.repo, &self.profile, self.integrations.as_deref())
+        let selection = self.parse_selection().map_err(InstallCommandError::from)?;
+        let report = apply_install(&self.repo, selection.profile, &selection.integrations)
             .map_err(InstallCommandError::from)?;
         self.write_success_report(&report)
+    }
+
+    fn parse_selection(&self) -> Result<InstallSelection, crate::install::InstallError> {
+        InstallSelection::parse(&self.profile, self.integrations.as_deref())
     }
 
     fn write_success_report(&self, report: &InstallReport) -> Result<(), InstallCommandError> {
@@ -78,9 +88,13 @@ pub(crate) struct DriftCommand {
 impl DriftCommand {
     /// Validate drift inputs, analyze install-managed paths, and emit a concise report.
     pub(crate) fn run(&self) -> Result<(), InstallDriftCommandError> {
-        let report = check_install_drift(&self.repo, &self.profile, self.integrations.as_deref())
+        let selection = self
+            .parse_selection()
+            .map_err(crate::install::InstallDriftError::from)
             .map_err(InstallDriftCommandError::from)?;
-        self.write_report(&report)?;
+        let report = check_install_drift(&self.repo, selection.profile, &selection.integrations)
+            .map_err(InstallDriftCommandError::from)?;
+        self.write_report(&report, &selection)?;
 
         if report.has_drift() {
             return Err(InstallDriftCommandError::DriftDetected {
@@ -90,10 +104,17 @@ impl DriftCommand {
         Ok(())
     }
 
-    fn write_report(&self, report: &InstallDriftReport) -> Result<(), InstallDriftCommandError> {
+    fn parse_selection(&self) -> Result<InstallSelection, crate::install::InstallError> {
+        InstallSelection::parse(&self.profile, self.integrations.as_deref())
+    }
+
+    fn write_report(
+        &self,
+        report: &InstallDriftReport,
+        selection: &InstallSelection,
+    ) -> Result<(), InstallDriftCommandError> {
         let summary = DriftSummary::from_report(report);
         let repository = display_repository_argument(&self.repo);
-        let integrations = self.integrations.as_deref().unwrap_or("all");
         let status = if report.has_drift() { "drift" } else { "ok" };
 
         let stdout = std::io::stdout();
@@ -103,8 +124,8 @@ impl DriftCommand {
             "status={} command=drift repo={} profile={} integrations={} clean={} changed_generated={} missing_generated={} missing_preserved={} accepted_preserved={} drift={}",
             status,
             repository,
-            self.profile,
-            integrations,
+            selection.profile.as_str(),
+            selection.integrations_csv(),
             summary.clean.len(),
             summary.changed_generated.len(),
             summary.missing_generated.len(),
@@ -124,6 +145,32 @@ impl DriftCommand {
         )
         .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone)]
+struct InstallSelection {
+    profile: InstallProfile,
+    integrations: BTreeSet<InstallIntegration>,
+}
+
+impl InstallSelection {
+    fn parse(
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> Result<Self, crate::install::InstallError> {
+        Ok(Self {
+            profile: InstallProfile::from_str(profile)?,
+            integrations: parse_integration_selection(integrations)?,
+        })
+    }
+
+    fn integrations_csv(&self) -> String {
+        self.integrations
+            .iter()
+            .map(|integration| integration.as_str())
+            .collect::<Vec<_>>()
+            .join(",")
     }
 }
 
