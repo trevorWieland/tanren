@@ -210,13 +210,21 @@ where
     Ok(())
 }
 
+/// Typed rejection detail carried from handler branches into the shared
+/// event-emission helper so every denial, validation, and not-found path
+/// emits exactly one safe rejection event.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ConfigurationOperationRejection {
+    pub operation: ConfigurationOperation,
+    pub reason: ConfigurationOperationFailureReason,
+    pub setting_key: Option<UserSettingKey>,
+    pub metadata_item_id: Option<UserCredentialId>,
+}
+
 pub(crate) async fn append_rejected_event<S>(
     store: &S,
     context: AuthenticatedConfigurationContext,
-    operation: ConfigurationOperation,
-    reason: ConfigurationOperationFailureReason,
-    setting_key: Option<UserSettingKey>,
-    metadata_item_id: Option<UserCredentialId>,
+    rejection: &ConfigurationOperationRejection,
     now: DateTime<Utc>,
 ) -> Result<(), AppServiceError>
 where
@@ -229,10 +237,10 @@ where
                 &ConfigurationOperationRejected {
                     actor: context.authenticated_account_id(),
                     scope: context.requested_owner_scope(),
-                    operation,
-                    reason,
-                    setting_key,
-                    metadata_item_id,
+                    operation: rejection.operation,
+                    reason: rejection.reason,
+                    setting_key: rejection.setting_key,
+                    metadata_item_id: rejection.metadata_item_id,
                     at: now,
                 },
             ),
@@ -240,6 +248,20 @@ where
         )
         .await?;
     Ok(())
+}
+
+pub(crate) async fn reject_configuration_operation<S, T>(
+    store: &S,
+    context: AuthenticatedConfigurationContext,
+    rejection: ConfigurationOperationRejection,
+    now: DateTime<Utc>,
+    err: AppServiceError,
+) -> Result<T, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    append_rejected_event(store, context, &rejection, now).await?;
+    Err(err)
 }
 
 pub(crate) fn map_store_error(err: StoreError) -> AppServiceError {

@@ -14,9 +14,10 @@ use tanren_store::{AccountStore, UserConfigurationStore};
 use crate::events::{ConfigurationOperation, ConfigurationOperationFailureReason};
 use crate::user_configuration_pagination::{encode_settings_cursor, parse_settings_page_request};
 use crate::user_configuration_support::{
-    AuthenticatedConfigurationContext, append_rejected_event, append_user_setting_changed_event,
-    append_user_setting_removed_event, ensure_user_setting_scope, map_store_error,
-    setting_not_found, validation_error,
+    AuthenticatedConfigurationContext, ConfigurationOperationRejection,
+    append_user_setting_changed_event, append_user_setting_removed_event,
+    ensure_user_setting_scope, map_store_error, reject_configuration_operation, setting_not_found,
+    validation_error,
 };
 use crate::{AppServiceError, Clock};
 
@@ -30,17 +31,19 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_user_setting_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::ListUserSettings,
-            ConfigurationOperationFailureReason::SettingNotFound,
-            None,
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::ListUserSettings,
+                reason: ConfigurationOperationFailureReason::SettingNotFound,
+                setting_key: None,
+                metadata_item_id: None,
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
     let page = parse_settings_page_request(request)?;
     let rows = store
@@ -72,30 +75,34 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_user_setting_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::UpsertUserSetting,
-            ConfigurationOperationFailureReason::SettingNotFound,
-            Some(request.key),
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::UpsertUserSetting,
+                reason: ConfigurationOperationFailureReason::SettingNotFound,
+                setting_key: Some(request.key),
+                metadata_item_id: None,
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
     if let Err(detail) = validate_user_setting(request.key, &request.value) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::UpsertUserSetting,
-            ConfigurationOperationFailureReason::ValidationFailed,
-            Some(request.key),
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::UpsertUserSetting,
+                reason: ConfigurationOperationFailureReason::ValidationFailed,
+                setting_key: Some(request.key),
+                metadata_item_id: None,
+            },
             clock.now(),
+            validation_error(detail),
         )
-        .await?;
-        return Err(validation_error(detail));
+        .await;
     }
 
     let now = clock.now();
@@ -138,17 +145,19 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_user_setting_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::RemoveUserSetting,
-            ConfigurationOperationFailureReason::SettingNotFound,
-            Some(key),
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::RemoveUserSetting,
+                reason: ConfigurationOperationFailureReason::SettingNotFound,
+                setting_key: Some(key),
+                metadata_item_id: None,
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
 
     let Some(setting) = store
@@ -156,17 +165,19 @@ where
         .await
         .map_err(map_store_error)?
     else {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::RemoveUserSetting,
-            ConfigurationOperationFailureReason::SettingNotFound,
-            Some(key),
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::RemoveUserSetting,
+                reason: ConfigurationOperationFailureReason::SettingNotFound,
+                setting_key: Some(key),
+                metadata_item_id: None,
+            },
             clock.now(),
+            setting_not_found(),
         )
-        .await?;
-        return Err(setting_not_found());
+        .await;
     };
 
     let removed = store
@@ -174,17 +185,19 @@ where
         .await
         .map_err(map_store_error)?;
     if !removed {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::RemoveUserSetting,
-            ConfigurationOperationFailureReason::SettingNotFound,
-            Some(key),
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::RemoveUserSetting,
+                reason: ConfigurationOperationFailureReason::SettingNotFound,
+                setting_key: Some(key),
+                metadata_item_id: None,
+            },
             clock.now(),
+            setting_not_found(),
         )
-        .await?;
-        return Err(setting_not_found());
+        .await;
     }
 
     let now = clock.now();

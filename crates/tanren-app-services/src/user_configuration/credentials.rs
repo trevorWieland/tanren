@@ -14,9 +14,10 @@ use crate::user_configuration_pagination::{
     encode_credentials_cursor, parse_credentials_page_request,
 };
 use crate::user_configuration_support::{
-    AuthenticatedConfigurationContext, append_rejected_event, append_user_credential_changed_event,
-    append_user_credential_removed_event, ensure_owner_scope, item_not_found, map_sealing_error,
-    map_store_error, validation_error,
+    AuthenticatedConfigurationContext, ConfigurationOperationRejection,
+    append_user_credential_changed_event, append_user_credential_removed_event, ensure_owner_scope,
+    item_not_found, map_sealing_error, map_store_error, reject_configuration_operation,
+    validation_error,
 };
 use crate::{AppServiceError, Clock};
 
@@ -33,56 +34,64 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_owner_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::AddUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::AddUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: None,
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
     if request.owner_scope != context.requested_owner_scope() {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::AddUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::AddUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: None,
+            },
             clock.now(),
+            item_not_found(),
         )
-        .await?;
-        return Err(item_not_found());
+        .await;
     }
     if let Err(detail) = validate_user_credential_kind(request.kind) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::AddUserCredential,
-            ConfigurationOperationFailureReason::ValidationFailed,
-            None,
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::AddUserCredential,
+                reason: ConfigurationOperationFailureReason::ValidationFailed,
+                setting_key: None,
+                metadata_item_id: None,
+            },
             clock.now(),
+            validation_error(detail),
         )
-        .await?;
-        return Err(validation_error(detail));
+        .await;
     }
     if let Err(detail) = validate_user_credential_value(&request.value) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::AddUserCredential,
-            ConfigurationOperationFailureReason::ValidationFailed,
-            None,
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::AddUserCredential,
+                reason: ConfigurationOperationFailureReason::ValidationFailed,
+                setting_key: None,
+                metadata_item_id: None,
+            },
             clock.now(),
+            validation_error(detail),
         )
-        .await?;
-        return Err(validation_error(detail));
+        .await;
     }
 
     let now = clock.now();
@@ -124,30 +133,34 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_owner_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::UpdateUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            Some(item_id),
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::UpdateUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: Some(item_id),
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
     if let Err(detail) = validate_user_credential_value(&request.value) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::UpdateUserCredential,
-            ConfigurationOperationFailureReason::ValidationFailed,
-            None,
-            Some(item_id),
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::UpdateUserCredential,
+                reason: ConfigurationOperationFailureReason::ValidationFailed,
+                setting_key: None,
+                metadata_item_id: Some(item_id),
+            },
             clock.now(),
+            validation_error(detail),
         )
-        .await?;
-        return Err(validation_error(detail));
+        .await;
     }
 
     let Some(existing_item) = store
@@ -155,17 +168,19 @@ where
         .await
         .map_err(map_store_error)?
     else {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::UpdateUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            Some(item_id),
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::UpdateUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: Some(item_id),
+            },
             clock.now(),
+            item_not_found(),
         )
-        .await?;
-        return Err(item_not_found());
+        .await;
     };
 
     let sealed_value = credential_sealer
@@ -192,17 +207,19 @@ where
         .await
         .map_err(map_store_error)?
     else {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::UpdateUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            Some(item_id),
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::UpdateUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: Some(item_id),
+            },
             clock.now(),
+            item_not_found(),
         )
-        .await?;
-        return Err(item_not_found());
+        .await;
     };
 
     append_user_credential_changed_event(store, context.authenticated_account_id(), &item, now)
@@ -223,17 +240,19 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_owner_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::ListUserCredentials,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            None,
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::ListUserCredentials,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: None,
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
     let page = parse_credentials_page_request(request)?;
     let rows = store
@@ -261,17 +280,19 @@ where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
     if let Err(err) = ensure_owner_scope(context) {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::RemoveUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            Some(item_id),
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::RemoveUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: Some(item_id),
+            },
             clock.now(),
+            err,
         )
-        .await?;
-        return Err(err);
+        .await;
     }
 
     let removed = store
@@ -279,17 +300,19 @@ where
         .await
         .map_err(map_store_error)?;
     let Some(item) = removed else {
-        append_rejected_event(
+        return reject_configuration_operation(
             store,
             context,
-            ConfigurationOperation::RemoveUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            Some(item_id),
+            ConfigurationOperationRejection {
+                operation: ConfigurationOperation::RemoveUserCredential,
+                reason: ConfigurationOperationFailureReason::ItemNotFound,
+                setting_key: None,
+                metadata_item_id: Some(item_id),
+            },
             clock.now(),
+            item_not_found(),
         )
-        .await?;
-        return Err(item_not_found());
+        .await;
     };
 
     let now = clock.now();
