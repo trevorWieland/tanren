@@ -222,7 +222,6 @@ pub trait RoleHarness: Send + std::fmt::Debug {
         &mut self,
         req: CreateRoleRequest,
     ) -> RoleHarnessResult<CreateRoleResponse>;
-
     /// Edit a role template through the harness wire surface.
     async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse>;
 
@@ -243,25 +242,26 @@ pub trait RoleHarness: Send + std::fmt::Debug {
 
     /// Seed role-template proof state directly through the harness store.
     async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()>;
-
     /// Seed role-admin direct grants for the currently authenticated actor.
     async fn seed_role_admin_for_authenticated_actor(
         &mut self,
         scope: RoleScope,
         permissions: Vec<PermissionName>,
     ) -> RoleHarnessResult<()>;
-
     /// Read one role-template snapshot from harness proof-state storage.
     async fn read_role_template(
         &self,
         role: ScopedRole,
     ) -> RoleHarnessResult<Option<RoleTemplateView>>;
-
     /// Read all direct grants for one principal from harness proof-state storage.
     async fn read_direct_grants(
         &self,
         principal: PrincipalRef,
     ) -> RoleHarnessResult<Vec<PermissionGrantView>>;
+    #[must_use]
+    fn last_transcript_text(&self) -> Option<String> {
+        None
+    }
 }
 
 /// Specification for an invitation seeded into the harness's backing

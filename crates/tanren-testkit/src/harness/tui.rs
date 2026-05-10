@@ -26,6 +26,7 @@ pub struct TuiHarness {
     driver: TuiDriver,
     role_actor: Option<AccountId>,
     auth_credentials: Option<(String, String)>,
+    last_transcript: Option<String>,
 }
 
 impl std::fmt::Debug for TuiHarness {
@@ -60,6 +61,7 @@ impl TuiHarness {
             driver,
             role_actor: None,
             auth_credentials: None,
+            last_transcript: None,
         })
     }
 
@@ -124,6 +126,10 @@ impl TuiHarness {
                 }
             }
         }
+    }
+
+    fn store_transcript(&mut self, transcript: &TuiTranscript) {
+        self.last_transcript = Some(transcript.text.clone());
     }
 
     fn submit_role_form(

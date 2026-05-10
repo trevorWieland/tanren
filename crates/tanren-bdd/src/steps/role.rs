@@ -16,7 +16,20 @@ use crate::steps::role_support::{
     parse_permissions_csv, permission_grant_ids_by_permission, permission_set, scenario_role_scope,
     synthetic_permissions,
 };
-use crate::{RoleScenarioState, TanrenWorld};
+use crate::{AccountContext, RoleScenarioState, TanrenWorld};
+
+fn capture_transcript(ctx: &mut AccountContext) {
+    ctx.role.last_role_transcript = ctx.harness.last_transcript_text();
+}
+
+fn assert_transcript_contains(transcript: Option<&String>, label: &str) {
+    if let Some(text) = transcript {
+        assert!(
+            text.contains(label),
+            "tui transcript must contain `{label}` but got: {text}"
+        );
+    }
+}
 #[given(expr = "a clean role-template environment")]
 async fn given_clean_role_env(world: &mut TanrenWorld) {
     let ctx = world.ensure_account_ctx().await;
@@ -73,6 +86,8 @@ async fn when_create_role(world: &mut TanrenWorld, name: String, permissions: St
     });
     ctx.role.last_error_code = None;
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
+    assert_transcript_contains(ctx.role.last_role_transcript.as_ref(), "Role created");
 }
 
 #[when(
@@ -103,6 +118,7 @@ async fn when_create_role_too_many_permissions(
         }
     }
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
 }
 
 #[when(
@@ -127,6 +143,8 @@ async fn when_edit_role(world: &mut TanrenWorld, name: String, permissions: Stri
     });
     ctx.role.last_error_code = None;
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
+    assert_transcript_contains(ctx.role.last_role_transcript.as_ref(), "Role updated");
 }
 
 #[when(expr = "the operator deletes the active role template")]
@@ -141,6 +159,8 @@ async fn when_delete_role(world: &mut TanrenWorld) {
     assert_eq!(deleted.role, role, "delete response must echo deleted role");
     ctx.role.last_error_code = None;
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
+    assert_transcript_contains(ctx.role.last_role_transcript.as_ref(), "Role deleted");
 }
 
 #[when(expr = "the operator applies the role template to account principal {word}")]
@@ -180,6 +200,8 @@ async fn when_apply_role_to_account(world: &mut TanrenWorld, alias: String) {
         .push(grant_ids);
     ctx.role.last_error_code = None;
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
+    assert_transcript_contains(ctx.role.last_role_transcript.as_ref(), "Role applied");
 }
 
 #[when(
@@ -204,6 +226,7 @@ async fn when_apply_role_to_missing_account(world: &mut TanrenWorld, alias: Stri
         Err(err) => ctx.role.last_error_code = Some(err.code()),
     }
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
 }
 
 #[when(
@@ -238,6 +261,7 @@ async fn when_apply_role_with_scope_mismatch(world: &mut TanrenWorld) {
         Err(err) => ctx.role.last_error_code = Some(err.code()),
     }
     ctx.role.last_permission_check = None;
+    capture_transcript(ctx);
 }
 
 #[when(expr = "the operator checks permission {string} for account principal {word}")]
@@ -260,6 +284,8 @@ async fn when_check_permission_for_account(
         .expect("permission check for account principal should succeed");
     ctx.role.last_permission_check = Some(response);
     ctx.role.last_error_code = None;
+    capture_transcript(ctx);
+    assert_transcript_contains(ctx.role.last_role_transcript.as_ref(), "Permission checked");
 }
 
 #[when(expr = "the operator checks permission {string} for the role template principal")]
@@ -283,6 +309,7 @@ async fn when_check_permission_for_role_principal(world: &mut TanrenWorld, permi
             ctx.role.last_permission_check = None;
         }
     }
+    capture_transcript(ctx);
 }
 
 #[when(expr = "the operator checks permission {string} for missing account principal {word}")]
@@ -309,6 +336,7 @@ async fn when_check_permission_for_missing_account(
             ctx.role.last_permission_check = None;
         }
     }
+    capture_transcript(ctx);
 }
 
 #[then(expr = "the active role template has permissions {string}")]
@@ -412,4 +440,5 @@ async fn then_role_fails_with(world: &mut TanrenWorld, code: String) {
         .clone()
         .unwrap_or_else(|| "no_error".to_owned());
     assert_eq!(actual, code, "unexpected role failure code");
+    assert_transcript_contains(ctx.role.last_role_transcript.as_ref(), &code);
 }

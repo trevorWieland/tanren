@@ -49,6 +49,7 @@ impl RoleHarness for TuiHarness {
             }
             Err(err) => return Err(err),
         };
+        self.store_transcript(&transcript);
         if let Err(err) = Self::ensure_role_outcome(&transcript, "Role created") {
             if req.permissions.len() > 64 && matches!(err, RoleHarnessError::Transport(_)) {
                 return Err(RoleHarnessError::Role(
@@ -106,6 +107,7 @@ impl RoleHarness for TuiHarness {
                     .join(","),
             ],
         )?;
+        self.store_transcript(&transcript);
         Self::ensure_role_outcome(&transcript, "Role updated")?;
 
         let record = self
@@ -135,6 +137,7 @@ impl RoleHarness for TuiHarness {
                 role_scope_id(req.role.scope).to_string(),
             ],
         )?;
+        self.store_transcript(&transcript);
         Self::ensure_role_outcome(&transcript, "Role deleted")?;
 
         Ok(DeleteRoleResponse { role: req.role })
@@ -155,6 +158,7 @@ impl RoleHarness for TuiHarness {
                 permission_scope_id(req.grant_scope).to_string(),
             ],
         )?;
+        self.store_transcript(&transcript);
         Self::ensure_role_outcome(&transcript, "Role applied")?;
 
         let grants = read_all_direct_grants(self.store.as_ref(), req.principal)
@@ -192,6 +196,7 @@ impl RoleHarness for TuiHarness {
                 permission_scope_id(req.scope).to_string(),
             ],
         )?;
+        self.store_transcript(&transcript);
 
         if !transcript.contains("Permission checked") {
             if let Some(err) = parse_role_failure(&transcript) {
@@ -269,5 +274,9 @@ impl RoleHarness for TuiHarness {
     ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
         let grants = read_all_direct_grants(self.store.as_ref(), principal).await?;
         Ok(grants.into_iter().map(permission_grant_view).collect())
+    }
+
+    fn last_transcript_text(&self) -> Option<String> {
+        self.last_transcript.clone()
     }
 }

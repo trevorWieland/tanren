@@ -152,6 +152,12 @@ pub struct RoleScenarioState {
     pub grant_ids_by_alias: HashMap<String, BTreeMap<String, PermissionGrantId>>,
     /// Apply snapshots observed per principal alias.
     pub apply_grant_snapshots: HashMap<String, Vec<BTreeMap<String, PermissionGrantId>>>,
+    /// Raw transcript text from the most recent TUI role operation.
+    /// Populated only for `@tui` scenarios; `None` for all other
+    /// interfaces.  BDD steps assert against this to verify
+    /// transport-boundary output rather than relying only on
+    /// in-memory harness state.
+    pub last_role_transcript: Option<String>,
 }
 
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
