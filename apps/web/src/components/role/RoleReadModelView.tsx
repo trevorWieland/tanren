@@ -20,6 +20,14 @@ interface RoleOperationResultViewProps {
 
 interface RoleReadModelViewProps {
   readModel: RoleReadModelResponse | null;
+  roleNextCursor: RoleReadModelResponse["role_next_cursor"];
+  grantNextCursor: RoleReadModelResponse["grant_next_cursor"];
+  isRefreshing: boolean;
+  isLoadingMoreRoles: boolean;
+  isLoadingMoreGrants: boolean;
+  onRefreshReadModel: () => void;
+  onLoadMoreRoles: () => void;
+  onLoadMoreGrants: () => void;
 }
 
 export function RoleOperationResultView(
@@ -46,9 +54,19 @@ export function RoleOperationResultView(
 }
 
 export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
+  const hasRoleCursor = props.roleNextCursor !== null;
+  const hasGrantCursor = props.grantNextCursor !== null;
   return (
     <section className="max-w-4xl rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4">
       <h2 className="mb-2 text-lg font-medium">Role read model</h2>
+      <button
+        type="button"
+        className="mb-2 rounded-md border border-[--color-border] px-3 py-1 text-xs font-medium disabled:opacity-60"
+        onClick={props.onRefreshReadModel}
+        disabled={props.isRefreshing}
+      >
+        {props.isRefreshing ? "Refreshing..." : "Reload snapshot"}
+      </button>
       {props.readModel === null ? (
         <p className="text-sm text-[--color-fg-muted]">No snapshot loaded.</p>
       ) : (
@@ -66,12 +84,10 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
             Grant scope: {formatPermissionScope(props.readModel.grant_scope)}
           </p>
           <p className="mt-1 text-xs text-[--color-fg-muted]">
-            Role next cursor:{" "}
-            {formatRoleCursor(props.readModel.role_next_cursor)}
+            Role next cursor: {formatRoleCursor(props.roleNextCursor)}
           </p>
           <p className="mt-1 text-xs text-[--color-fg-muted]">
-            Grant next cursor:{" "}
-            {formatGrantCursor(props.readModel.grant_next_cursor)}
+            Grant next cursor: {formatGrantCursor(props.grantNextCursor)}
           </p>
 
           <h3 className="mt-3 text-sm font-medium">Role templates</h3>
@@ -90,6 +106,14 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
               ))}
             </ul>
           )}
+          <button
+            type="button"
+            className="mt-2 rounded-md border border-[--color-border] px-3 py-1 text-xs font-medium disabled:opacity-60"
+            onClick={props.onLoadMoreRoles}
+            disabled={!hasRoleCursor || props.isLoadingMoreRoles}
+          >
+            {props.isLoadingMoreRoles ? "Loading roles..." : "Load more roles"}
+          </button>
 
           <h3 className="mt-3 text-sm font-medium">Direct grants</h3>
           {props.readModel.direct_grants.length === 0 ? (
@@ -105,6 +129,16 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
               ))}
             </ul>
           )}
+          <button
+            type="button"
+            className="mt-2 rounded-md border border-[--color-border] px-3 py-1 text-xs font-medium disabled:opacity-60"
+            onClick={props.onLoadMoreGrants}
+            disabled={!hasGrantCursor || props.isLoadingMoreGrants}
+          >
+            {props.isLoadingMoreGrants
+              ? "Loading grants..."
+              : "Load more grants"}
+          </button>
         </>
       )}
     </section>

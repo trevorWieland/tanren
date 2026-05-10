@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import type { RoleAdminAction } from "@/app/lib/generated/role-contract";
@@ -17,8 +17,8 @@ import {
   deleteRole,
   editRole,
   formatRoleError,
-  type RoleRequestContextInput,
   type RoleCapabilitySnapshot,
+  type RoleRequestContextInput,
 } from "@/app/lib/role-client";
 
 import { RoleOperationForms } from "./RoleOperationForms";
@@ -36,6 +36,8 @@ import {
 } from "./role-action-descriptors";
 import { useRoleCapabilities } from "./useRoleCapabilities";
 import {
+  buildDefaultRoleReadContext,
+  isSameRoleReadContext,
   resolveRoleReadContext,
   type RoleReadContext,
   useRoleReadModel,
@@ -54,8 +56,22 @@ export function RoleWorkbench(): ReactNode {
     csrfToken,
     errorMessage: capabilityError,
   } = useRoleCapabilities();
-  const { readModel, readContext, refreshReadModel, initializeReadModel } =
-    useRoleReadModel();
+  const {
+    readModel,
+    readContext,
+    roleNextCursor,
+    grantNextCursor,
+    isRefreshing,
+    isLoadingMoreRoles,
+    isLoadingMoreGrants,
+    refreshReadModel,
+    initializeReadModel,
+    loadMoreRoleTemplates,
+    loadMoreDirectGrants,
+    upsertLocalRoleTemplate,
+    removeLocalRoleTemplate,
+    appendLocalDirectGrants,
+  } = useRoleReadModel();
 
   useEffect(() => {
     if (capabilityError !== null) {
@@ -95,6 +111,30 @@ export function RoleWorkbench(): ReactNode {
     }
   };
 
+  const onRefreshReadModel = useCallback((): void => {
+    if (capabilitySnapshot === null) {
+      setRoleMessage("read model: role capabilities are still loading");
+      return;
+    }
+    const actorAccountId = capabilitySnapshot.capabilities.actor.account_id;
+    const context = readContext ?? buildDefaultRoleReadContext(actorAccountId);
+    void refreshReadModel(context).catch((reason: unknown) => {
+      setRoleMessage(`read model: ${formatRoleError(reason)}`);
+    });
+  }, [capabilitySnapshot, readContext, refreshReadModel]);
+
+  const onLoadMoreRoles = useCallback((): void => {
+    void loadMoreRoleTemplates().catch((reason: unknown) => {
+      setRoleMessage(`load more roles: ${formatRoleError(reason)}`);
+    });
+  }, [loadMoreRoleTemplates]);
+
+  const onLoadMoreGrants = useCallback((): void => {
+    void loadMoreDirectGrants().catch((reason: unknown) => {
+      setRoleMessage(`load more grants: ${formatRoleError(reason)}`);
+    });
+  }, [loadMoreDirectGrants]);
+
   const onCreateRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     void runRoleMutation(
@@ -106,6 +146,7 @@ export function RoleWorkbench(): ReactNode {
       setOperationSummary,
       () => buildCreateRoleRequest(new FormData(event.currentTarget)),
       (request, token) => createRole(request, token),
+      (context, response) => upsertLocalRoleTemplate(context, response.role),
       runRoleAction,
     );
   };
@@ -121,6 +162,7 @@ export function RoleWorkbench(): ReactNode {
       setOperationSummary,
       () => buildEditRoleRequest(new FormData(event.currentTarget)),
       (request, token) => editRole(request, token),
+      (context, response) => upsertLocalRoleTemplate(context, response.role),
       runRoleAction,
     );
   };
@@ -136,6 +178,8 @@ export function RoleWorkbench(): ReactNode {
       setOperationSummary,
       () => buildDeleteRoleRequest(new FormData(event.currentTarget)),
       (request, token) => deleteRole(request, token),
+      (context, response) =>
+        removeLocalRoleTemplate(context, response.role.role_id),
       runRoleAction,
     );
   };
@@ -151,6 +195,7 @@ export function RoleWorkbench(): ReactNode {
       setOperationSummary,
       () => buildApplyRoleRequest(new FormData(event.currentTarget)),
       (request, token) => applyRole(request, token),
+      (context, response) => appendLocalDirectGrants(context, response.grants),
       runRoleAction,
     );
   };
@@ -173,7 +218,9 @@ export function RoleWorkbench(): ReactNode {
           ? await checkPermissionRolePrincipalRejection(submission.request)
           : await checkPermission(submission.request);
       setOperationSummary(descriptor.buildSummary(response));
-      await refreshReadModel(context);
+      if (shouldRefreshReadModel(readContext, context)) {
+        await refreshReadModel(context);
+      }
     });
   };
 
@@ -196,7 +243,17 @@ export function RoleWorkbench(): ReactNode {
         summary={operationSummary}
       />
 
-      <RoleReadModelView readModel={readModel} />
+      <RoleReadModelView
+        readModel={readModel}
+        roleNextCursor={roleNextCursor}
+        grantNextCursor={grantNextCursor}
+        isRefreshing={isRefreshing}
+        isLoadingMoreRoles={isLoadingMoreRoles}
+        isLoadingMoreGrants={isLoadingMoreGrants}
+        onRefreshReadModel={onRefreshReadModel}
+        onLoadMoreRoles={onLoadMoreRoles}
+        onLoadMoreGrants={onLoadMoreGrants}
+      />
     </>
   );
 }
@@ -228,6 +285,10 @@ async function runRoleMutation<
     request: TSubmission["request"],
     csrfToken: string,
   ) => Promise<RoleOperationResponseMap[TAction]>,
+  applyLocalMutation: (
+    context: RoleReadContext,
+    response: RoleOperationResponseMap[TAction],
+  ) => boolean,
   runRoleAction: RunRoleAction,
 ): Promise<void> {
   return runRoleAction(descriptor, async () => {
@@ -241,7 +302,13 @@ async function runRoleMutation<
     );
     const response = await execute(submission.request, token);
     setOperationSummary(descriptor.buildSummary(response));
-    await refreshReadModel(context);
+    if (shouldRefreshReadModel(readContext, context)) {
+      await refreshReadModel(context);
+      return;
+    }
+    if (!applyLocalMutation(context, response)) {
+      await refreshReadModel(context);
+    }
   });
 }
 
@@ -249,6 +316,15 @@ type RunRoleAction = <TAction extends RoleOperationAction>(
   descriptor: RoleOperationDescriptor<TAction>,
   action: () => Promise<void>,
 ) => Promise<void>;
+
+function shouldRefreshReadModel(
+  readContext: RoleReadContext | null,
+  nextContext: RoleReadContext,
+): boolean {
+  return (
+    readContext === null || !isSameRoleReadContext(readContext, nextContext)
+  );
+}
 
 function requireCapabilitySnapshot(
   actorSnapshot: RoleCapabilitySnapshot | null,

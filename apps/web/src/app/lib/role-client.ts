@@ -101,6 +101,13 @@ interface RolePostEndpointMap {
 type RolePostPath = keyof RolePostEndpointMap;
 type ResponseDecoder<TResponse> = (payload: unknown) => TResponse;
 
+interface PostRoleEndpointOptions {
+  signal?: AbortSignal;
+}
+
+export const ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE = 50;
+export const ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE = 50;
+
 const ROLE_POST_DECODERS: {
   [K in RolePostPath]: ResponseDecoder<RolePostEndpointMap[K]["response"]>;
 } = {
@@ -143,6 +150,10 @@ function toRoleTransportError(
       cause instanceof Error ? cause.message : fallbackSummary,
     ),
   );
+}
+
+function isAbortError(cause: unknown): boolean {
+  return cause instanceof DOMException && cause.name === "AbortError";
 }
 
 function parseRoleFailurePayload(payload: unknown): RoleFailureBody {
@@ -221,6 +232,7 @@ async function postRoleEndpoint<K extends RolePostPath>(
   path: K,
   body: RolePostEndpointMap[K]["request"],
   csrfToken?: string,
+  options?: PostRoleEndpointOptions,
 ): Promise<RolePostEndpointMap[K]["response"]> {
   let response: Response;
   try {
@@ -232,8 +244,12 @@ async function postRoleEndpoint<K extends RolePostPath>(
       },
       body: JSON.stringify(body),
       credentials: "include",
+      signal: options?.signal ?? null,
     });
   } catch (cause: unknown) {
+    if (isAbortError(cause)) {
+      throw cause;
+    }
     throw toRoleTransportError(cause, String(cause));
   }
 
@@ -378,8 +394,14 @@ export function checkPermissionRolePrincipalRejection(
 
 export function readRoleModel(
   request: RoleReadModelRequest,
+  signal?: AbortSignal,
 ): Promise<RoleReadModelResponse> {
-  return postRoleEndpoint("/roles/read-model", request);
+  return postRoleEndpoint(
+    "/roles/read-model",
+    request,
+    undefined,
+    signal === undefined ? undefined : { signal },
+  );
 }
 
 export function buildCreateRoleRequest(
