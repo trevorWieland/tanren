@@ -313,18 +313,6 @@ impl AccountStore for Store {
         account_queries::find_session_by_token(&self.conn, token).await
     }
 
-    async fn find_latest_active_session_for_account(
-        &self,
-        account_id: AccountId,
-        expires_at: DateTime<Utc>,
-        now: DateTime<Utc>,
-    ) -> Result<Option<SessionRecord>, StoreError> {
-        account_queries::find_latest_active_session_for_account(
-            &self.conn, account_id, expires_at, now,
-        )
-        .await
-    }
-
     async fn list_organizations_for_account(
         &self,
         account_id: AccountId,

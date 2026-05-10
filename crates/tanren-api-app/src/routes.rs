@@ -72,17 +72,15 @@ pub struct AcceptInvitationResponseCookie {
     pub joined_org: OrgId,
 }
 
-/// Path body for `POST /invitations/{token}/accept`. Splits the password
-/// into a `String` here (then re-wraps as `SecretString` before handing
-/// off to app-services) so utoipa can document the schema; the secret
-/// stays in memory only for the lifetime of this function.
+/// Path body for `POST /invitations/{token}/accept`.
 #[derive(Debug, Deserialize, utoipa::ToSchema)]
 pub struct AcceptInvitationBody {
     /// Email the invitee chose.
     pub email: Email,
     /// Plaintext password.
+    #[serde(deserialize_with = "tanren_identity_policy::secret_serde::deserialize_password")]
     #[schema(value_type = String, format = Password)]
-    pub password: String,
+    pub password: SecretString,
     /// Display name.
     pub display_name: String,
 }
@@ -170,6 +168,7 @@ pub(crate) async fn sign_up_route(
     match state.handlers.sign_up(state.store.as_ref(), request).await {
         Ok(response) => {
             let write = SessionWrite {
+                token: response.session.token.clone(),
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
@@ -209,6 +208,7 @@ pub(crate) async fn sign_in_route(
     match state.handlers.sign_in(state.store.as_ref(), request).await {
         Ok(response) => {
             let write = SessionWrite {
+                token: response.session.token.clone(),
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };
@@ -266,7 +266,7 @@ pub(crate) async fn accept_invitation_route(
     let request = AcceptInvitationRequest {
         invitation_token,
         email: body.email,
-        password: SecretString::from(body.password),
+        password: body.password,
         display_name: body.display_name,
     };
     match state
@@ -276,6 +276,7 @@ pub(crate) async fn accept_invitation_route(
     {
         Ok(response) => {
             let write = SessionWrite {
+                token: response.session.token.clone(),
                 account_id: response.session.account_id,
                 expires_at: response.session.expires_at,
             };

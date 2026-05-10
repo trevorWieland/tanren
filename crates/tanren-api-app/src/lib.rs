@@ -11,7 +11,8 @@
 //! - `routes` hosts the `#[utoipa::path]`-annotated handlers and the
 //!   `ApiDoc` struct that the `OpenApi` derive walks.
 //! - `cookies` hosts the tower-sessions store dispatch (sqlite vs
-//!   postgres) and the `(account_id, expires_at)` write helper.
+//!   postgres) and the `(session_token, account_id, expires_at)` write
+//!   helper.
 //! - `errors` hosts the shared `{code, summary}` failure body and the
 //!   `AppServiceError` mapping.
 //!

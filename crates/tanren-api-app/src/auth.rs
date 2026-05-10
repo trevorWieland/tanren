@@ -35,15 +35,18 @@ async fn resolve_authoritative_auth(
     state: &AppState,
     cookie: SessionRead,
 ) -> Result<AuthoritativeAuth, Response> {
-    let canonical = match state
-        .store
-        .find_latest_active_session_for_account(cookie.account_id, cookie.expires_at, Utc::now())
-        .await
-    {
+    let canonical = match state.store.find_session_by_token(&cookie.token).await {
         Ok(Some(session)) => session,
         Ok(None) => return Err(map_account_failure(AccountFailureReason::AuthRequired)),
         Err(err) => return Err(map_app_error(AppServiceError::Store(err))),
     };
+
+    if canonical.account_id != cookie.account_id
+        || canonical.expires_at != cookie.expires_at
+        || canonical.expires_at <= Utc::now()
+    {
+        return Err(map_account_failure(AccountFailureReason::AuthRequired));
+    }
 
     Ok(AuthoritativeAuth(canonical.account_id, canonical.token))
 }
