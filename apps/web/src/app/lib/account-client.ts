@@ -120,13 +120,6 @@ export type {
   PermissionGrantSource,
 };
 
-export interface InterfaceContractDriftFailure {
-  kind: "interface_contract_drift";
-  code: string;
-  status: number;
-  summary: string;
-}
-
 type AccountOperationError =
   | OperationErrorBody<SignUpOperation>
   | OperationErrorBody<SignInOperation>
@@ -135,20 +128,7 @@ type AccountOperationError =
   | OperationErrorBody<MyCapabilitiesOperation>
   | OperationErrorBody<RevokeOperation>;
 
-export type AccountFailure =
-  | AccountOperationError
-  | InterfaceContractDriftFailure;
-
-export function isInterfaceContractDriftFailure(
-  failure: AccountFailure,
-): failure is InterfaceContractDriftFailure {
-  return (
-    typeof failure === "object" &&
-    failure !== null &&
-    "kind" in failure &&
-    failure.kind === "interface_contract_drift"
-  );
-}
+export type AccountFailure = AccountOperationError;
 
 function scopeLabel(scope: PermissionScopeView): string {
   switch (scope.kind) {
@@ -185,12 +165,6 @@ export function permissionScopes(
  * unknown failure codes still surface something meaningful.
  */
 export function describeFailure(failure: AccountFailure): string {
-  if (isInterfaceContractDriftFailure(failure)) {
-    if (failure.summary !== "") {
-      return failure.summary;
-    }
-    return `Unexpected interface error code (${failure.code})`;
-  }
   switch (failure.code) {
     case "duplicate_identifier":
       return m.failure_duplicate_identifier();
@@ -220,6 +194,25 @@ export function describeFailure(failure: AccountFailure): string {
   }
 }
 
+function safeSingleLine(value: string): string {
+  return value.replaceAll(/\s+/g, " ").trim();
+}
+
+function summarizeUnknownInterfaceCode(
+  rawCode: string,
+  summary: string,
+  fallbackStatus: number,
+): string {
+  const codeText = safeSingleLine(rawCode);
+  const summaryText = safeSingleLine(summary);
+  const statusText =
+    fallbackStatus > 0 ? ` status=HTTP ${fallbackStatus};` : "";
+  if (summaryText !== "") {
+    return `Unknown interface error code.${statusText} raw_code=${codeText}; server_summary=${summaryText}`;
+  }
+  return `Unknown interface error code.${statusText} raw_code=${codeText}`;
+}
+
 export class AccountRequestError extends Error {
   readonly failure: AccountFailure;
 
@@ -247,10 +240,8 @@ function normalizeInterfaceError(
         return { code, summary };
       }
       return {
-        kind: "interface_contract_drift",
-        code,
-        status: fallbackStatus,
-        summary,
+        code: "drift_detected",
+        summary: summarizeUnknownInterfaceCode(code, summary, fallbackStatus),
       };
     }
   }

@@ -2,7 +2,6 @@ import type { ReactNode } from "react";
 
 import {
   describeFailure,
-  isInterfaceContractDriftFailure,
   type AccountFailure,
   type MyPermissionEntry,
 } from "@/app/lib/account-client";
@@ -187,12 +186,9 @@ export function PermissionMetadataSection({
               <p className="m-0 text-[--color-error]">
                 {describeFailure(loadMoreFailure)}
               </p>
-              {isInterfaceContractDriftFailure(loadMoreFailure) ? (
-                <p className="m-0 font-mono text-[--color-fg-muted]">
-                  contract drift: {loadMoreFailure.code} (HTTP{" "}
-                  {loadMoreFailure.status})
-                </p>
-              ) : null}
+              <p className="m-0 font-mono text-[--color-fg-muted]">
+                code: {loadMoreFailure.code}
+              </p>
             </div>
           ) : null}
         </div>
@@ -213,20 +209,9 @@ export function PermissionFailureSection({
   return (
     <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-4 text-sm">
       <p className="m-0 text-[--color-error]">{describeFailure(failure)}</p>
-      {isInterfaceContractDriftFailure(failure) ? (
-        <dl className="mt-2 grid gap-x-3 gap-y-1 font-mono text-[--color-fg-muted] sm:grid-cols-[auto_1fr]">
-          <dt>type:</dt>
-          <dd>interface_contract_drift</dd>
-          <dt>raw_code:</dt>
-          <dd className="break-all">{failure.code}</dd>
-          <dt>status:</dt>
-          <dd>{failure.status}</dd>
-        </dl>
-      ) : (
-        <p className="m-0 mt-1 font-mono text-[--color-fg-muted]">
-          code: {failure.code}
-        </p>
-      )}
+      <p className="m-0 mt-1 font-mono text-[--color-fg-muted]">
+        code: {failure.code}
+      </p>
     </section>
   );
 }
