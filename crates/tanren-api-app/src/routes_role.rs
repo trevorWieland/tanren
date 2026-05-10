@@ -1,5 +1,6 @@
 use axum::Json;
 use axum::extract::State;
+use axum::http::header::{CACHE_CONTROL, PRAGMA};
 use axum::http::{HeaderMap, StatusCode};
 use axum::response::{IntoResponse, Response};
 use tanren_contract::{
@@ -176,12 +177,16 @@ pub(crate) async fn apply_role_route(
 pub(crate) async fn permission_check_route(
     State(state): State<AppState>,
     session: Session,
+    headers: HeaderMap,
     ValidatedJson(request): ValidatedJson<PermissionCheckRequest>,
 ) -> Response {
     let actor = match role_actor_from_session(&session).await {
         Ok(actor) => actor,
         Err(response) => return response,
     };
+    if let Err(response) = enforce_csrf(&session, &headers).await {
+        return response;
+    }
     match state
         .handlers
         .check_permission(state.store.as_ref(), actor, request)
@@ -257,14 +262,18 @@ pub(crate) async fn role_capabilities_route(
         .role_admin_capabilities(state.store.as_ref(), actor)
         .await
     {
-        Ok(capabilities) => (
-            StatusCode::OK,
-            Json(RoleCapabilitiesResponse {
+        Ok(capabilities) => {
+            let response = Json(RoleCapabilitiesResponse {
                 capabilities,
                 csrf_token,
-            }),
-        )
-            .into_response(),
+            });
+            (
+                StatusCode::OK,
+                [(CACHE_CONTROL, "no-store, private"), (PRAGMA, "no-cache")],
+                response,
+            )
+                .into_response()
+        }
         Err(err) => map_role_error(err),
     }
 }
@@ -295,17 +304,42 @@ async fn enforce_csrf(session: &Session, headers: &HeaderMap) -> Result<(), Resp
             return Err(internal_role_error());
         }
     };
+    if expected.trim().is_empty() {
+        return Err(role_permission_denied(
+            "The CSRF token is missing or invalid for this role mutation request.",
+        ));
+    }
     let presented = headers
         .get(CSRF_HEADER_NAME)
         .and_then(|value| value.to_str().ok())
-        .map(str::trim)
-        .filter(|value| !value.is_empty());
-    if presented.is_some_and(|token| token == expected) {
+        .map(str::trim);
+    let Some(presented) = presented else {
+        return Err(role_permission_denied(
+            "The CSRF token is missing or invalid for this role mutation request.",
+        ));
+    };
+    if presented.is_empty() {
+        return Err(role_permission_denied(
+            "The CSRF token is missing or invalid for this role mutation request.",
+        ));
+    }
+    if constant_time_eq(presented.as_bytes(), expected.as_bytes()) {
         return Ok(());
     }
     Err(role_permission_denied(
         "The CSRF token is missing or invalid for this role mutation request.",
     ))
+}
+
+fn constant_time_eq(left: &[u8], right: &[u8]) -> bool {
+    if left.len() != right.len() {
+        return false;
+    }
+    let mut diff = 0_u8;
+    for (l, r) in left.iter().zip(right.iter()) {
+        diff |= *l ^ *r;
+    }
+    diff == 0
 }
 
 fn role_permission_denied(summary: &str) -> Response {

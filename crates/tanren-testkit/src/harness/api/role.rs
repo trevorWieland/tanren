@@ -92,6 +92,10 @@ impl RoleHarness for ApiHarness {
         let response = self
             .client
             .post(&url)
+            .header(
+                "x-csrf-token",
+                self.csrf_token.as_deref().unwrap_or("missing-csrf-token"),
+            )
             .json(&req)
             .send()
             .await

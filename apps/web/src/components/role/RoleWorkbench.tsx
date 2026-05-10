@@ -223,8 +223,11 @@ export function RoleWorkbench(): ReactNode {
       );
       const response =
         submission.principalKind === "role"
-          ? await checkPermissionRolePrincipalRejection(submission.request)
-          : await checkPermission(submission.request);
+          ? await checkPermissionRolePrincipalRejection(
+              submission.request,
+              snapshot.csrfToken,
+            )
+          : await checkPermission(submission.request, snapshot.csrfToken);
       setOperationSummary(descriptor.buildSummary(response));
       if (shouldRefreshReadModel(readContext, context)) {
         await refreshReadModel(context);

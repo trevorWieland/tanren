@@ -366,6 +366,7 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
   try {
     response = await fetch(resolveRoleApiPath("/roles/capabilities"), {
       method: "GET",
+      cache: "no-store",
       credentials: "include",
       signal: timedSignal.signal,
     });
@@ -427,14 +428,16 @@ export function applyRole(
 
 export function checkPermission(
   request: PermissionCheckRequest,
+  csrfToken: string,
 ): Promise<PermissionCheckResponse> {
-  return postRoleEndpoint("/permissions/check", request);
+  return postRoleEndpoint("/permissions/check", request, csrfToken);
 }
 
 export function checkPermissionRolePrincipalRejection(
   request: PermissionCheckRolePrincipalRejectionRequest,
+  csrfToken: string,
 ): Promise<PermissionCheckResponse> {
-  return postRoleEndpoint("/permissions/check", request);
+  return postRoleEndpoint("/permissions/check", request, csrfToken);
 }
 
 export function readRoleModel(
