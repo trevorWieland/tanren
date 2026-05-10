@@ -11,10 +11,16 @@
 //! `/test-hooks/*` routes are simply absent from the production router
 //! (no runtime guard, no env-var check — the routes do not compile in).
 //!
-//! The endpoints here are deliberately permissive (no auth, no rate
-//! limiting): the contract is that they are loopback-only, gated by a
-//! test-only Cargo feature, and exercised exclusively by the BDD
-//! `globalSetup` flow that just spawned the binary.
+//! ## Security
+//!
+//! All test-hook routes enforce two runtime guards:
+//!
+//! 1. **Loopback-only**: requests from non-loopback addresses are
+//!    rejected with `403 Forbidden`.
+//! 2. **Per-run secret**: requests must carry a matching
+//!    `X-Test-Hook-Secret` header. The secret is generated once per API
+//!    process and shared with the Playwright driver via an environment
+//!    variable — never checked into files.
 
 use std::sync::Arc;
 
@@ -22,6 +28,7 @@ use axum::Json;
 use axum::Router;
 use axum::extract::State;
 use axum::http::StatusCode;
+use axum::middleware;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
@@ -29,7 +36,9 @@ use tanren_identity_policy::{InvitationToken, OrgId};
 use tanren_store::{NewInvitation, Store};
 use uuid::Uuid;
 
-mod upgrade_fixture;
+mod guard;
+mod limits;
+pub(crate) mod upgrade_fixture;
 
 #[derive(Clone)]
 pub(crate) struct TestHooksState {
@@ -75,11 +84,20 @@ pub(crate) async fn seed_invitation_route(
 
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
+///
+/// The router applies the loopback + secret guard as an `axum` middleware
+/// layer so every request is checked before reaching any handler.
 pub(crate) fn router(store: Arc<Store>) -> Router {
+    let secret = guard::generate_secret();
+    tracing::info!(
+        target: "tanren_api::test_hooks",
+        "test-hook routes mounted with per-run secret"
+    );
     let shared_state = TestHooksState {
         store,
         upgrade_fixture: upgrade_fixture::UpgradeFixtureHarness::new(),
     };
+    let secret_for_mw = secret.clone();
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
         .route(
@@ -87,4 +105,8 @@ pub(crate) fn router(store: Arc<Store>) -> Router {
             post(upgrade_fixture::upgrade_fixture_action_route),
         )
         .with_state(shared_state)
+        .layer(middleware::from_fn(move |req, next| {
+            let s = secret_for_mw.clone();
+            guard::guard_middleware(s, req, next)
+        }))
 }

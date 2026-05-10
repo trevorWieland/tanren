@@ -4164,7 +4164,9 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "axum",
+ "base64",
  "chrono",
+ "rand 0.9.4",
  "secrecy",
  "serde",
  "serde_json",

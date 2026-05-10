@@ -210,9 +210,16 @@ export async function runUpgradeFixtureAction(
 ): Promise<unknown> {
   let response: Response;
   try {
+    const testHookSecret = process.env["NEXT_PUBLIC_TEST_HOOK_SECRET"];
+    const headers: Record<string, string> = {
+      "content-type": "application/json",
+    };
+    if (testHookSecret) {
+      headers["x-test-hook-secret"] = testHookSecret;
+    }
     response = await fetch(`${API_URL}/test-hooks/upgrade-fixture/${action}`, {
       method: "POST",
-      headers: { "content-type": "application/json" },
+      headers,
       body: JSON.stringify(payload),
       credentials: "include",
     });

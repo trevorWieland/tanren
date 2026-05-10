@@ -172,7 +172,11 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
             axum::http::Method::POST,
             axum::http::Method::OPTIONS,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::HeaderName::from_static("x-test-hook-secret"),
+        ])
         .allow_credentials(true);
 
     let (router, api) = build_router(state).split_for_parts();
@@ -252,7 +256,11 @@ pub async fn build_app_with_store(
             axum::http::Method::POST,
             axum::http::Method::OPTIONS,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::HeaderName::from_static("x-test-hook-secret"),
+        ])
         .allow_credentials(true);
 
     let (router, api) = build_router(state).split_for_parts();

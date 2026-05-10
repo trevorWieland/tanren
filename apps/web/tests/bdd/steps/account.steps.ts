@@ -228,9 +228,16 @@ async function seedInvitation(
   context: { kind: "valid" | "expired" },
 ): Promise<void> {
   const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const testHookSecret = process.env["NEXT_PUBLIC_TEST_HOOK_SECRET"];
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (testHookSecret) {
+    headers["x-test-hook-secret"] = testHookSecret;
+  }
   const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
     method: "POST",
-    headers: { "content-type": "application/json" },
+    headers,
     body: JSON.stringify({ token, expires_at: expiresAt.toISOString() }),
   });
   if (!res.ok) {
