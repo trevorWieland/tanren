@@ -289,7 +289,11 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
         repository
             .canonicalize()
             .map_err(|err| InstallError::InvalidRepositoryPath {
-                path: format!("{} ({err})", display_repository_argument(repository)),
+                path: format!(
+                    "{} ({})",
+                    display_repository_argument(repository),
+                    redacted_io_error_kind(err.kind())
+                ),
             })?;
 
     if !canonical.is_dir() {
@@ -382,5 +386,21 @@ fn display_repository_argument(path: &Path) -> String {
         "<redacted-absolute-path>".to_owned()
     } else {
         path.display().to_string()
+    }
+}
+
+fn redacted_io_error_kind(kind: std::io::ErrorKind) -> &'static str {
+    match kind {
+        std::io::ErrorKind::NotFound => "not_found",
+        std::io::ErrorKind::PermissionDenied => "permission_denied",
+        std::io::ErrorKind::AlreadyExists => "already_exists",
+        std::io::ErrorKind::InvalidInput => "invalid_input",
+        std::io::ErrorKind::InvalidData => "invalid_data",
+        std::io::ErrorKind::TimedOut => "timed_out",
+        std::io::ErrorKind::WriteZero => "write_zero",
+        std::io::ErrorKind::Interrupted => "interrupted",
+        std::io::ErrorKind::Unsupported => "unsupported",
+        std::io::ErrorKind::UnexpectedEof => "unexpected_eof",
+        _ => "io_error",
     }
 }

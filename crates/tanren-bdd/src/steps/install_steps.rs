@@ -298,6 +298,16 @@ fn then_uninstall_output_reports_nothing_to_uninstall(
     ctx.assert_uninstall_nothing_to_uninstall(true)
 }
 
+#[then(expr = "the uninstall output reports nothing reason {word}")]
+fn then_uninstall_output_reports_nothing_reason(
+    world: &mut TanrenWorld,
+    reason: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let reason = reason.into_boxed_str();
+    ctx.assert_uninstall_nothing_reason(reason.as_ref())
+}
+
 #[then(expr = "the preview includes at least one removable Tanren-managed path")]
 fn then_preview_includes_removable_path(world: &mut TanrenWorld) -> InstallStepResult<()> {
     then_uninstall_preview_includes_removable_path(world)

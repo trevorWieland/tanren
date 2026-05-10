@@ -24,6 +24,7 @@ Feature: Uninstall Tanren assets without deleting user work
       Then the uninstall command succeeds
       And the uninstall preview output reports remove, preserve, and warning path lists
       And the uninstall output reports nothing to uninstall
+      And the uninstall output reports nothing reason manifest_missing
       And no files are written in the repository fixture
       And the install output redacts absolute repository paths
 
@@ -35,6 +36,7 @@ Feature: Uninstall Tanren assets without deleting user work
       And the uninstall preview output reports remove, preserve, and warning path lists
       And the uninstall apply output reports removed generated and metadata summaries
       And the uninstall output reports nothing to uninstall
+      And the uninstall output reports nothing reason manifest_missing
       And no files are written in the repository fixture
       And the install output redacts absolute repository paths
 

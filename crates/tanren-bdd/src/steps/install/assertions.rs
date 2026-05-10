@@ -118,6 +118,23 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_uninstall_nothing_reason(&self, expected: &str) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let parsed = parse_status_value(&run.stdout, "nothing_reason").ok_or_else(|| {
+            InstallStepError::StdoutMissingExpected {
+                expected: "nothing_reason=<value>".to_owned(),
+                stdout: run.stdout.clone(),
+            }
+        })?;
+        if parsed != expected {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!("nothing_reason={expected}"),
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_uninstall_preview_lists_removal_path(
         &self,
         relative_path: &RepositoryRelativePath,
@@ -370,18 +387,14 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
 }
 
 fn parse_status_count(stdout: &str, field: &str) -> Option<usize> {
-    let prefix = format!("{field}=");
-    stdout
-        .lines()
-        .find(|line| line.starts_with("status=ok command=uninstall"))
-        .and_then(|line| {
-            line.split_whitespace()
-                .find_map(|segment| segment.strip_prefix(&prefix))
-        })
-        .and_then(|raw| raw.parse::<usize>().ok())
+    parse_status_value(stdout, field).and_then(|raw| raw.parse::<usize>().ok())
 }
 
 fn parse_status_bool(stdout: &str, field: &str) -> Option<bool> {
+    parse_status_value(stdout, field).and_then(|raw| raw.parse::<bool>().ok())
+}
+
+fn parse_status_value<'a>(stdout: &'a str, field: &str) -> Option<&'a str> {
     let prefix = format!("{field}=");
     stdout
         .lines()
@@ -390,7 +403,6 @@ fn parse_status_bool(stdout: &str, field: &str) -> Option<bool> {
             line.split_whitespace()
                 .find_map(|segment| segment.strip_prefix(&prefix))
         })
-        .and_then(|raw| raw.parse::<bool>().ok())
 }
 
 fn parse_paths_segment<'a>(stdout: &'a str, key: &str) -> Option<&'a str> {

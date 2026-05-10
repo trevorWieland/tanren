@@ -1,5 +1,6 @@
 //! Filesystem writer for manifest-driven install plans.
 
+use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -37,6 +38,13 @@ impl InstallReport {
 pub struct UninstallApplyReport {
     pub removed_generated: Vec<RepoRelativePath>,
     pub removed_metadata: Vec<RepoRelativePath>,
+}
+
+impl UninstallApplyReport {
+    fn sort_paths(&mut self) {
+        self.removed_generated.sort();
+        self.removed_metadata.sort();
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -150,6 +158,7 @@ pub(super) fn apply_uninstall_preview(
         ));
     }
 
+    report.sort_paths();
     Ok(report)
 }
 
@@ -158,7 +167,11 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
         repository
             .canonicalize()
             .map_err(|err| InstallError::InvalidRepositoryPath {
-                path: format!("{} ({err})", display_repository_argument(repository)),
+                path: format!(
+                    "{} ({})",
+                    display_repository_argument(repository),
+                    redacted_io_error_kind(err.kind())
+                ),
             })?;
 
     if !canonical.is_dir() {
@@ -240,8 +253,13 @@ fn rollback_changed_paths(
     prepared: &[PreparedUninstallRemoval],
     changed_paths: &[RepoRelativePath],
 ) -> Result<(), InstallError> {
+    let prepared_by_path = prepared
+        .iter()
+        .map(|entry| (entry.path.as_str(), entry))
+        .collect::<BTreeMap<_, _>>();
+
     for path in changed_paths.iter().rev() {
-        let Some(removal) = prepared.iter().find(|candidate| &candidate.path == path) else {
+        let Some(removal) = prepared_by_path.get(path.as_str()) else {
             continue;
         };
 
@@ -280,5 +298,21 @@ fn display_repository_argument(path: &Path) -> String {
         "<redacted-absolute-path>".to_owned()
     } else {
         path.display().to_string()
+    }
+}
+
+fn redacted_io_error_kind(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::NotFound => "not_found",
+        ErrorKind::PermissionDenied => "permission_denied",
+        ErrorKind::AlreadyExists => "already_exists",
+        ErrorKind::InvalidInput => "invalid_input",
+        ErrorKind::InvalidData => "invalid_data",
+        ErrorKind::TimedOut => "timed_out",
+        ErrorKind::WriteZero => "write_zero",
+        ErrorKind::Interrupted => "interrupted",
+        ErrorKind::Unsupported => "unsupported",
+        ErrorKind::UnexpectedEof => "unexpected_eof",
+        _ => "io_error",
     }
 }
