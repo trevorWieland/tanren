@@ -9,14 +9,14 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
+    AccountId, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
     OrganizationPermission, SessionToken,
 };
 
 use crate::entity;
 use crate::{
-    StoreError, parse_db_identifier, parse_db_invitation_token, parse_db_organization_name,
-    parse_db_organization_permission,
+    StoreError, parse_db_idempotency_key, parse_db_identifier, parse_db_invitation_token,
+    parse_db_organization_name, parse_db_organization_permission,
 };
 
 /// Persisted account row, exposed as a typed envelope so other crates
@@ -142,11 +142,13 @@ pub struct OrganizationCreateIdempotencyRecord {
     /// Account that issued the create request.
     pub account_id: AccountId,
     /// Stable idempotency key scoped to the account.
-    pub key: String,
+    pub key: IdempotencyKey,
     /// Organization created by the idempotent request.
     pub organization_id: OrgId,
-    /// Normalized organization name fingerprint for replay conflict checks.
+    /// Normalized organization name from the original create request.
     pub organization_name: OrganizationName,
+    /// Stable request fingerprint used for conflict checks.
+    pub request_fingerprint: String,
     /// Wall-clock time the idempotency record was created.
     pub created_at: DateTime<Utc>,
 }
@@ -161,9 +163,10 @@ impl TryFrom<entity::organization_create_idempotency::Model>
     ) -> Result<Self, Self::Error> {
         Ok(Self {
             account_id: AccountId::new(model.account_id),
-            key: model.key,
+            key: parse_db_idempotency_key(&model.key)?,
             organization_id: OrgId::new(model.organization_id),
             organization_name: parse_db_organization_name(&model.organization_name)?,
+            request_fingerprint: model.request_fingerprint,
             created_at: model.created_at,
         })
     }

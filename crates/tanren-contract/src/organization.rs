@@ -23,7 +23,8 @@ pub struct CreateOrganizationRequest {
     /// `OrganizationName` during deserialization.
     pub name: OrganizationName,
     /// Stable client idempotency key. Replays with the same actor and
-    /// key return the same semantic result.
+    /// key return the same semantic result. Must be non-empty after
+    /// trimming, max 128 chars, and free of control characters.
     pub idempotency_key: Option<IdempotencyKey>,
 }
 
@@ -78,7 +79,8 @@ pub struct CreateOrganizationApiRequest {
     /// `OrganizationName` during deserialization.
     pub name: OrganizationName,
     /// Stable client idempotency key. Replays with the same actor and
-    /// key return the same semantic result.
+    /// key return the same semantic result. Must be non-empty after
+    /// trimming, max 128 chars, and free of control characters.
     pub idempotency_key: Option<IdempotencyKey>,
 }
 

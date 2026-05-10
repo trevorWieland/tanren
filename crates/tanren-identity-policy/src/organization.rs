@@ -91,24 +91,40 @@ impl std::fmt::Display for OrganizationName {
 
 /// Stable idempotency key for replay-safe mutation requests.
 ///
-/// The value is preserved except for surrounding whitespace trimming so
-/// existing database rows remain valid without shape migrations.
+/// The value is preserved except for surrounding whitespace trimming.
+/// Keys are bounded to 128 chars and cannot contain ASCII control
+/// characters.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
-#[schema(value_type = String)]
+#[schema(value_type = String, pattern = "^[^\\x00-\\x1F\\x7F]+$")]
 pub struct IdempotencyKey(String);
 
 impl IdempotencyKey {
+    /// Maximum char length for a valid idempotency key.
+    const MAX_CHARS: usize = 128;
+
     /// Parse a raw idempotency key.
     ///
     /// # Errors
     ///
     /// Returns [`ValidationError::IdempotencyKeyEmpty`] if the input is
-    /// empty after trimming.
+    /// empty after trimming, [`ValidationError::IdempotencyKeyTooLong`]
+    /// when the trimmed key exceeds 128 chars, or
+    /// [`ValidationError::IdempotencyKeyControlCharacter`] when it
+    /// contains an ASCII control character.
     pub fn parse(raw: &str) -> Result<Self, ValidationError> {
         let trimmed = raw.trim();
         if trimmed.is_empty() {
             return Err(ValidationError::IdempotencyKeyEmpty);
+        }
+        if trimmed.chars().count() > Self::MAX_CHARS {
+            return Err(ValidationError::IdempotencyKeyTooLong);
+        }
+        if trimmed
+            .chars()
+            .any(|ch| ch.is_ascii_control() || ch.is_control())
+        {
+            return Err(ValidationError::IdempotencyKeyControlCharacter);
         }
         Ok(Self(trimmed.to_owned()))
     }

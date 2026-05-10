@@ -39,8 +39,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
-    OrganizationPermission, SessionToken, ValidationError,
+    AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
+    OrganizationName, OrganizationPermission, SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -406,6 +406,14 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
 pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, StoreError> {
     OrganizationName::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "organization_name",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored idempotency key into an [`IdempotencyKey`].
+pub(crate) fn parse_db_idempotency_key(raw: &str) -> Result<IdempotencyKey, StoreError> {
+    IdempotencyKey::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "idempotency_key",
         cause: err,
     })
 }

@@ -466,10 +466,7 @@ pub enum IdentityError {
     #[error("invalid input: {0}")]
     Validation(#[from] ValidationError),
 }
-
 /// Errors raised when constructing a domain newtype from a raw string.
-///
-/// Surfaces through `tanren-app-services` as validation failures.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
@@ -488,9 +485,12 @@ pub enum ValidationError {
     /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
-    /// The supplied idempotency key was empty after trimming.
     #[error("idempotency key is empty")]
     IdempotencyKeyEmpty,
+    #[error("idempotency key exceeds the maximum length")]
+    IdempotencyKeyTooLong,
+    #[error("idempotency key contains control characters")]
+    IdempotencyKeyControlCharacter,
     /// The supplied organization name was empty after trimming.
     #[error("organization name is empty")]
     OrganizationNameEmpty,

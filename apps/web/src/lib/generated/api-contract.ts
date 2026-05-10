@@ -262,8 +262,11 @@ export interface components {
     /**
      * @description Stable idempotency key for replay-safe mutation requests.
      *
-     *     The value is preserved except for surrounding whitespace trimming so
-     *     existing database rows remain valid without shape migrations.
+     *     The value is preserved except for surrounding whitespace trimming.
+     *     Keys are bounded to 128 chars and cannot contain ASCII control
+     *     characters. Invalid values map to stable validation failures:
+     *     `idempotency key is empty`, `idempotency key exceeds the maximum length`,
+     *     and `idempotency key contains control characters`.
      */
     IdempotencyKey: string;
     /**

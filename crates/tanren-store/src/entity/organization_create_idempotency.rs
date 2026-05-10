@@ -11,6 +11,7 @@ pub struct Model {
     pub key: String,
     pub organization_id: Uuid,
     pub organization_name: String,
+    pub request_fingerprint: String,
     pub created_at: DateTimeUtc,
 }
 

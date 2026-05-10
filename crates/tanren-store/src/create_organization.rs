@@ -18,6 +18,9 @@ use crate::traits::{
 };
 use crate::{OrganizationRecord, StoreError};
 
+const ORG_CREATE_IDEMPOTENCY_FINGERPRINT_VERSION: u8 = 1;
+const ORG_CREATE_IDEMPOTENCY_COMMAND: &str = "organization_create";
+
 pub(crate) async fn run(
     conn: &DatabaseConnection,
     request: CreateOrganizationAtomicRequest,
@@ -25,9 +28,15 @@ pub(crate) async fn run(
     let replay_account_id = request.creator_account_id;
     let replay_name = request.name.clone();
     let replay_key = request.idempotency_key.clone();
-    if let Some(key) = replay_key.as_ref().map(IdempotencyKey::as_str) {
-        if let Some(replayed) =
-            find_idempotent_replay_for_key(conn, replay_account_id, key, &replay_name).await?
+    let replay_request_fingerprint = build_request_fingerprint(replay_account_id, &replay_name);
+    if let Some(key) = replay_key.as_ref() {
+        if let Some(replayed) = find_idempotent_replay_for_key(
+            conn,
+            replay_account_id,
+            key,
+            &replay_request_fingerprint,
+        )
+        .await?
         {
             return Ok(replayed);
         }
@@ -42,30 +51,38 @@ pub(crate) async fn run(
 
     match result {
         Ok(output) => Ok(output),
-        Err(CreateOrganizationError::DuplicateName) if replay_key.is_some() => {
-            match find_idempotent_replay_for_key(
-                conn,
-                replay_account_id,
-                replay_key.as_ref().map_or("", IdempotencyKey::as_str),
-                &replay_name,
-            )
-            .await?
-            {
-                Some(replayed) => Ok(replayed),
-                None => Err(CreateOrganizationError::DuplicateName),
+        Err(CreateOrganizationError::DuplicateName) => {
+            if let Some(key) = replay_key.as_ref() {
+                match find_idempotent_replay_for_key(
+                    conn,
+                    replay_account_id,
+                    key,
+                    &replay_request_fingerprint,
+                )
+                .await?
+                {
+                    Some(replayed) => Ok(replayed),
+                    None => Err(CreateOrganizationError::DuplicateName),
+                }
+            } else {
+                Err(CreateOrganizationError::DuplicateName)
             }
         }
-        Err(CreateOrganizationError::IdempotencyConflict) if replay_key.is_some() => {
-            match find_idempotent_replay_for_key(
-                conn,
-                replay_account_id,
-                replay_key.as_ref().map_or("", IdempotencyKey::as_str),
-                &replay_name,
-            )
-            .await?
-            {
-                Some(replayed) => Ok(replayed),
-                None => Err(CreateOrganizationError::IdempotencyConflict),
+        Err(CreateOrganizationError::IdempotencyConflict) => {
+            if let Some(key) = replay_key.as_ref() {
+                match find_idempotent_replay_for_key(
+                    conn,
+                    replay_account_id,
+                    key,
+                    &replay_request_fingerprint,
+                )
+                .await?
+                {
+                    Some(replayed) => Ok(replayed),
+                    None => Err(CreateOrganizationError::IdempotencyConflict),
+                }
+            } else {
+                Err(CreateOrganizationError::IdempotencyConflict)
             }
         }
         Err(err) => Err(err),
@@ -86,9 +103,18 @@ async fn run_in_txn(
         events_builder,
     } = request;
 
-    if let Some(key) = idempotency_key.as_ref().map(IdempotencyKey::as_str) {
-        insert_idempotency_claim_in_txn(txn, creator_account_id, key, organization_id, &name, now)
-            .await?;
+    if let Some(key) = idempotency_key.as_ref() {
+        let request_fingerprint = build_request_fingerprint(creator_account_id, &name);
+        insert_idempotency_claim_in_txn(
+            txn,
+            creator_account_id,
+            key,
+            organization_id,
+            &name,
+            &request_fingerprint,
+            now,
+        )
+        .await?;
     }
 
     let organization =
@@ -126,12 +152,12 @@ async fn run_in_txn(
 async fn find_idempotent_replay_for_key(
     conn: &DatabaseConnection,
     account_id: AccountId,
-    idempotency_key: &str,
-    expected_name: &tanren_identity_policy::OrganizationName,
+    idempotency_key: &IdempotencyKey,
+    expected_request_fingerprint: &str,
 ) -> Result<Option<CreateOrganizationAtomicOutput>, CreateOrganizationError> {
     let row = entity::organization_create_idempotency::Entity::find_by_id((
         account_id.as_uuid(),
-        idempotency_key.to_owned(),
+        idempotency_key.as_str().to_owned(),
     ))
     .one(conn)
     .await
@@ -140,7 +166,7 @@ async fn find_idempotent_replay_for_key(
         return Ok(None);
     };
 
-    if row.organization_name != expected_name.as_str() {
+    if row.request_fingerprint != expected_request_fingerprint {
         return Err(CreateOrganizationError::IdempotencyConflict);
     }
 
@@ -193,16 +219,18 @@ async fn insert_organization_in_txn(
 async fn insert_idempotency_claim_in_txn(
     txn: &DatabaseTransaction,
     account_id: AccountId,
-    idempotency_key: &str,
+    idempotency_key: &IdempotencyKey,
     organization_id: OrgId,
     organization_name: &tanren_identity_policy::OrganizationName,
+    request_fingerprint: &str,
     now: chrono::DateTime<chrono::Utc>,
 ) -> Result<(), CreateOrganizationError> {
     let model = entity::organization_create_idempotency::ActiveModel {
         account_id: Set(account_id.as_uuid()),
-        key: Set(idempotency_key.to_owned()),
+        key: Set(idempotency_key.as_str().to_owned()),
         organization_id: Set(organization_id.as_uuid()),
         organization_name: Set(organization_name.as_str().to_owned()),
+        request_fingerprint: Set(request_fingerprint.to_owned()),
         created_at: Set(now),
     };
     match model.insert(txn).await {
@@ -215,6 +243,17 @@ async fn insert_idempotency_claim_in_txn(
             Err(StoreError::from(err).into())
         }
     }
+}
+
+fn build_request_fingerprint(
+    account_id: AccountId,
+    name: &tanren_identity_policy::OrganizationName,
+) -> String {
+    format!(
+        "v{ORG_CREATE_IDEMPOTENCY_FINGERPRINT_VERSION}|command={ORG_CREATE_IDEMPOTENCY_COMMAND}|account_id={}|name={}",
+        account_id.as_uuid(),
+        name.as_str()
+    )
 }
 
 async fn insert_creator_membership_in_txn(
