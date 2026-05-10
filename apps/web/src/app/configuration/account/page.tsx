@@ -18,14 +18,18 @@ import {
 } from "@/app/lib/account-client";
 import type {
   AccountFailure,
+  CredentialListPageInput,
   ConfigurationCapabilities,
   CreateUserCredentialInput,
   ListUserCredentialsResult,
   ListUserSettingsResult,
+  UserCredentialItemId,
   UpdateUserCredentialInput,
   UpsertUserSettingInput,
 } from "@/app/lib/api-contracts";
 import * as m from "@/i18n/paraglide/messages";
+
+const DEFAULT_CREDENTIAL_PAGE_SIZE = 20;
 
 function formatFailure(failure: AccountFailure): string {
   return `code=${failure.code}; summary=${failure.summary}`;
@@ -62,6 +66,10 @@ export default function ConfigurationAccountPage(): ReactNode {
     useState<ListUserSettingsResult | null>(null);
   const [credentialsReadModel, setCredentialsReadModel] =
     useState<ListUserCredentialsResult | null>(null);
+  const [credentialListInput, setCredentialListInput] =
+    useState<CredentialListPageInput>({
+      page_size: DEFAULT_CREDENTIAL_PAGE_SIZE,
+    });
 
   const [busy, setBusy] = useState(false);
 
@@ -122,8 +130,10 @@ export default function ConfigurationAccountPage(): ReactNode {
     setSettingsAccessError(null);
   }
 
-  async function refreshCredentialsReadModel(): Promise<void> {
-    const body = await listUserCredentialsApi();
+  async function refreshCredentialsReadModel(
+    input: CredentialListPageInput = credentialListInput,
+  ): Promise<void> {
+    const body = await listUserCredentialsApi(input);
     setCredentialsReadModel(body);
     setCredentialsAccessError(null);
   }
@@ -174,12 +184,23 @@ export default function ConfigurationAccountPage(): ReactNode {
     }
   }
 
-  async function listCredentials(): Promise<void> {
+  async function listCredentials(
+    input: CredentialListPageInput,
+  ): Promise<void> {
+    const normalizedPageSize =
+      typeof input.page_size === "number"
+        ? input.page_size
+        : (credentialListInput.page_size ?? DEFAULT_CREDENTIAL_PAGE_SIZE);
+    const normalizedInput: CredentialListPageInput =
+      typeof input.cursor === "string" && input.cursor !== ""
+        ? { cursor: input.cursor, page_size: normalizedPageSize }
+        : { page_size: normalizedPageSize };
     setBusy(true);
     setUiError(null);
     setUiMessage(null);
     try {
-      await refreshCredentialsReadModel();
+      await refreshCredentialsReadModel(normalizedInput);
+      setCredentialListInput(normalizedInput);
       setUiMessage(m.config_credentials_list_success());
     } catch (error: unknown) {
       setUiError(formatRequestError(error));
@@ -196,7 +217,7 @@ export default function ConfigurationAccountPage(): ReactNode {
     setUiMessage(null);
     try {
       await addUserCredential(input);
-      await refreshCredentialsReadModel();
+      await refreshCredentialsReadModel(credentialListInput);
       setUiMessage(m.config_credentials_add_success());
     } catch (error: unknown) {
       setUiError(formatRequestError(error));
@@ -206,7 +227,7 @@ export default function ConfigurationAccountPage(): ReactNode {
   }
 
   async function updateCredential(
-    itemId: string,
+    itemId: UserCredentialItemId,
     input: UpdateUserCredentialInput,
   ): Promise<void> {
     setBusy(true);
@@ -214,7 +235,7 @@ export default function ConfigurationAccountPage(): ReactNode {
     setUiMessage(null);
     try {
       await updateUserCredentialApi(itemId, input);
-      await refreshCredentialsReadModel();
+      await refreshCredentialsReadModel(credentialListInput);
       setUiMessage(m.config_credentials_update_success());
     } catch (error: unknown) {
       setUiError(formatRequestError(error));
@@ -223,13 +244,13 @@ export default function ConfigurationAccountPage(): ReactNode {
     }
   }
 
-  async function removeCredential(itemId: string): Promise<void> {
+  async function removeCredential(itemId: UserCredentialItemId): Promise<void> {
     setBusy(true);
     setUiError(null);
     setUiMessage(null);
     try {
       await removeUserCredentialApi(itemId);
-      await refreshCredentialsReadModel();
+      await refreshCredentialsReadModel(credentialListInput);
       setUiMessage(m.config_credentials_remove_success());
     } catch (error: unknown) {
       setUiError(formatRequestError(error));

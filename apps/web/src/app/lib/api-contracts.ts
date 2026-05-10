@@ -22,6 +22,7 @@ export type UserSettingKey = components["schemas"]["UserSettingKey"];
 export type UserCredentialKind = components["schemas"]["UserCredentialKind"];
 export type UserSettingValue = components["schemas"]["UserSettingValue"];
 declare const SECRET_INPUT_BRAND: unique symbol;
+declare const USER_CREDENTIAL_ITEM_ID_BRAND: unique symbol;
 export type SecretInput = {
   readonly value: string;
   readonly [SECRET_INPUT_BRAND]: "SecretInput";
@@ -33,6 +34,20 @@ export function secretInput(value: string): SecretInput {
 
 export type UserSettingView = components["schemas"]["UserSettingView"];
 export type UserCredentialView = components["schemas"]["UserCredentialView"];
+export type UserCredentialItemId = string & {
+  readonly [USER_CREDENTIAL_ITEM_ID_BRAND]: "UserCredentialItemId";
+};
+
+export function userCredentialItemId(
+  value: UserCredentialView["id"],
+): UserCredentialItemId {
+  return value as UserCredentialItemId;
+}
+
+export interface CredentialListPageInput {
+  cursor?: string;
+  page_size?: number;
+}
 
 type SharedUpsertUserSettingInput =
   OperationJsonRequest<"upsert_user_setting_route">;

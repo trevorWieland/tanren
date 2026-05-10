@@ -2,6 +2,7 @@ import * as m from "@/i18n/paraglide/messages";
 import { withJsonContentType } from "@/app/lib/http";
 import type {
   AccountFailure,
+  CredentialListPageInput,
   ConfigurationCapabilities,
   ConfigurationDiscoveryResult,
   CreateUserCredentialInput,
@@ -13,6 +14,7 @@ import type {
   RemoveUserSettingResult,
   UpdateUserCredentialInput,
   UpdateUserCredentialResult,
+  UserCredentialItemId,
   UpsertUserSettingInput,
   UpsertUserSettingResult,
   UserSettingKey,
@@ -120,6 +122,20 @@ interface FailureBody {
 export interface CursorListInput {
   limit?: number;
   after?: string;
+}
+
+const DEFAULT_CREDENTIAL_PAGE_SIZE = 20;
+const MAX_CREDENTIAL_PAGE_SIZE = 100;
+
+function normalizeCredentialPageSize(input: number | undefined): number {
+  if (typeof input !== "number" || !Number.isFinite(input)) {
+    return DEFAULT_CREDENTIAL_PAGE_SIZE;
+  }
+  const bounded = Math.floor(input);
+  if (bounded < 1) {
+    return DEFAULT_CREDENTIAL_PAGE_SIZE;
+  }
+  return Math.min(bounded, MAX_CREDENTIAL_PAGE_SIZE);
 }
 
 /**
@@ -276,19 +292,28 @@ export function removeUserSetting(
   );
 }
 
-export function listUserCredentials(): Promise<ListUserCredentialsResult> {
-  return listUserCredentialsPage();
+export function listUserCredentials(
+  input: CredentialListPageInput = {},
+): Promise<ListUserCredentialsResult> {
+  const request: CredentialListPageInput =
+    typeof input.cursor === "string" && input.cursor !== ""
+      ? {
+          cursor: input.cursor,
+          page_size: input.page_size ?? DEFAULT_CREDENTIAL_PAGE_SIZE,
+        }
+      : {
+          page_size: input.page_size ?? DEFAULT_CREDENTIAL_PAGE_SIZE,
+        };
+  return listUserCredentialsPage(request);
 }
 
 export function listUserCredentialsPage(
-  input: CursorListInput = {},
+  input: CredentialListPageInput = {},
 ): Promise<ListUserCredentialsResult> {
   const params = new URLSearchParams();
-  if (typeof input.limit === "number") {
-    params.set("limit", String(input.limit));
-  }
-  if (typeof input.after === "string" && input.after !== "") {
-    params.set("after", input.after);
+  params.set("limit", String(normalizeCredentialPageSize(input.page_size)));
+  if (typeof input.cursor === "string" && input.cursor !== "") {
+    params.set("after", input.cursor);
   }
   const suffix = params.toString();
   return requestJson<ListUserCredentialsResult>(
@@ -327,7 +352,7 @@ export function addUserCredential(
 }
 
 export function updateUserCredential(
-  itemId: string,
+  itemId: UserCredentialItemId,
   input: UpdateUserCredentialInput,
 ): Promise<UpdateUserCredentialResult> {
   return writeCredentialSecret<UpdateUserCredentialResult>(
@@ -339,7 +364,7 @@ export function updateUserCredential(
 }
 
 export function removeUserCredential(
-  itemId: string,
+  itemId: UserCredentialItemId,
 ): Promise<RemoveUserCredentialResult> {
   return requestJson<RemoveUserCredentialResult>(
     `${USER_CREDENTIAL_METADATA_PATH}/${encodeURIComponent(itemId)}`,
