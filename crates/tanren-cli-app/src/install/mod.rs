@@ -20,6 +20,7 @@ pub use error::InstallCommandError;
 pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
+pub(crate) use path_guard::resolve_repo_relative_path;
 pub use plan::InstallPlan;
 pub use writer::InstallReport;
 

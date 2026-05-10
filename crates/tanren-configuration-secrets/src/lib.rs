@@ -57,7 +57,7 @@ pub enum ConfigSecretsError {
     NotFound(String),
     /// Standards-root path is not a valid repo-relative path.
     #[error(
-        "invalid standards root path '{path}': must be non-empty, relative, and not include parent traversal"
+        "invalid standards root path '{path}': must be non-empty, relative, and contain only normal path segments"
     )]
     InvalidStandardsRootPath { path: String },
     /// TOML serialization failed.
@@ -100,16 +100,30 @@ impl StandardsRoot {
             });
         }
 
-        let is_valid = candidate
-            .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-        if !is_valid {
+        let mut canonical_segments = Vec::new();
+        for component in candidate.components() {
+            match component {
+                Component::Normal(segment) => {
+                    canonical_segments.push(segment.to_string_lossy().into_owned());
+                }
+                Component::CurDir
+                | Component::ParentDir
+                | Component::RootDir
+                | Component::Prefix(_) => {
+                    return Err(ConfigSecretsError::InvalidStandardsRootPath {
+                        path: path.to_owned(),
+                    });
+                }
+            }
+        }
+
+        if canonical_segments.is_empty() {
             return Err(ConfigSecretsError::InvalidStandardsRootPath {
                 path: path.to_owned(),
             });
         }
 
-        Ok(Self(normalized.to_owned()))
+        Ok(Self(canonical_segments.join("/")))
     }
 
     /// Borrow the standards root as a string.

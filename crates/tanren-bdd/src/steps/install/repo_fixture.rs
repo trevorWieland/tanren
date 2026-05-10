@@ -185,6 +185,12 @@ impl InstallContext {
         standards_root: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
         let mut config = self.load_project_methodology_config()?;
+        let standards_root = StandardsRoot::parse(standards_root.as_str()).map_err(|source| {
+            InstallStepError::InvalidStandardsRootForConfig {
+                path: standards_root.as_str().to_owned(),
+                source,
+            }
+        })?;
         let current_root = self.repository_path(config.standards_root.as_str())?;
         if !current_root.is_dir() {
             return Err(InstallStepError::ExpectedDirectoryToExist { path: current_root });
@@ -206,13 +212,7 @@ impl InstallContext {
             source,
         })?;
 
-        config.standards_root =
-            StandardsRoot::parse(standards_root.as_str()).map_err(|source| {
-                InstallStepError::InvalidStandardsRootForConfig {
-                    path: standards_root.as_str().to_owned(),
-                    source,
-                }
-            })?;
+        config.standards_root = standards_root;
         let config_toml = config.to_toml().map_err(|source| {
             InstallStepError::SerializeProjectMethodologyConfig {
                 path: self

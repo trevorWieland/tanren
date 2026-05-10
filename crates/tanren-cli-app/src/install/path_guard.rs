@@ -6,6 +6,15 @@ use std::path::{Component, Path, PathBuf};
 use crate::install::error::InstallError;
 use crate::install::manifest::RepoRelativePath;
 
+/// Resolve a raw repo-relative path while rejecting symlink traversal.
+pub(crate) fn resolve_repo_relative_path(
+    repository_root: &Path,
+    path: &str,
+) -> Result<PathBuf, InstallError> {
+    let path = RepoRelativePath::parse(path)?;
+    resolve_repo_path(repository_root, &path)
+}
+
 /// Resolve a validated repo-relative path while rejecting symlink traversal.
 pub(crate) fn resolve_repo_path(
     repository_root: &Path,

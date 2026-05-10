@@ -8,6 +8,8 @@ use clap::{Args, Subcommand};
 use tanren_configuration_secrets::{MethodologyProfile, ProjectMethodologyConfig};
 use thiserror::Error;
 
+use crate::install::resolve_repo_relative_path;
+
 const PROJECT_METHODOLOGY_CONFIG_REPO_PATH: &str = ".tanren/project-methodology.toml";
 
 /// `tanren-cli standards` command arguments.
@@ -111,6 +113,10 @@ pub(crate) enum StandardsError {
     ReadFailure { path: String, message: String },
     #[error("failed to parse project methodology config '{path}' as TOML: {message}")]
     ProjectMethodologyConfigParse { path: String, message: String },
+    #[error("configured standards root '{path}' is invalid: {message}")]
+    InvalidConfiguredStandardsRoot { path: String, message: String },
+    #[error("path is not repository-relative: '{path}'")]
+    NonRepositoryRelativePath { path: String },
     #[error("configured standards root is missing: '{path}'")]
     StandardsRootMissing { path: String },
     #[error("no standards markdown files found under configured standards root '{path}'")]
@@ -164,7 +170,15 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
     })?;
 
     let standards_root_relative = config.standards_root.as_str().to_owned();
-    let standards_root = repository_root.join(config.standards_root.as_path());
+    let standards_root =
+        resolve_repo_relative_path(&repository_root, config.standards_root.as_str()).map_err(
+            |source| StandardsCommandError::ValidationFailed {
+                source: StandardsError::InvalidConfiguredStandardsRoot {
+                    path: standards_root_relative.clone(),
+                    message: source.to_string(),
+                },
+            },
+        )?;
 
     if !standards_root.is_dir() {
         return Err(StandardsCommandError::StandardsMissing {
@@ -200,10 +214,12 @@ fn collect_standards(
     directory: &Path,
     parsed: &mut Vec<ParsedStandard>,
 ) -> Result<(), StandardsCommandError> {
+    let directory_path =
+        to_repo_relative_path(repository_root, directory).map_err(validation_failed)?;
     let entries =
         fs::read_dir(directory).map_err(|source| StandardsCommandError::StandardsMissing {
             source: StandardsError::ReadFailure {
-                path: to_repo_relative_path(repository_root, directory),
+                path: directory_path.clone(),
                 message: source.to_string(),
             },
         })?;
@@ -211,17 +227,19 @@ fn collect_standards(
     for entry_result in entries {
         let entry = entry_result.map_err(|source| StandardsCommandError::StandardsMissing {
             source: StandardsError::ReadFailure {
-                path: to_repo_relative_path(repository_root, directory),
+                path: directory_path.clone(),
                 message: source.to_string(),
             },
         })?;
         let path = entry.path();
+        let path_relative =
+            to_repo_relative_path(repository_root, &path).map_err(validation_failed)?;
         let file_type =
             entry
                 .file_type()
                 .map_err(|source| StandardsCommandError::StandardsMissing {
                     source: StandardsError::ReadFailure {
-                        path: to_repo_relative_path(repository_root, &path),
+                        path: path_relative.clone(),
                         message: source.to_string(),
                     },
                 })?;
@@ -237,7 +255,7 @@ fn collect_standards(
             continue;
         }
 
-        let standard_path_relative = to_repo_relative_path(repository_root, &path);
+        let standard_path_relative = path_relative;
         let raw = fs::read_to_string(&path).map_err(|source| {
             StandardsCommandError::StandardsParseFailed {
                 source: StandardsError::ReadFailure {
@@ -368,11 +386,17 @@ const fn methodology_profile_name(profile: MethodologyProfile) -> &'static str {
     }
 }
 
-fn to_repo_relative_path(repository_root: &Path, path: &Path) -> String {
-    path.strip_prefix(repository_root).map_or_else(
-        |_| path.display().to_string(),
-        |relative| relative.display().to_string(),
-    )
+fn to_repo_relative_path(repository_root: &Path, path: &Path) -> Result<String, StandardsError> {
+    let relative = path.strip_prefix(repository_root).map_err(|_| {
+        StandardsError::NonRepositoryRelativePath {
+            path: display_repository_argument(path),
+        }
+    })?;
+    Ok(relative.display().to_string())
+}
+
+fn validation_failed(source: StandardsError) -> StandardsCommandError {
+    StandardsCommandError::ValidationFailed { source }
 }
 
 fn display_repository_argument(path: &Path) -> String {
