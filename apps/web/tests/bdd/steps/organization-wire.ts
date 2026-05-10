@@ -170,11 +170,15 @@ export async function readOrganizationSnapshot(
 export async function createOrganizationViaWire(
   page: Page,
   organizationName: string,
+  idempotencyKey?: string,
 ): Promise<CreateOrganizationOperation> {
   await openOrganizationWireSurface(page);
   await page
     .getByTestId(ORGANIZATION_WIRE_TEST_IDS.createNameInput)
     .fill(organizationName);
+  await page
+    .getByTestId(ORGANIZATION_WIRE_TEST_IDS.createIdempotencyKeyInput)
+    .fill(idempotencyKey ?? "");
 
   const previousSequence = await readWireSequence(page);
   const responsePromise = waitForOrganizationRouteResponse(

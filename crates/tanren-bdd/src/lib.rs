@@ -146,9 +146,10 @@ impl AccountContext {
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
+            // `@web` scenarios outside B-0066 continue to use the Rust
+            // fallback harness for fast feedback. B-0066 `@web` scenarios
+            // are filtered out in `run_features` and proved by Playwright
+            // only.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
@@ -177,6 +178,9 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
 /// Run the cucumber harness against the supplied features directory.
 /// The harness installs a `Before` hook that selects the per-interface
 /// wire harness from the active scenario's tags.
+///
+/// B-0066's `@web` scenarios are intentionally excluded from the Rust
+/// runner: that witness must come from the Playwright browser path.
 pub async fn run_features(features_dir: impl Into<PathBuf>) {
     TanrenWorld::cucumber()
         // Keep BDD witness runs deterministic across all wire harnesses.
@@ -190,7 +194,25 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
             })
         })
         .fail_on_skipped()
-        .run_and_exit(features_dir.into())
+        .filter_run_and_exit(features_dir.into(), |feature, rule, scenario| {
+            let is_b0066 = feature.tags.iter().any(|tag| {
+                let normalized = tag.trim_start_matches('@');
+                normalized == "B-0066"
+            });
+            let is_web = scenario.tags.iter().any(|tag| {
+                let normalized = tag.trim_start_matches('@');
+                normalized == "web"
+            }) || rule.is_some_and(|r| {
+                r.tags
+                    .iter()
+                    .any(|tag| tag.trim_start_matches('@') == "web")
+            }) || feature
+                .tags
+                .iter()
+                .any(|tag| tag.trim_start_matches('@') == "web");
+
+            !(is_b0066 && is_web)
+        })
         .await;
 }
 

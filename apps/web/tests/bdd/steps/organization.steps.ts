@@ -26,6 +26,9 @@ import {
 } from "./organization-wire";
 
 const { Then, When } = createBdd(test);
+const ORGANIZATION_CREATE_BEHAVIOR_ID = "B-0066";
+const ORGANIZATION_EVENT_FAMILY = "organization";
+const ORGANIZATION_CREATED_EVENT_KIND = "organization_created";
 
 When(
   /^(\w+) creates organization "([^"]+)"$/,
@@ -58,6 +61,170 @@ When(
 
     const normalized = organizationKey(organizationName);
     state.organizationsByName.set(normalized, operation.snapshot);
+    state.lastReplayExpectedOrganizationId = null;
+    state.lastReplayObservedOrganizationId = null;
+    state.lastCreateResponse = operation.response.body;
+    state.lastListResponse = null;
+    state.lastCheckResponse = null;
+    state.lastOperationSucceeded = true;
+    a.hasSession = true;
+    delete a.lastFailureCode;
+  },
+);
+
+When(
+  /^(\w+) creates organization "([^"]+)" using idempotency key "([^"]+)"$/,
+  async (
+    { page, world },
+    name: string,
+    organizationName: string,
+    idempotencyKey: string,
+  ) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+
+    await signInActorViaUi(page, typedWorld, name);
+    const operation = await createOrganizationViaWire(
+      page,
+      organizationName,
+      idempotencyKey,
+    );
+    if (operation.outcome.status !== "success" || !operation.response.ok) {
+      a.hasSession = false;
+      a.lastFailureCode =
+        operation.outcome.failureCode ??
+        (operation.response.ok ? "unknown" : operation.response.error.code);
+      state.lastOperationSucceeded = false;
+      throw new Error(
+        `create organization failed: ${
+          operation.outcome.failureDetail ??
+          (operation.response.ok ? "unknown" : operation.response.error.summary)
+        }`,
+      );
+    }
+    if (!operation.snapshot) {
+      throw new Error(
+        "organization snapshot missing after successful create operation",
+      );
+    }
+
+    const normalized = organizationKey(organizationName);
+    state.organizationsByName.set(normalized, operation.snapshot);
+    state.createdOrganizationByIdempotencyKey.set(
+      idempotencyKey,
+      operation.snapshot.id,
+    );
+    state.lastReplayExpectedOrganizationId = null;
+    state.lastReplayObservedOrganizationId = null;
+    state.lastCreateResponse = operation.response.body;
+    state.lastListResponse = null;
+    state.lastCheckResponse = null;
+    state.lastOperationSucceeded = true;
+    a.hasSession = true;
+    delete a.lastFailureCode;
+  },
+);
+
+When(
+  /^(\w+) attempts to create organization "([^"]+)" using idempotency key "([^"]+)"$/,
+  async (
+    { page, world },
+    name: string,
+    organizationName: string,
+    idempotencyKey: string,
+  ) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+
+    await signInActorViaUi(page, typedWorld, name);
+    const operation = await createOrganizationViaWire(
+      page,
+      organizationName,
+      idempotencyKey,
+    );
+
+    if (operation.outcome.status === "success" && operation.response.ok) {
+      if (!operation.snapshot) {
+        throw new Error(
+          "organization snapshot missing after successful create operation",
+        );
+      }
+      const normalized = organizationKey(organizationName);
+      state.organizationsByName.set(normalized, operation.snapshot);
+      state.createdOrganizationByIdempotencyKey.set(
+        idempotencyKey,
+        operation.snapshot.id,
+      );
+      state.lastCreateResponse = operation.response.body;
+      state.lastOperationSucceeded = true;
+      a.hasSession = true;
+      delete a.lastFailureCode;
+      return;
+    }
+
+    state.lastOperationSucceeded = false;
+    a.hasSession = false;
+    a.lastFailureCode =
+      operation.outcome.failureCode ??
+      (operation.response.ok ? "unknown" : operation.response.error.code);
+  },
+);
+
+When(
+  /^(\w+) replays organization create "([^"]+)" using idempotency key "([^"]+)"$/,
+  async (
+    { page, world },
+    name: string,
+    organizationName: string,
+    idempotencyKey: string,
+  ) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+
+    const expectedOrganizationId =
+      state.createdOrganizationByIdempotencyKey.get(idempotencyKey);
+    if (!expectedOrganizationId) {
+      throw new Error(
+        `idempotency key ${idempotencyKey} must be seeded by a prior successful create`,
+      );
+    }
+
+    await signInActorViaUi(page, typedWorld, name);
+    const operation = await createOrganizationViaWire(
+      page,
+      organizationName,
+      idempotencyKey,
+    );
+    if (operation.outcome.status !== "success" || !operation.response.ok) {
+      a.hasSession = false;
+      a.lastFailureCode =
+        operation.outcome.failureCode ??
+        (operation.response.ok ? "unknown" : operation.response.error.code);
+      state.lastOperationSucceeded = false;
+      throw new Error(
+        `idempotent replay failed: ${
+          operation.outcome.failureDetail ??
+          (operation.response.ok ? "unknown" : operation.response.error.summary)
+        }`,
+      );
+    }
+    if (!operation.snapshot) {
+      throw new Error(
+        "organization snapshot missing after successful replay operation",
+      );
+    }
+
+    const normalized = organizationKey(organizationName);
+    state.organizationsByName.set(normalized, operation.snapshot);
+    state.createdOrganizationByIdempotencyKey.set(
+      idempotencyKey,
+      operation.snapshot.id,
+    );
+    state.lastReplayExpectedOrganizationId = expectedOrganizationId;
+    state.lastReplayObservedOrganizationId = operation.snapshot.id;
     state.lastCreateResponse = operation.response.body;
     state.lastListResponse = null;
     state.lastCheckResponse = null;
@@ -356,6 +523,64 @@ Then(
     if (snapshot.initialProjectCount !== 0) {
       throw new Error(
         `expected initial_project_count=0 for ${organizationName}, got ${String(snapshot.initialProjectCount)}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^organization "([^"]+)" exposes canonical proof and source links$/,
+  async ({ world }, organizationName: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const snapshot = state.organizationsByName.get(
+      organizationKey(organizationName),
+    );
+    if (!snapshot) {
+      throw new Error(
+        `organization ${organizationName} must exist before proof/source assertions`,
+      );
+    }
+
+    if (!snapshot.proofLink || !snapshot.sourceLink) {
+      throw new Error(
+        `organization ${organizationName} is missing proof/source links`,
+      );
+    }
+
+    if (snapshot.proofLink.behavior_id !== ORGANIZATION_CREATE_BEHAVIOR_ID) {
+      throw new Error(
+        `expected proof behavior_id=${ORGANIZATION_CREATE_BEHAVIOR_ID}, got ${snapshot.proofLink.behavior_id}`,
+      );
+    }
+    if (snapshot.sourceLink.event_family !== ORGANIZATION_EVENT_FAMILY) {
+      throw new Error(
+        `expected source event_family=${ORGANIZATION_EVENT_FAMILY}, got ${snapshot.sourceLink.event_family}`,
+      );
+    }
+    if (snapshot.sourceLink.event_kind !== ORGANIZATION_CREATED_EVENT_KIND) {
+      throw new Error(
+        `expected source event_kind=${ORGANIZATION_CREATED_EVENT_KIND}, got ${snapshot.sourceLink.event_kind}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^idempotent replay for "([^"]+)" keeps the same organization id$/,
+  async ({ world }, organizationName: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const expected = state.lastReplayExpectedOrganizationId;
+    const observed = state.lastReplayObservedOrganizationId;
+    if (!expected || !observed) {
+      throw new Error(
+        `idempotent replay for ${organizationName} must capture both expected and observed ids`,
+      );
+    }
+    if (expected !== observed) {
+      throw new Error(
+        `idempotent replay changed organization id for ${organizationName}: expected ${expected}, got ${observed}`,
       );
     }
   },

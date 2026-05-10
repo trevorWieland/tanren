@@ -68,6 +68,7 @@ export default function OrganizationsRoute(): ReactNode {
 
 export function OrganizationHarnessRoute(): ReactNode {
   const [createName, setCreateName] = useState("");
+  const [createIdempotencyKey, setCreateIdempotencyKey] = useState("");
   const [permissionOrgId, setPermissionOrgId] = useState("");
   const [permission, setPermission] = useState<
     OrganizationAdminPermission | ""
@@ -124,6 +125,8 @@ export function OrganizationHarnessRoute(): ReactNode {
 
     const response = await createOrganizationApi({
       name: createName,
+      idempotency_key:
+        createIdempotencyKey.trim() === "" ? null : createIdempotencyKey,
     });
 
     if (!response.ok) {
@@ -244,6 +247,19 @@ export function OrganizationHarnessRoute(): ReactNode {
           data-testid={ORGANIZATION_WIRE_TEST_IDS.createNameInput}
           onChange={(event) => setCreateName(event.target.value)}
           value={createName}
+        />
+        <label
+          className="mb-2 block text-sm"
+          htmlFor="org-create-idempotency-key"
+        >
+          Idempotency key (optional)
+        </label>
+        <input
+          id="org-create-idempotency-key"
+          className="mb-3 w-full rounded border border-[--color-border] px-3 py-2"
+          data-testid={ORGANIZATION_WIRE_TEST_IDS.createIdempotencyKeyInput}
+          onChange={(event) => setCreateIdempotencyKey(event.target.value)}
+          value={createIdempotencyKey}
         />
         <button
           className="rounded border border-[--color-border] px-3 py-2"

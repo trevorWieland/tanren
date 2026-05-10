@@ -1,24 +1,10 @@
-//! `@web` harness — currently delegates to [`super::InProcessHarness`].
+//! `@web` fallback harness — delegates to [`super::InProcessHarness`].
 //!
-//! PR 11 stands up a parallel Node-side Playwright harness for the same
-//! `@web` Gherkin scenarios via `playwright-bdd`. The Gherkin source is
-//! shared (the directory `apps/web/tests/bdd/features` is a symlink into
-//! `tests/bdd/features/`), so the same scenarios prove themselves twice:
-//!
-//! - **Rust BDD** (this crate, fast feedback): every `@web` scenario
-//!   routes through this harness, which falls back to the in-process
-//!   `Handlers` dispatch. The witness is the cucumber-rs run executed
-//!   by `just tests` and `cargo run -p tanren-bdd --bin tanren-bdd-runner`.
-//! - **playwright-bdd** (`apps/web/tests/bdd/`, real browser): the same
-//!   `@web` scenarios run end-to-end against a Playwright-driven Chromium
-//!   that hits a Next.js dev server pointed at a freshly spawned
-//!   `tanren-api` binary. The witness is `pnpm --filter @tanren/web run e2e`,
-//!   wired into `just web-test` (which `just ci` invokes).
-//!
-//! The two layers are not redundant: the Rust path proves wiring inside
-//! the workspace at unit-test latency, and the Playwright path proves
-//! the rendered DOM, the cookie round-trip, and the CORS-allowed origin.
-//! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
+//! The real-browser witness for B-0066 runs via `playwright-bdd` in
+//! `apps/web/tests/bdd`. The Rust runner intentionally filters those
+//! B-0066 `@web` scenarios out so the witness is produced by Chromium.
+//! This harness remains available for other `@web` scenarios that still
+//! opt into fast in-process feedback.
 
 use async_trait::async_trait;
 use tanren_contract::{
@@ -34,9 +20,9 @@ use super::{
     HarnessSession,
 };
 
-/// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
-/// real-browser proof lives on the Node side via `playwright-bdd`; this
-/// harness keeps the Rust BDD runner self-contained for fast feedback.
+/// `@web` fallback wrapper around [`InProcessHarness`]. B-0066 web
+/// witness coverage runs in Playwright; this harness keeps non-B-0066
+/// Rust BDD scenarios self-contained.
 #[derive(Debug)]
 pub struct WebHarness {
     inner: InProcessHarness,

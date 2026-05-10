@@ -17,6 +17,7 @@ Feature: Create an organization
       Then the operation succeeds
       And alice holds all organization admin permissions in "alpha api org"
       And organization "alpha api org" has zero initial projects
+      And organization "alpha api org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha api org" is listed for alice
       When alice checks organization permission "invite" in "alpha api org"
@@ -73,6 +74,7 @@ Feature: Create an organization
       Then the operation succeeds
       And alice holds all organization admin permissions in "alpha web org"
       And organization "alpha web org" has zero initial projects
+      And organization "alpha web org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha web org" is listed for alice
       When alice checks organization permission "invite" in "alpha web org"
@@ -90,6 +92,31 @@ Feature: Create an organization
     Scenario: Web rejects unsigned organization create
       When alice creates organization "unsigned web org" without signing in
       Then the request fails with code "auth_required"
+
+    @falsification @web
+    Scenario: Web rejects invalid organization-name input
+      Given alice has signed up with email "alice-b0066-web-validation@example.com" and password "p4ssw0rd"
+      When alice attempts to create organization "   " using idempotency key "web-b0066-validation"
+      Then the request fails with code "validation_failed"
+
+    @positive @web
+    Scenario: Web replays idempotent organization create with the same key and payload
+      Given alice has signed up with email "alice-b0066-web-idempotent@example.com" and password "p4ssw0rd"
+      When alice creates organization "web replay org" using idempotency key "web-b0066-replay"
+      Then the operation succeeds
+      And organization "web replay org" has zero initial projects
+      And organization "web replay org" exposes canonical proof and source links
+      When alice replays organization create "web replay org" using idempotency key "web-b0066-replay"
+      Then the operation succeeds
+      And idempotent replay for "web replay org" keeps the same organization id
+
+    @falsification @web
+    Scenario: Web rejects idempotency-key replay with a conflicting payload
+      Given alice has signed up with email "alice-b0066-web-idempotency-conflict@example.com" and password "p4ssw0rd"
+      When alice creates organization "web conflict primary org" using idempotency key "web-b0066-conflict"
+      Then the operation succeeds
+      When alice attempts to create organization "web conflict secondary org" using idempotency key "web-b0066-conflict"
+      Then the request fails with code "idempotency_conflict"
 
     @falsification @web
     Scenario: Web rejects unsigned organization list and permission check
@@ -129,6 +156,7 @@ Feature: Create an organization
       Then the operation succeeds
       And alice holds all organization admin permissions in "alpha-cli-org"
       And organization "alpha-cli-org" has zero initial projects
+      And organization "alpha-cli-org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha-cli-org" is listed for alice
       When alice checks organization permission "invite" in "alpha-cli-org"
@@ -185,6 +213,7 @@ Feature: Create an organization
       Then the operation succeeds
       And alice holds all organization admin permissions in "alpha mcp org"
       And organization "alpha mcp org" has zero initial projects
+      And organization "alpha mcp org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha mcp org" is listed for alice
       When alice checks organization permission "invite" in "alpha mcp org"
@@ -241,6 +270,7 @@ Feature: Create an organization
       Then the operation succeeds
       And alice holds all organization admin permissions in "alpha tui org"
       And organization "alpha tui org" has zero initial projects
+      And organization "alpha tui org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha tui org" is listed for alice
       When alice checks organization permission "invite" in "alpha tui org"

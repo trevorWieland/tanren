@@ -286,6 +286,26 @@ async fn then_org_has_zero_initial_projects(world: &mut TanrenWorld, name: Strin
         created.initial_project_count, 0,
         "new organizations must start with zero projects"
     );
+}
+
+#[then(expr = "organization {string} exposes canonical proof and source links")]
+async fn then_org_exposes_canonical_links(world: &mut TanrenWorld, name: String) {
+    let ctx = world.ensure_account_ctx().await;
+    let org_name = OrganizationName::parse(&name).expect("scenario organization names must parse");
+
+    let created = ctx
+        .last_created_organization
+        .as_ref()
+        .expect("create-organization response must be captured before this assertion");
+    assert_eq!(
+        created.organization.name.as_str(),
+        org_name.as_str(),
+        "proof/source assertion must target the just-created organization"
+    );
+    assert_canonical_create_links(created);
+}
+
+fn assert_canonical_create_links(created: &tanren_contract::CreateOrganizationResponse) {
     assert_eq!(
         created.proof_link.behavior_id, ORGANIZATION_CREATE_BEHAVIOR_ID,
         "create response should carry the canonical behavior proof link"

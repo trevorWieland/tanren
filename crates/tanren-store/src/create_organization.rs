@@ -107,8 +107,12 @@ async fn run_in_txn(
         events_builder,
     } = request;
 
+    let organization =
+        insert_organization_in_txn(txn, organization_id, &name, creator_account_id, now).await?;
     if let Some(key) = idempotency_key.as_ref() {
         let request_fingerprint = build_request_fingerprint(creator_account_id, &name);
+        // The idempotency record has an FK to `organizations.id`, so the
+        // organization row must exist before we claim the key.
         insert_idempotency_claim_in_txn(
             txn,
             creator_account_id,
@@ -120,9 +124,6 @@ async fn run_in_txn(
         )
         .await?;
     }
-
-    let organization =
-        insert_organization_in_txn(txn, organization_id, &name, creator_account_id, now).await?;
     insert_creator_membership_in_txn(
         txn,
         creator_membership_id,

@@ -25,10 +25,13 @@ export interface OrganizationSnapshot {
 
 export interface OrganizationWorldState {
   organizationsByName: Map<string, OrganizationSnapshot>;
+  createdOrganizationByIdempotencyKey: Map<string, string>;
   lastOperationSucceeded: boolean;
   lastCreateResponse: CreateOrganizationResponse | null;
   lastListResponse: ListOrganizationsResponse | null;
   lastCheckResponse: CheckOrganizationPermissionResponse | null;
+  lastReplayExpectedOrganizationId: string | null;
+  lastReplayObservedOrganizationId: string | null;
 }
 
 export interface OrganizationWorld {
@@ -66,10 +69,13 @@ export function orgState(world: OrganizationWorld): OrganizationWorldState {
   if (!world.__orgState) {
     world.__orgState = {
       organizationsByName: new Map<string, OrganizationSnapshot>(),
+      createdOrganizationByIdempotencyKey: new Map<string, string>(),
       lastOperationSucceeded: false,
       lastCreateResponse: null,
       lastListResponse: null,
       lastCheckResponse: null,
+      lastReplayExpectedOrganizationId: null,
+      lastReplayObservedOrganizationId: null,
     };
   }
   return world.__orgState;

@@ -13,6 +13,7 @@ export type { OrganizationAdminPermission };
 export const ORGANIZATION_WIRE_TEST_IDS = {
   page: "org-wire-page",
   createNameInput: "org-wire-create-name",
+  createIdempotencyKeyInput: "org-wire-create-idempotency-key",
   createSubmit: "org-wire-create-submit",
   listSubmit: "org-wire-list-submit",
   permissionOrgIdInput: "org-wire-permission-org-id",
