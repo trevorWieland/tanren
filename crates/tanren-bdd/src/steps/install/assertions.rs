@@ -31,6 +31,29 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_drift_success(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        if !run.success {
+            return Err(InstallStepError::DriftCommandExpectedSuccess {
+                status: run.status_code,
+                stdout: run.stdout.clone(),
+                stderr: run.stderr.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_drift_nonzero(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        if run.success {
+            return Err(InstallStepError::DriftCommandExpectedFailure {
+                stdout: run.stdout.clone(),
+                stderr: run.stderr.clone(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_summary_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=ok command=install")?;
@@ -63,6 +86,56 @@ impl InstallContext {
             });
         }
         Ok(())
+    }
+
+    pub(crate) fn assert_drift_output_reports_no_drift(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        for expected in [
+            "status=ok command=drift",
+            "drift=0",
+            "changed_generated=0",
+            "missing_generated=0",
+            "missing_preserved=0",
+        ] {
+            ensure_stdout_contains(run, expected)?;
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_drift_output_reports_generated_asset_drift(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=drift command=drift")?;
+        ensure_stdout_list_field_contains(run, "changed_generated", relative_path.as_str())
+    }
+
+    pub(crate) fn assert_drift_output_reports_missing_generated_asset(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=drift command=drift")?;
+        ensure_stdout_list_field_contains(run, "missing_generated", relative_path.as_str())
+    }
+
+    pub(crate) fn assert_drift_output_reports_missing_preserved_standard(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=drift command=drift")?;
+        ensure_stdout_list_field_contains(run, "missing_preserved", relative_path.as_str())
+    }
+
+    pub(crate) fn assert_drift_output_reports_accepted_preserved_edit(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=ok command=drift")?;
+        ensure_stdout_list_field_contains(run, "accepted_preserved", relative_path.as_str())
     }
 
     pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
@@ -212,6 +285,36 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
     if !run.stdout.contains(expected) {
         return Err(InstallStepError::StdoutMissingExpected {
             expected: expected.to_owned(),
+            stdout: run.stdout.clone(),
+        });
+    }
+    Ok(())
+}
+
+fn ensure_stdout_list_field_contains(
+    run: &InstallCommandOutcome,
+    field: &str,
+    path: &str,
+) -> InstallStepResult<()> {
+    let marker = format!("{field}=[");
+    let value_start = run.stdout.find(marker.as_str()).ok_or_else(|| {
+        InstallStepError::StdoutMissingExpected {
+            expected: marker.clone(),
+            stdout: run.stdout.clone(),
+        }
+    })?;
+    let items_start = value_start + marker.len();
+    let remainder = &run.stdout[items_start..];
+    let closing = remainder
+        .find(']')
+        .ok_or_else(|| InstallStepError::StdoutMissingExpected {
+            expected: format!("{field} list closing bracket"),
+            stdout: run.stdout.clone(),
+        })?;
+    let list = &remainder[..closing];
+    if !list.split(',').any(|item| item == path) {
+        return Err(InstallStepError::StdoutMissingExpected {
+            expected: format!("{field} contains {path}"),
             stdout: run.stdout.clone(),
         });
     }

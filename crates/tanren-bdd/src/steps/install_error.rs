@@ -18,6 +18,8 @@ pub(crate) enum InstallStepError {
     },
     #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
     RunInstallCommand { source: HarnessError },
+    #[error("failed to execute tanren-cli drift via CLI harness adapter: {source}")]
+    RunDriftCommand { source: HarnessError },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
     #[error("install command must run before no-write assertion")]
@@ -36,6 +38,18 @@ pub(crate) enum InstallStepError {
         "expected install command to fail with non-zero exit; stdout:\n{stdout}\nstderr:\n{stderr}"
     )]
     InstallCommandExpectedFailure { stdout: String, stderr: String },
+    #[error(
+        "expected drift command to succeed; status={status:?}\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    )]
+    DriftCommandExpectedSuccess {
+        status: Option<i32>,
+        stdout: String,
+        stderr: String,
+    },
+    #[error(
+        "expected drift command to fail with non-zero exit; stdout:\n{stdout}\nstderr:\n{stderr}"
+    )]
+    DriftCommandExpectedFailure { stdout: String, stderr: String },
     #[error("expected install stdout to contain `{expected}`; got:\n{stdout}")]
     StdoutMissingExpected { expected: String, stdout: String },
     #[error("expected install stderr to contain `{expected}`; got:\n{stderr}")]

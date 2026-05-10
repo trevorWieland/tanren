@@ -64,6 +64,33 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) async fn run_drift(
+        &mut self,
+        harness: &mut dyn AccountHarness,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let mut args = vec![
+            OsString::from("drift"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+            OsString::from("--profile"),
+            OsString::from(profile),
+        ];
+        if let Some(selected) = integrations {
+            args.push(OsString::from("--integrations"));
+            args.push(OsString::from(selected));
+        }
+        let outcome = harness
+            .execute_cli_command(args)
+            .await
+            .map_err(|source| InstallStepError::RunDriftCommand { source })?;
+        self.snapshot_before_last_run = Some(before);
+        self.last_run = Some(outcome);
+        Ok(())
+    }
+
     pub(super) fn require_last_run(&self) -> InstallStepResult<&InstallCommandOutcome> {
         self.last_run
             .as_ref()

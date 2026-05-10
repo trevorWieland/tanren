@@ -62,6 +62,16 @@ impl TanrenWorld {
             .await
     }
 
+    pub(crate) async fn run_drift(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        self.require_account_ctx()?
+            .run_drift(profile, integrations)
+            .await
+    }
+
     fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
         if let Some(error) = self.install_setup_error.take() {
             return Err(error);
@@ -195,6 +205,20 @@ impl AccountContext {
             .ok_or(InstallStepError::InstallContextUnavailable)?;
         install
             .run_install(self.harness.as_mut(), profile, integrations)
+            .await
+    }
+
+    async fn run_drift(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+    ) -> InstallStepResult<()> {
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install
+            .run_drift(self.harness.as_mut(), profile, integrations)
             .await
     }
 }

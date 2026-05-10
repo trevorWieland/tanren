@@ -119,6 +119,23 @@ async fn when_install_runs_with_profile_and_integrations(
         .await
 }
 
+#[when(expr = "tanren-cli drift runs with profile {string}")]
+async fn when_drift_runs_with_profile(
+    world: &mut TanrenWorld,
+    profile: String,
+) -> InstallStepResult<()> {
+    world.run_drift(&profile, None).await
+}
+
+#[when(expr = "tanren-cli drift runs with profile {string} and integrations {string}")]
+async fn when_drift_runs_with_profile_and_integrations(
+    world: &mut TanrenWorld,
+    profile: String,
+    integrations: String,
+) -> InstallStepResult<()> {
+    world.run_drift(&profile, Some(integrations.as_str())).await
+}
+
 #[then(expr = "the install command succeeds")]
 #[then(expr = "install command succeeds")]
 fn then_install_command_succeeds(world: &mut TanrenWorld) -> InstallStepResult<()> {
@@ -131,6 +148,20 @@ fn then_install_command_succeeds(world: &mut TanrenWorld) -> InstallStepResult<(
 fn then_install_command_exits_nonzero(world: &mut TanrenWorld) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_nonzero()
+}
+
+#[then(expr = "the drift command succeeds")]
+#[then(expr = "drift command succeeds")]
+fn then_drift_command_succeeds(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_success()
+}
+
+#[then(expr = "the drift command exits nonzero")]
+#[then(expr = "drift command exits nonzero")]
+fn then_drift_command_exits_nonzero(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_nonzero()
 }
 
 #[then(
@@ -176,6 +207,50 @@ fn then_install_output_redacts_absolute_repository_paths(
 fn then_no_files_are_written(world: &mut TanrenWorld) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_no_writes_since_last_run()
+}
+
+#[then(expr = "the drift output reports no drift")]
+fn then_drift_output_reports_no_drift(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_output_reports_no_drift()
+}
+
+#[then(expr = "the drift output reports generated asset drift for {string}")]
+fn then_drift_output_reports_generated_asset_drift(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_output_reports_generated_asset_drift(&RepositoryRelativePath::parse(path)?)
+}
+
+#[then(expr = "the drift output reports missing generated asset {string}")]
+fn then_drift_output_reports_missing_generated_asset(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_output_reports_missing_generated_asset(&RepositoryRelativePath::parse(path)?)
+}
+
+#[then(expr = "the drift output reports missing preserved standard {string}")]
+fn then_drift_output_reports_missing_preserved_standard(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_output_reports_missing_preserved_standard(&RepositoryRelativePath::parse(
+        path,
+    )?)
+}
+
+#[then(expr = "the drift output reports accepted preserved edit {string}")]
+fn then_drift_output_reports_accepted_preserved_edit(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_drift_output_reports_accepted_preserved_edit(&RepositoryRelativePath::parse(path)?)
 }
 
 #[then(expr = "repository file {string} exists")]
