@@ -24,60 +24,42 @@ use utoipa::ToSchema;
 /// Upsert request for a user-tier setting.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UpsertUserSettingRequest {
-    /// Setting key.
     pub key: UserSettingKey,
-    /// Typed value payload for the key.
     pub value: UserSettingValue,
 }
-
 /// Read view for a user-tier setting.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UserSettingView {
-    /// Setting key.
     pub key: UserSettingKey,
-    /// Typed setting value.
     pub value: UserSettingValue,
-    /// Last update timestamp.
     pub updated_at: DateTime<Utc>,
 }
-
 /// Upsert response for a user-tier setting.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UpsertUserSettingResponse {
-    /// Persisted setting view.
     pub setting: UserSettingView,
 }
-
 /// List response for user-tier settings.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListUserSettingsResponse {
-    /// Persisted setting views.
     pub items: Vec<UserSettingView>,
     /// Opaque cursor for requesting the next page, if additional rows exist.
     pub next_cursor: Option<String>,
 }
-
 /// List request for user-tier settings.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListUserSettingsRequest {
-    /// Maximum rows to return for this page.
     pub limit: Option<u16>,
-    /// Opaque pagination cursor from a previous response.
     pub after: Option<String>,
 }
-
 /// Typed payload encoded inside a user-settings list cursor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UserSettingsPageCursorPayload {
-    /// Cursor kind discriminator.
     pub kind: UserSettingsPageCursorKind,
-    /// Last item update timestamp from the current page.
     pub updated_at: DateTime<Utc>,
-    /// Last item setting key from the current page.
     pub key: UserSettingKey,
 }
-
 /// Discriminator for user-settings list cursor payloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -85,20 +67,15 @@ pub enum UserSettingsPageCursorKind {
     /// Cursor payload for settings pagination.
     Settings,
 }
-
 /// Remove response for a user-tier setting.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct RemoveUserSettingResponse {
-    /// Removed setting view from the pre-delete snapshot.
     pub setting: UserSettingView,
 }
-
 /// Create request for a user-owned credential.
 #[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateUserCredentialRequest {
-    /// Credential kind.
     pub kind: UserCredentialKind,
-    /// Owning scope.
     pub owner_scope: OwnerScope,
     /// Fresh secret value.
     #[serde(deserialize_with = "secret_serde::deserialize_password")]
@@ -106,7 +83,6 @@ pub struct CreateUserCredentialRequest {
     #[schema(value_type = String, format = Password)]
     pub value: SecretString,
 }
-
 /// Update request for an existing user-owned credential.
 #[derive(Debug, Clone, Deserialize, JsonSchema, ToSchema)]
 pub struct UpdateUserCredentialRequest {
@@ -116,21 +92,14 @@ pub struct UpdateUserCredentialRequest {
     #[schema(value_type = String, format = Password)]
     pub value: SecretString,
 }
-
 /// Redacted read/list view for a user-owned credential.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UserCredentialView {
-    /// Stable metadata id.
     pub id: UserCredentialId,
-    /// Credential kind.
     pub kind: UserCredentialKind,
-    /// Owning scope.
     pub owner_scope: OwnerScope,
-    /// Lifecycle status.
     pub status: UserCredentialStatus,
-    /// Creation timestamp.
     pub created_at: DateTime<Utc>,
-    /// Last update timestamp.
     pub updated_at: DateTime<Utc>,
 }
 
@@ -146,51 +115,37 @@ impl From<UserCredentialMetadata> for UserCredentialView {
         }
     }
 }
-
 /// Create response for a user-owned credential.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateUserCredentialResponse {
-    /// Redacted metadata view.
     pub item: UserCredentialView,
 }
-
 /// Update response for a user-owned credential.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct UpdateUserCredentialResponse {
-    /// Redacted metadata view.
     pub item: UserCredentialView,
 }
-
 /// List response for user-owned credentials.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListUserCredentialsResponse {
-    /// Redacted metadata rows.
     pub items: Vec<UserCredentialView>,
     /// Opaque cursor for requesting the next page, if additional rows exist.
     pub next_cursor: Option<String>,
 }
-
 /// List request for user-owned credentials.
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListUserCredentialsRequest {
-    /// Maximum rows to return for this page.
     pub limit: Option<u16>,
-    /// Opaque pagination cursor from a previous response.
     pub after: Option<String>,
 }
-
 /// Typed payload encoded inside a user-credentials list cursor.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct UserCredentialsPageCursorPayload {
-    /// Cursor kind discriminator.
     pub kind: UserCredentialsPageCursorKind,
-    /// Last item update timestamp from the current page.
     pub updated_at: DateTime<Utc>,
-    /// Last item id from the current page.
     pub id: UserCredentialId,
 }
-
 /// Discriminator for user-credentials list cursor payloads.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -198,13 +153,45 @@ pub enum UserCredentialsPageCursorKind {
     /// Cursor payload for credential pagination.
     Credentials,
 }
-
 /// Remove response for a user-owned credential.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct RemoveUserCredentialResponse {
-    /// Removed credential metadata from the pre-delete snapshot.
     pub item: UserCredentialView,
 }
+/// Version discriminator for configuration capability responses.
+///
+/// Callers check this to evolve client logic alongside the contract surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ConfigurationVersion(u32);
+
+impl ConfigurationVersion {
+    /// Current configuration contract version.
+    pub const CURRENT: Self = Self(1);
+    /// Construct from numeric form.
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+    /// Numeric value.
+    #[must_use]
+    pub const fn value(self) -> u32 {
+        self.0
+    }
+}
+/// Closed registry of setting capability actions.
+pub const SETTING_CAPABILITY_ACTIONS: [SettingCapabilityAction; 3] = [
+    SettingCapabilityAction::Read,
+    SettingCapabilityAction::CreateOrUpdate,
+    SettingCapabilityAction::Delete,
+];
+
+/// Closed registry of credential capability actions.
+pub const CREDENTIAL_CAPABILITY_ACTIONS: [CredentialCapabilityAction; 4] = [
+    CredentialCapabilityAction::Read,
+    CredentialCapabilityAction::Create,
+    CredentialCapabilityAction::Update,
+    CredentialCapabilityAction::Delete,
+];
 
 /// Capability map for authenticated account-configuration operations.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -214,16 +201,14 @@ pub struct ConfigurationCapabilitiesView {
     /// Capability set for user-owned secret-item metadata reads and writes.
     pub user_items: CredentialCapabilitiesView,
 }
-
 /// Capability set for user-tier settings operations.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct SettingCapabilitiesView {
-    /// Allowed settings actions for the authenticated actor.
+    /// Allowed settings actions derived from the capability registry.
     pub allowed_actions: Vec<SettingCapabilityAction>,
 }
-
 /// Per-action capabilities for user-tier settings.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum SettingCapabilityAction {
     /// Read current settings.
@@ -233,16 +218,14 @@ pub enum SettingCapabilityAction {
     /// Delete settings.
     Delete,
 }
-
 /// Capability set for user-owned credential operations.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CredentialCapabilitiesView {
-    /// Allowed secret-item actions for the authenticated actor.
+    /// Allowed credential actions derived from the capability registry.
     pub allowed_actions: Vec<CredentialCapabilityAction>,
 }
-
 /// Per-action capabilities for user-owned secret items.
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, JsonSchema, ToSchema, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CredentialCapabilityAction {
     /// Read redacted metadata.
@@ -254,14 +237,79 @@ pub enum CredentialCapabilityAction {
     /// Delete an existing item.
     Delete,
 }
+/// Registry-driven builder for configuration capability views.
+///
+/// Derives [`ConfigurationCapabilitiesView`] from the closed
+/// [`SETTING_CAPABILITY_ACTIONS`] / [`CREDENTIAL_CAPABILITY_ACTIONS`]
+/// registries rather than ad-hoc hard-coded action vectors.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ConfigurationCapabilityRegistry {
+    setting_flags: [bool; SETTING_CAPABILITY_ACTIONS.len()],
+    cred_flags: [bool; CREDENTIAL_CAPABILITY_ACTIONS.len()],
+}
+impl ConfigurationCapabilityRegistry {
+    /// Full capabilities for an authenticated account session.
+    #[must_use]
+    pub const fn account() -> Self {
+        Self {
+            setting_flags: [true; SETTING_CAPABILITY_ACTIONS.len()],
+            cred_flags: [true; CREDENTIAL_CAPABILITY_ACTIONS.len()],
+        }
+    }
+    /// Deny all configuration mutations.
+    #[must_use]
+    pub const fn denied() -> Self {
+        Self {
+            setting_flags: [false; SETTING_CAPABILITY_ACTIONS.len()],
+            cred_flags: [false; CREDENTIAL_CAPABILITY_ACTIONS.len()],
+        }
+    }
+    /// Build the wire view from the registry state.
+    #[must_use]
+    pub fn to_view(self) -> ConfigurationCapabilitiesView {
+        ConfigurationCapabilitiesView {
+            settings: SettingCapabilitiesView {
+                allowed_actions: SETTING_CAPABILITY_ACTIONS
+                    .iter()
+                    .zip(self.setting_flags)
+                    .filter_map(|(&action, include)| include.then_some(action))
+                    .collect(),
+            },
+            user_items: CredentialCapabilitiesView {
+                allowed_actions: CREDENTIAL_CAPABILITY_ACTIONS
+                    .iter()
+                    .zip(self.cred_flags)
+                    .filter_map(|(&action, include)| include.then_some(action))
+                    .collect(),
+            },
+        }
+    }
+    /// Check whether a specific setting action is enabled.
+    #[must_use]
+    pub fn has_setting_action(self, action: SettingCapabilityAction) -> bool {
+        SETTING_CAPABILITY_ACTIONS
+            .iter()
+            .zip(self.setting_flags)
+            .any(|(&registered, enabled)| registered == action && enabled)
+    }
 
+    /// Check whether a specific credential action is enabled.
+    #[must_use]
+    pub fn has_credential_action(self, action: CredentialCapabilityAction) -> bool {
+        CREDENTIAL_CAPABILITY_ACTIONS
+            .iter()
+            .zip(self.cred_flags)
+            .any(|(&registered, enabled)| registered == action && enabled)
+    }
+}
 /// Response for authenticated configuration capability discovery.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct GetAuthenticatedUserConfigurationCapabilitiesResponse {
+    /// Configuration contract version for this response shape.
+    pub version: ConfigurationVersion,
     /// Capabilities granted to the authenticated actor.
     pub capabilities: ConfigurationCapabilitiesView,
 }
-
 /// Closed taxonomy of user-configuration and user-credential failures.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(tag = "code", rename_all = "snake_case")]
@@ -314,7 +362,6 @@ impl UserConfigurationFailureReason {
         }
     }
 }
-
 /// Stable list of supported user-setting keys for interface prompts/messages.
 pub const SUPPORTED_USER_SETTING_KEYS: [&str; USER_SETTING_DESCRIPTORS.len()] =
     supported_user_setting_keys();
@@ -333,7 +380,6 @@ const fn supported_user_setting_keys() -> [&'static str; USER_SETTING_DESCRIPTOR
     }
     names
 }
-
 const fn supported_user_credential_kinds() -> [&'static str; USER_CREDENTIAL_KIND_DESCRIPTORS.len()]
 {
     let mut names = [""; USER_CREDENTIAL_KIND_DESCRIPTORS.len()];
@@ -344,7 +390,6 @@ const fn supported_user_credential_kinds() -> [&'static str; USER_CREDENTIAL_KIN
     }
     names
 }
-
 /// Resolve a user-setting key to a stable transport name.
 #[must_use]
 pub fn user_setting_key_name(key: UserSettingKey) -> &'static str {
@@ -353,7 +398,6 @@ pub fn user_setting_key_name(key: UserSettingKey) -> &'static str {
         Err(_) => "unsupported_setting_key",
     }
 }
-
 /// Resolve a credential kind to a stable transport name.
 #[must_use]
 pub fn user_credential_kind_name(kind: UserCredentialKind) -> &'static str {
@@ -362,7 +406,6 @@ pub fn user_credential_kind_name(kind: UserCredentialKind) -> &'static str {
         Err(_) => "unsupported_credential_kind",
     }
 }
-
 /// Resolve a credential status to a stable transport name.
 #[must_use]
 pub const fn user_credential_status_name(status: UserCredentialStatus) -> &'static str {
@@ -372,7 +415,6 @@ pub const fn user_credential_status_name(status: UserCredentialStatus) -> &'stat
         UserCredentialStatus::Invalid => "invalid",
     }
 }
-
 /// Resolve a theme preference to a stable transport name.
 #[must_use]
 pub const fn theme_preference_name(theme: ThemePreference) -> &'static str {
@@ -382,7 +424,6 @@ pub const fn theme_preference_name(theme: ThemePreference) -> &'static str {
         ThemePreference::Dark => "dark",
     }
 }
-
 /// Parse a theme preference from its stable transport name.
 #[must_use]
 pub fn parse_theme_preference(raw: &str) -> Option<ThemePreference> {
@@ -393,7 +434,6 @@ pub fn parse_theme_preference(raw: &str) -> Option<ThemePreference> {
         _ => None,
     }
 }
-
 /// Convert shared list-page arguments to a settings list request.
 #[must_use]
 pub fn user_settings_page_request(
@@ -402,7 +442,6 @@ pub fn user_settings_page_request(
 ) -> ListUserSettingsRequest {
     ListUserSettingsRequest { limit, after }
 }
-
 /// Convert shared list-page arguments to a credentials list request.
 #[must_use]
 pub fn user_credentials_page_request(
@@ -411,7 +450,6 @@ pub fn user_credentials_page_request(
 ) -> ListUserCredentialsRequest {
     ListUserCredentialsRequest { limit, after }
 }
-
 /// Parse an optional list-page limit argument from text.
 ///
 /// # Errors
@@ -430,7 +468,6 @@ pub fn parse_optional_page_limit(raw: &str) -> Result<Option<u16>, &'static str>
     }
     Ok(Some(parsed))
 }
-
 /// Parse an optional list-page cursor argument from text.
 #[must_use]
 pub fn parse_optional_page_after(raw: &str) -> Option<String> {

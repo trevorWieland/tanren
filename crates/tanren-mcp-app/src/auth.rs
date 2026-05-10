@@ -10,6 +10,7 @@ use secrecy::SecretString;
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use tanren_app_services::{Handlers, SessionAuthenticationRequest, Store};
+use tanren_contract::{CredentialCapabilityAction, SettingCapabilityAction};
 use tanren_identity_policy::{AccountId, SessionToken};
 
 pub(crate) const API_KEY_ENV: &str = "TANREN_MCP_API_KEY";
@@ -56,24 +57,21 @@ impl AuthenticatedPrincipal {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub(crate) struct ActorCapabilityModel {
     allow_account_tools: bool,
-    allow_setting_tools: bool,
-    allow_credential_tools: bool,
+    setting_registry: Option<tanren_contract::ConfigurationCapabilityRegistry>,
 }
 
 impl ActorCapabilityModel {
     pub(crate) const fn bootstrap() -> Self {
         Self {
             allow_account_tools: true,
-            allow_setting_tools: false,
-            allow_credential_tools: false,
+            setting_registry: None,
         }
     }
 
     const fn account() -> Self {
         Self {
             allow_account_tools: true,
-            allow_setting_tools: true,
-            allow_credential_tools: true,
+            setting_registry: Some(tanren_contract::ConfigurationCapabilityRegistry::account()),
         }
     }
 
@@ -82,18 +80,34 @@ impl ActorCapabilityModel {
             "account.create" | "account.sign_in" | "account.accept_invitation" => {
                 self.allow_account_tools
             }
-            "config.user.list" | "config.user.set" | "config.user.remove" => {
-                self.allow_setting_tools
+            other => self.allows_config_tool(other),
+        }
+    }
+
+    fn allows_config_tool(self, tool_name: &str) -> bool {
+        let Some(registry) = self.setting_registry else {
+            return false;
+        };
+        match tool_name {
+            "config.user.list" => registry.has_setting_action(SettingCapabilityAction::Read),
+            "config.user.set" => {
+                registry.has_setting_action(SettingCapabilityAction::CreateOrUpdate)
             }
-            "credential.add" | "credential.update" | "credential.list" | "credential.remove" => {
-                self.allow_credential_tools
+            "config.user.remove" => registry.has_setting_action(SettingCapabilityAction::Delete),
+            "credential.list" => registry.has_credential_action(CredentialCapabilityAction::Read),
+            "credential.add" => registry.has_credential_action(CredentialCapabilityAction::Create),
+            "credential.update" => {
+                registry.has_credential_action(CredentialCapabilityAction::Update)
+            }
+            "credential.remove" => {
+                registry.has_credential_action(CredentialCapabilityAction::Delete)
             }
             _ => false,
         }
     }
 
     pub(crate) const fn any_tools(self) -> bool {
-        self.allow_account_tools || self.allow_setting_tools || self.allow_credential_tools
+        self.allow_account_tools || self.setting_registry.is_some()
     }
 }
 

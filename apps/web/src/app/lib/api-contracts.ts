@@ -134,8 +134,12 @@ export type GetConfigurationCapabilitiesResult = OperationJsonResponse<
 export type ConfigurationCapabilities =
   GetConfigurationCapabilitiesResult["capabilities"];
 
+export type ConfigurationVersion =
+  GetConfigurationCapabilitiesResult["version"];
+
 export interface ConfigurationDiscoveryResult {
   capabilities: ConfigurationCapabilities;
+  configuration_version: ConfigurationVersion;
   settings_read_model: ListUserSettingsResult | null;
   credentials_read_model: ListUserCredentialsResult | null;
   capabilities_failure: AccountFailure | null;

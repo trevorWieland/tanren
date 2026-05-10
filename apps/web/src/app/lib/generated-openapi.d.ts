@@ -401,8 +401,18 @@ export interface components {
     Email: string;
     /** @description Response for authenticated configuration capability discovery. */
     GetAuthenticatedUserConfigurationCapabilitiesResponse: {
+      /** @description Configuration contract version for this response shape. */
+      version: components["schemas"]["ConfigurationVersion"];
       /** @description Capabilities granted to the authenticated actor. */
       capabilities: components["schemas"]["ConfigurationCapabilitiesView"];
+    };
+    /** @description Version discriminator for configuration capability responses. */
+    ConfigurationVersion: {
+      /**
+       * Format: int32
+       * @description Numeric value.
+       */
+      value: number;
     };
     /** @description Liveness response. */
     HealthResponse: {

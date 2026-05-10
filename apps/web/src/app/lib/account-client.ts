@@ -5,6 +5,7 @@ import type {
   CredentialListPageInput,
   ConfigurationCapabilities,
   ConfigurationDiscoveryResult,
+  ConfigurationVersion,
   CreateUserCredentialInput,
   CreateUserCredentialResult,
   GetConfigurationCapabilitiesResult,
@@ -24,6 +25,7 @@ export type {
   AccountFailure,
   ConfigurationCapabilities,
   ConfigurationDiscoveryResult,
+  ConfigurationVersion,
   CreateUserCredentialInput,
   CreateUserCredentialResult,
   GetConfigurationCapabilitiesResult,
@@ -396,13 +398,19 @@ function failureFromUnknown(error: unknown): AccountFailure {
   return unavailableFailure(String(error));
 }
 
-function deniedCapabilities(): ConfigurationCapabilities {
+function deniedCapabilities(): {
+  capabilities: ConfigurationCapabilities;
+  version: ConfigurationVersion;
+} {
   return {
-    settings: {
-      allowed_actions: [],
-    },
-    user_items: {
-      allowed_actions: [],
+    version: { value: 0 },
+    capabilities: {
+      settings: {
+        allowed_actions: [],
+      },
+      user_items: {
+        allowed_actions: [],
+      },
     },
   };
 }
@@ -413,15 +421,19 @@ function deniedCapabilities(): ConfigurationCapabilities {
  */
 export async function discoverConfigurationAccess(): Promise<ConfigurationDiscoveryResult> {
   let capabilitiesFailure: AccountFailure | null = null;
-  let capabilities: ConfigurationCapabilities = deniedCapabilities();
+  let denied = deniedCapabilities();
+  let capabilities: ConfigurationCapabilities = denied.capabilities;
+  let configurationVersion: ConfigurationVersion = denied.version;
 
   try {
     const capabilityResponse = await getConfigurationCapabilities();
     capabilities = capabilityResponse.capabilities;
+    configurationVersion = capabilityResponse.version;
   } catch (error: unknown) {
     capabilitiesFailure = failureFromUnknown(error);
     return {
       capabilities,
+      configuration_version: configurationVersion,
       settings_read_model: null,
       credentials_read_model: null,
       capabilities_failure: capabilitiesFailure,
@@ -459,6 +471,7 @@ export async function discoverConfigurationAccess(): Promise<ConfigurationDiscov
 
   return {
     capabilities,
+    configuration_version: configurationVersion,
     settings_read_model: settingsReadModel,
     credentials_read_model: credentialsReadModel,
     capabilities_failure: capabilitiesFailure,

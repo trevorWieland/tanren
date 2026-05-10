@@ -7,13 +7,12 @@ use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::Deserialize;
 use tanren_contract::{
-    ConfigurationCapabilitiesView, CreateUserCredentialRequest, CreateUserCredentialResponse,
-    CredentialCapabilitiesView, CredentialCapabilityAction,
-    GetAuthenticatedUserConfigurationCapabilitiesResponse, ListUserCredentialsResponse,
-    ListUserSettingsResponse, RemoveUserCredentialResponse, RemoveUserSettingResponse,
-    SettingCapabilitiesView, SettingCapabilityAction, UpdateUserCredentialRequest,
-    UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserCredentialKind, UserSettingKey, UserSettingValue,
+    ConfigurationCapabilityRegistry, ConfigurationVersion, CreateUserCredentialRequest,
+    CreateUserCredentialResponse, GetAuthenticatedUserConfigurationCapabilitiesResponse,
+    ListUserCredentialsResponse, ListUserSettingsResponse, RemoveUserCredentialResponse,
+    RemoveUserSettingResponse, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
+    UpsertUserSettingRequest, UpsertUserSettingResponse, UserCredentialKind, UserSettingKey,
+    UserSettingValue,
 };
 use tanren_identity_policy::{AccountId, secret_serde};
 use tower_sessions::Session;
@@ -294,23 +293,8 @@ pub(crate) async fn get_authenticated_user_configuration_capabilities_route(
     (
         StatusCode::OK,
         Json(GetAuthenticatedUserConfigurationCapabilitiesResponse {
-            capabilities: ConfigurationCapabilitiesView {
-                settings: SettingCapabilitiesView {
-                    allowed_actions: vec![
-                        SettingCapabilityAction::Read,
-                        SettingCapabilityAction::CreateOrUpdate,
-                        SettingCapabilityAction::Delete,
-                    ],
-                },
-                user_items: CredentialCapabilitiesView {
-                    allowed_actions: vec![
-                        CredentialCapabilityAction::Read,
-                        CredentialCapabilityAction::Create,
-                        CredentialCapabilityAction::Update,
-                        CredentialCapabilityAction::Delete,
-                    ],
-                },
-            },
+            version: ConfigurationVersion::CURRENT,
+            capabilities: ConfigurationCapabilityRegistry::account().to_view(),
         }),
     )
         .into_response()
