@@ -22,6 +22,7 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
+use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest,
     SignUpRequest,
@@ -98,6 +99,17 @@ impl AccountHarness for WebHarness {
     ) -> HarnessResult<HarnessPostureView> {
         self.inner
             .set_deployment_posture_raw(actor, scope, posture_raw)
+            .await
+    }
+
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        self.inner
+            .set_deployment_posture_raw_scope(actor, scope_raw, posture_raw)
             .await
     }
 

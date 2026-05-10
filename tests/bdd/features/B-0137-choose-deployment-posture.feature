@@ -51,6 +51,13 @@ Feature: Choose a deployment posture
       Then the request fails with code "scope_not_found"
       And the error summary is readable
 
+    @falsification @api
+    Scenario: API rejects malformed deployment posture scope input
+      Given an API account actor with posture permission
+      When the actor sets deployment posture "hosted" for a malformed account scope over API
+      Then the request fails with code "validation_failed"
+      And the error summary is readable
+
   Rule: Web surface
 
     @positive @web
@@ -94,6 +101,13 @@ Feature: Choose a deployment posture
       Given a web account actor with posture permission
       When the actor sets deployment posture "hosted" for a missing account scope over web
       Then the request fails with code "scope_not_found"
+      And the error summary is readable
+
+    @falsification @web
+    Scenario: Web rejects malformed deployment posture scope input
+      Given a web account actor with posture permission
+      When the actor sets deployment posture "hosted" for a malformed account scope over web
+      Then the request fails with code "validation_failed"
       And the error summary is readable
 
   Rule: MCP surface
@@ -141,6 +155,13 @@ Feature: Choose a deployment posture
       Then the request fails with code "scope_not_found"
       And the error summary is readable
 
+    @falsification @mcp
+    Scenario: MCP rejects malformed deployment posture scope input
+      Given an MCP account actor with posture permission
+      When the actor sets deployment posture "hosted" for a malformed account scope over MCP
+      Then the request fails with code "validation_failed"
+      And the error summary is readable
+
   Rule: CLI surface
 
     @positive @cli
@@ -186,6 +207,13 @@ Feature: Choose a deployment posture
       Then the request fails with code "scope_not_found"
       And the error summary is readable
 
+    @falsification @cli
+    Scenario: CLI rejects malformed deployment posture scope input
+      Given a CLI account actor with posture permission
+      When the actor sets deployment posture "hosted" for a malformed account scope over CLI
+      Then the request fails with code "validation_failed"
+      And the error summary is readable
+
   Rule: TUI surface
 
     @positive @tui
@@ -229,4 +257,11 @@ Feature: Choose a deployment posture
       Given a TUI account actor with posture permission
       When the actor sets deployment posture "hosted" for a missing account scope over TUI
       Then the request fails with code "scope_not_found"
+      And the error summary is readable
+
+    @falsification @tui
+    Scenario: TUI rejects malformed deployment posture scope input
+      Given a TUI account actor with posture permission
+      When the actor sets deployment posture "hosted" for a malformed account scope over TUI
+      Then the request fails with code "validation_failed"
       And the error summary is readable

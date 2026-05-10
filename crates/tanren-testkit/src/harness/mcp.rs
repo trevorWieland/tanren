@@ -24,7 +24,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_support::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
     HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
@@ -255,6 +255,39 @@ impl AccountHarness for McpHarness {
             "posture": posture_raw,
         });
         let payload = self.call_tool("deployment_posture.set", body).await?;
+        let response: SetDeploymentPostureResponse = serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(response.into())
+    }
+
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        _actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let body = serde_json::json!({ "scope": scope_raw, "posture": posture_raw });
+        let payload = self
+            .call_tool("deployment_posture.set", body)
+            .await
+            .map_err(|err| {
+                if let HarnessError::Transport(summary) = err {
+                    if summary.contains("invalid params")
+                        || summary.contains("missing field")
+                        || summary.contains("unknown variant")
+                        || summary.contains("invalid type")
+                        || summary.contains("failed to deserialize parameters")
+                        || summary.contains("-32602")
+                    {
+                        return HarnessError::FailureCode {
+                            code: "validation_failed".to_owned(),
+                            summary,
+                        };
+                    }
+                    return HarnessError::Transport(summary);
+                }
+                err
+            })?;
         let response: SetDeploymentPostureResponse = serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
         Ok(response.into())

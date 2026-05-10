@@ -21,7 +21,7 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::io::AsyncWriteExt;
 use tokio::process::Command;
 
-use super::api::{scenario_db_path, sqlite_url};
+use super::api_support::{scenario_db_path, sqlite_url};
 use super::cli::locate_workspace_binary;
 use super::tui_driver::{
     extract_posture_failure, normalize_transcript, write_outcome_continue, write_posture_set_flow,

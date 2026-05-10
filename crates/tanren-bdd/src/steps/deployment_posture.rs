@@ -1,10 +1,6 @@
-//! Deployment-posture step definitions for B-0137.
-//!
-//! Every step routes through the active [`AccountHarness`](tanren_testkit::AccountHarness)
-//! implementation selected by scenario tag (`@api`, `@cli`, `@mcp`, `@tui`, `@web`).
-
 use cucumber::{given, then, when};
 use secrecy::SecretString;
+use serde_json::json;
 use tanren_contract::{
     DeploymentPosture, DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
     DeploymentPostureScope, SignInRequest,
@@ -15,24 +11,16 @@ use tanren_testkit::{HarnessKind, HarnessOutcome, record_failure};
 use super::{poll_until, retry_on_transport, sign_up_actor_with_duplicate_sign_in_fallback};
 use crate::TanrenWorld;
 
+#[given(expr = "a {word} account actor with posture permission")]
 #[given(expr = "an {word} account actor with posture permission")]
 async fn given_actor_with_permission(world: &mut TanrenWorld, interface: String) {
     seed_actor_accounts(world, interface.as_str(), false).await;
 }
 
-#[given(expr = "a {word} account actor with posture permission")]
-async fn given_actor_with_permission_article(world: &mut TanrenWorld, interface: String) {
-    given_actor_with_permission(world, interface).await;
-}
-
 #[given(expr = "a {word} account actor without posture permission")]
+#[given(expr = "an {word} account actor without posture permission")]
 async fn given_actor_without_permission(world: &mut TanrenWorld, interface: String) {
     seed_actor_accounts(world, interface.as_str(), true).await;
-}
-
-#[given(expr = "an {word} account actor without posture permission")]
-async fn given_actor_without_permission_article(world: &mut TanrenWorld, interface: String) {
-    given_actor_without_permission(world, interface).await;
 }
 
 #[when(expr = "the actor lists supported deployment postures over {word}")]
@@ -73,6 +61,33 @@ async fn when_set_for_missing_scope(world: &mut TanrenWorld, posture: String, in
         account_id: AccountId::fresh(),
     };
     execute_set(world, &interface, "actor", actor_id, scope, &posture).await;
+}
+
+#[when(
+    expr = "the actor sets deployment posture {string} for a malformed account scope over {word}"
+)]
+async fn when_set_for_malformed_scope(world: &mut TanrenWorld, posture: String, interface: String) {
+    let actor_id = ensure_signed_in_actor(world, "actor").await;
+    let raw_scope = json!({
+        "scope": "account",
+        "account_id": "not-a-uuid",
+    });
+    let ctx = world.ensure_account_ctx().await;
+    assert_interface(ctx.harness.kind(), &interface);
+    let result = ctx
+        .harness
+        .set_deployment_posture_raw_scope(actor_id, raw_scope, &posture)
+        .await;
+    let entry = ctx.actors.entry("actor".to_owned()).or_default();
+    match result {
+        Ok(response) => {
+            ctx.deployment_posture.last_set = Some(response);
+            ctx.last_outcome = Some(HarnessOutcome::Other("deployment_posture_set".to_owned()));
+            entry.last_failure = None;
+            entry.last_failure_summary = None;
+        }
+        Err(err) => ctx.last_outcome = Some(record_failure(err, entry)),
+    }
 }
 
 #[when(expr = "the actor reads deployment posture for another account scope over {word}")]

@@ -16,34 +16,9 @@
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
 //!
-//! ## Status of each harness (PR 9)
-//!
-//! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
-//!   on an ephemeral port, drives via `reqwest::Client` with
-//!   `cookie_store(true)`. The "session token received" check passes
-//!   when the cookie jar contains a `tanren_session` cookie OR the
-//!   response body returned a bearer token.
-//! - `@cli` — full impl. Spawns the `tanren-cli` binary via
-//!   `tokio::process::Command` against a shared `SQLite` file. Parses
-//!   typed JSON payloads from stdout and persists a per-scenario session
-//!   file for posture commands.
-//! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
-//!   on an ephemeral port and drives the three account-flow tools via
-//!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
-//!   parallel Node-side Playwright harness for the same `@web` Gherkin
-//!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
-//! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
-//!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
+mod api_support;
 mod cli;
 mod in_process;
 mod mcp;
@@ -308,6 +283,25 @@ pub trait AccountHarness: Send + std::fmt::Debug {
             }
         })?;
         self.set_deployment_posture(actor, request).await
+    }
+
+    /// Set deployment posture using a raw scope JSON payload.
+    ///
+    /// Transport-real harnesses override this to exercise boundary
+    /// decoding for malformed scope payloads. The fallback keeps the
+    /// same `validation_failed` taxonomy when local decoding fails.
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let scope = serde_json::from_value(scope_raw).map_err(|err| HarnessError::FailureCode {
+            code: "validation_failed".to_owned(),
+            summary: format!("invalid deployment posture scope payload: {err}"),
+        })?;
+        self.set_deployment_posture_raw(actor, scope, posture_raw)
+            .await
     }
 
     /// Read the currently recorded deployment posture for `scope`.

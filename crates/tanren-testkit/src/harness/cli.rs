@@ -15,6 +15,7 @@ use async_trait::async_trait;
 use regex::Regex;
 use secrecy::ExposeSecret;
 use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, DeploymentPostureReadModel,
@@ -25,7 +26,7 @@ use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_support::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
     HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
@@ -222,7 +223,7 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let json: serde_json::Value = parse_json_from_stdout(&output.stdout, "posture list")?;
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture list")?;
         serde_json::from_value(json["supported"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))
     }
@@ -266,7 +267,43 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let json: serde_json::Value = parse_json_from_stdout(&output.stdout, "posture set")?;
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture set")?;
+        let current: SetDeploymentPostureResponse = serde_json::from_value(json["current"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(current.into())
+    }
+
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        _actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let (scope_kind, scope_id) = raw_scope_args(&scope_raw)?;
+        let output = self
+            .command()
+            .args([
+                "posture",
+                "set",
+                "--database-url",
+                &self.db_url,
+                "--scope-kind",
+                &scope_kind,
+                "--scope-id",
+                &scope_id,
+                "--posture",
+                posture_raw,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture set: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture set")?;
         let current: SetDeploymentPostureResponse = serde_json::from_value(json["current"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
         Ok(current.into())
@@ -299,7 +336,7 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let json: serde_json::Value = parse_json_from_stdout(&output.stdout, "posture get")?;
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture get")?;
         let current: Option<DeploymentPostureReadModel> =
             serde_json::from_value(json["current"].clone())
                 .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
@@ -398,6 +435,41 @@ fn scope_args(scope: DeploymentPostureScope) -> (&'static str, String) {
             ("installation", installation_id.to_string())
         }
     }
+}
+
+fn raw_scope_args(scope_raw: &Value) -> HarnessResult<(String, String)> {
+    let Value::Object(map) = scope_raw else {
+        return Err(HarnessError::FailureCode {
+            code: "validation_failed".to_owned(),
+            summary: "deployment posture scope payload must be an object".to_owned(),
+        });
+    };
+    let scope_kind =
+        map.get("scope")
+            .and_then(Value::as_str)
+            .ok_or_else(|| HarnessError::FailureCode {
+                code: "validation_failed".to_owned(),
+                summary: "deployment posture scope payload is missing `scope`".to_owned(),
+            })?;
+    let scope_id_key = match scope_kind {
+        "account" => "account_id",
+        "project" => "project_id",
+        "installation" => "installation_id",
+        _ => {
+            return Err(HarnessError::FailureCode {
+                code: "validation_failed".to_owned(),
+                summary: format!("unsupported deployment posture scope kind: {scope_kind}"),
+            });
+        }
+    };
+    let scope_id = map
+        .get(scope_id_key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| HarnessError::FailureCode {
+            code: "validation_failed".to_owned(),
+            summary: format!("deployment posture scope payload is missing `{scope_id_key}`"),
+        })?;
+    Ok((scope_kind.to_owned(), scope_id.to_owned()))
 }
 
 fn parse_json_from_stdout<T>(stdout: &[u8], operation: &str) -> HarnessResult<T>

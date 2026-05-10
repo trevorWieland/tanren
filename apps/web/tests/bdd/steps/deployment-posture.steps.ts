@@ -223,6 +223,7 @@ async function setPostureViaUi(
   world: WebWorld,
   postureRaw: string,
   scopeAccountId: string,
+  scopeOverride?: unknown,
 ): Promise<void> {
   const postureActor = actor(world, "actor");
   const state = stateFor(world);
@@ -234,7 +235,8 @@ async function setPostureViaUi(
 
   const postureSelect = page.locator("#posture-value");
   await postureSelect.waitFor();
-  const shouldTamperRequest = !isDeploymentPosture(postureRaw);
+  const shouldTamperRequest =
+    !isDeploymentPosture(postureRaw) || scopeOverride !== undefined;
   if (shouldTamperRequest) {
     const replacement = supported.supported[0]?.posture;
     if (!replacement) {
@@ -264,10 +266,13 @@ async function setPostureViaUi(
         typeof payload === "object" && payload !== null
           ? (payload as Record<string, unknown>)
           : {};
-      const nextPayload = {
-        ...payloadObject,
-        posture: postureRaw,
-      };
+      const nextPayload: Record<string, unknown> = { ...payloadObject };
+      if (!isDeploymentPosture(postureRaw)) {
+        nextPayload["posture"] = postureRaw;
+      }
+      if (scopeOverride !== undefined) {
+        nextPayload["scope"] = scopeOverride;
+      }
       await route.continue({
         headers: {
           ...request.headers(),
@@ -538,6 +543,22 @@ When(
   "the actor sets deployment posture {string} for a missing account scope over web",
   async ({ page, world }, posture: string) => {
     await setPostureViaUi(page, world, posture, crypto.randomUUID());
+  },
+);
+
+When(
+  "the actor sets deployment posture {string} for a malformed account scope over web",
+  async ({ page, world }, posture: string) => {
+    const state = stateFor(world);
+    if (!state.actorAccountId) {
+      throw new Error(
+        "actor account id missing before malformed scope posture set",
+      );
+    }
+    await setPostureViaUi(page, world, posture, state.actorAccountId, {
+      scope: "account",
+      account_id: "not-a-uuid",
+    });
   },
 );
 

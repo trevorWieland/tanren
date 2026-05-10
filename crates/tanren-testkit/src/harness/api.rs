@@ -4,19 +4,21 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
-use reqwest::header::HeaderMap;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, DeploymentPostureReadModel,
-    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
-    SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, DeploymentPostureReadModel, DeploymentPostureScope,
+    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
+use super::api_support::{
+    accept_invitation_body, failure_from_body, has_session_bearer_token, has_session_cookie,
+    scenario_db_path, scope_path, sign_in_body, sign_up_body, sqlite_url,
+};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
     HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
@@ -280,6 +282,33 @@ impl AccountHarness for ApiHarness {
         Ok(response.into())
     }
 
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        _actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let url = format!("{}/deployment-postures", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&serde_json::json!({ "scope": scope_raw, "posture": posture_raw }))
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("POST /deployment-postures: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let response: SetDeploymentPostureResponse = serde_json::from_value(json)
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(response.into())
+    }
+
     async fn get_deployment_posture(
         &mut self,
         _actor: AccountId,
@@ -393,107 +422,4 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
-}
-
-pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
-    let mut p = std::env::temp_dir();
-    p.push(format!(
-        "tanren-bdd-{prefix}-{}-{}.db",
-        std::process::id(),
-        uuid::Uuid::new_v4().simple()
-    ));
-    p
-}
-
-pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
-    format!("sqlite://{}?mode=rwc", path.display())
-}
-
-fn sign_up_body(req: &SignUpRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-fn sign_in_body(req: &SignInRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-    })
-}
-
-fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
-    use secrecy::ExposeSecret;
-    serde_json::json!({
-        "email": req.email.as_str(),
-        "password": req.password.expose_secret(),
-        "display_name": req.display_name,
-    })
-}
-
-pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
-    let code = json
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("transport_error")
-        .to_owned();
-    let summary = json
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown failure")
-        .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
-        HarnessError::Account(reason, summary)
-    } else if code != "transport_error" {
-        HarnessError::FailureCode { code, summary }
-    } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
-    }
-}
-
-fn has_session_cookie(headers: &HeaderMap) -> bool {
-    headers
-        .get_all(reqwest::header::SET_COOKIE)
-        .iter()
-        .filter_map(|value| value.to_str().ok())
-        .any(|cookie| {
-            cookie
-                .split(';')
-                .next()
-                .and_then(|pair| pair.split_once('='))
-                .is_some_and(|(name, value)| name.trim() == "tanren_session" && !value.is_empty())
-        })
-}
-
-fn has_session_bearer_token(json: &Value) -> bool {
-    json.get("session")
-        .and_then(|session| session.get("token"))
-        .and_then(Value::as_str)
-        .is_some_and(|token| !token.trim().is_empty())
-}
-
-fn scope_path(scope: DeploymentPostureScope) -> (&'static str, String) {
-    match scope {
-        DeploymentPostureScope::Account { account_id } => ("account", account_id.to_string()),
-        DeploymentPostureScope::Project { project_id } => ("project", project_id.to_string()),
-        DeploymentPostureScope::Installation { installation_id } => {
-            ("installation", installation_id.to_string())
-        }
-    }
-}
-
-pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
-    Some(match code {
-        "duplicate_identifier" => AccountFailureReason::DuplicateIdentifier,
-        "invalid_credential" => AccountFailureReason::InvalidCredential,
-        "validation_failed" => AccountFailureReason::ValidationFailed,
-        "invitation_not_found" => AccountFailureReason::InvitationNotFound,
-        "invitation_expired" => AccountFailureReason::InvitationExpired,
-        "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
-        _ => return None,
-    })
 }
