@@ -9,6 +9,7 @@ use crate::steps::install::{
 
 #[given(expr = "a clean repository fixture")]
 #[given(expr = "a clean install repository fixture")]
+#[given(expr = "a clean repository")]
 fn given_clean_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<()> {
     world.reset_install_ctx()
 }
@@ -42,6 +43,7 @@ fn given_repository_file_baseline(world: &mut TanrenWorld, path: String) -> Inst
 }
 
 #[given(expr = "previous install manifest tracks stale generated file {string}")]
+#[given(expr = "reinstall treats repository file {string} as an obsolete generated Tanren asset")]
 fn given_previous_manifest_tracks_stale_generated_file(
     world: &mut TanrenWorld,
     path: String,
@@ -52,6 +54,7 @@ fn given_previous_manifest_tracks_stale_generated_file(
 }
 
 #[given(expr = "previous install manifest is tampered with raw generated path {string}")]
+#[given(expr = "reinstall input includes an invalid generated asset path {string}")]
 fn given_previous_manifest_tampered_with_raw_generated_path(
     world: &mut TanrenWorld,
     raw_path: String,
@@ -62,6 +65,7 @@ fn given_previous_manifest_tampered_with_raw_generated_path(
 }
 
 #[given(expr = "previous install manifest is tampered with an invalid content hash entry")]
+#[given(expr = "reinstall input includes malformed generated asset metadata")]
 fn given_previous_manifest_tampered_with_invalid_content_hash(
     world: &mut TanrenWorld,
 ) -> InstallStepResult<()> {
@@ -70,6 +74,7 @@ fn given_previous_manifest_tampered_with_invalid_content_hash(
 }
 
 #[given(expr = "repository file {string} is deleted from the repository fixture")]
+#[given(expr = "repository file {string} is missing before install")]
 fn given_repository_file_deleted(world: &mut TanrenWorld, path: String) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     let relative_path = RepositoryRelativePath::parse(path)?;
@@ -77,6 +82,7 @@ fn given_repository_file_deleted(world: &mut TanrenWorld, path: String) -> Insta
 }
 
 #[given(expr = "repository path {string} is replaced with a symlink to fixture path {string}")]
+#[given(expr = "repository path {string} is a directory symlink to {string}")]
 fn given_repository_path_replaced_with_symlink(
     world: &mut TanrenWorld,
     link_path: String,
@@ -89,6 +95,7 @@ fn given_repository_path_replaced_with_symlink(
 }
 
 #[given(expr = "repository path {string} is replaced with a file symlink to fixture path {string}")]
+#[given(expr = "repository path {string} is a file symlink to {string}")]
 fn given_repository_path_replaced_with_file_symlink(
     world: &mut TanrenWorld,
     link_path: String,
@@ -179,6 +186,7 @@ fn then_rust_cargo_defaults_install_all_assets(world: &mut TanrenWorld) -> Insta
 }
 
 #[then(expr = "the install manifest records the rust-cargo profile and default integrations")]
+#[then(expr = "future installs remember the rust-cargo profile and default integrations")]
 fn then_install_manifest_records_rust_cargo_defaults(
     world: &mut TanrenWorld,
 ) -> InstallStepResult<()> {
@@ -187,6 +195,7 @@ fn then_install_manifest_records_rust_cargo_defaults(
 }
 
 #[then(expr = "the install output reports a validation failure")]
+#[then(expr = "the install output reports why install was blocked")]
 fn then_install_output_reports_validation_failure(
     world: &mut TanrenWorld,
 ) -> InstallStepResult<()> {
@@ -204,6 +213,7 @@ fn then_install_output_redacts_absolute_repository_paths(
 
 #[then(expr = "no files are written in the repository fixture")]
 #[then(expr = "no files are written in repository fixture")]
+#[then(expr = "the repository remains unchanged")]
 fn then_no_files_are_written(world: &mut TanrenWorld) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_no_writes_since_last_run()
@@ -288,6 +298,7 @@ fn then_repository_file_replaced(world: &mut TanrenWorld, path: String) -> Insta
 }
 
 #[then(expr = "stale generated file {string} is removed")]
+#[then(expr = "obsolete generated file {string} is removed during reinstall")]
 fn then_stale_generated_file_removed(
     world: &mut TanrenWorld,
     path: String,
