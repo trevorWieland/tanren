@@ -1,8 +1,8 @@
 import { notFound } from "next/navigation";
 import type { ReactNode } from "react";
 
+import { resolveBehaviorHarnessComponent } from "@/lib/behavior-harness-dispatch";
 import { lookupBehaviorHarnessRoute } from "@/lib/generated/behavior-harness-routes";
-import { OrganizationHarnessRoute } from "@/routes/organizations";
 
 interface OrganizationHarnessPageProps {
   params: Promise<{
@@ -17,5 +17,9 @@ export default async function OrganizationHarnessPage(
   if (!lookupBehaviorHarnessRoute("organizations", params.behaviorId)) {
     notFound();
   }
-  return <OrganizationHarnessRoute />;
+  const HarnessComponent = resolveBehaviorHarnessComponent("organizations");
+  if (!HarnessComponent) {
+    notFound();
+  }
+  return <HarnessComponent />;
 }

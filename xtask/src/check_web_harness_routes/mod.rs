@@ -1,11 +1,13 @@
 //! `xtask check-web-harness-routes` — enforce canonical ownership for web
-//! harness routes and generated projection drift.
+//! harness routes, generated projection drift, and behavior-proof dispatch.
 //!
 //! The `apps/web/src/app/harness/[behaviorId]/**` tree is behavior-proof
 //! infrastructure, not product routing. Each harness route must be owned by a
 //! canonical behavior ID that has `@web` witness coverage in
-//! `tests/bdd/features/**/*.feature`, and the checked-in TypeScript projection
-//! consumed by the web app must stay in sync with that canonical inventory.
+//! `tests/bdd/features/**/*.feature`, the checked-in TypeScript projection
+//! consumed by the web app must stay in sync with that canonical inventory, and
+//! every harness page must resolve its component through the behavior-proof
+//! dispatch adapter rather than importing route components directly.
 
 use anyhow::{Context, Result, bail};
 use std::collections::{BTreeMap, BTreeSet};
@@ -17,6 +19,9 @@ use std::path::Path;
 const FEATURES_DIR_REL: &str = "tests/bdd/features";
 const HARNESS_APP_DIR_REL: &str = "apps/web/src/app/harness/[behaviorId]";
 const GENERATED_ROUTES_REL: &str = "apps/web/src/lib/generated/behavior-harness-routes.ts";
+const DISPATCH_ADAPTER_REL: &str = "apps/web/src/lib/behavior-harness-dispatch.tsx";
+const DISPATCH_IMPORT_PREFIX: &str = "@/lib/behavior-harness-dispatch";
+const FORBIDDEN_ROUTE_IMPORT_PREFIX: &str = "@/routes/";
 
 #[derive(Debug, Clone, Copy)]
 struct HarnessOwnership {
@@ -55,6 +60,48 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let mut seen_leaves: BTreeSet<&str> = BTreeSet::new();
     let mut generated_routes: Vec<GeneratedHarnessRoute> = Vec::new();
 
+    validate_ownership(
+        &inventory,
+        &harness_pages,
+        &mut violations,
+        &mut seen_leaves,
+        &mut generated_routes,
+    );
+
+    validate_unowned_leaves(&harness_pages, &seen_leaves, &mut violations);
+
+    validate_projection_sync(root, &generated_routes, &mut violations);
+
+    enforce_dispatch_guard(root, &mut violations);
+
+    if violations.is_empty() {
+        let stdout = std::io::stdout();
+        let mut handle = stdout.lock();
+        let _ = writeln!(
+            handle,
+            "check-web-harness-routes: 0 violations (harness ownership, dispatch adapter, and generated projection are in sync)"
+        );
+        return Ok(());
+    }
+
+    let stderr = std::io::stderr();
+    let mut handle = stderr.lock();
+    for violation in &violations {
+        let _ = writeln!(handle, "{violation}");
+    }
+    bail!(
+        "check-web-harness-routes: {} violation(s); keep web harness routes owned by canonical behavior proof inventory",
+        violations.len()
+    )
+}
+
+fn validate_ownership(
+    inventory: &BTreeMap<String, BehaviorFeatureInventory>,
+    harness_pages: &BTreeSet<String>,
+    violations: &mut Vec<String>,
+    seen_leaves: &mut BTreeSet<&str>,
+    generated_routes: &mut Vec<GeneratedHarnessRoute>,
+) {
     for ownership in HARNESS_ROUTE_OWNERSHIP {
         if !seen_leaves.insert(ownership.leaf) {
             violations.push(format!(
@@ -97,17 +144,30 @@ pub(crate) fn run(root: &Path) -> Result<()> {
             ));
         }
     }
+}
 
-    for leaf in &harness_pages {
+fn validate_unowned_leaves(
+    harness_pages: &BTreeSet<String>,
+    seen_leaves: &BTreeSet<&str>,
+    violations: &mut Vec<String>,
+) {
+    for leaf in harness_pages {
         if !seen_leaves.contains(leaf.as_str()) {
             violations.push(format!(
                 "{HARNESS_APP_DIR_REL}/{leaf}/page.tsx exists but no canonical harness ownership is declared"
             ));
         }
     }
+}
 
-    generated_routes.sort_by(|a, b| a.leaf.cmp(&b.leaf));
-    let expected_projection = render_projection(&generated_routes);
+fn validate_projection_sync(
+    root: &Path,
+    generated_routes: &[GeneratedHarnessRoute],
+    violations: &mut Vec<String>,
+) {
+    let mut sorted_routes = generated_routes.to_vec();
+    sorted_routes.sort_by(|a, b| a.leaf.cmp(&b.leaf));
+    let expected_projection = render_projection(&sorted_routes);
     let generated_path = root.join(GENERATED_ROUTES_REL);
     match fs::read_to_string(&generated_path) {
         Ok(actual) => {
@@ -126,26 +186,51 @@ pub(crate) fn run(root: &Path) -> Result<()> {
             ));
         }
     }
+}
 
-    if violations.is_empty() {
-        let stdout = std::io::stdout();
-        let mut handle = stdout.lock();
-        let _ = writeln!(
-            handle,
-            "check-web-harness-routes: 0 violations (harness ownership and generated projection are in sync)"
-        );
-        return Ok(());
+/// Enforce that every owned harness page goes through the behavior-proof
+/// dispatch adapter and does not bypass it by importing route components
+/// directly from `@/routes/`.
+fn enforce_dispatch_guard(root: &Path, violations: &mut Vec<String>) {
+    if !root.join(DISPATCH_ADAPTER_REL).exists() {
+        violations.push(format!(
+            "{DISPATCH_ADAPTER_REL}: dispatch adapter module is missing"
+        ));
     }
 
-    let stderr = std::io::stderr();
-    let mut handle = stderr.lock();
-    for violation in &violations {
-        let _ = writeln!(handle, "{violation}");
+    for ownership in HARNESS_ROUTE_OWNERSHIP {
+        let page_path = root
+            .join(HARNESS_APP_DIR_REL)
+            .join(ownership.leaf)
+            .join("page.tsx");
+        let Ok(page_content) = fs::read_to_string(&page_path) else {
+            // Missing pages are already flagged by the ownership check above.
+            continue;
+        };
+
+        let has_dispatch_import = page_content
+            .lines()
+            .any(|line| line.contains(DISPATCH_IMPORT_PREFIX));
+
+        if !has_dispatch_import {
+            violations.push(format!(
+                "{HARNESS_APP_DIR_REL}/{leaf}/page.tsx: harness page must import from {DISPATCH_IMPORT_PREFIX} to go through behavior-proof dispatch",
+                leaf = ownership.leaf,
+            ));
+        }
+
+        let has_forbidden_route_import = page_content.lines().any(|line| {
+            let trimmed = line.trim();
+            trimmed.starts_with("import") && trimmed.contains(FORBIDDEN_ROUTE_IMPORT_PREFIX)
+        });
+
+        if has_forbidden_route_import {
+            violations.push(format!(
+                "{HARNESS_APP_DIR_REL}/{leaf}/page.tsx: harness page bypasses dispatch adapter by importing directly from {FORBIDDEN_ROUTE_IMPORT_PREFIX}",
+                leaf = ownership.leaf,
+            ));
+        }
     }
-    bail!(
-        "check-web-harness-routes: {} violation(s); keep web harness routes owned by canonical behavior proof inventory",
-        violations.len()
-    )
 }
 
 fn load_feature_inventory(root: &Path) -> Result<BTreeMap<String, BehaviorFeatureInventory>> {

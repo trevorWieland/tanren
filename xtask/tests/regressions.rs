@@ -126,3 +126,12 @@ fn check_web_harness_routes_rejects_unowned_harness_page() {
         "exists but no canonical harness ownership is declared",
     );
 }
+
+#[test]
+fn check_web_harness_routes_rejects_dispatch_bypass() {
+    assert_check_fails(
+        "check-web-harness-routes",
+        "regression-web-harness-dispatch-bypass",
+        "bypasses dispatch adapter",
+    );
+}
