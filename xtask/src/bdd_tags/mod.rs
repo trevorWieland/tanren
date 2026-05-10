@@ -383,6 +383,7 @@ fn step_mentions_install_flow(step: &str) -> bool {
         || normalized.contains(
             "rust-cargo defaults install all methodology command assets and standards files",
         )
+        || normalized.contains("managed branch payload")
 }
 
 fn check_coverage_against_behavior(

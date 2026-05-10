@@ -1,50 +1,39 @@
 use std::path::Path;
 
 use tanren_testkit::{
-    ManagedBranchPayload,
     assert_manifest_rust_cargo_defaults as contract_assert_manifest_rust_cargo_defaults,
     assert_rust_cargo_default_assets_installed as contract_assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed as contract_assert_rust_cargo_standards_installed,
     assert_selected_integration_command_assets as contract_assert_selected_integration_command_assets,
-    load_managed_branch_payload,
 };
 
 use crate::steps::install::InstallStepError;
 
-pub(crate) fn load_payload(checkout_root: &Path) -> Result<ManagedBranchPayload, InstallStepError> {
-    load_managed_branch_payload(checkout_root)
-        .map_err(|source| InstallStepError::InstallProofFailure { source })
-}
-
 pub(crate) fn assert_rust_cargo_default_assets_installed(
-    checkout_root: &Path,
+    repository_root: &Path,
 ) -> Result<(), InstallStepError> {
-    let payload = load_payload(checkout_root)?;
-    contract_assert_rust_cargo_default_assets_installed(&payload)
+    contract_assert_rust_cargo_default_assets_installed(repository_root)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
 
 pub(crate) fn assert_rust_cargo_standards_installed(
-    checkout_root: &Path,
+    repository_root: &Path,
 ) -> Result<(), InstallStepError> {
-    let payload = load_payload(checkout_root)?;
-    contract_assert_rust_cargo_standards_installed(&payload)
+    contract_assert_rust_cargo_standards_installed(repository_root)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
 
 pub(crate) fn assert_selected_integration_command_assets(
-    checkout_root: &Path,
+    repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallStepError> {
-    let payload = load_payload(checkout_root)?;
-    contract_assert_selected_integration_command_assets(&payload, selected_integrations)
+    contract_assert_selected_integration_command_assets(repository_root, selected_integrations)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }
 
 pub(crate) fn assert_manifest_rust_cargo_defaults(
-    checkout_root: &Path,
+    repository_root: &Path,
 ) -> Result<(), InstallStepError> {
-    let payload = load_payload(checkout_root)?;
-    contract_assert_manifest_rust_cargo_defaults(&payload)
+    contract_assert_manifest_rust_cargo_defaults(repository_root)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }

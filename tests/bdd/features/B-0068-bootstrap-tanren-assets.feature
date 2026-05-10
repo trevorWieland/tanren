@@ -183,3 +183,23 @@ Feature: Bootstrap Tanren assets into an existing repository
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
       And repository file ".codex/skills/retired-command.md" preserves its baseline content
+
+    @positive @cli
+    Scenario: Managed branch payload reflects installed rust-cargo assets
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      And the managed branch payload contains all entries with content in the checkout
+      And the managed branch payload profile is rust-cargo
+      And the managed branch payload contains methodology command entries
+      And the managed branch payload contains standards profile entries
+
+    @positive @cli
+    Scenario: Managed branch payload reflects installed assets after reinstall
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      And the managed branch payload contains all entries with content in the checkout
+      And the managed branch payload profile is rust-cargo

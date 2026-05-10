@@ -20,10 +20,6 @@ use crate::install::{
 mod contract_fs;
 #[path = "contract_methodology.rs"]
 mod contract_methodology;
-#[path = "contract_payload.rs"]
-mod contract_payload;
-
-pub use contract_payload::{ManagedBranchPayload, PayloadEntrySummary};
 
 const TAMPERED_ENTRY_SHA256: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
@@ -33,8 +29,6 @@ pub(super) const RUST_CARGO_STANDARDS_ROOT: &str = "profiles/rust-cargo";
 /// Delivery-owned proof failures surfaced to BDD assertion mapping.
 #[derive(Debug, Error)]
 pub enum InstallProofError {
-    #[error("managed branch payload checkout root is not set")]
-    MissingCheckoutRoot,
     #[error("invalid integration assertion selection '{selection}': {source}")]
     InvalidIntegrationSelection {
         selection: String,
@@ -85,8 +79,6 @@ pub enum InstallProofError {
         path: PathBuf,
         source: tanren_configuration_secrets::ConfigSecretsError,
     },
-    #[error("expected payload entry content to exist in branch checkout: {path}")]
-    ExpectedPayloadEntryToExist { path: PathBuf },
     #[error("expected repository file to exist: {path}")]
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository path to be absent: {path}")]
@@ -105,31 +97,43 @@ pub enum InstallProofError {
 
 /// Assert the default rust-cargo install writes both command and standards assets.
 pub fn assert_rust_cargo_default_assets_installed(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
 ) -> Result<(), InstallProofError> {
+    let manifest = read_install_manifest(repository_root)?;
     let expected_integrations = InstallIntegration::all();
     assert_manifest_profile_and_integrations(
-        &payload.manifest,
+        &manifest,
         InstallProfile::RustCargo,
         &expected_integrations,
     )?;
-    assert_command_assets_for_selected_integrations(payload, &expected_integrations)?;
-    assert_standards_assets_for_rust_cargo(payload)?;
-    contract_methodology::assert_project_methodology_config_for_rust_cargo(payload)?;
+    assert_command_assets_for_selected_integrations(
+        repository_root,
+        &manifest,
+        &expected_integrations,
+    )?;
+    assert_standards_assets_for_rust_cargo(repository_root, &manifest)?;
+    contract_methodology::assert_project_methodology_config_for_rust_cargo(
+        repository_root,
+        &manifest,
+    )?;
     Ok(())
 }
 
 /// Assert rust-cargo standards profile assets are installed.
 pub fn assert_rust_cargo_standards_installed(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    assert_standards_assets_for_rust_cargo(payload)?;
-    contract_methodology::assert_project_methodology_config_for_rust_cargo(payload)
+    let manifest = read_install_manifest(repository_root)?;
+    assert_standards_assets_for_rust_cargo(repository_root, &manifest)?;
+    contract_methodology::assert_project_methodology_config_for_rust_cargo(
+        repository_root,
+        &manifest,
+    )
 }
 
 /// Assert only the selected integration command assets are installed.
 pub fn assert_selected_integration_command_assets(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
     let selected = parse_integration_selection(Some(selected_integrations)).map_err(|source| {
@@ -138,61 +142,56 @@ pub fn assert_selected_integration_command_assets(
             source,
         }
     })?;
-    assert_manifest_profile_and_integrations(
-        &payload.manifest,
-        InstallProfile::RustCargo,
-        &selected,
-    )?;
-    assert_command_assets_for_selected_integrations(payload, &selected)?;
-    assert_unselected_integration_roots_are_empty(payload, &selected)
+    let manifest = read_install_manifest(repository_root)?;
+    assert_manifest_profile_and_integrations(&manifest, InstallProfile::RustCargo, &selected)?;
+    assert_command_assets_for_selected_integrations(repository_root, &manifest, &selected)?;
+    assert_unselected_integration_roots_are_empty(repository_root, &selected)
 }
 
 /// Assert install manifest defaults for rust-cargo profile installs.
 pub fn assert_manifest_rust_cargo_defaults(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
 ) -> Result<(), InstallProofError> {
+    let manifest = read_install_manifest(repository_root)?;
     let expected_integrations = InstallIntegration::all();
     assert_manifest_profile_and_integrations(
-        &payload.manifest,
+        &manifest,
         InstallProfile::RustCargo,
         &expected_integrations,
     )?;
 
-    let has_command_assets = payload
-        .manifest
+    let has_command_assets = manifest
         .parsed
         .entries
         .iter()
         .any(|entry| entry.asset_class == AssetClass::MethodologyCommand);
     if !has_command_assets {
         return Err(manifest_contract_error(
-            &payload.manifest,
+            &manifest,
             "manifest must include at least one methodology-command entry",
         ));
     }
 
-    let has_standards_assets = payload
-        .manifest
+    let has_standards_assets = manifest
         .parsed
         .entries
         .iter()
         .any(|entry| entry.asset_class == AssetClass::StandardsProfile);
     if !has_standards_assets {
         return Err(manifest_contract_error(
-            &payload.manifest,
+            &manifest,
             "manifest must include at least one standards-profile entry",
         ));
     }
 
-    let has_methodology_config = payload
-        .manifest
+    let has_methodology_config = manifest
         .parsed
         .entries
         .iter()
         .any(|entry| entry.asset_class == AssetClass::MethodologyConfig);
     if !has_methodology_config {
         return Err(manifest_contract_error(
-            &payload.manifest,
+            &manifest,
             "manifest must include one methodology-config entry",
         ));
     }
@@ -253,20 +252,20 @@ pub fn read_workspace_catalog_file(
     contract_fs::read_to_string_with_context(&absolute, "read workspace catalog file")
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub(super) struct ObservedInstallManifest {
     pub(super) path: PathBuf,
     pub(super) raw: String,
     pub(super) parsed: InstallManifest,
 }
 
-pub(super) fn read_install_manifest(
-    checkout_root: &Path,
+fn read_install_manifest(
+    repository_root: &Path,
 ) -> Result<ObservedInstallManifest, InstallProofError> {
-    let path = checkout_root.join(INSTALL_MANIFEST_REPO_PATH);
+    let path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
     let raw = contract_fs::read_to_string_with_context(
         &path,
-        "read install manifest from managed branch checkout",
+        "read install manifest from repository fixture",
     )?;
     let parsed: InstallManifest =
         toml::from_str(&raw).map_err(|source| InstallProofError::InstallManifestTomlParse {
@@ -320,12 +319,12 @@ fn assert_manifest_profile_and_integrations(
 }
 
 fn assert_command_assets_for_selected_integrations(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
+    manifest: &ObservedInstallManifest,
     selected: &BTreeSet<InstallIntegration>,
 ) -> Result<(), InstallProofError> {
     let mut seen = BTreeSet::new();
-    for entry in payload
-        .manifest
+    for entry in manifest
         .parsed
         .entries
         .iter()
@@ -333,7 +332,7 @@ fn assert_command_assets_for_selected_integrations(
     {
         let integration = entry.integration.ok_or_else(|| {
             manifest_contract_error(
-                &payload.manifest,
+                manifest,
                 &format!(
                     "methodology-command entry '{}' must include integration",
                     entry.path.as_str()
@@ -343,7 +342,7 @@ fn assert_command_assets_for_selected_integrations(
 
         if !selected.contains(&integration) {
             return Err(manifest_contract_error(
-                &payload.manifest,
+                manifest,
                 &format!(
                     "methodology-command entry '{}' unexpectedly targets integration '{}'",
                     entry.path.as_str(),
@@ -359,7 +358,7 @@ fn assert_command_assets_for_selected_integrations(
             &destination_roots,
         ) {
             return Err(manifest_contract_error(
-                &payload.manifest,
+                manifest,
                 &format!(
                     "methodology-command entry '{}' must be under selected integration destination root",
                     entry.path.as_str()
@@ -367,13 +366,13 @@ fn assert_command_assets_for_selected_integrations(
             ));
         }
 
-        payload.assert_entry_exists(entry)?;
+        contract_fs::assert_file_exists(repository_root, entry.path.as_str())?;
         seen.insert(integration);
     }
 
     if seen != *selected {
         return Err(manifest_contract_error(
-            &payload.manifest,
+            manifest,
             &format!(
                 "methodology-command integrations must match selection {}; saw {}",
                 format_integration_set(selected),
@@ -386,11 +385,11 @@ fn assert_command_assets_for_selected_integrations(
 }
 
 fn assert_standards_assets_for_rust_cargo(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
+    manifest: &ObservedInstallManifest,
 ) -> Result<(), InstallProofError> {
     let mut saw_any = false;
-    for entry in payload
-        .manifest
+    for entry in manifest
         .parsed
         .entries
         .iter()
@@ -399,7 +398,7 @@ fn assert_standards_assets_for_rust_cargo(
         saw_any = true;
         if !entry.path.as_str().starts_with(RUST_CARGO_PROFILE_ROOT) {
             return Err(manifest_contract_error(
-                &payload.manifest,
+                manifest,
                 &format!(
                     "standards-profile entry '{}' must be under '{}'",
                     entry.path.as_str(),
@@ -407,12 +406,12 @@ fn assert_standards_assets_for_rust_cargo(
                 ),
             ));
         }
-        payload.assert_entry_exists(entry)?;
+        contract_fs::assert_file_exists(repository_root, entry.path.as_str())?;
     }
 
     if !saw_any {
         return Err(manifest_contract_error(
-            &payload.manifest,
+            manifest,
             "manifest must include at least one standards-profile entry",
         ));
     }
@@ -421,10 +420,10 @@ fn assert_standards_assets_for_rust_cargo(
 }
 
 fn assert_unselected_integration_roots_are_empty(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
     selected: &BTreeSet<InstallIntegration>,
 ) -> Result<(), InstallProofError> {
-    contract_fs::assert_unselected_integration_roots_are_empty(payload.checkout_root(), selected)
+    contract_fs::assert_unselected_integration_roots_are_empty(repository_root, selected)
 }
 
 fn manifest_contract_error(

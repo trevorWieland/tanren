@@ -6,7 +6,6 @@ use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
 use tanren_cli_app::install::contract;
-
 use tanren_cli_app::install::{RepoRelativePath, sha256_hex};
 use thiserror::Error;
 
@@ -191,45 +190,34 @@ pub enum InstallProofContractError {
 pub use contract::InstallProofError;
 /// Delivery-owned repository-relative install path contract type.
 pub type InstallProofRepoRelativePath = RepoRelativePath;
-/// Delivery-owned managed branch payload model for install proof assertions.
-pub use contract::ManagedBranchPayload;
-/// Delivery-owned manifest entry summary for branch payload wire representation.
-pub use contract::PayloadEntrySummary;
-
-/// Materialize a managed branch payload from a source-control checkout root.
-pub fn load_managed_branch_payload(
-    checkout_root: &Path,
-) -> Result<ManagedBranchPayload, InstallProofError> {
-    ManagedBranchPayload::from_checkout_root(checkout_root)
-}
 
 /// Assert the default rust-cargo install writes both command and standards assets.
 pub fn assert_rust_cargo_default_assets_installed(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    contract::assert_rust_cargo_default_assets_installed(payload)
+    contract::assert_rust_cargo_default_assets_installed(repository_root)
 }
 
 /// Assert rust-cargo standards profile assets are installed.
 pub fn assert_rust_cargo_standards_installed(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    contract::assert_rust_cargo_standards_installed(payload)
+    contract::assert_rust_cargo_standards_installed(repository_root)
 }
 
 /// Assert only the selected integration command assets are installed.
 pub fn assert_selected_integration_command_assets(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
-    contract::assert_selected_integration_command_assets(payload, selected_integrations)
+    contract::assert_selected_integration_command_assets(repository_root, selected_integrations)
 }
 
 /// Assert install manifest defaults for rust-cargo profile installs.
 pub fn assert_manifest_rust_cargo_defaults(
-    payload: &ManagedBranchPayload,
+    repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    contract::assert_manifest_rust_cargo_defaults(payload)
+    contract::assert_manifest_rust_cargo_defaults(repository_root)
 }
 
 /// Append a stale generated-manifest row for mutation-flow fixtures.

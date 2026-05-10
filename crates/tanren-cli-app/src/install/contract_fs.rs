@@ -28,17 +28,6 @@ pub(super) fn assert_unselected_integration_roots_are_empty(
     Ok(())
 }
 
-pub(super) fn assert_file_exists(
-    repository_root: &Path,
-    relative_path: &str,
-) -> Result<(), InstallProofError> {
-    let absolute = repository_root.join(relative_path);
-    if !absolute.exists() {
-        return Err(InstallProofError::ExpectedFileToExist { path: absolute });
-    }
-    Ok(())
-}
-
 pub(super) fn read_to_string_with_context(
     path: &Path,
     action: &'static str,

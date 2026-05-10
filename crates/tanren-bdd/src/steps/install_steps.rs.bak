@@ -220,31 +220,3 @@ fn then_stale_generated_file_removed(
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_file_absent(&RepositoryRelativePath::parse(path)?)
 }
-
-#[then(expr = "the managed branch payload contains all entries with content in the checkout")]
-fn then_managed_branch_payload_entries_exist(world: &mut TanrenWorld) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.assert_managed_branch_payload_entries_exist()
-}
-
-#[then(expr = "the managed branch payload profile is rust-cargo")]
-fn then_managed_branch_payload_profile_is_rust_cargo(
-    world: &mut TanrenWorld,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.assert_payload_profile_is_rust_cargo()
-}
-
-#[then(expr = "the managed branch payload contains methodology command entries")]
-fn then_managed_branch_payload_contains_commands(world: &mut TanrenWorld) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.assert_payload_contains_methodology_command_entries()
-}
-
-#[then(expr = "the managed branch payload contains standards profile entries")]
-fn then_managed_branch_payload_contains_standards(
-    world: &mut TanrenWorld,
-) -> InstallStepResult<()> {
-    let ctx = world.ensure_install_ctx()?;
-    ctx.assert_payload_contains_standards_entries()
-}
