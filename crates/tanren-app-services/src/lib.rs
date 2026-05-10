@@ -9,6 +9,7 @@ pub mod account;
 pub mod events;
 pub mod user_configuration;
 mod user_configuration_pagination;
+mod user_configuration_support;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
@@ -27,7 +28,7 @@ pub use tanren_store::{AccountStore, Store};
 use std::sync::Arc;
 use tanren_store::{SessionAuthenticationLookup, StoreError};
 use thiserror::Error;
-pub use user_configuration::AuthenticatedConfigurationContext;
+pub use user_configuration_support::AuthenticatedConfigurationContext;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HealthReport {
@@ -203,7 +204,7 @@ impl Handlers {
         requested_account_id: AccountId,
     ) -> Result<ListUserSettingsResponse, AppServiceError>
     where
-        S: UserConfigurationStore + ?Sized,
+        S: UserConfigurationStore + AccountStore + ?Sized,
     {
         self.list_user_settings_with_context(
             store,
@@ -223,9 +224,9 @@ impl Handlers {
         request: ListUserSettingsRequest,
     ) -> Result<ListUserSettingsResponse, AppServiceError>
     where
-        S: UserConfigurationStore + ?Sized,
+        S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::list_user_settings(store, context, request).await
+        user_configuration::list_user_settings(store, &self.clock, context, request).await
     }
 
     pub async fn list_user_settings_page<S>(
@@ -236,7 +237,7 @@ impl Handlers {
         request: ListUserSettingsRequest,
     ) -> Result<ListUserSettingsResponse, AppServiceError>
     where
-        S: UserConfigurationStore + ?Sized,
+        S: UserConfigurationStore + AccountStore + ?Sized,
     {
         self.list_user_settings_with_context(
             store,
@@ -391,7 +392,7 @@ impl Handlers {
         owner_scope: OwnerScope,
     ) -> Result<ListUserCredentialsResponse, AppServiceError>
     where
-        S: UserConfigurationStore + ?Sized,
+        S: UserConfigurationStore + AccountStore + ?Sized,
     {
         self.list_user_credentials_with_context(
             store,
@@ -411,9 +412,9 @@ impl Handlers {
         request: ListUserCredentialsRequest,
     ) -> Result<ListUserCredentialsResponse, AppServiceError>
     where
-        S: UserConfigurationStore + ?Sized,
+        S: UserConfigurationStore + AccountStore + ?Sized,
     {
-        user_configuration::list_user_credentials(store, context, request).await
+        user_configuration::list_user_credentials(store, &self.clock, context, request).await
     }
 
     pub async fn list_user_credentials_page<S>(
@@ -424,7 +425,7 @@ impl Handlers {
         request: ListUserCredentialsRequest,
     ) -> Result<ListUserCredentialsResponse, AppServiceError>
     where
-        S: UserConfigurationStore + ?Sized,
+        S: UserConfigurationStore + AccountStore + ?Sized,
     {
         self.list_user_credentials_with_context(
             store,

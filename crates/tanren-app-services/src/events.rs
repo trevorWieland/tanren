@@ -63,6 +63,8 @@ pub enum ConfigurationEventType {
     UserCredentialChanged,
     /// A user-owned credential metadata row was removed.
     UserCredentialRemoved,
+    /// A configuration operation was rejected (denied/not-found/validation).
+    ConfigurationOperationRejected,
 }
 
 impl ConfigurationEventType {
@@ -74,8 +76,49 @@ impl ConfigurationEventType {
             Self::UserSettingRemoved => "user_setting_removed",
             Self::UserCredentialChanged => "user_credential_changed",
             Self::UserCredentialRemoved => "user_credential_removed",
+            Self::ConfigurationOperationRejected => "configuration_operation_rejected",
         }
     }
+}
+
+/// Redaction posture for credential lifecycle event payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CredentialEventRedactionState {
+    /// Event includes metadata only; raw secret value is never present.
+    MetadataOnly,
+}
+
+/// Stable configuration operation key for rejection audit events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigurationOperation {
+    /// List user-tier settings.
+    ListUserSettings,
+    /// Create or update one user-tier setting.
+    UpsertUserSetting,
+    /// Remove one user-tier setting.
+    RemoveUserSetting,
+    /// List user-owned credential metadata.
+    ListUserCredentials,
+    /// Create one user-owned credential.
+    AddUserCredential,
+    /// Update one user-owned credential value.
+    UpdateUserCredential,
+    /// Remove one user-owned credential.
+    RemoveUserCredential,
+}
+
+/// Closed safe-failure taxonomy for configuration rejection audit events.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConfigurationOperationFailureReason {
+    /// Contract/domain validation failed.
+    ValidationFailed,
+    /// Setting was denied or not found.
+    SettingNotFound,
+    /// Credential metadata row was denied or not found.
+    ItemNotFound,
 }
 
 impl AccountEventKind {
@@ -204,6 +247,8 @@ pub struct UserCredentialChanged {
     pub kind: UserCredentialKind,
     /// Metadata lifecycle status.
     pub status: UserCredentialStatus,
+    /// Credential-value redaction posture.
+    pub redaction_state: CredentialEventRedactionState,
     /// Metadata write timestamp.
     pub updated_at: DateTime<Utc>,
 }
@@ -219,8 +264,29 @@ pub struct UserCredentialRemoved {
     pub item_id: UserCredentialId,
     /// Credential kind for auditability after deletion.
     pub kind: UserCredentialKind,
+    /// Credential-value redaction posture.
+    pub redaction_state: CredentialEventRedactionState,
     /// Removal timestamp.
     pub removed_at: DateTime<Utc>,
+}
+
+/// Safe rejection audit signal for configuration operations.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConfigurationOperationRejected {
+    /// Actor that attempted the operation.
+    pub actor: AccountId,
+    /// Requested scope for the operation.
+    pub scope: OwnerScope,
+    /// Operation attempted.
+    pub operation: ConfigurationOperation,
+    /// Safe reason code (no hidden-resource detail).
+    pub reason: ConfigurationOperationFailureReason,
+    /// Requested setting key, when the operation targets a setting key.
+    pub setting_key: Option<UserSettingKey>,
+    /// Requested metadata id, when the operation targets a credential row.
+    pub metadata_item_id: Option<UserCredentialId>,
+    /// Rejection timestamp.
+    pub at: DateTime<Utc>,
 }
 
 /// Encode a typed event as the JSON envelope persisted in the event log.

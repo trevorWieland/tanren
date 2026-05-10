@@ -103,6 +103,10 @@ async fn then_no_plaintext_in_reads_or_events(
         })
         .map(|event| &event.payload)
         .collect();
+    assert!(
+        !audit_projection.is_empty(),
+        "expected at least one configuration credential audit event"
+    );
     let audit_projection =
         serde_json::to_string(&audit_projection).expect("audit projection should serialize");
     inspected.push(format!("audit_projection={audit_projection}"));

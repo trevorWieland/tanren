@@ -608,11 +608,20 @@ Then(
 
 Then(
   /^(\w+) does not see credential value "([^"]*)"$/,
-  async ({ world }, name: string, value: string) => {
+  async ({ page, world }, name: string, value: string) => {
     const serialized = JSON.stringify(actor(world, name).lastCredentials ?? []);
     if (serialized.includes(value)) {
       throw new Error(
         `credential value should not appear in metadata for ${name}`,
+      );
+    }
+    const events = await fetchRecentEventsFromTestHooks(page, 100);
+    const hasConfigurationCredentialEvent = events.some((event) =>
+      isConfigurationCredentialEvent(event.payload),
+    );
+    if (!hasConfigurationCredentialEvent) {
+      throw new Error(
+        "expected at least one configuration credential event in recent log",
       );
     }
   },
@@ -673,8 +682,17 @@ Then(
       })),
     );
     const events = await fetchRecentEventsFromTestHooks(page, 100);
+    const auditProjection = events.filter((event) =>
+      isConfigurationCredentialEvent(event.payload),
+    );
+    if (auditProjection.length === 0) {
+      throw new Error(
+        "expected at least one configuration credential audit event",
+      );
+    }
     const eventProjection = JSON.stringify(events);
-    const combined = `${snapshots}\nlog_projection=${snapshots}\naudit_projection=${eventProjection}\nevent_projection=${eventProjection}`;
+    const auditProjectionJson = JSON.stringify(auditProjection);
+    const combined = `${snapshots}\nlog_projection=${snapshots}\naudit_projection=${auditProjectionJson}\nevent_projection=${eventProjection}`;
     if (combined.includes(value)) {
       throw new Error(
         `expected no plaintext credential leak for ${name}; sentinel appeared in read/event projections`,
@@ -832,6 +850,20 @@ async function fetchRecentEventsFromTestHooks(
   }
   const body = (await response.json()) as TestHookEventEnvelope[];
   return body;
+}
+
+function isConfigurationCredentialEvent(payload: unknown): boolean {
+  if (!payload || typeof payload !== "object") {
+    return false;
+  }
+  const row = payload as { family?: unknown; kind?: unknown };
+  if (row.family !== "configuration") {
+    return false;
+  }
+  return (
+    row.kind === "user_credential_changed" ||
+    row.kind === "user_credential_removed"
+  );
 }
 
 // Wait for React hydration to complete on a Next.js page. The Page-level

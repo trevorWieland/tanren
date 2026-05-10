@@ -243,6 +243,35 @@ async fn then_not_see_credential_value(world: &mut TanrenWorld, actor: String, v
         !snapshot.contains(&value),
         "credential secret should not appear in metadata snapshot"
     );
+
+    let events = ctx
+        .harness
+        .recent_events(100)
+        .await
+        .expect("recent_events should succeed under BDD");
+    let found_configuration_credential_event = events.iter().any(|event| {
+        let Some(family) = event
+            .payload
+            .get("family")
+            .and_then(serde_json::Value::as_str)
+        else {
+            return false;
+        };
+        if family != "configuration" {
+            return false;
+        }
+        event
+            .payload
+            .get("kind")
+            .and_then(serde_json::Value::as_str)
+            .is_some_and(|kind| {
+                kind == "user_credential_changed" || kind == "user_credential_removed"
+            })
+    });
+    assert!(
+        found_configuration_credential_event,
+        "expected at least one configuration credential event in recent log"
+    );
 }
 
 async fn list_user_settings(world: &mut TanrenWorld, actor: String, requested: AccountId) {

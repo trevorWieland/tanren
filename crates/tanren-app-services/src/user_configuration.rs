@@ -1,106 +1,54 @@
-//! User-tier configuration and user-owned credential handlers.
-//!
-//! These handlers enforce authenticated account scope before touching the
-//! store layer so cross-account probes return a shared not-found style
-//! taxonomy and do not leak existence.
-
-use chrono::Utc;
 use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, UserCredentialId, UserCredentialSealContext,
-    UserCredentialStatus, UserSettingKey, seal_user_credential_value_from_env,
-    validate_user_credential_kind, validate_user_credential_value, validate_user_setting,
+    UserCredentialId, UserCredentialSealContext, UserCredentialStatus, UserSettingKey,
+    seal_user_credential_value_from_env, validate_user_credential_kind,
+    validate_user_credential_value, validate_user_setting,
 };
 use tanren_contract::{
     CreateUserCredentialRequest, CreateUserCredentialResponse, ListUserCredentialsRequest,
     ListUserCredentialsResponse, ListUserSettingsRequest, ListUserSettingsResponse,
     RemoveUserCredentialResponse, RemoveUserSettingResponse, UpdateUserCredentialRequest,
     UpdateUserCredentialResponse, UpsertUserSettingRequest, UpsertUserSettingResponse,
-    UserConfigurationFailureReason, UserSettingView,
+    UserSettingView,
 };
-use tanren_identity_policy::AccountId;
-use tanren_store::{AccountStore, StoreError, UserConfigurationStore, UserOwnedItemRecord};
+use tanren_store::{AccountStore, UserConfigurationStore};
 
-use crate::events::{
-    ConfigurationEventType, UserCredentialChanged, UserCredentialRemoved, UserSettingChanged,
-    UserSettingRemoved, configuration_envelope,
-};
+use crate::events::{ConfigurationOperation, ConfigurationOperationFailureReason};
 use crate::user_configuration_pagination::{
     encode_credentials_cursor, encode_settings_cursor, parse_credentials_page_request,
     parse_settings_page_request,
 };
+use crate::user_configuration_support::{
+    AuthenticatedConfigurationContext, append_rejected_event, append_user_credential_changed_event,
+    append_user_credential_removed_event, append_user_setting_changed_event,
+    append_user_setting_removed_event, ensure_owner_scope, ensure_user_setting_scope,
+    item_not_found, map_sealing_error, map_store_error, setting_not_found, validation_error,
+};
 use crate::{AppServiceError, Clock};
 
-const CREATE_STATUS: UserCredentialStatus = UserCredentialStatus::Pending;
-const UPDATE_STATUS: UserCredentialStatus = UserCredentialStatus::Pending;
-
-/// Shared context for authenticated user-configuration operations.
-///
-/// The authenticated actor and requested scope are carried separately so
-/// handlers can enforce same-account rules without conflating the two values.
-#[derive(Debug, Clone, Copy)]
-pub struct AuthenticatedConfigurationContext {
-    authenticated_account_id: AccountId,
-    requested_account_id: AccountId,
-    requested_owner_scope: OwnerScope,
-}
-
-impl AuthenticatedConfigurationContext {
-    /// Build context for a request targeting a specific account id.
-    #[must_use]
-    pub const fn for_requested_account(
-        authenticated_account_id: AccountId,
-        requested_account_id: AccountId,
-    ) -> Self {
-        Self {
-            authenticated_account_id,
-            requested_account_id,
-            requested_owner_scope: OwnerScope::User {
-                account_id: requested_account_id,
-            },
-        }
-    }
-
-    /// Build context for a request targeting an explicit owner scope.
-    #[must_use]
-    pub const fn for_requested_owner_scope(
-        authenticated_account_id: AccountId,
-        requested_owner_scope: OwnerScope,
-    ) -> Self {
-        let requested_account_id = match requested_owner_scope {
-            OwnerScope::User { account_id } => account_id,
-        };
-        Self {
-            authenticated_account_id,
-            requested_account_id,
-            requested_owner_scope,
-        }
-    }
-
-    #[must_use]
-    pub const fn authenticated_account_id(self) -> AccountId {
-        self.authenticated_account_id
-    }
-
-    #[must_use]
-    pub const fn requested_account_id(self) -> AccountId {
-        self.requested_account_id
-    }
-
-    #[must_use]
-    pub const fn requested_owner_scope(self) -> OwnerScope {
-        self.requested_owner_scope
-    }
-}
+const CREDENTIAL_WRITE_STATUS: UserCredentialStatus = UserCredentialStatus::Pending;
 
 pub(crate) async fn list_user_settings<S>(
     store: &S,
+    clock: &Clock,
     context: AuthenticatedConfigurationContext,
     request: ListUserSettingsRequest,
 ) -> Result<ListUserSettingsResponse, AppServiceError>
 where
-    S: UserConfigurationStore + ?Sized,
+    S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_user_setting_scope(context)?;
+    if let Err(err) = ensure_user_setting_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::ListUserSettings,
+            ConfigurationOperationFailureReason::SettingNotFound,
+            None,
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
     let page = parse_settings_page_request(request)?;
     let rows = store
         .list_user_settings(context.requested_account_id(), page)
@@ -130,8 +78,32 @@ pub(crate) async fn upsert_user_setting<S>(
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_user_setting_scope(context)?;
-    validate_user_setting(request.key, &request.value).map_err(validation_error)?;
+    if let Err(err) = ensure_user_setting_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::UpsertUserSetting,
+            ConfigurationOperationFailureReason::SettingNotFound,
+            Some(request.key),
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
+    if let Err(detail) = validate_user_setting(request.key, &request.value) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::UpsertUserSetting,
+            ConfigurationOperationFailureReason::ValidationFailed,
+            Some(request.key),
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(validation_error(detail));
+    }
 
     let now = clock.now();
     let setting = store
@@ -144,23 +116,15 @@ where
         .await
         .map_err(map_store_error)?;
 
-    store
-        .append_event(
-            configuration_envelope(
-                ConfigurationEventType::UserSettingChanged,
-                &UserSettingChanged {
-                    actor: context.authenticated_account_id(),
-                    scope: OwnerScope::User {
-                        account_id: context.requested_account_id(),
-                    },
-                    key: setting.key,
-                    value_kind: setting.value.kind(),
-                    updated_at: setting.updated_at,
-                },
-            ),
-            now,
-        )
-        .await?;
+    append_user_setting_changed_event(
+        store,
+        context,
+        setting.key,
+        setting.value.kind(),
+        setting.updated_at,
+        now,
+    )
+    .await?;
 
     Ok(UpsertUserSettingResponse {
         setting: UserSettingView {
@@ -180,13 +144,35 @@ pub(crate) async fn remove_user_setting<S>(
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_user_setting_scope(context)?;
+    if let Err(err) = ensure_user_setting_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::RemoveUserSetting,
+            ConfigurationOperationFailureReason::SettingNotFound,
+            Some(key),
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
 
     let Some(setting) = store
         .get_user_setting(context.requested_account_id(), key)
         .await
         .map_err(map_store_error)?
     else {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::RemoveUserSetting,
+            ConfigurationOperationFailureReason::SettingNotFound,
+            Some(key),
+            None,
+            clock.now(),
+        )
+        .await?;
         return Err(setting_not_found());
     };
 
@@ -195,26 +181,21 @@ where
         .await
         .map_err(map_store_error)?;
     if !removed {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::RemoveUserSetting,
+            ConfigurationOperationFailureReason::SettingNotFound,
+            Some(key),
+            None,
+            clock.now(),
+        )
+        .await?;
         return Err(setting_not_found());
     }
 
     let now = clock.now();
-    store
-        .append_event(
-            configuration_envelope(
-                ConfigurationEventType::UserSettingRemoved,
-                &UserSettingRemoved {
-                    actor: context.authenticated_account_id(),
-                    scope: OwnerScope::User {
-                        account_id: context.requested_account_id(),
-                    },
-                    key,
-                    removed_at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
+    append_user_setting_removed_event(store, context, key, now).await?;
 
     Ok(RemoveUserSettingResponse {
         setting: UserSettingView {
@@ -234,12 +215,58 @@ pub(crate) async fn add_user_credential<S>(
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(context)?;
+    if let Err(err) = ensure_owner_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::AddUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
     if request.owner_scope != context.requested_owner_scope() {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::AddUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            None,
+            clock.now(),
+        )
+        .await?;
         return Err(item_not_found());
     }
-    validate_user_credential_kind(request.kind).map_err(validation_error)?;
-    validate_user_credential_value(&request.value).map_err(validation_error)?;
+    if let Err(detail) = validate_user_credential_kind(request.kind) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::AddUserCredential,
+            ConfigurationOperationFailureReason::ValidationFailed,
+            None,
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(validation_error(detail));
+    }
+    if let Err(detail) = validate_user_credential_value(&request.value) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::AddUserCredential,
+            ConfigurationOperationFailureReason::ValidationFailed,
+            None,
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(validation_error(detail));
+    }
 
     let now = clock.now();
     let item_id = UserCredentialId::fresh();
@@ -255,7 +282,7 @@ where
     .map_err(|err| map_sealing_error(&err))?;
 
     let item = store
-        .add_user_credential(sealed_value, CREATE_STATUS, now)
+        .add_user_credential(sealed_value, CREDENTIAL_WRITE_STATUS, now)
         .await
         .map_err(map_store_error)?;
 
@@ -277,14 +304,50 @@ pub(crate) async fn update_user_credential<S>(
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(context)?;
-    validate_user_credential_value(&request.value).map_err(validation_error)?;
+    if let Err(err) = ensure_owner_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::UpdateUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
+    if let Err(detail) = validate_user_credential_value(&request.value) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::UpdateUserCredential,
+            ConfigurationOperationFailureReason::ValidationFailed,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
+        return Err(validation_error(detail));
+    }
 
-    let existing_item = store
+    let Some(existing_item) = store
         .get_user_credential(item_id, context.requested_owner_scope())
         .await
         .map_err(map_store_error)?
-        .ok_or_else(item_not_found)?;
+    else {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::UpdateUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
+        return Err(item_not_found());
+    };
 
     let sealed_value = seal_user_credential_value_from_env(
         UserCredentialSealContext {
@@ -303,12 +366,22 @@ where
             item_id,
             context.requested_owner_scope(),
             sealed_value,
-            UPDATE_STATUS,
+            CREDENTIAL_WRITE_STATUS,
             now,
         )
         .await
         .map_err(map_store_error)?
     else {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::UpdateUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
         return Err(item_not_found());
     };
 
@@ -322,13 +395,26 @@ where
 
 pub(crate) async fn list_user_credentials<S>(
     store: &S,
+    clock: &Clock,
     context: AuthenticatedConfigurationContext,
     request: ListUserCredentialsRequest,
 ) -> Result<ListUserCredentialsResponse, AppServiceError>
 where
-    S: UserConfigurationStore + ?Sized,
+    S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(context)?;
+    if let Err(err) = ensure_owner_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::ListUserCredentials,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            None,
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
     let page = parse_credentials_page_request(request)?;
     let rows = store
         .list_user_credentials(context.requested_owner_scope(), page)
@@ -354,113 +440,60 @@ pub(crate) async fn remove_user_credential<S>(
 where
     S: UserConfigurationStore + AccountStore + ?Sized,
 {
-    ensure_owner_scope(context)?;
+    if let Err(err) = ensure_owner_scope(context) {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::RemoveUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
+        return Err(err);
+    }
 
-    let item = store
+    let Some(item) = store
         .get_user_credential(item_id, context.requested_owner_scope())
         .await
         .map_err(map_store_error)?
-        .ok_or_else(item_not_found)?;
+    else {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::RemoveUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
+        return Err(item_not_found());
+    };
 
     let removed = store
         .remove_user_credential(item_id, context.requested_owner_scope())
         .await
         .map_err(map_store_error)?;
     if !removed {
+        append_rejected_event(
+            store,
+            context,
+            ConfigurationOperation::RemoveUserCredential,
+            ConfigurationOperationFailureReason::ItemNotFound,
+            None,
+            Some(item_id),
+            clock.now(),
+        )
+        .await?;
         return Err(item_not_found());
     }
 
     let now = clock.now();
-    store
-        .append_event(
-            configuration_envelope(
-                ConfigurationEventType::UserCredentialRemoved,
-                &UserCredentialRemoved {
-                    actor: context.authenticated_account_id(),
-                    scope: context.requested_owner_scope(),
-                    item_id: item.id,
-                    kind: item.kind,
-                    removed_at: now,
-                },
-            ),
-            now,
-        )
-        .await?;
+    append_user_credential_removed_event(store, context, &item, now).await?;
 
     Ok(RemoveUserCredentialResponse {
         item: item.into_metadata().into(),
     })
-}
-
-fn ensure_user_setting_scope(
-    context: AuthenticatedConfigurationContext,
-) -> Result<(), AppServiceError> {
-    if context.authenticated_account_id() == context.requested_account_id() {
-        return Ok(());
-    }
-    Err(setting_not_found())
-}
-
-fn ensure_owner_scope(context: AuthenticatedConfigurationContext) -> Result<(), AppServiceError> {
-    match context.requested_owner_scope() {
-        OwnerScope::User { account_id } if account_id == context.authenticated_account_id() => {
-            Ok(())
-        }
-        OwnerScope::User { .. } => Err(item_not_found()),
-    }
-}
-
-async fn append_user_credential_changed_event<S>(
-    store: &S,
-    actor: AccountId,
-    item: &UserOwnedItemRecord,
-    now: chrono::DateTime<Utc>,
-) -> Result<(), AppServiceError>
-where
-    S: AccountStore + ?Sized,
-{
-    store
-        .append_event(
-            configuration_envelope(
-                ConfigurationEventType::UserCredentialChanged,
-                &UserCredentialChanged {
-                    actor,
-                    scope: item.owner_scope,
-                    item_id: item.id,
-                    kind: item.kind,
-                    status: item.status,
-                    updated_at: item.updated_at,
-                },
-            ),
-            now,
-        )
-        .await?;
-    Ok(())
-}
-
-fn map_store_error(err: StoreError) -> AppServiceError {
-    match err {
-        StoreError::InvalidConfiguration(detail) => validation_error(detail),
-        other => AppServiceError::Store(other),
-    }
-}
-
-fn map_sealing_error(
-    err: &tanren_configuration_secrets::CredentialSealingFailure,
-) -> AppServiceError {
-    AppServiceError::Store(StoreError::CredentialEncryption {
-        detail: err.to_string(),
-    })
-}
-
-fn validation_error(detail: ConfigurationValidationFailure) -> AppServiceError {
-    AppServiceError::Configuration(UserConfigurationFailureReason::ValidationFailed { detail })
-}
-
-fn setting_not_found() -> AppServiceError {
-    AppServiceError::Configuration(UserConfigurationFailureReason::SettingNotFound)
-}
-
-fn item_not_found() -> AppServiceError {
-    AppServiceError::Configuration(UserConfigurationFailureReason::ItemNotFound)
 }
