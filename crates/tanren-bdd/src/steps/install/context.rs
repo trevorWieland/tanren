@@ -22,6 +22,7 @@ pub(crate) struct InstallContext {
     pub(super) uninstall_snapshot_before_last_run:
         Option<InstallProofUninstallRepositorySnapshotBaseline>,
     pub(super) last_run: Option<InstallCommandOutcome>,
+    pub(super) last_command_kind: Option<InstallCommandKind>,
 }
 
 impl InstallContext {
@@ -39,6 +40,7 @@ impl InstallContext {
             snapshot_before_last_run: None,
             uninstall_snapshot_before_last_run: None,
             last_run: None,
+            last_command_kind: None,
         })
     }
 
@@ -129,6 +131,7 @@ impl InstallContext {
         self.snapshot_before_last_run = Some(before);
         self.uninstall_snapshot_before_last_run = Some(uninstall_before);
         self.last_run = Some(outcome);
+        self.last_command_kind = Some(command_kind);
         Ok(())
     }
 
@@ -147,7 +150,7 @@ impl InstallContext {
 pub(super) type InstallCommandOutcome = CliCommandOutcome;
 
 #[derive(Debug, Clone, Copy)]
-enum InstallCommandKind {
+pub(super) enum InstallCommandKind {
     Install,
     UninstallPreview,
     UninstallApply,

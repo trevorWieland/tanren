@@ -370,6 +370,14 @@ fn scenario_uses_install_steps(scenario: &ParsedScenario) -> bool {
 
 fn step_mentions_install_flow(step: &str) -> bool {
     let normalized = step.to_ascii_lowercase();
+    // Guard: uninstall steps must not be falsely matched by the
+    // install-only CLI dispatch check. The word "uninstall" contains
+    // "install" as a substring, so bare `contains("install ...")` matches
+    // "uninstall ..." steps as well. Exclude any step mentioning
+    // "uninstall" first, then check install-specific phrases.
+    if normalized.contains("uninstall") {
+        return false;
+    }
     normalized.contains("tanren-cli install runs with profile")
         || normalized.contains("install command succeeds")
         || normalized.contains("install command exits nonzero")

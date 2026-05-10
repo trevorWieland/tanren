@@ -218,8 +218,14 @@ impl InstallContext {
     }
 
     pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
-        let run = self.require_last_run()?;
-        if run.stdout.contains("status=ok command=uninstall") {
+        let _run = self.require_last_run()?;
+        if matches!(
+            self.last_command_kind,
+            Some(
+                super::context::InstallCommandKind::UninstallPreview
+                    | super::context::InstallCommandKind::UninstallApply
+            )
+        ) {
             return self.assert_uninstall_no_install_leaves_repository_snapshot_unchanged();
         }
 
