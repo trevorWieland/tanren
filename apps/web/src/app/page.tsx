@@ -1,8 +1,10 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { TANREN_API_BASE_URL } from "@/app/lib/api-base-url";
 import * as m from "@/i18n/paraglide/messages";
 
 interface HealthReport {
@@ -11,15 +13,13 @@ interface HealthReport {
   contract_version: number;
 }
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
-
 export default function Home(): ReactNode {
   const [report, setReport] = useState<HealthReport | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/health`, { credentials: "include" })
+    fetch(`${TANREN_API_BASE_URL}/health`, { credentials: "include" })
       .then(async (response) => {
         if (!response.ok) {
           throw new Error(`HTTP ${response.status}`);
@@ -36,16 +36,25 @@ export default function Home(): ReactNode {
           setError(reason instanceof Error ? reason.message : String(reason));
         }
       });
+
     return () => {
       cancelled = true;
     };
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <main className="mx-auto flex min-h-screen w-full max-w-4xl flex-col gap-6 p-8">
       <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
       <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
-      <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
+      <div>
+        <Link
+          href="/deployment-posture"
+          className="inline-flex rounded border border-[--color-border] px-3 py-2 text-sm"
+        >
+          {m.app_deploymentPostureLink()}
+        </Link>
+      </div>
+      <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
         {report !== null ? (
           <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
         ) : error !== null ? (

@@ -100,6 +100,10 @@ The web UI consumes the public API through generated TypeScript clients. It
 does not use a separate backend-for-frontend layer, maintain duplicate API
 shapes, or store server state as a divergent client-side source of truth.
 
+Operational controls use dedicated routes/components instead of overloading the
+root landing surface. Deployment-posture controls live at `/deployment-posture`
+and read/write posture state through the generated posture contract types.
+
 The web UI must be responsive enough to support desktop and phone workflows
 from the same application.
 
@@ -209,6 +213,44 @@ execution time.
 MCP tool discovery is capability aware. An agent should only see tools that
 its credential is allowed to use in the current scope. API clients may receive
 unsupported-action or permission-denied responses even if a route exists.
+
+### Deployment Posture Contract
+
+Deployment posture endpoints are part of the shared API/MCP/CLI/TUI/web
+contract and use `tanren-contract` types directly:
+
+- `GET /deployment-postures` returns
+  `SupportedDeploymentPosturesResponse`, where each entry contains
+  `posture: DeploymentPosture` and `capability_summary`.
+- `GET /deployment-postures/{scope_kind}/{scope_id}` returns
+  `CurrentDeploymentPostureResponse` with `current:
+  Option<DeploymentPostureReadModel>`.
+- `POST /deployment-postures` accepts
+  `SetDeploymentPostureRequest { scope: DeploymentPostureScope, posture:
+  DeploymentPosture }` and returns `SetDeploymentPostureResponse`.
+
+Scope encoding for route paths is stable:
+
+- `scope_kind` is one of `account`, `project`, `installation`;
+- `scope_id` is a UUID for that scope's typed identity newtype;
+- unknown `scope_kind` or non-UUID `scope_id` returns `validation_failed`.
+
+Capability summaries are contract-owned and include both available
+capabilities and unavailable capability entries with typed
+`DeploymentPostureCapabilityUnavailableReason` values so every interface can
+render consistent disabled-state explanations.
+
+Authorization contract for posture mutation:
+
+- authenticated actor context is required;
+- posture changes are authorized by the same policy evaluation used by all
+  interfaces;
+- denials return `permission_denied` with no interface-specific bypass.
+
+Capability discovery is advisory only; command execution remains authoritative.
+Interfaces may show disabled actions from summaries, but `POST
+/deployment-postures` still performs server-side authorization and scope
+validation.
 
 ## Error Taxonomy
 
@@ -334,6 +376,10 @@ integration, or delivery models.
 Public API contracts are generated from Rust contract types and route metadata.
 The generated OpenAPI document is the source for TypeScript web clients and
 may also support external client generation.
+
+The web deployment-posture surface (`/deployment-posture`) consumes generated
+TypeScript contract types from the posture contract module, so it does not
+redeclare local DTO copies for request/response payloads.
 
 MCP tool schemas are generated from or declared against the same command/query
 contract layer. CLI and TUI command implementations call the API contract

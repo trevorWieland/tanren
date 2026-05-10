@@ -143,6 +143,10 @@ The bundle includes:
 - comments explaining which values are installation-local;
 - optional templates for reverse proxy and TLS integration.
 
+Migration entrypoints are part of the delivery contract because policy and
+state invariants (including scope-aware posture mutation writes) depend on
+running the canonical schema before interfaces accept mutations.
+
 The bundle is inspectable and operable without a hidden CLI runtime. A CLI may
 generate, copy, validate, or manage the bundle, but the bundle itself remains
 plain deployment material.
@@ -194,6 +198,10 @@ product-state setup.
 ## CLI And TUI Role
 
 CLI and TUI are valid operator and power-user clients.
+
+For operator parity across public surfaces, the web UI exposes deployment
+posture operations on a dedicated route (`/deployment-posture`) rather than on
+the root placeholder page.
 
 They may:
 
@@ -502,9 +510,18 @@ Delivery emits typed events for:
 - migration started, completed, failed, or rolled back where supported;
 - stack uninstall previewed or completed;
 - repo uninstall previewed or completed.
+- deployment posture changed for a typed scope.
 
 Events may include file paths, projection identifiers, resource references, and
 redacted diagnostics. Events must not include secret values.
+
+Deployment posture event contract uses
+`deployment_posture.changed` semantics with payload fields:
+
+- `scope: DeploymentPostureScope` (`account`, `project`, or `installation`);
+- `posture: DeploymentPosture` (`hosted`, `self_hosted`, `local_only`);
+- `changed_by: AccountId`;
+- `changed_at: DateTime<Utc>`.
 
 ## Read Models
 
@@ -525,6 +542,17 @@ Required delivery read models include:
 - stack uninstall preview;
 - repo uninstall preview;
 - delivery audit history.
+- current deployment posture per typed scope.
+- supported deployment posture catalog with capability summaries.
+
+Deployment posture read-model contract is interface-facing and distinct from
+mutation responses:
+
+- `SupportedDeploymentPosturesResponse` for supported-posture discovery;
+- `CurrentDeploymentPostureResponse` for current posture reads;
+- unavailable capability entries carry
+  `DeploymentPostureCapabilityUnavailableReason` for consistent UI/agent
+  rendering across web/api/mcp/cli/tui.
 
 ## Sub-PR Stack Methodology For High-Stakes Multi-Area PRs
 

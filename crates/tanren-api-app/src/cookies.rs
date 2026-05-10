@@ -1,6 +1,6 @@
 //! Cookie-session wiring: tower-sessions store dispatch (sqlite vs
 //! postgres), the `SessionManagerLayer` builder, and the helper that
-//! writes `(account_id, expires_at)` into a freshly minted session.
+//! writes/reads `(account_id, expires_at)` in a freshly minted session.
 //!
 //! Split out of `lib.rs` so the api-app crate stays under the workspace
 //! 500-line line-budget.
@@ -29,6 +29,15 @@ pub(crate) struct SessionWrite {
     pub(crate) expires_at: DateTime<Utc>,
 }
 
+/// Session actor projection loaded from the cookie-backed row.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SessionActor {
+    /// Authenticated account id carried in the session.
+    pub(crate) account_id: AccountId,
+    /// Session-expiry wall-clock instant.
+    pub(crate) expires_at: DateTime<Utc>,
+}
+
 /// Insert the account id and expiry into the tower-sessions row backing
 /// this request. The cookie carrying the opaque session id is set by
 /// the middleware on response — we just write the data.
@@ -42,6 +51,27 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .await
         .context("insert expires_at into session")?;
     Ok(())
+}
+
+/// Read the authenticated session actor projection from the
+/// cookie-backed session row.
+pub(crate) async fn session_actor(session: &Session) -> Result<Option<SessionActor>> {
+    let account_id = session
+        .get::<AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")?;
+    let expires_at = session
+        .get::<DateTime<Utc>>(SESSION_KEY_EXPIRES)
+        .await
+        .context("read expires_at from session")?;
+
+    Ok(match (account_id, expires_at) {
+        (Some(account_id), Some(expires_at)) => Some(SessionActor {
+            account_id,
+            expires_at,
+        }),
+        _ => None,
+    })
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships

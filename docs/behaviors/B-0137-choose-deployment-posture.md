@@ -7,7 +7,7 @@ personas: [solo-builder, team-builder, operator]
 interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
+verification_status: asserted
 supersedes: []
 ---
 
@@ -21,13 +21,16 @@ A user can choose whether Tanren is used through hosted, self-hosted, or local-o
 
 ## Observable outcomes
 
+- Tanren lists exactly these supported posture values: `hosted`, `self_hosted`, and `local_only`.
 - The selected posture is visible before project work is dispatched.
 - Tanren explains which capabilities are available or unavailable for the posture.
 - Later runtime and credential choices inherit the selected posture unless changed with permission.
+- Unsupported posture values are rejected with a readable reason.
 
 ## Out of scope
 
 - Provisioning specific infrastructure providers.
+- Selecting first-run identity or source-control providers.
 - Hard-coding posture choices to personas.
 
 ## Related

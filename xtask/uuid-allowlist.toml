@@ -8,9 +8,11 @@
 # domain newtypes can wrap them at the conversion boundary.
 allowed_files = [
   "crates/tanren-identity-policy/src/lib.rs",
+  "crates/tanren-identity-policy/src/scope_ids.rs",
   "crates/tanren-store/src/lib.rs",
   "crates/tanren-store/src/entity/accounts.rs",
   "crates/tanren-store/src/entity/account_sessions.rs",
+  "crates/tanren-store/src/entity/deployment_postures.rs",
   "crates/tanren-store/src/entity/events.rs",
   "crates/tanren-store/src/entity/invitations.rs",
   "crates/tanren-store/src/entity/memberships.rs",

@@ -6,10 +6,19 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod deployment_posture;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use deployment_posture::{
+    CurrentDeploymentPostureResponse, DeploymentPosture, DeploymentPostureCapability,
+    DeploymentPostureCapabilitySummary, DeploymentPostureCapabilityUnavailableReason,
+    DeploymentPostureContractFailure, DeploymentPostureFailureBody, DeploymentPostureFailureReason,
+    DeploymentPostureReadModel, DeploymentPostureScope, DeploymentPostureUnavailableCapability,
+    RawSetDeploymentPostureRequest, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
 };
 
 use serde::{Deserialize, Serialize};

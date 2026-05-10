@@ -110,6 +110,21 @@ ownership and visibility:
   in the organization; set by users who hold the permission to manage
   organization configuration.
 
+## Deployment posture
+
+A **deployment posture** is a scope-level decision that sets where
+Tanren-managed work is allowed to run and which capability categories are
+available at that scope. Supported posture values are:
+
+- **`hosted`**
+- **`self_hosted`**
+- **`local_only`**
+
+Posture views expose a capability summary (available and unavailable categories)
+so users can understand how later runtime and credential decisions will behave.
+Posture does not select a specific provider connection; provider selection is a
+separate first-run decision.
+
 ## Credential and integration ownership
 
 Credentials and external provider connections have ownership independent of

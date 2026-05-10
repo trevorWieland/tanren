@@ -138,6 +138,10 @@ The active account and, when relevant, active organization and project are
 part of actor context. Interfaces may help users switch active scope, but they
 must not bypass policy by switching interfaces.
 
+Scope-aware mutations must resolve target scope existence at the app-service and
+store boundary before persistence. Missing scopes fail with a stable
+`scope_not_found` taxonomy result and do not emit mutation events.
+
 ## Permissions
 
 Permissions are stable, named capabilities evaluated at a scope.

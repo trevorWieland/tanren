@@ -13,7 +13,13 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, CurrentDeploymentPostureResponse, DeploymentPosture,
+    DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
+    DeploymentPostureCapabilityUnavailableReason, DeploymentPostureFailureBody,
+    DeploymentPostureFailureReason, DeploymentPostureReadModel, DeploymentPostureScope,
+    DeploymentPostureUnavailableCapability, SessionEnvelope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest, SupportedDeploymentPosture,
+    SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -24,6 +30,11 @@ use utoipa_axum::routes;
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+use crate::routes_posture::{
+    __path_get_deployment_posture_route, __path_list_deployment_postures_route,
+    __path_set_deployment_posture_route, get_deployment_posture_route,
+    list_deployment_postures_route, set_deployment_posture_route,
+};
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -98,6 +109,9 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        list_deployment_postures_route,
+        get_deployment_posture_route,
+        set_deployment_posture_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +123,25 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        SupportedDeploymentPosture,
+        SupportedDeploymentPosturesResponse,
+        DeploymentPostureReadModel,
+        CurrentDeploymentPostureResponse,
+        DeploymentPosture,
+        DeploymentPostureCapability,
+        DeploymentPostureUnavailableCapability,
+        DeploymentPostureCapabilityUnavailableReason,
+        DeploymentPostureScope,
+        DeploymentPostureCapabilitySummary,
+        SetDeploymentPostureRequest,
+        SetDeploymentPostureResponse,
+        DeploymentPostureFailureBody,
+        DeploymentPostureFailureReason,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "posture", description = "Deployment-posture listing, readback, and selection."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -320,5 +349,8 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(list_deployment_postures_route))
+        .routes(routes!(get_deployment_posture_route))
+        .routes(routes!(set_deployment_posture_route))
         .with_state(state)
 }

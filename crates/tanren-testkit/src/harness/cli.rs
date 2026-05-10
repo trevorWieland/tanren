@@ -4,34 +4,39 @@
 //! The harness owns the database file, applies migrations once at
 //! construction, and reads recent events directly via its own
 //! `Store` handle. Each sign-up / sign-in / accept-invitation step
-//! spawns a `tanren-cli account ...` subprocess and parses the
-//! `account_id=... session=...` line from stdout.
+//! spawns a `tanren-cli account ...` subprocess and decodes the
+//! typed JSON payload from stdout.
 
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
+use serde::de::DeserializeOwned;
+use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_contract::{
+    AcceptInvitationRequest, AcceptInvitationResponse, DeploymentPostureReadModel,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SetDeploymentPostureResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
-use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_support::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 /// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    session_path: PathBuf,
     db_url: String,
     binary: PathBuf,
 }
@@ -40,6 +45,7 @@ impl std::fmt::Debug for CliHarness {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CliHarness")
             .field("db_path", &self.db_path)
+            .field("session_path", &self.session_path)
             .field("binary", &self.binary)
             .finish_non_exhaustive()
     }
@@ -56,6 +62,7 @@ impl CliHarness {
     /// binary is missing from the expected target directory.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("cli");
+        let session_path = db_path.with_extension("session");
         let db_url = sqlite_url(&db_path);
         let store = Store::connect(&db_url)
             .await
@@ -71,15 +78,23 @@ impl CliHarness {
         Ok(Self {
             store,
             db_path,
+            session_path,
             db_url,
             binary,
         })
+    }
+
+    fn command(&self) -> Command {
+        let mut command = Command::new(&self.binary);
+        command.env("TANREN_SESSION_FILE", &self.session_path);
+        command
     }
 }
 
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_path);
     }
 }
 
@@ -90,7 +105,8 @@ impl AccountHarness for CliHarness {
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
-        let output = Command::new(&self.binary)
+        let output = self
+            .command()
             .args([
                 "account",
                 "create",
@@ -112,19 +128,18 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
-            HarnessSession {
-                account_id: account.id,
-                account,
-                expires_at: Utc::now() + Duration::days(30),
-                has_token,
-            }
+        let response: SignUpResponse = parse_json_from_stdout(&output.stdout, "account create")?;
+        Ok(HarnessSession {
+            account_id: response.account.id,
+            account: response.account,
+            expires_at: response.session.expires_at,
+            has_token: !response.session.token.expose_secret().is_empty(),
         })
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
-        let output = Command::new(&self.binary)
+        let output = self
+            .command()
             .args([
                 "account",
                 "sign-in",
@@ -144,12 +159,12 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        let response: SignInResponse = parse_json_from_stdout(&output.stdout, "account sign-in")?;
+        Ok(HarnessSession {
+            account_id: response.account.id,
+            account: response.account,
+            expires_at: response.session.expires_at,
+            has_token: !response.session.token.expose_secret().is_empty(),
         })
     }
 
@@ -157,7 +172,8 @@ impl AccountHarness for CliHarness {
         &mut self,
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
-        let output = Command::new(&self.binary)
+        let output = self
+            .command()
             .args([
                 "account",
                 "create",
@@ -181,26 +197,150 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
-        let joined_org = parse_joined_org(&stdout)?;
-        // The CLI binary returns the AccountView reconstituted from
-        // the row; re-decorate it with `org = Some(joined_org)` to
-        // mirror the api/in-process surface where the account view
-        // already carries the org id.
-        let account = AccountView {
-            org: Some(joined_org),
-            ..account
-        };
+        let response: AcceptInvitationResponse =
+            parse_json_from_stdout(&output.stdout, "account create --invitation")?;
         Ok(HarnessAcceptance {
             session: HarnessSession {
-                account_id: account.id,
-                account,
-                expires_at: Utc::now() + Duration::days(30),
-                has_token,
+                account_id: response.account.id,
+                account: response.account,
+                expires_at: response.session.expires_at,
+                has_token: !response.session.token.expose_secret().is_empty(),
             },
-            joined_org,
+            joined_org: response.joined_org,
         })
+    }
+
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        let output = self
+            .command()
+            .args(["posture", "list"])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture list: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture list")?;
+        serde_json::from_value(json["supported"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        _actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        self.set_deployment_posture_raw(_actor, request.scope, request.posture.as_wire_value())
+            .await
+    }
+
+    async fn set_deployment_posture_raw(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let (scope_kind, scope_id) = scope_args(scope);
+        let output = self
+            .command()
+            .args([
+                "posture",
+                "set",
+                "--database-url",
+                &self.db_url,
+                "--scope-kind",
+                scope_kind,
+                "--scope-id",
+                &scope_id,
+                "--posture",
+                posture_raw,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture set: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture set")?;
+        let current: SetDeploymentPostureResponse = serde_json::from_value(json["current"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(current.into())
+    }
+
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        _actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let (scope_kind, scope_id) = raw_scope_args(&scope_raw)?;
+        let output = self
+            .command()
+            .args([
+                "posture",
+                "set",
+                "--database-url",
+                &self.db_url,
+                "--scope-kind",
+                &scope_kind,
+                "--scope-id",
+                &scope_id,
+                "--posture",
+                posture_raw,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture set: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture set")?;
+        let current: SetDeploymentPostureResponse = serde_json::from_value(json["current"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(current.into())
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        let (scope_kind, scope_id) = scope_args(scope);
+        let output = self
+            .command()
+            .args([
+                "posture",
+                "get",
+                "--database-url",
+                &self.db_url,
+                "--scope-kind",
+                scope_kind,
+                "--scope-id",
+                &scope_id,
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli posture get: {e}")))?;
+        if !output.status.success() {
+            return Err(translate_cli_error(&output.stderr));
+        }
+        let json: Value = parse_json_from_stdout(&output.stdout, "posture get")?;
+        let current: Option<DeploymentPostureReadModel> =
+            serde_json::from_value(json["current"].clone())
+                .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
+        Ok(current.map(Into::into))
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
@@ -279,51 +419,72 @@ fn translate_cli_error(stderr: &[u8]) -> HarnessError {
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
         }
+        return HarnessError::FailureCode {
+            code: code.to_owned(),
+            summary,
+        };
     }
     HarnessError::Transport(text.into_owned())
 }
 
-fn parse_session(
-    stdout: &str,
-    email: &str,
-    display_name: &str,
-) -> HarnessResult<(AccountView, bool)> {
-    let re = Regex::new(r"account_id=([0-9a-fA-F-]+)\s+session=([^\s]+)").expect("constant regex");
-    let captures = re
-        .captures(stdout)
-        .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
-    let id_raw = captures.get(1).map_or("", |m| m.as_str());
-    let token = captures.get(2).map_or("", |m| m.as_str());
-    let id = AccountId::from(
-        Uuid::parse_str(id_raw)
-            .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?,
-    );
-    let identifier = Identifier::from_email(
-        &tanren_identity_policy::Email::parse(email)
-            .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?,
-    );
-    let account = AccountView {
-        id,
-        identifier,
-        display_name: if display_name.is_empty() {
-            String::new()
-        } else {
-            display_name.to_owned()
-        },
-        org: None,
-    };
-    Ok((account, !token.is_empty()))
+fn scope_args(scope: DeploymentPostureScope) -> (&'static str, String) {
+    match scope {
+        DeploymentPostureScope::Account { account_id } => ("account", account_id.to_string()),
+        DeploymentPostureScope::Project { project_id } => ("project", project_id.to_string()),
+        DeploymentPostureScope::Installation { installation_id } => {
+            ("installation", installation_id.to_string())
+        }
+    }
 }
 
-fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {
-    let re = Regex::new(r"joined_org=([0-9a-fA-F-]+)").expect("constant regex");
-    let captures = re.captures(stdout).ok_or_else(|| {
+fn raw_scope_args(scope_raw: &Value) -> HarnessResult<(String, String)> {
+    let Value::Object(map) = scope_raw else {
+        return Err(HarnessError::FailureCode {
+            code: "validation_failed".to_owned(),
+            summary: "deployment posture scope payload must be an object".to_owned(),
+        });
+    };
+    let scope_kind =
+        map.get("scope")
+            .and_then(Value::as_str)
+            .ok_or_else(|| HarnessError::FailureCode {
+                code: "validation_failed".to_owned(),
+                summary: "deployment posture scope payload is missing `scope`".to_owned(),
+            })?;
+    let scope_id_key = match scope_kind {
+        "account" => "account_id",
+        "project" => "project_id",
+        "installation" => "installation_id",
+        _ => {
+            return Err(HarnessError::FailureCode {
+                code: "validation_failed".to_owned(),
+                summary: format!("unsupported deployment posture scope kind: {scope_kind}"),
+            });
+        }
+    };
+    let scope_id = map
+        .get(scope_id_key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| HarnessError::FailureCode {
+            code: "validation_failed".to_owned(),
+            summary: format!("deployment posture scope payload is missing `{scope_id_key}`"),
+        })?;
+    Ok((scope_kind.to_owned(), scope_id.to_owned()))
+}
+
+fn parse_json_from_stdout<T>(stdout: &[u8], operation: &str) -> HarnessResult<T>
+where
+    T: DeserializeOwned,
+{
+    let stdout = String::from_utf8_lossy(stdout);
+    let candidate = stdout
+        .lines()
+        .rev()
+        .find(|line| line.trim_start().starts_with('{'))
+        .unwrap_or_default();
+    serde_json::from_str(candidate).map_err(|e| {
         HarnessError::Transport(format!(
-            "could not parse joined_org from cli stdout: {stdout}"
+            "decode {operation} output as JSON: {e} (stdout={stdout})"
         ))
-    })?;
-    let raw = captures.get(1).map_or("", |m| m.as_str());
-    Ok(OrgId::from(Uuid::parse_str(raw).map_err(|e| {
-        HarnessError::Transport(format!("parse org id: {e}"))
-    })?))
+    })
 }

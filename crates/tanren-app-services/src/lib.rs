@@ -6,16 +6,20 @@
 //! they do not import domain, store, or runtime crates directly.
 
 pub mod account;
+mod account_acceptance_error;
+pub mod deployment_posture;
 pub mod events;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    CurrentDeploymentPostureResponse, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    SupportedDeploymentPosturesResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier, SessionToken};
+pub use tanren_store::{AccountStore, DeploymentPostureStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -198,6 +202,74 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Return every supported deployment posture with capability
+    /// availability explanations.
+    #[must_use]
+    pub fn list_supported_deployment_postures(&self) -> SupportedDeploymentPosturesResponse {
+        deployment_posture::list_supported_deployment_postures()
+    }
+
+    /// Set or update a deployment posture for a scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`deployment_posture::SetDeploymentPostureError::Contract`]
+    /// for permission denies and other contract-layer rejects;
+    /// [`deployment_posture::SetDeploymentPostureError::Store`] for
+    /// unexpected persistence failures.
+    pub async fn set_deployment_posture<S>(
+        &self,
+        store: &S,
+        actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> Result<SetDeploymentPostureResponse, deployment_posture::SetDeploymentPostureError>
+    where
+        S: DeploymentPostureStore + ?Sized,
+    {
+        deployment_posture::set_deployment_posture(store, &self.clock, actor, request).await
+    }
+
+    /// Resolve the account principal for a bearer session token.
+    ///
+    /// Missing or expired sessions map to the shared
+    /// `permission_denied` contract failure so interfaces expose a
+    /// stable auth/permission reject surface.
+    pub async fn resolve_active_session_account<S>(
+        &self,
+        store: &S,
+        token: &SessionToken,
+    ) -> Result<AccountId, deployment_posture::SetDeploymentPostureError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        let now = self.clock.now();
+        let session = store.find_active_session_by_token(token, now).await?;
+        session.map_or_else(
+            || Err(deployment_posture::missing_or_expired_session_failure()),
+            |row| Ok(row.account_id),
+        )
+    }
+
+    /// Read the currently recorded deployment posture for a scope.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`deployment_posture::SetDeploymentPostureError::Contract`]
+    /// for permission denies and other contract-layer rejects;
+    /// [`deployment_posture::SetDeploymentPostureError::Store`] for
+    /// unexpected persistence failures.
+    pub async fn deployment_posture<S>(
+        &self,
+        store: &S,
+        actor: AccountId,
+        scope: DeploymentPostureScope,
+    ) -> Result<CurrentDeploymentPostureResponse, deployment_posture::SetDeploymentPostureError>
+    where
+        S: DeploymentPostureStore + ?Sized,
+    {
+        deployment_posture::deployment_posture(store, actor, scope).await
     }
 }
 

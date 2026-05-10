@@ -1078,7 +1078,7 @@
       "depends_on": [
         "R-0001"
       ],
-      "scope": "Establish the deployment-posture decision (hosted, self-hosted, local-only) for an account / project / installation. Cover: the user can see the posture before project work is dispatched; Tanren explains which capabilities are available or unavailable for the chosen posture; later runtime and credential choices inherit the selected posture unless the user with permission changes it. Posture is a top-level decision that gates first-run progress to providers (R-0016) and ultimately to ready first project (R-0018).",
+      "scope": "Establish the deployment-posture decision (`hosted`, `self_hosted`, `local_only`) for an account / project / installation. Cover: the user can see the posture before project work is dispatched; Tanren explains which capabilities are available or unavailable for the chosen posture; later runtime and credential choices inherit the selected posture unless the user with permission changes it. Posture is a top-level decision that gates first-run progress to providers (R-0016) and ultimately to ready first project (R-0018).",
       "boundary_with_neighbors": "R-0016 owns provider selection (which depends on this posture choice). R-0017 owns the umbrella first-run checklist that surfaces this decision among others. M-0010 owns runtime placement that respects this posture. M-0020 owns operational adjustments after a posture is in production.",
       "expected_evidence": [
         {
@@ -1095,18 +1095,18 @@
             "positive",
             "falsification"
           ],
-          "description": "Per declared interface \u2014 Positive: user with permission selects a posture; Tanren records and shows the selection; Tanren explains capability availability differences. Positive: changing posture later is recorded with attribution. Falsification: a user without permission cannot change posture. Falsification: setting an unsupported posture value is rejected with a user-readable reason."
+          "description": "Per declared interface \u2014 Positive: user with permission lists the supported postures (`hosted`, `self_hosted`, `local_only`), selects one, and Tanren records and shows the selection with capability availability differences. Positive: changing posture later is recorded with attribution. Falsification: a user without permission cannot change posture. Falsification: setting an unsupported posture value is rejected with a user-readable reason."
         }
       ],
       "playbook": [
-        "Per interface: as a permitted user, list available postures; verify each shows a capability summary; choose one; verify it is recorded.",
+        "Per interface: as a permitted user, list available postures; verify the set is exactly `hosted`, `self_hosted`, and `local_only`; verify each shows a capability summary; choose one; verify it is recorded.",
         "Verify subsequent runtime/credential views show the posture's available capabilities and grey out / explain unavailable ones.",
         "Change posture; verify the change is attributed and the new capabilities are reflected.",
         "Negative walks: as an unpermitted user attempt to change posture (rejected); attempt to set an invalid posture value (rejected with explicit reason)."
       ],
       "rationale": "Deployment posture is foundational to first-run because it constrains every later runtime and credential decision. Splitting into its own spec lets the BDD test the inheritance/explanation outcomes cleanly without conflating with provider selection.",
       "risks": [
-        "The exact set of postures (hosted / self-hosted / local-only / others?) is design-dependent. Settle during shaping; the BDD must enumerate the supported set explicitly.",
+        "If a future product change adds or removes posture values, update B-0137 behavior docs and BDD fixtures in lockstep so interface witness coverage remains exact and consistent.",
         "Capability availability per posture is not exhaustively defined here. The behavior says Tanren 'explains' availability \u2014 the explanation content depends on which capabilities exist (M-0010 etc). Acceptable starting point: explanation lists the categories of capability and which are unavailable for the chosen posture, without enumerating every M-0010 detail."
       ]
     },

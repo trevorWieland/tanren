@@ -28,12 +28,42 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InstallationId, InvitationToken, MembershipId, OrgId, ProjectId,
+    SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, DeploymentPostureRecord, DeploymentPostureScope, EventEnvelope,
+    InvitationRecord, NewAccount, NewDeploymentPosture, SessionRecord, StoreError,
 };
+
+/// Scope value resolved by the persistence adapter for deployment-posture
+/// mutations. This keeps scope-resolution logic at the app-service/store
+/// seam while leaving room for future project/installation backing tables.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ResolvedDeploymentPostureScope {
+    /// Existing account scope.
+    Account { account_id: AccountId },
+    /// Existing project scope.
+    Project { project_id: ProjectId },
+    /// Existing installation scope.
+    Installation { installation_id: InstallationId },
+}
+
+impl ResolvedDeploymentPostureScope {
+    /// Convert the resolved scope back to the shared deployment-posture scope
+    /// contract.
+    #[must_use]
+    pub const fn as_scope(self) -> DeploymentPostureScope {
+        match self {
+            Self::Account { account_id } => DeploymentPostureScope::Account { account_id },
+            Self::Project { project_id } => DeploymentPostureScope::Project { project_id },
+            Self::Installation { installation_id } => {
+                DeploymentPostureScope::Installation { installation_id }
+            }
+        }
+    }
+}
 
 /// Context the store passes back to the caller's event-builder so
 /// the caller can stamp the inviting org id (only known after the
@@ -242,6 +272,15 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
 
+    /// Resolve an active (non-expired) session by bearer token.
+    ///
+    /// Implementations must only return rows where `expires_at > now`.
+    async fn find_active_session_by_token(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
     /// Append a payload to the canonical event log at the supplied
     /// instant.
     async fn append_event(
@@ -283,4 +322,40 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Persisted posture row plus the durable event id that audited the change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeploymentPostureMutationRecord {
+    /// Scope/posture row stored by the mutation.
+    pub record: DeploymentPostureRecord,
+    /// Event id for the appended `deployment_posture.changed` event.
+    pub audit_reference: String,
+}
+
+/// Port for deployment-posture persistence. Keeps row entities private
+/// and exposes typed record envelopes to callers.
+#[async_trait]
+pub trait DeploymentPostureStore: Send + Sync + std::fmt::Debug {
+    /// Resolve a deployment-posture scope to a concrete existing target.
+    ///
+    /// Returns `Ok(None)` when the requested scope does not exist.
+    async fn resolve_deployment_posture_scope(
+        &self,
+        scope: DeploymentPostureScope,
+    ) -> Result<Option<ResolvedDeploymentPostureScope>, StoreError>;
+
+    /// Read the persisted posture for a scope, if any.
+    async fn get_deployment_posture(
+        &self,
+        scope: DeploymentPostureScope,
+    ) -> Result<Option<DeploymentPostureRecord>, StoreError>;
+
+    /// Insert or replace the current posture for a scope and append the
+    /// `deployment_posture.changed` event in one transaction.
+    async fn upsert_deployment_posture_with_event(
+        &self,
+        new: NewDeploymentPosture,
+        event_payload: serde_json::Value,
+    ) -> Result<DeploymentPostureMutationRecord, StoreError>;
 }

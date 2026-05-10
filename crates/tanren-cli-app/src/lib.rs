@@ -13,17 +13,28 @@
 //! lives only on the api-app surface.
 
 use std::env;
-use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
+use std::str::FromStr;
 
 use anyhow::{Context, Result};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use secrecy::SecretString;
+use tanren_app_services::deployment_posture::{
+    SetDeploymentPostureError, missing_or_expired_session_failure,
+};
 use tanren_app_services::{AppServiceError, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_contract::{
+    AcceptInvitationRequest, DeploymentPosture, DeploymentPostureFailureReason,
+    DeploymentPostureScope, SetDeploymentPostureRequest, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{
+    AccountId, Email, InstallationId, InvitationToken, ProjectId, SessionToken,
+};
+use uuid::Uuid;
+
+mod session_file;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -63,6 +74,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Deployment posture flow: list supported values, read current selection, update selection.
+    Posture {
+        #[command(subcommand)]
+        action: PostureAction,
     },
 }
 
@@ -112,6 +128,46 @@ enum AccountAction {
     },
 }
 
+#[derive(Debug, Clone, Copy, ValueEnum)]
+enum ScopeKindArg {
+    Account,
+    Project,
+    Installation,
+}
+
+#[derive(Debug, Subcommand)]
+enum PostureAction {
+    /// List supported deployment postures with capability summaries.
+    List,
+    /// Read current deployment posture for a scope.
+    Get {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Scope kind.
+        #[arg(long)]
+        scope_kind: ScopeKindArg,
+        /// Scope identifier UUID.
+        #[arg(long)]
+        scope_id: String,
+    },
+    /// Set deployment posture for a scope.
+    Set {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Scope kind.
+        #[arg(long)]
+        scope_kind: ScopeKindArg,
+        /// Scope identifier UUID.
+        #[arg(long)]
+        scope_id: String,
+        /// Posture value (`hosted`, `self_hosted`, `local_only`).
+        #[arg(long)]
+        posture: String,
+    },
+}
+
 /// Run the CLI to completion. Returns an [`ExitCode`] so the binary
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
@@ -122,6 +178,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Posture { action }) => dispatch_posture(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -174,6 +231,14 @@ fn dispatch_account(action: AccountAction) -> Result<()> {
     runtime.block_on(run_account(action))
 }
 
+fn dispatch_posture(action: PostureAction) -> Result<()> {
+    let runtime = tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
+        .context("build tokio runtime")?;
+    runtime.block_on(run_posture(action))
+}
+
 async fn run_account(action: AccountAction) -> Result<()> {
     let handlers = Handlers::new();
     match action {
@@ -203,15 +268,9 @@ async fn run_account(action: AccountAction) -> Result<()> {
                         .await
                         .map_err(account_error)?;
                     persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
+                    let payload =
+                        serde_json::to_value(response).context("encode sign-up response")?;
+                    write_json_line(&payload)?;
                 }
                 Some(token) => {
                     let invitation_token = InvitationToken::parse(&token)
@@ -229,16 +288,9 @@ async fn run_account(action: AccountAction) -> Result<()> {
                         .await
                         .map_err(account_error)?;
                     persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
+                    let payload = serde_json::to_value(response)
+                        .context("encode invitation-acceptance response")?;
+                    write_json_line(&payload)?;
                 }
             }
         }
@@ -257,18 +309,98 @@ async fn run_account(action: AccountAction) -> Result<()> {
                 .await
                 .map_err(account_error)?;
             persist_session(response.session.token.expose_secret())?;
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
-            writeln!(
-                handle,
-                "account_id={id} session={token}",
-                id = response.account.id,
-                token = response.session.token.expose_secret(),
-            )
-            .context("write sign-in result")?;
+            let payload = serde_json::to_value(response).context("encode sign-in response")?;
+            write_json_line(&payload)?;
         }
     }
     Ok(())
+}
+
+async fn run_posture(action: PostureAction) -> Result<()> {
+    let handlers = Handlers::new();
+    match action {
+        PostureAction::List => {
+            let payload = serde_json::to_value(handlers.list_supported_deployment_postures())
+                .context("encode supported posture response")?;
+            write_json_line(&payload)?;
+        }
+        PostureAction::Get {
+            database_url,
+            scope_kind,
+            scope_id,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let actor = resolve_actor_from_session(&handlers, &store).await?;
+            let scope = parse_scope(scope_kind, &scope_id)?;
+            let current = handlers
+                .deployment_posture(&store, actor, scope)
+                .await
+                .map_err(|err| posture_error(&err))?;
+            let payload =
+                serde_json::to_value(current).context("encode current posture response")?;
+            write_json_line(&payload)?;
+        }
+        PostureAction::Set {
+            database_url,
+            scope_kind,
+            scope_id,
+            posture,
+        } => {
+            let store = Store::connect(&database_url)
+                .await
+                .context("connect to store")?;
+            let scope = parse_scope(scope_kind, &scope_id)?;
+            let actor = resolve_actor_from_session(&handlers, &store).await?;
+            let posture = parse_posture_value(&posture)?;
+            let response = handlers
+                .set_deployment_posture(
+                    &store,
+                    actor,
+                    SetDeploymentPostureRequest { scope, posture },
+                )
+                .await
+                .map_err(|err| posture_error(&err))?;
+            let payload = serde_json::json!({ "current": response });
+            write_json_line(&payload)?;
+        }
+    }
+    Ok(())
+}
+
+async fn resolve_actor_from_session(handlers: &Handlers, store: &Store) -> Result<AccountId> {
+    let token = load_persisted_session_token()?;
+    handlers
+        .resolve_active_session_account(store, &token)
+        .await
+        .map_err(|err| posture_error(&err))
+}
+
+fn parse_scope(kind: ScopeKindArg, scope_id: &str) -> Result<DeploymentPostureScope> {
+    let parsed_uuid = Uuid::parse_str(scope_id).map_err(|_| {
+        let body = DeploymentPostureFailureReason::ValidationFailed.render(None);
+        posture_cli_error(&body)
+    })?;
+    let scope = match kind {
+        ScopeKindArg::Account => DeploymentPostureScope::Account {
+            account_id: AccountId::from(parsed_uuid),
+        },
+        ScopeKindArg::Project => DeploymentPostureScope::Project {
+            project_id: ProjectId::from(parsed_uuid),
+        },
+        ScopeKindArg::Installation => DeploymentPostureScope::Installation {
+            installation_id: InstallationId::from(parsed_uuid),
+        },
+    };
+    Ok(scope)
+}
+
+fn parse_posture_value(raw: &str) -> Result<DeploymentPosture> {
+    DeploymentPosture::from_str(raw).map_err(|failure| {
+        let body = failure.render();
+        posture_cli_error(&body)
+    })
 }
 
 fn account_error(err: AppServiceError) -> anyhow::Error {
@@ -284,6 +416,43 @@ fn account_error(err: AppServiceError) -> anyhow::Error {
         }
         _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
     }
+}
+
+fn posture_error(err: &SetDeploymentPostureError) -> anyhow::Error {
+    if let Some(failure) = err.contract_failure() {
+        let body = failure.render();
+        return posture_cli_error(&body);
+    }
+    let body = DeploymentPostureFailureReason::InternalError.render(None);
+    posture_cli_error(&body)
+}
+
+fn posture_cli_error(body: &tanren_contract::DeploymentPostureFailureBody) -> anyhow::Error {
+    anyhow::anyhow!("error: {} — {}", body.code, body.summary)
+}
+
+fn load_persisted_session_token() -> Result<SessionToken> {
+    let path = session_path();
+    let raw = session_file::read_session(&path).map_err(|_| {
+        let failure = missing_or_expired_session_failure();
+        posture_error(&failure)
+    })?;
+    let token = raw.trim();
+    if token.is_empty() {
+        let failure = missing_or_expired_session_failure();
+        return Err(posture_error(&failure));
+    }
+    Ok(SessionToken::from_secret(SecretString::from(
+        token.to_owned(),
+    )))
+}
+
+fn write_json_line(value: &serde_json::Value) -> Result<()> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let encoded = serde_json::to_string(value).context("encode JSON output")?;
+    writeln!(handle, "{encoded}").context("write JSON output to stdout")?;
+    Ok(())
 }
 
 fn session_path() -> PathBuf {
@@ -309,10 +478,6 @@ fn session_path() -> PathBuf {
 
 fn persist_session(token: &str) -> Result<()> {
     let path = session_path();
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create session dir {}", parent.display()))?;
-    }
-    fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
-    Ok(())
+    session_file::persist_session(&path, token)
+        .with_context(|| format!("write session to {}", path.display()))
 }

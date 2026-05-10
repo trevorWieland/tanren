@@ -31,8 +31,8 @@ use tanren_identity_policy::{
     AccountId, CredentialVerifier, Identifier, MembershipId, SessionToken,
 };
 use tanren_store::{
-    AcceptInvitationAtomicRequest, AcceptInvitationError, AcceptInvitationEventContext,
-    AccountRecord, AccountStore, NewAccount,
+    AcceptInvitationAtomicRequest, AcceptInvitationEventContext, AccountRecord, AccountStore,
+    NewAccount,
 };
 
 use crate::events::{
@@ -291,11 +291,23 @@ where
     {
         Ok(outcome) => outcome,
         Err(err) => {
-            let reason = match map_accept_invitation_error(err) {
+            let reason = match crate::account_acceptance_error::map_accept_invitation_error(
+                store, err, &token, now,
+            )
+            .await
+            {
                 Ok(reason) => reason,
                 Err(app_err) => return Err(app_err),
             };
-            emit_invitation_accept_failed(store, reason, &token, now).await?;
+            if let Err(emit_err) = emit_invitation_accept_failed(store, reason, &token, now).await {
+                match &emit_err {
+                    AppServiceError::Store(store_err)
+                        if crate::account_acceptance_error::is_sqlite_invitation_contention(
+                            store_err,
+                        ) => {}
+                    _ => return Err(emit_err),
+                }
+            }
             return Err(AppServiceError::Account(reason));
         }
     };
@@ -341,24 +353,6 @@ fn build_accept_invitation_events_builder() -> tanren_store::AcceptInvitationEve
             ]
         },
     )
-}
-
-/// Translate the store-layer taxonomy error into either an
-/// [`AccountFailureReason`] (for emit-then-fail flows) or a non-taxonomy
-/// [`AppServiceError`] that should bypass the failure-event emit and
-/// propagate directly.
-fn map_accept_invitation_error(
-    err: AcceptInvitationError,
-) -> Result<AccountFailureReason, AppServiceError> {
-    match err {
-        AcceptInvitationError::InvitationNotFound => Ok(AccountFailureReason::InvitationNotFound),
-        AcceptInvitationError::InvitationAlreadyConsumed => {
-            Ok(AccountFailureReason::InvitationAlreadyConsumed)
-        }
-        AcceptInvitationError::InvitationExpired => Ok(AccountFailureReason::InvitationExpired),
-        AcceptInvitationError::DuplicateIdentifier => Ok(AccountFailureReason::DuplicateIdentifier),
-        AcceptInvitationError::Store(store_err) => Err(AppServiceError::Store(store_err)),
-    }
 }
 
 async fn emit_signup_rejected<S>(

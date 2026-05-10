@@ -9,7 +9,8 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InstallationId, InvitationToken, MembershipId, OrgId, ProjectId,
+    SessionToken,
 };
 
 use crate::entity;
@@ -132,6 +133,157 @@ impl From<entity::account_sessions::Model> for SessionRecord {
             account_id: AccountId::new(model.account_id),
             created_at: model.created_at,
             expires_at: model.expires_at,
+        }
+    }
+}
+
+/// Closed scope selector persisted in `deployment_postures.scope_kind`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeploymentPostureScope {
+    /// Account-wide posture.
+    Account { account_id: AccountId },
+    /// Project-specific posture.
+    Project { project_id: ProjectId },
+    /// Installation-wide posture.
+    Installation { installation_id: InstallationId },
+}
+
+/// Closed deployment posture set persisted in `deployment_postures.posture`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum DeploymentPosture {
+    /// Tanren-managed hosted posture.
+    Hosted,
+    /// Customer-managed self-hosted posture.
+    SelfHosted,
+    /// Local-only posture.
+    LocalOnly,
+}
+
+impl DeploymentPosture {
+    /// Stable stored value for this posture.
+    #[must_use]
+    pub const fn as_stored_value(self) -> &'static str {
+        match self {
+            Self::Hosted => "hosted",
+            Self::SelfHosted => "self_hosted",
+            Self::LocalOnly => "local_only",
+        }
+    }
+
+    fn from_stored_value(value: &str) -> Option<Self> {
+        match value {
+            "hosted" => Some(Self::Hosted),
+            "self_hosted" => Some(Self::SelfHosted),
+            "local_only" => Some(Self::LocalOnly),
+            _ => None,
+        }
+    }
+}
+
+/// Persisted deployment posture row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeploymentPostureRecord {
+    /// Scope where the posture is applied.
+    pub scope: DeploymentPostureScope,
+    /// Persisted posture.
+    pub posture: DeploymentPosture,
+    /// Account that changed the posture.
+    pub changed_by: AccountId,
+    /// Wall-clock time the posture change was recorded.
+    pub changed_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::deployment_postures::Model> for DeploymentPostureRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::deployment_postures::Model) -> Result<Self, Self::Error> {
+        let scope = DeploymentPostureScopeKind::from_stored_value(&model.scope_kind)
+            .ok_or_else(|| StoreError::DataInvariantDetail {
+                column: "scope_kind",
+                detail: format!(
+                    "unsupported scope kind `{}` in deployment_postures",
+                    model.scope_kind
+                ),
+            })?
+            .scope_from_id(model.scope_id);
+        let posture = DeploymentPosture::from_stored_value(&model.posture).ok_or_else(|| {
+            StoreError::DataInvariantDetail {
+                column: "posture",
+                detail: format!(
+                    "unsupported posture `{}` in deployment_postures",
+                    model.posture
+                ),
+            }
+        })?;
+        Ok(Self {
+            scope,
+            posture,
+            changed_by: AccountId::new(model.changed_by),
+            changed_at: model.changed_at,
+        })
+    }
+}
+
+/// Input shape for
+/// [`crate::DeploymentPostureStore::upsert_deployment_posture_with_event`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NewDeploymentPosture {
+    /// Scope where the posture applies.
+    pub scope: DeploymentPostureScope,
+    /// Posture to persist.
+    pub posture: DeploymentPosture,
+    /// Account performing the change.
+    pub changed_by: AccountId,
+    /// Wall-clock time this change is recorded at.
+    pub changed_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DeploymentPostureScopeKind {
+    Account,
+    Project,
+    Installation,
+}
+
+impl DeploymentPostureScopeKind {
+    pub(crate) const fn as_stored_value(self) -> &'static str {
+        match self {
+            Self::Account => "account",
+            Self::Project => "project",
+            Self::Installation => "installation",
+        }
+    }
+
+    pub(crate) fn from_stored_value(value: &str) -> Option<Self> {
+        match value {
+            "account" => Some(Self::Account),
+            "project" => Some(Self::Project),
+            "installation" => Some(Self::Installation),
+            _ => None,
+        }
+    }
+
+    pub(crate) const fn scope_from_id(self, scope_id: uuid::Uuid) -> DeploymentPostureScope {
+        match self {
+            Self::Account => DeploymentPostureScope::Account {
+                account_id: AccountId::new(scope_id),
+            },
+            Self::Project => DeploymentPostureScope::Project {
+                project_id: ProjectId::new(scope_id),
+            },
+            Self::Installation => DeploymentPostureScope::Installation {
+                installation_id: InstallationId::new(scope_id),
+            },
+        }
+    }
+
+    pub(crate) const fn from_scope(scope: DeploymentPostureScope) -> (Self, uuid::Uuid) {
+        match scope {
+            DeploymentPostureScope::Account { account_id } => (Self::Account, account_id.as_uuid()),
+            DeploymentPostureScope::Project { project_id } => (Self::Project, project_id.as_uuid()),
+            DeploymentPostureScope::Installation { installation_id } => {
+                (Self::Installation, installation_id.as_uuid())
+            }
         }
     }
 }

@@ -15,15 +15,19 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, DeploymentPostureScope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api_support::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
+    HarnessPostureView, HarnessResult, HarnessSession, HarnessSupportedPosture,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -32,6 +36,8 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    endpoint: String,
+    auth_header: SecretString,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
@@ -81,22 +87,43 @@ impl McpHarness {
                 .await;
         });
 
-        // Build the rmcp client transport with the bearer-token header.
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
-                .auth_header(TEST_API_KEY.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-        let client = ClientInfo::default()
-            .serve(transport)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
+        let endpoint = format!("http://{local_addr}/mcp");
+        let client = Self::connect_client(&endpoint, TEST_API_KEY).await?;
 
         Ok(Self {
             store,
             db_path,
+            endpoint,
+            auth_header: SecretString::from(TEST_API_KEY.to_owned()),
             client: Some(client),
             server: Some(server),
         })
+    }
+
+    async fn connect_client(
+        endpoint: &str,
+        auth_header: &str,
+    ) -> HarnessResult<RunningService<RoleClient, ClientInfo>> {
+        let config = StreamableHttpClientTransportConfig::with_uri(endpoint.to_owned())
+            .auth_header(auth_header.to_owned());
+        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+        ClientInfo::default()
+            .serve(transport)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))
+    }
+
+    async fn use_auth_header(&mut self, auth_header: String) -> HarnessResult<()> {
+        if self.auth_header.expose_secret() == auth_header.as_str() {
+            return Ok(());
+        }
+        if let Some(client) = self.client.take() {
+            drop(client);
+        }
+        let client = Self::connect_client(&self.endpoint, &auth_header).await?;
+        self.auth_header = SecretString::from(auth_header);
+        self.client = Some(client);
+        Ok(())
     }
 
     async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
@@ -162,7 +189,10 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        let token = session_token_from_payload(&payload)?;
+        self.use_auth_header(token).await?;
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -183,6 +213,98 @@ impl AccountHarness for McpHarness {
             session,
             joined_org,
         })
+    }
+
+    async fn list_supported_postures(&mut self) -> HarnessResult<Vec<HarnessSupportedPosture>> {
+        let payload = self
+            .call_tool("deployment_posture.list", serde_json::json!({}))
+            .await?;
+        serde_json::from_value::<tanren_contract::SupportedDeploymentPosturesResponse>(payload)
+            .map(|response| {
+                response
+                    .supported
+                    .into_iter()
+                    .map(|entry| HarnessSupportedPosture {
+                        posture: entry.posture,
+                        capability_summary: entry.capability_summary,
+                    })
+                    .collect()
+            })
+            .map_err(|e| HarnessError::Transport(format!("decode supported postures: {e}")))
+    }
+
+    async fn set_deployment_posture(
+        &mut self,
+        actor: AccountId,
+        request: SetDeploymentPostureRequest,
+    ) -> HarnessResult<HarnessPostureView> {
+        self.set_deployment_posture_raw(actor, request.scope, request.posture.as_wire_value())
+            .await
+    }
+
+    async fn set_deployment_posture_raw(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let scope_json = serde_json::to_value(scope)
+            .map_err(|e| HarnessError::Transport(format!("encode posture scope: {e}")))?;
+        let body = serde_json::json!({
+            "scope": scope_json,
+            "posture": posture_raw,
+        });
+        let payload = self.call_tool("deployment_posture.set", body).await?;
+        let response: SetDeploymentPostureResponse = serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(response.into())
+    }
+
+    async fn set_deployment_posture_raw_scope(
+        &mut self,
+        _actor: AccountId,
+        scope_raw: Value,
+        posture_raw: &str,
+    ) -> HarnessResult<HarnessPostureView> {
+        let body = serde_json::json!({ "scope": scope_raw, "posture": posture_raw });
+        let payload = self
+            .call_tool("deployment_posture.set", body)
+            .await
+            .map_err(|err| {
+                if let HarnessError::Transport(summary) = err {
+                    if summary.contains("invalid params")
+                        || summary.contains("missing field")
+                        || summary.contains("unknown variant")
+                        || summary.contains("invalid type")
+                        || summary.contains("failed to deserialize parameters")
+                        || summary.contains("-32602")
+                    {
+                        return HarnessError::FailureCode {
+                            code: "validation_failed".to_owned(),
+                            summary,
+                        };
+                    }
+                    return HarnessError::Transport(summary);
+                }
+                err
+            })?;
+        let response: SetDeploymentPostureResponse = serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode posture response: {e}")))?;
+        Ok(response.into())
+    }
+
+    async fn get_deployment_posture(
+        &mut self,
+        _actor: AccountId,
+        scope: DeploymentPostureScope,
+    ) -> HarnessResult<Option<HarnessPostureView>> {
+        let body = serde_json::to_value(scope)
+            .map_err(|e| HarnessError::Transport(format!("encode posture scope: {e}")))?;
+        let payload = self.call_tool("deployment_posture.get", body).await?;
+        let current: tanren_contract::CurrentDeploymentPostureResponse =
+            serde_json::from_value(payload)
+                .map_err(|e| HarnessError::Transport(format!("decode current posture: {e}")))?;
+        Ok(current.current.map(Into::into))
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
@@ -245,7 +367,17 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if code != "transport_error" {
+        HarnessError::FailureCode { code, summary }
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
+}
+
+fn session_token_from_payload(payload: &Value) -> HarnessResult<String> {
+    payload["session"]["token"]
+        .as_str()
+        .map(ToOwned::to_owned)
+        .filter(|token| !token.is_empty())
+        .ok_or_else(|| HarnessError::Transport("missing session.token".to_owned()))
 }

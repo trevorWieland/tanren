@@ -20,13 +20,14 @@ use std::sync::Arc;
 
 use axum::Json;
 use axum::Router;
-use axum::extract::State;
+use axum::extract::{Query, State};
 use axum::http::StatusCode;
-use axum::routing::post;
+use axum::routing::{get, post};
 use chrono::{DateTime, Utc};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
+use tanren_app_services::AccountStore;
 use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_store::{EventEnvelope, NewInvitation, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -64,10 +65,33 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+#[derive(Debug, Deserialize)]
+pub(crate) struct RecentEventsQuery {
+    #[serde(default)]
+    pub limit: Option<u64>,
+}
+
+#[derive(Debug, Serialize)]
+pub(crate) struct RecentEventsResponse {
+    pub events: Vec<EventEnvelope>,
+}
+
+pub(crate) async fn recent_events_route(
+    State(store): State<Arc<Store>>,
+    Query(query): Query<RecentEventsQuery>,
+) -> Result<Json<RecentEventsResponse>, (StatusCode, String)> {
+    let limit = query.limit.unwrap_or(40).clamp(1, 200);
+    let events = AccountStore::recent_events(store.as_ref(), limit)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(Json(RecentEventsResponse { events }))
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route("/test-hooks/events/recent", get(recent_events_route))
         .with_state(store)
 }
