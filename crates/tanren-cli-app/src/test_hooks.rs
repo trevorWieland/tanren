@@ -39,20 +39,241 @@ pub mod install {
     /// Install-proof contract helpers for BDD assertions and fixtures.
     pub mod contract {
         use super::RepoRelativePath;
-        use std::path::Path;
+        use std::path::{Path, PathBuf};
         use thiserror::Error;
 
-        /// Test-hook error surface for install proof assertions.
+        /// Structured install selection failures surfaced through test hooks.
         #[derive(Debug, Error, Clone, PartialEq, Eq)]
-        #[error("{message}")]
-        pub struct InstallProofError {
-            message: String,
+        #[non_exhaustive]
+        pub enum InstallSelectionError {
+            #[error("unsupported install profile '{name}'")]
+            UnsupportedProfile { name: String },
+            #[error("unsupported install integration '{name}'")]
+            UnsupportedIntegration { name: String },
+            #[error("integration selection is empty")]
+            EmptyIntegrationSelection,
+            #[error(
+                "catalog path must be repo-relative and cannot contain parent traversal: '{path}'"
+            )]
+            InvalidRepoRelativePath { path: String },
+            #[error("repository path is invalid or inaccessible: '{path}'")]
+            InvalidRepositoryPath { path: String },
+            #[error("repository path does not exist or is not a directory: '{path}'")]
+            RepositoryPathNotDirectory { path: String },
+            #[error("repository path '{path}' is unsafe for install operations: {message}")]
+            UnsafeRepositoryPath { path: String, message: String },
+            #[error("install manifest at '{path}' is invalid: {message}")]
+            InvalidInstallManifest { path: String, message: String },
+            #[error("failed reading '{path}': {message}")]
+            ReadFailure { path: String, message: String },
+            #[error("failed creating directory '{path}': {message}")]
+            CreateDirectoryFailure { path: String, message: String },
+            #[error("failed writing '{path}': {message}")]
+            WriteFailure { path: String, message: String },
+            #[error("failed removing '{path}': {message}")]
+            RemoveFailure { path: String, message: String },
+        }
+
+        impl From<crate::install::InstallError> for InstallSelectionError {
+            fn from(source: crate::install::InstallError) -> Self {
+                match source {
+                    crate::install::InstallError::UnsupportedProfile { name } => {
+                        Self::UnsupportedProfile { name }
+                    }
+                    crate::install::InstallError::UnsupportedIntegration { name } => {
+                        Self::UnsupportedIntegration { name }
+                    }
+                    crate::install::InstallError::EmptyIntegrationSelection => {
+                        Self::EmptyIntegrationSelection
+                    }
+                    crate::install::InstallError::InvalidRepoRelativePath { path } => {
+                        Self::InvalidRepoRelativePath { path }
+                    }
+                    crate::install::InstallError::InvalidRepositoryPath { path } => {
+                        Self::InvalidRepositoryPath { path }
+                    }
+                    crate::install::InstallError::RepositoryPathNotDirectory { path } => {
+                        Self::RepositoryPathNotDirectory { path }
+                    }
+                    crate::install::InstallError::UnsafeRepositoryPath { path, message } => {
+                        Self::UnsafeRepositoryPath { path, message }
+                    }
+                    crate::install::InstallError::InvalidInstallManifest { path, message } => {
+                        Self::InvalidInstallManifest { path, message }
+                    }
+                    crate::install::InstallError::ReadFailure { path, message } => {
+                        Self::ReadFailure { path, message }
+                    }
+                    crate::install::InstallError::CreateDirectoryFailure { path, message } => {
+                        Self::CreateDirectoryFailure { path, message }
+                    }
+                    crate::install::InstallError::WriteFailure { path, message } => {
+                        Self::WriteFailure { path, message }
+                    }
+                    crate::install::InstallError::RemoveFailure { path, message } => {
+                        Self::RemoveFailure { path, message }
+                    }
+                }
+            }
+        }
+
+        /// Structured test-hook error surface for install proof assertions.
+        #[derive(Debug, Error)]
+        #[non_exhaustive]
+        pub enum InstallProofError {
+            #[error("invalid integration assertion selection '{selection}': {source}")]
+            InvalidIntegrationSelection {
+                selection: String,
+                #[source]
+                source: InstallSelectionError,
+            },
+            #[error("failed to canonicalize workspace root while {action}: {source}")]
+            CanonicalizeWorkspaceRoot {
+                action: &'static str,
+                #[source]
+                source: std::io::Error,
+            },
+            #[error("failed to read file '{path}' while {action}: {source}")]
+            ReadFile {
+                path: PathBuf,
+                action: &'static str,
+                #[source]
+                source: std::io::Error,
+            },
+            #[error("failed to write file '{path}' while {action}: {source}")]
+            WriteFile {
+                path: PathBuf,
+                action: &'static str,
+                #[source]
+                source: std::io::Error,
+            },
+            #[error("failed to read directory '{path}' while {action}: {source}")]
+            ReadDirectory {
+                path: PathBuf,
+                action: &'static str,
+                #[source]
+                source: std::io::Error,
+            },
+            #[error("failed to inspect directory entry under '{path}' while {action}: {source}")]
+            ReadDirectoryEntry {
+                path: PathBuf,
+                action: &'static str,
+                #[source]
+                source: std::io::Error,
+            },
+            #[error("failed to inspect file type for '{path}' while {action}: {source}")]
+            InspectFileType {
+                path: PathBuf,
+                action: &'static str,
+                #[source]
+                source: std::io::Error,
+            },
+            #[error("failed to parse install manifest '{manifest_path}' as TOML: {source}")]
+            InstallManifestTomlParse {
+                manifest_path: PathBuf,
+                #[source]
+                source: toml::de::Error,
+            },
+            #[error("expected repository file to exist: {path}")]
+            ExpectedFileToExist { path: PathBuf },
+            #[error("expected repository path to be absent: {path}")]
+            ExpectedFileToBeAbsent { path: PathBuf },
+            #[error("expected fixture path to be absent before manifest injection: {path}")]
+            StaleManifestPathAlreadyPresent { path: String },
+            #[error(
+                "install manifest '{manifest_path}' violated proof contract: {expected}\nmanifest:\n{manifest}"
+            )]
+            ManifestContractViolation {
+                expected: String,
+                manifest_path: PathBuf,
+                manifest: String,
+            },
         }
 
         impl From<crate::install::contract::InstallProofError> for InstallProofError {
             fn from(source: crate::install::contract::InstallProofError) -> Self {
-                Self {
-                    message: source.to_string(),
+                match source {
+                    crate::install::contract::InstallProofError::InvalidIntegrationSelection {
+                        selection,
+                        source,
+                    } => Self::InvalidIntegrationSelection {
+                        selection,
+                        source: source.into(),
+                    },
+                    crate::install::contract::InstallProofError::CanonicalizeWorkspaceRoot {
+                        action,
+                        source,
+                    } => Self::CanonicalizeWorkspaceRoot { action, source },
+                    crate::install::contract::InstallProofError::ReadFile {
+                        path,
+                        action,
+                        source,
+                    } => Self::ReadFile {
+                        path,
+                        action,
+                        source,
+                    },
+                    crate::install::contract::InstallProofError::WriteFile {
+                        path,
+                        action,
+                        source,
+                    } => Self::WriteFile {
+                        path,
+                        action,
+                        source,
+                    },
+                    crate::install::contract::InstallProofError::ReadDirectory {
+                        path,
+                        action,
+                        source,
+                    } => Self::ReadDirectory {
+                        path,
+                        action,
+                        source,
+                    },
+                    crate::install::contract::InstallProofError::ReadDirectoryEntry {
+                        path,
+                        action,
+                        source,
+                    } => Self::ReadDirectoryEntry {
+                        path,
+                        action,
+                        source,
+                    },
+                    crate::install::contract::InstallProofError::InspectFileType {
+                        path,
+                        action,
+                        source,
+                    } => Self::InspectFileType {
+                        path,
+                        action,
+                        source,
+                    },
+                    crate::install::contract::InstallProofError::InstallManifestTomlParse {
+                        manifest_path,
+                        source,
+                    } => Self::InstallManifestTomlParse {
+                        manifest_path,
+                        source,
+                    },
+                    crate::install::contract::InstallProofError::ExpectedFileToExist { path } => {
+                        Self::ExpectedFileToExist { path }
+                    }
+                    crate::install::contract::InstallProofError::ExpectedFileToBeAbsent {
+                        path,
+                    } => Self::ExpectedFileToBeAbsent { path },
+                    crate::install::contract::InstallProofError::StaleManifestPathAlreadyPresent {
+                        path,
+                    } => Self::StaleManifestPathAlreadyPresent { path },
+                    crate::install::contract::InstallProofError::ManifestContractViolation {
+                        expected,
+                        manifest_path,
+                        manifest,
+                    } => Self::ManifestContractViolation {
+                        expected,
+                        manifest_path,
+                        manifest,
+                    },
                 }
             }
         }
