@@ -4,6 +4,7 @@ import {
   AccountRequestError,
   myAccountCapabilities,
   myPermissionsWithCapabilityCheck,
+  signOut,
 } from "@/app/lib/account-client";
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -143,5 +144,65 @@ describe("myPermissionsWithCapabilityCheck", () => {
     expect(fetchMock.mock.calls[3]?.[0]).toBe(
       "http://localhost:8080/me/permissions?cursor=cursor-1",
     );
+  });
+});
+
+describe("signOut", () => {
+  it("preserves interface error codes from revoke failures", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse(
+        {
+          code: "permission_denied",
+          summary: "Not allowed to revoke this session",
+        },
+        403,
+      ),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let thrown: unknown;
+    try {
+      await signOut();
+    } catch (error: unknown) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AccountRequestError);
+    expect((thrown as AccountRequestError).failure).toEqual({
+      code: "permission_denied",
+      summary: "Not allowed to revoke this session",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8080/sessions/revoke",
+      {
+        method: "POST",
+        credentials: "include",
+      },
+    );
+  });
+
+  it("falls back to normalized internal_error when revoke failure body is malformed", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      new Response("{", {
+        status: 500,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    let thrown: unknown;
+    try {
+      await signOut();
+    } catch (error: unknown) {
+      thrown = error;
+    }
+
+    expect(thrown).toBeInstanceOf(AccountRequestError);
+    expect((thrown as AccountRequestError).failure).toEqual({
+      code: "internal_error",
+      summary: "HTTP 500",
+    });
   });
 });

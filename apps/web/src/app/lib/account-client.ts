@@ -323,10 +323,15 @@ async function postNoContent(path: RoutePath): Promise<void> {
   }
 
   if (!response.ok) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: `HTTP ${response.status}`,
-    });
+    let parsed: unknown = null;
+    try {
+      parsed = await response.json();
+    } catch {
+      parsed = null;
+    }
+    throw new AccountRequestError(
+      normalizeInterfaceError(parsed, response.status),
+    );
   }
 }
 
