@@ -94,6 +94,23 @@ Feature: Bootstrap Tanren assets into an existing repository
       And repository file "outside-remove-target.md" preserves its baseline content
 
     @falsification @cli
+    Scenario: Reject reinstall atomically when apply validation fails after stale removals are planned
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command succeeds
+      Given repository file ".codex/skills/retired-command.md" contains "stale generated command from old manifest"
+      And previous install manifest tracks stale generated file ".codex/skills/retired-command.md"
+      And repository file ".codex/skills/retired-command.md" baseline is recorded
+      And repository file "outside-command.md" contains "external command file"
+      And repository path ".codex/skills/plan-product.md" is replaced with a file symlink to fixture path "outside-command.md"
+      When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
+      Then the install command exits nonzero
+      And the install output reports a validation failure
+      And no files are written in the repository fixture
+      And repository file ".codex/skills/retired-command.md" preserves its baseline content
+      And repository file "outside-command.md" contains "external command file"
+
+    @falsification @cli
     Scenario: Reinstall does not overwrite user-edited standards content
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"

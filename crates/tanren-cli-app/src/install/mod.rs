@@ -13,6 +13,7 @@ pub mod manifest;
 mod path_guard;
 pub mod plan;
 pub mod writer;
+mod writer_tx;
 
 pub use error::InstallError;
 pub use plan::InstallPlan;
