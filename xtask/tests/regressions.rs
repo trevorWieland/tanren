@@ -117,3 +117,12 @@ fn check_openapi_handcraft_rejects_json_literal_document() {
         "hand-rolled",
     );
 }
+
+#[test]
+fn check_web_harness_routes_rejects_unowned_harness_page() {
+    assert_check_fails(
+        "check-web-harness-routes",
+        "regression-web-harness-route-drift",
+        "exists but no canonical harness ownership is declared",
+    );
+}

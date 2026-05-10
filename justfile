@@ -346,6 +346,7 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "web harness routes" just check-web-harness-routes
     run_stage "web contract sync" just check-web-contract-sync
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
@@ -743,6 +744,12 @@ check-orphan-traits:
 # drift from the running server. Wired into `check` by PR 12.
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
+
+# Validate harness-owned web behavior routes are declared by canonical
+# BDD feature/interface inventory and the generated projection is
+# reproducible.
+check-web-harness-routes:
+    @{{ cargo }} run -q -p tanren-xtask -- check-web-harness-routes
 
 # Verify the checked-in web API contract remains reproducible from the
 # canonical Rust OpenAPI source.

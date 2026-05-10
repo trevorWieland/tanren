@@ -3,6 +3,7 @@ import type {
   operations,
   paths,
 } from "@/lib/generated/api-contract";
+import { BEHAVIOR_HARNESS_ROUTES } from "@/lib/generated/behavior-harness-routes";
 
 type OrganizationCreatePath = "/organizations";
 type OrganizationListPath = "/organizations";
@@ -24,33 +25,17 @@ export type OrganizationCreateBehaviorId =
   components["schemas"]["OrganizationBehaviorId"];
 export type OrganizationEventFamily = "organization";
 export type OrganizationCreatedEventKind = "organization_created";
+const ORGANIZATION_HARNESS_ROUTE_OWNER = BEHAVIOR_HARNESS_ROUTES.organizations;
 export const ORGANIZATION_BEHAVIOR_FEATURE_PATH =
-  "tests/bdd/features/B-0066-create-organization.feature" as const;
-
-function deriveBehaviorIdFromFeaturePath(
-  featurePath: string,
-): OrganizationCreateBehaviorId {
-  const filename = featurePath.split("/").at(-1) ?? "";
-  const match = /^(B-\d{4})-/.exec(filename);
-  if (!match) {
-    throw new Error(
-      `feature path '${featurePath}' must begin with B-XXXX- behavior prefix`,
-    );
-  }
-  return match[1] as OrganizationCreateBehaviorId;
-}
-
-export const ORGANIZATION_CREATE_BEHAVIOR_ID = deriveBehaviorIdFromFeaturePath(
-  ORGANIZATION_BEHAVIOR_FEATURE_PATH,
-);
+  ORGANIZATION_HARNESS_ROUTE_OWNER.featurePath;
+export const ORGANIZATION_CREATE_BEHAVIOR_ID =
+  ORGANIZATION_HARNESS_ROUTE_OWNER.behaviorId as OrganizationCreateBehaviorId;
 export const ORGANIZATION_EVENT_FAMILY: OrganizationEventFamily =
   "organization";
 export const ORGANIZATION_CREATED_EVENT_KIND: OrganizationCreatedEventKind =
   "organization_created";
-export const ORGANIZATION_WEB_HARNESS_BEHAVIOR_SEGMENT: Lowercase<OrganizationCreateBehaviorId> =
-  ORGANIZATION_CREATE_BEHAVIOR_ID.toLowerCase() as Lowercase<OrganizationCreateBehaviorId>;
 export const ORGANIZATION_WEB_HARNESS_ROUTE =
-  `/harness/${ORGANIZATION_WEB_HARNESS_BEHAVIOR_SEGMENT}/organizations` as const;
+  ORGANIZATION_HARNESS_ROUTE_OWNER.route;
 export type OrganizationAdminPermission =
   components["schemas"]["OrganizationPermission"];
 export type CreateOrganizationApiRequest =
