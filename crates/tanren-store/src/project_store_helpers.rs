@@ -1,15 +1,22 @@
 use std::collections::HashMap;
 
-use sea_orm::{ColumnTrait, Condition, EntityTrait, QueryFilter};
-use tanren_identity_policy::{AccountId, ValidationError};
+use chrono::{DateTime, Utc};
+use sea_orm::sea_query::{Alias, Expr, Query};
+use sea_orm::{ColumnTrait, Condition, ConnectionTrait, EntityTrait, QueryFilter};
+use tanren_identity_policy::{AccountId, ProjectId, ValidationError};
 
 use crate::entity;
 use crate::{
     ProjectListCursor, ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord,
     ProjectStoreError, SetActiveProjectError, StoreError,
-    db_constraints::is_project_repository_unique_conflict,
-    db_constraints::is_projects_single_active_unique_conflict, parse_db_project_id,
+    db_constraints::is_project_repository_unique_conflict, parse_db_project_id,
 };
+
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct ActiveProjectSelection {
+    pub(crate) project_id: ProjectId,
+    pub(crate) selected_at: DateTime<Utc>,
+}
 
 pub(crate) fn project_cursor_filter(cursor: &ProjectListCursor) -> Condition {
     let created_at_lt = entity::projects::Column::CreatedAt.lt(cursor.created_at);
@@ -46,6 +53,31 @@ pub(crate) fn project_list_cursor_from_model(
     })
 }
 
+pub(crate) async fn load_active_project_selection(
+    conn: &sea_orm::DatabaseConnection,
+    owning_account_id: AccountId,
+) -> Result<Option<ActiveProjectSelection>, StoreError> {
+    let query = Query::select()
+        .column(Alias::new("project_id"))
+        .column(Alias::new("selected_at"))
+        .from(Alias::new("account_active_projects"))
+        .and_where(Expr::col(Alias::new("owning_account_id")).eq(owning_account_id.as_uuid()))
+        .to_owned();
+    let Some(row) = conn
+        .query_one(conn.get_database_backend().build(&query))
+        .await?
+    else {
+        return Ok(None);
+    };
+    let project_id: uuid::Uuid = row.try_get("", "project_id")?;
+    let selected_at: DateTime<Utc> = row.try_get("", "selected_at")?;
+
+    Ok(Some(ActiveProjectSelection {
+        project_id: parse_db_project_id(project_id, "account_active_projects.project_id")?,
+        selected_at,
+    }))
+}
+
 pub(crate) async fn load_repositories_for_projects(
     conn: &sea_orm::DatabaseConnection,
     owning_account_id: AccountId,
@@ -71,6 +103,7 @@ pub(crate) async fn load_repositories_for_projects(
 pub(crate) fn build_project_setup_records(
     projects: Vec<entity::projects::Model>,
     mut repositories: HashMap<uuid::Uuid, entity::project_repositories::Model>,
+    active_selection: Option<ActiveProjectSelection>,
 ) -> Result<Vec<ProjectSetupRecord>, StoreError> {
     let mut out = Vec::with_capacity(projects.len());
     for row in projects {
@@ -80,9 +113,20 @@ pub(crate) fn build_project_setup_records(
                 column: "project_repositories.project_id",
                 cause: ValidationError::RepositoryRefInvalid,
             })?;
-        let project = ProjectRecord::try_from(row)?;
+        let is_active =
+            active_selection.is_some_and(|selection| selection.project_id.as_uuid() == row.id);
+        let project = ProjectRecord {
+            id: parse_db_project_id(row.id, "projects.id")?,
+            owning_account_id: AccountId::new(row.owning_account_id),
+            created_at: row.created_at,
+            active_selected_at: if is_active {
+                active_selection.map(|selection| selection.selected_at)
+            } else {
+                None
+            },
+        };
         out.push(ProjectSetupRecord {
-            is_active: project.active_selected_at.is_some(),
+            is_active,
             project,
             repository: ProjectRepositoryRecord::try_from(repository)?,
             spec_count: 0,
@@ -120,24 +164,4 @@ pub(crate) fn map_project_repository_insert_error(err: sea_orm::DbErr) -> Projec
         return ProjectStoreError::DuplicateRepository;
     }
     ProjectStoreError::Store(StoreError::from(err))
-}
-
-pub(crate) fn should_retry_active_selection_project_store_error(err: &ProjectStoreError) -> bool {
-    match err {
-        ProjectStoreError::Store(StoreError::Database(db_err)) => {
-            is_projects_single_active_unique_conflict(db_err)
-        }
-        _ => false,
-    }
-}
-
-pub(crate) fn should_retry_active_selection_set_active_error(err: &SetActiveProjectError) -> bool {
-    match err {
-        SetActiveProjectError::Store(StoreError::Database(db_err)) => {
-            is_projects_single_active_unique_conflict(db_err)
-        }
-        SetActiveProjectError::Store(StoreError::DataInvariant { .. })
-        | SetActiveProjectError::NoAccess
-        | SetActiveProjectError::NotFound => false,
-    }
 }

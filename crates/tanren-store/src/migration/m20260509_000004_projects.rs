@@ -1,13 +1,10 @@
 //! R-0019 migration: add project and project-repository persistence tables.
 //!
 //! Active-project invariant strategy:
-//! - `MySQL` does not support partial unique indexes.
-//! - To enforce "at most one active project per account" on every backend,
-//!   this migration introduces a nullable guard column:
-//!   `active_selection_guard`.
-//! - Inactive rows store `NULL`; the active row stores `TRUE`.
-//! - A unique index on `(owning_account_id, active_selection_guard)` then
-//!   permits many inactive rows and exactly one active row per account.
+//! - Store active selection as an account-scoped pointer row in
+//!   `account_active_projects`.
+//! - The `owning_account_id` primary key enforces at most one active-project
+//!   pointer per account.
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::DatabaseBackend;
@@ -22,7 +19,6 @@ const RESERVATION_STATUS_MAX_LEN: u32 = 24;
 const PROJECTS_LIST_INDEX: &str = "idx_projects_list_by_account";
 const PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX: &str =
     "idx_project_repositories_owning_account_project";
-const PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX: &str = "idx_projects_single_active_per_account";
 const PROJECT_COMMAND_RESERVATIONS_BLOCKED_LOOKUP_INDEX: &str =
     "idx_project_command_reservations_blocked_lookup";
 
@@ -36,6 +32,7 @@ impl std::fmt::Debug for Migration {
 impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         create_projects_table(manager).await?;
+        create_account_active_projects_table(manager).await?;
         create_project_repositories_table(manager).await?;
         create_project_command_reservations_table(manager).await?;
         create_project_indexes(manager).await?;
@@ -79,8 +76,6 @@ impl MigrationTrait for Migration {
             )
             .await?;
 
-        drop_projects_single_active_index(manager).await?;
-
         manager
             .drop_table(Table::drop().table(ProjectRepositories::Table).to_owned())
             .await?;
@@ -90,6 +85,9 @@ impl MigrationTrait for Migration {
                     .table(ProjectCommandReservations::Table)
                     .to_owned(),
             )
+            .await?;
+        manager
+            .drop_table(Table::drop().table(AccountActiveProjects::Table).to_owned())
             .await?;
 
         manager
@@ -114,12 +112,60 @@ async fn create_projects_table(manager: &SchemaManager<'_>) -> Result<(), DbErr>
                         .not_null(),
                 )
                 .col(ColumnDef::new(Projects::ActiveSelectedAt).timestamp_with_time_zone())
-                .col(ColumnDef::new(Projects::ActiveSelectionGuard).boolean())
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_projects_owning_account")
                         .from(Projects::Table, Projects::OwningAccountId)
                         .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::Cascade)
+                        .on_update(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await
+}
+
+async fn create_account_active_projects_table(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(AccountActiveProjects::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(AccountActiveProjects::OwningAccountId)
+                        .uuid()
+                        .not_null()
+                        .primary_key(),
+                )
+                .col(
+                    ColumnDef::new(AccountActiveProjects::ProjectId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(AccountActiveProjects::SelectedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_account_active_projects_owning_account")
+                        .from(
+                            AccountActiveProjects::Table,
+                            AccountActiveProjects::OwningAccountId,
+                        )
+                        .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::Cascade)
+                        .on_update(ForeignKeyAction::Cascade),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_account_active_projects_project")
+                        .from(
+                            AccountActiveProjects::Table,
+                            AccountActiveProjects::ProjectId,
+                        )
+                        .to(Projects::Table, Projects::Id)
                         .on_delete(ForeignKeyAction::Cascade)
                         .on_update(ForeignKeyAction::Cascade),
                 )
@@ -303,9 +349,7 @@ async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .col(ProjectCommandReservations::BlockedUntil)
                 .to_owned(),
         )
-        .await?;
-
-    create_projects_single_active_index(manager).await
+        .await
 }
 
 async fn create_projects_list_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
@@ -337,35 +381,18 @@ async fn create_projects_list_index(manager: &SchemaManager<'_>) -> Result<(), D
     }
 }
 
-async fn create_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    manager
-        .create_index(
-            Index::create()
-                .name(PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX)
-                .table(Projects::Table)
-                .col(Projects::OwningAccountId)
-                .col(Projects::ActiveSelectionGuard)
-                .unique()
-                .to_owned(),
-        )
-        .await
-}
-
-async fn drop_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    manager
-        .drop_index(
-            Index::drop()
-                .name(PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX)
-                .table(Projects::Table)
-                .to_owned(),
-        )
-        .await
-}
-
 #[derive(DeriveIden)]
 enum Accounts {
     Table,
     Id,
+}
+
+#[derive(DeriveIden)]
+enum AccountActiveProjects {
+    Table,
+    OwningAccountId,
+    ProjectId,
+    SelectedAt,
 }
 
 #[derive(DeriveIden)]
@@ -375,7 +402,6 @@ enum Projects {
     OwningAccountId,
     CreatedAt,
     ActiveSelectedAt,
-    ActiveSelectionGuard,
 }
 
 #[derive(DeriveIden)]

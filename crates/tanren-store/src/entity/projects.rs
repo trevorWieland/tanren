@@ -10,7 +10,6 @@ pub struct Model {
     pub owning_account_id: Uuid,
     pub created_at: DateTimeUtc,
     pub active_selected_at: Option<DateTimeUtc>,
-    pub active_selection_guard: Option<bool>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]
