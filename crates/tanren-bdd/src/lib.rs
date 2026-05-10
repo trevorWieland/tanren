@@ -29,6 +29,8 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Typed setup error captured by the scenario `Before` hook.
+    install_setup_error: Option<InstallStepError>,
 }
 
 impl TanrenWorld {
@@ -61,6 +63,9 @@ impl TanrenWorld {
     }
 
     fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
+        if let Some(error) = self.install_setup_error.take() {
+            return Err(error);
+        }
         self.account
             .as_mut()
             .ok_or(InstallStepError::AccountContextUnavailable)
@@ -70,11 +75,12 @@ impl TanrenWorld {
     /// supplied scenario tags. Cucumber-rs does not give step bodies
     /// access to the active scenario's tags, so the BDD bin invokes
     /// this from a `Before` hook.
-    pub async fn install_harness_for_tags<I, S>(&mut self, tags: I)
+    pub(crate) async fn install_harness_for_tags<I, S>(&mut self, tags: I) -> InstallStepResult<()>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
+        self.install_setup_error = None;
         let tags: Vec<String> = tags
             .into_iter()
             .map(|tag| tag.as_ref().to_owned())
@@ -85,11 +91,15 @@ impl TanrenWorld {
             .iter()
             .any(|tag| tag.strip_prefix('@').unwrap_or(tag) == "cli")
         {
-            ctx.install = Some(InstallContext::new().expect(
-                "install fixture context must initialize when @cli tag dispatch selects install steps",
-            ));
+            ctx.install = Some(InstallContext::new()?);
         }
         self.account = Some(ctx);
+        Ok(())
+    }
+
+    fn store_install_setup_error(&mut self, error: InstallStepError) {
+        self.account = None;
+        self.install_setup_error = Some(error);
     }
 }
 
@@ -207,7 +217,9 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
             Box::pin(async move {
-                world.install_harness_for_tags(tags).await;
+                if let Err(error) = world.install_harness_for_tags(tags).await {
+                    world.store_install_setup_error(error);
+                }
             })
         })
         .fail_on_skipped()
@@ -233,6 +245,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            install_setup_error: None,
         };
         assert_eq!(world.seed.value(), 42);
     }
