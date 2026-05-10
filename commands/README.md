@@ -33,6 +33,7 @@ Reference sections:
 - [Generated Repository Assets](../docs/architecture/delivery.md#generated-repository-assets)
 - [CLI And TUI Role](../docs/architecture/delivery.md#cli-and-tui-role)
 - [Current Read-Only Drift Command Surface (R-0024)](../docs/architecture/delivery.md#current-read-only-drift-command-surface-r-0024)
+- [Projection Drift](../docs/architecture/delivery.md#projection-drift)
 - [Install Preview](../docs/architecture/delivery.md#install-preview)
 - [Upgrades And Migrations](../docs/architecture/delivery.md#upgrades-and-migrations)
 - [Stack Uninstall](../docs/architecture/delivery.md#stack-uninstall)
