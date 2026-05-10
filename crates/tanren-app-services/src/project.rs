@@ -74,6 +74,15 @@ where
     )
     .await?;
 
+    let provider_family = provider.family();
+    ensure_repository_not_registered(
+        store,
+        command.request.owning_account_id,
+        &provider_family,
+        &command.request.repository,
+    )
+    .await?;
+
     provider
         .ensure_provider_reachable()
         .await
@@ -86,7 +95,6 @@ where
         return Err(AppServiceError::Project(ProjectFailureReason::NoAccess));
     }
 
-    let provider_family = provider.family();
     let designated_host = provider
         .host_for_repository_binding(&command.request.repository)
         .map_err(map_provider_error)?;
@@ -160,21 +168,20 @@ where
         .await
         .map_err(map_provider_error)?;
 
-    let setup = register_project_repository(
+    let setup = register_or_compensate_created_repository(
         store,
-        command.request.owning_account_id,
-        provider_family,
-        designated_host.clone(),
-        created_repository,
-        command.request.select_as_active,
+        provider,
+        CreateRepositoryRegistration {
+            actor_account_id: command.actor_account_id,
+            owning_account_id: command.request.owning_account_id,
+            provider_family,
+            designated_host: designated_host.clone(),
+            repository: created_repository,
+            select_as_active: command.request.select_as_active,
+        },
         clock,
     )
     .await?;
-    // If a concurrent command registers the same account+provider+repository
-    // between the preflight lookup and this insert, the store returns
-    // `DuplicateRepository` and this call propagates the same conflict taxonomy.
-    // Callers reconcile by re-listing visible projects and using the existing
-    // registration as the canonical binding.
 
     Ok(CreateProjectResponse {
         project: project_view(&setup),
@@ -320,6 +327,58 @@ where
         .map_err(map_project_store_error)?;
 
     Ok(setup)
+}
+
+async fn register_or_compensate_created_repository<S, P>(
+    store: &S,
+    provider: &P,
+    registration: CreateRepositoryRegistration,
+    clock: &Clock,
+) -> Result<ProjectSetupRecord, AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+    P: SourceControlProvider + ?Sized,
+{
+    let repository_for_compensation = registration.repository.clone();
+    match register_project_repository(
+        store,
+        registration.owning_account_id,
+        registration.provider_family,
+        registration.designated_host.clone(),
+        registration.repository,
+        registration.select_as_active,
+        clock,
+    )
+    .await
+    {
+        Ok(setup) => Ok(setup),
+        Err(err @ AppServiceError::Project(ProjectFailureReason::DuplicateRepository)) => {
+            // A racing command registered the same repository between preflight
+            // and insert; preserve the unique-constraint taxonomy and avoid any
+            // external compensation against the winner's repository.
+            Err(err)
+        }
+        Err(err) => {
+            provider
+                .delete_repository(
+                    registration.actor_account_id,
+                    &registration.designated_host,
+                    &repository_for_compensation,
+                )
+                .await
+                .map_err(map_provider_error)?;
+            Err(err)
+        }
+    }
+}
+
+struct CreateRepositoryRegistration {
+    actor_account_id: AccountId,
+    owning_account_id: AccountId,
+    provider_family: ProviderFamily,
+    designated_host: DesignatedHost,
+    repository: RepositoryRef,
+    select_as_active: bool,
 }
 
 fn bounded_page_size(requested: u16) -> u16 {

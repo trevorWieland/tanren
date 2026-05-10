@@ -195,6 +195,24 @@ async fn then_project_failure(world: &mut TanrenWorld, code: String) {
     );
 }
 
+#[then(expr = "source-control provider connect checks were called {int} times")]
+async fn then_connect_provider_check_calls(world: &mut TanrenWorld, expected: u64) {
+    let ctx = world.ensure_project_ctx().await;
+    let counters = ctx
+        .harness
+        .source_control_call_counters()
+        .await
+        .expect("source-control provider counters should be available");
+    assert_eq!(
+        counters.ensure_provider_reachable, expected,
+        "expected provider reachability checks to run {expected} times"
+    );
+    assert_eq!(
+        counters.can_access_repository, expected,
+        "expected repository-access checks to run {expected} times"
+    );
+}
+
 #[then(expr = "repository {string} keeps fingerprint {string}")]
 async fn then_fingerprint_unchanged(
     world: &mut TanrenWorld,

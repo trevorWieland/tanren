@@ -38,6 +38,32 @@ async fn then_project_creation_succeeds(world: &mut TanrenWorld) {
     );
 }
 
+#[then(expr = "source-control provider create checks were called {int} times")]
+async fn then_create_provider_check_calls(world: &mut TanrenWorld, expected: u64) {
+    let ctx = world.ensure_project_ctx().await;
+    let counters = ctx
+        .harness
+        .source_control_call_counters()
+        .await
+        .expect("source-control provider counters should be available");
+    assert_eq!(
+        counters.ensure_provider_reachable, expected,
+        "expected provider reachability checks to run {expected} times"
+    );
+    assert_eq!(
+        counters.ensure_host_reachable, expected,
+        "expected host reachability checks to run {expected} times"
+    );
+    assert_eq!(
+        counters.can_create_repository_at_host, expected,
+        "expected host-create access checks to run {expected} times"
+    );
+    assert_eq!(
+        counters.create_repository, expected,
+        "expected repository create calls to run {expected} times"
+    );
+}
+
 #[then(expr = "repository {string} exists at designated host {string}")]
 async fn then_repository_exists_at_host(
     world: &mut TanrenWorld,

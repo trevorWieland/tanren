@@ -54,6 +54,7 @@ Feature: Connect Tanren to an existing repository
       Then the connection succeeds
       When alice connects existing repository "ApiTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider connect checks were called 1 times
       And alice has exactly 1 connected project records
 
     @falsification @api
@@ -111,6 +112,7 @@ Feature: Connect Tanren to an existing repository
       Then the connection succeeds
       When alice connects existing repository "WebTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider connect checks were called 1 times
       And alice has exactly 1 connected project records
 
     @falsification @web
@@ -235,6 +237,7 @@ Feature: Connect Tanren to an existing repository
       Then the connection succeeds
       When alice connects existing repository "McpTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider connect checks were called 1 times
       And alice has exactly 1 connected project records
 
     @falsification @mcp
@@ -302,6 +305,7 @@ Feature: Connect Tanren to an existing repository
       Then the connection succeeds
       When alice connects existing repository "TuiTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider connect checks were called 1 times
       And alice has exactly 1 connected project records
 
     @falsification @tui

@@ -183,4 +183,10 @@ impl ProjectHarness for TuiHarness {
             .repository_created_at_host(host, repository)
             .await
     }
+
+    async fn source_control_call_counters(
+        &mut self,
+    ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
+        self.inner.source_control_call_counters().await
+    }
 }

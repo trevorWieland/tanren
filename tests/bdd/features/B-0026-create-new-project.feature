@@ -37,6 +37,7 @@ Feature: Create a new project from scratch
       Then the project creation succeeds
       When alice creates new repository "ApiTeam/Single" at designated host "api-fixture-host" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider create checks were called 1 times
       And repository "ApiTeam/Single" exists at designated host "api-fixture-host"
       And alice has exactly 1 connected project records
 
@@ -71,6 +72,7 @@ Feature: Create a new project from scratch
       Then the project creation succeeds
       When alice creates new repository "WebTeam/Single" at designated host "web-fixture-host" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider create checks were called 1 times
       And repository "WebTeam/Single" exists at designated host "web-fixture-host"
       And alice has exactly 1 connected project records
 
@@ -139,6 +141,7 @@ Feature: Create a new project from scratch
       Then the project creation succeeds
       When alice creates new repository "McpTeam/Single" at designated host "mcp-fixture-host" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider create checks were called 1 times
       And repository "McpTeam/Single" exists at designated host "mcp-fixture-host"
       And alice has exactly 1 connected project records
 
@@ -173,5 +176,6 @@ Feature: Create a new project from scratch
       Then the project creation succeeds
       When alice creates new repository "TuiTeam/Single" at designated host "tui-fixture-host" as an active project
       Then the project request fails with code "duplicate_repository"
+      And source-control provider create checks were called 1 times
       And repository "TuiTeam/Single" exists at designated host "tui-fixture-host"
       And alice has exactly 1 connected project records

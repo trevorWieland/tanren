@@ -387,6 +387,12 @@ impl ProjectHarness for McpHarness {
             .fixture_source_control
             .repository_created_at_host(host, repository))
     }
+
+    async fn source_control_call_counters(
+        &mut self,
+    ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
+        Ok(self.fixture_source_control.call_counters())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {

@@ -142,6 +142,12 @@ impl ProjectHarness for ApiHarness {
             .fixture_source_control
             .repository_created_at_host(host, repository))
     }
+
+    async fn source_control_call_counters(
+        &mut self,
+    ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
+        Ok(self.fixture_source_control.call_counters())
+    }
 }
 
 pub(crate) fn project_code_to_reason(code: &str) -> Option<ProjectFailureReason> {

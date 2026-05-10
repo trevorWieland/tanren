@@ -63,6 +63,7 @@ use tanren_contract::{
     ProjectFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, DesignatedHost, InvitationToken, OrgId, RepositoryRef};
+use tanren_provider_integrations::SourceControlCallCounters;
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -351,6 +352,14 @@ pub trait ProjectHarness: AccountHarness {
         host: &DesignatedHost,
         repository: &RepositoryRef,
     ) -> HarnessResult<bool>;
+
+    /// Read fixture source-control call counters when supported by the
+    /// harness implementation.
+    async fn source_control_call_counters(&mut self) -> HarnessResult<SourceControlCallCounters> {
+        Err(HarnessError::Transport(
+            "source-control call counters are not available for this harness".to_owned(),
+        ))
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.

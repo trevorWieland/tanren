@@ -13,6 +13,7 @@ struct EnvFixtureSourceControlConfig {
     repository_access: HashSet<(AccountId, RepositoryRef)>,
     host_create_access: HashSet<(AccountId, String)>,
     fail_repository_create: bool,
+    fail_repository_delete: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -89,6 +90,23 @@ impl SourceControlProvider for EnvFixtureSourceControlProvider {
         guard.insert((host.as_str().to_owned(), repository.clone()));
         Ok(repository.clone())
     }
+
+    async fn delete_repository(
+        &self,
+        _actor_account_id: AccountId,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> Result<(), SourceControlError> {
+        if self.config.fail_repository_delete {
+            return Err(SourceControlError::OperationFailed);
+        }
+        let mut guard = match self.created_repositories.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.remove(&(host.as_str().to_owned(), repository.clone()));
+        Ok(())
+    }
 }
 
 pub(crate) fn env_fixture_source_control_provider(
@@ -115,6 +133,9 @@ pub(crate) fn env_fixture_source_control_provider(
             }
             "fail_repository_create" => {
                 config.fail_repository_create = parse_bool_flag(value, false);
+            }
+            "fail_repository_delete" => {
+                config.fail_repository_delete = parse_bool_flag(value, false);
             }
             "reachable_hosts" => {
                 for host in value.split('|').filter(|token| !token.trim().is_empty()) {
