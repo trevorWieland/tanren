@@ -54,9 +54,15 @@ function isAccountFailureCode(code: string): code is AccountFailure["code"] {
 }
 
 function toAccountFailure(failure: FailureEnvelope): AccountFailure {
+  if (isAccountFailureCode(failure.code)) {
+    return {
+      code: failure.code,
+      summary: failure.summary,
+    };
+  }
   return {
-    code: isAccountFailureCode(failure.code) ? failure.code : "internal_error",
-    summary: failure.summary,
+    code: "internal_error",
+    summary: failure.summary || "Request failed.",
   };
 }
 

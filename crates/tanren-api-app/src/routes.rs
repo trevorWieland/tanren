@@ -21,12 +21,12 @@ use tanren_app_services::project::{
     ListVisibleProjectsQuery,
 };
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, ActiveProjectCookieRequest, ActiveProjectRequest,
-    ActiveProjectView, ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,
-    ConnectProjectRepositoryResponse, CookieSessionEnvelope, CreateProjectCookieRequest,
-    CreateProjectRequest, CreateProjectResponse, ListVisibleProjectsCookieRequest,
-    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason, SignInRequest,
-    SignUpRequest,
+    AcceptInvitationRequest, AccountFailureCode, AccountView, ActiveProjectCookieRequest,
+    ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryCookieRequest,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CookieSessionEnvelope,
+    CreateProjectCookieRequest, CreateProjectRequest, CreateProjectResponse,
+    ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest, ProjectCollectionView,
+    ProjectFailureReason, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -231,7 +231,7 @@ pub(crate) async fn accept_invitation_route(
             return (
                 StatusCode::BAD_REQUEST,
                 Json(AccountFailureBody {
-                    code: "validation_failed".to_owned(),
+                    code: AccountFailureCode::ValidationFailed,
                     summary: err.to_string(),
                 }),
             )
@@ -463,7 +463,7 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
         return (
             StatusCode::INTERNAL_SERVER_ERROR,
             Json(AccountFailureBody {
-                code: "internal_error".to_owned(),
+                code: AccountFailureCode::InternalError,
                 summary: "Tanren encountered an internal error.".to_owned(),
             }),
         )

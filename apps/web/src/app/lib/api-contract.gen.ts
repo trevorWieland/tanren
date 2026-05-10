@@ -166,10 +166,20 @@ export interface components {
     /** @description Shared `{code, summary}` failure body. */
     AccountFailureBody: {
       /** @description Stable error code from the closed taxonomy. */
-      code: string;
+      code: components["schemas"]["AccountFailureCode"];
       /** @description Human-readable summary. */
       summary: string;
     };
+    /** @description Wire-visible account failure codes for `{code, summary}` error bodies. */
+    AccountFailureCode:
+      | "duplicate_identifier"
+      | "invalid_credential"
+      | "validation_failed"
+      | "invitation_not_found"
+      | "invitation_expired"
+      | "invitation_already_consumed"
+      | "auth_required"
+      | "internal_error";
     /**
      * Format: uuid
      * @description Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
@@ -304,10 +314,19 @@ export interface components {
     /** @description Shared `{code, summary}` project-failure body. */
     ProjectFailureBody: {
       /** @description Stable error code from the closed taxonomy. */
-      code: string;
+      code: components["schemas"]["ProjectFailureCode"];
       /** @description Human-readable summary. */
       summary: string;
     };
+    /** @description Wire-visible project failure codes for `{code, summary}` error bodies. */
+    ProjectFailureCode:
+      | "auth_required"
+      | "duplicate_repository"
+      | "no_access"
+      | "validation_failed"
+      | "provider_unavailable"
+      | "provider_failure"
+      | "internal_error";
     /**
      * Format: uuid
      * @description Stable identifier for a Tanren project. `UUIDv7` — sortable + unique.

@@ -254,6 +254,32 @@ pub enum ProjectFailureReason {
     ProviderFailure,
 }
 
+/// Wire-visible project failure codes for `{code, summary}` error bodies.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectFailureCode {
+    AuthRequired,
+    DuplicateRepository,
+    NoAccess,
+    ValidationFailed,
+    ProviderUnavailable,
+    ProviderFailure,
+    InternalError,
+}
+
+impl From<ProjectFailureReason> for ProjectFailureCode {
+    fn from(reason: ProjectFailureReason) -> Self {
+        match reason {
+            ProjectFailureReason::AuthRequired => Self::AuthRequired,
+            ProjectFailureReason::DuplicateRepository => Self::DuplicateRepository,
+            ProjectFailureReason::NoAccess => Self::NoAccess,
+            ProjectFailureReason::ValidationFailed => Self::ValidationFailed,
+            ProjectFailureReason::ProviderUnavailable => Self::ProviderUnavailable,
+            ProjectFailureReason::ProviderFailure => Self::ProviderFailure,
+        }
+    }
+}
+
 impl ProjectFailureReason {
     /// Stable wire `code` for this failure.
     #[must_use]

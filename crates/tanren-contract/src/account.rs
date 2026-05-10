@@ -241,6 +241,36 @@ pub enum AccountFailureReason {
     InvitationAlreadyConsumed,
 }
 
+/// Wire-visible account failure codes for `{code, summary}` error bodies.
+///
+/// This keeps the API/web contract explicit and closed while allowing
+/// account-specific reasons plus shared transport/session failures.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum AccountFailureCode {
+    DuplicateIdentifier,
+    InvalidCredential,
+    ValidationFailed,
+    InvitationNotFound,
+    InvitationExpired,
+    InvitationAlreadyConsumed,
+    AuthRequired,
+    InternalError,
+}
+
+impl From<AccountFailureReason> for AccountFailureCode {
+    fn from(reason: AccountFailureReason) -> Self {
+        match reason {
+            AccountFailureReason::DuplicateIdentifier => Self::DuplicateIdentifier,
+            AccountFailureReason::InvalidCredential => Self::InvalidCredential,
+            AccountFailureReason::ValidationFailed => Self::ValidationFailed,
+            AccountFailureReason::InvitationNotFound => Self::InvitationNotFound,
+            AccountFailureReason::InvitationExpired => Self::InvitationExpired,
+            AccountFailureReason::InvitationAlreadyConsumed => Self::InvitationAlreadyConsumed,
+        }
+    }
+}
+
 impl AccountFailureReason {
     /// Stable wire `code` for this failure.
     #[must_use]

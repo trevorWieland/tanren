@@ -14,7 +14,9 @@ export type SignUpResult = components["schemas"]["SignUpResponseCookie"];
 export type SignInResult = components["schemas"]["SignInResponseCookie"];
 export type AcceptInvitationResult =
   components["schemas"]["AcceptInvitationResponseCookie"];
+export type ApiAccountFailureCode = components["schemas"]["AccountFailureCode"];
 export const accountFailureCodes = [
+  "auth_required",
   "duplicate_identifier",
   "invalid_credential",
   "invitation_not_found",
@@ -23,9 +25,9 @@ export const accountFailureCodes = [
   "validation_failed",
   "unavailable",
   "internal_error",
-] as const;
+] as const satisfies readonly (ApiAccountFailureCode | "unavailable")[];
 
-export type AccountFailureCode = (typeof accountFailureCodes)[number];
+export type AccountFailureCode = ApiAccountFailureCode | "unavailable";
 export type AccountFailure = Omit<
   components["schemas"]["AccountFailureBody"],
   "code"
@@ -77,17 +79,19 @@ export type ProjectCollectionView = {
   pagination: ProjectPaginationView;
   freshness: ProjectCollectionFreshnessView;
 };
+export type ApiProjectFailureCode = components["schemas"]["ProjectFailureCode"];
 export const projectFailureCodes = [
   "auth_required",
   "duplicate_repository",
   "no_access",
   "validation_failed",
+  "provider_unavailable",
   "provider_failure",
   "unavailable",
   "internal_error",
-] as const;
+] as const satisfies readonly (ApiProjectFailureCode | "unavailable")[];
 
-export type ProjectFailureCode = (typeof projectFailureCodes)[number];
+export type ProjectFailureCode = ApiProjectFailureCode | "unavailable";
 export type ProjectFailure = Omit<
   components["schemas"]["ProjectFailureBody"],
   "code"

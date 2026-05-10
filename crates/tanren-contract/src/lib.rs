@@ -9,9 +9,9 @@ pub mod account;
 pub mod project;
 
 pub use account::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureCode, AccountFailureReason,
+    AccountView, CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest,
+    SignInResponse, SignUpRequest, SignUpResponse,
 };
 pub use project::{
     ActiveProjectCookieRequest, ActiveProjectRequest, ActiveProjectView,
@@ -19,9 +19,9 @@ pub use project::{
     ConnectProjectRepositoryResponse, CreateProjectCookieRequest, CreateProjectRequest,
     CreateProjectResponse, ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest,
     PROJECT_LIST_DEFAULT_PAGE_SIZE, PROJECT_LIST_MAX_PAGE_SIZE, ProjectCollectionFreshnessView,
-    ProjectCollectionView, ProjectCountsView, ProjectFailureReason, ProjectListCursor,
-    ProjectPageRequest, ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView,
-    ProjectView,
+    ProjectCollectionView, ProjectCountsView, ProjectFailureCode, ProjectFailureReason,
+    ProjectListCursor, ProjectPageRequest, ProjectPaginationView, ProjectRepositoryView,
+    ProjectSelectionView, ProjectView,
 };
 
 use serde::{Deserialize, Serialize};
