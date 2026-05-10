@@ -180,6 +180,32 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn flood_standards_directory_with_non_markdown_files(
+        &mut self,
+        count: u64,
+    ) -> InstallStepResult<()> {
+        let config = self.load_project_methodology_config()?;
+        let standards_root = self.repository_path(config.standards_root.as_str())?;
+        for index in 0..count {
+            let file_path = standards_root.join(format!("fan-out-entry-{index}.txt"));
+            if let Some(parent) = file_path.parent() {
+                fs::create_dir_all(parent).map_err(|source| InstallStepError::Io {
+                    path: parent.to_path_buf(),
+                    action: "create parent directory for fan-out entries in repository fixture",
+                    source,
+                })?;
+            }
+            fs::write(&file_path, "not-markdown").map_err(|source| {
+                InstallStepError::WriteFile {
+                    path: file_path,
+                    action: "write non-markdown fan-out file in repository fixture",
+                    source,
+                }
+            })?;
+        }
+        Ok(())
+    }
+
     pub(crate) fn move_standards_assets_to_root(
         &mut self,
         standards_root: &RepositoryRelativePath,

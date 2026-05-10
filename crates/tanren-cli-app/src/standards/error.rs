@@ -108,6 +108,14 @@ pub(crate) enum StandardsError {
     },
     #[error("standards tree walk exceeded maximum directory depth {limit} at '{path}'")]
     DirectoryDepthLimitExceeded { path: String, limit: usize },
+    #[error(
+        "standards scan exceeded directory entry limit {limit} at '{path}' ({entries} entries traversed)"
+    )]
+    DirectoryEntryLimitExceeded {
+        path: String,
+        limit: usize,
+        entries: usize,
+    },
     #[error("standards scan exceeded markdown file limit {limit} at '{path}'")]
     MarkdownFileLimitExceeded { path: String, limit: usize },
     #[error("standard markdown file exceeds byte limit {limit} in '{path}' ({actual} bytes)")]

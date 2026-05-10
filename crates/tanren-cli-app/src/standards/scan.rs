@@ -7,6 +7,10 @@ use super::config::to_repo_relative_path;
 use super::error::{StandardsCommandError, StandardsError, StandardsFrontmatterError};
 
 const MAX_STANDARDS_DIRECTORY_DEPTH: usize = 16;
+#[cfg(not(feature = "test-hooks"))]
+const MAX_STANDARDS_DIRECTORY_ENTRIES: usize = 50_000;
+#[cfg(feature = "test-hooks")]
+const MAX_STANDARDS_DIRECTORY_ENTRIES: usize = 40;
 const MAX_STANDARDS_MARKDOWN_FILES: usize = 10_000;
 const MAX_STANDARD_FILE_BYTES: u64 = 1_048_576;
 const MAX_STANDARDS_TOTAL_BYTES: u64 = 67_108_864;
@@ -44,6 +48,7 @@ impl StandardName {
 
 #[derive(Debug, Default)]
 struct StandardsScanState {
+    total_entries: usize,
     standards_count: usize,
     total_scanned_bytes: u64,
     first_standard: Option<ParsedStandard>,
@@ -119,6 +124,17 @@ fn scan_standards_recursive(
                 source,
             })
         })?;
+
+        scan_state.total_entries += 1;
+        if scan_state.total_entries > MAX_STANDARDS_DIRECTORY_ENTRIES {
+            return Err(StandardsCommandError::standards_parse_failed(
+                StandardsError::DirectoryEntryLimitExceeded {
+                    path: path_relative,
+                    limit: MAX_STANDARDS_DIRECTORY_ENTRIES,
+                    entries: scan_state.total_entries,
+                },
+            ));
+        }
 
         if file_type.is_dir() {
             scan_standards_recursive(repository_root, &path, directory_depth + 1, scan_state)?;

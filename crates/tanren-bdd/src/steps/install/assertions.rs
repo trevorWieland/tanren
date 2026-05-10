@@ -172,6 +172,25 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_standards_directory_entry_limit_exceeded_output(
+        &self,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        for fragment in [
+            "error: standards_parse_failed -",
+            "directory entry limit",
+            "entries traversed",
+        ] {
+            if !run.stderr.contains(fragment) {
+                return Err(InstallStepError::StderrMissingExpected {
+                    expected: fragment.to_owned(),
+                    stderr: run.stderr.clone(),
+                });
+            }
+        }
+        Ok(())
+    }
+
     /// Assert the repo methodology config projection matches the effective-configuration fixture.
     ///
     /// The `.tanren/project-methodology.toml` file is a non-secret generated

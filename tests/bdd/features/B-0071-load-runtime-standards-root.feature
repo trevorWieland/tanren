@@ -53,3 +53,16 @@ Feature: Load runtime standards from controlled projection and effective configu
     Then the install command exits nonzero
     And the standards inspect stderr reports malformed standards projection frontmatter
     And no files are written in the repository fixture
+
+  @falsification @cli
+  Scenario: Standards inspect exits nonzero when directory entry count exceeds the configured limit
+    Given a clean repository fixture
+    When tanren-cli install runs with profile "rust-cargo"
+    Then the install command succeeds
+    And rust-cargo profile standards projection files are installed
+    And the repo methodology config projection matches the effective-configuration fixture
+    Given the configured standards directory is flooded with 5 non-markdown files
+    When tanren-cli standards inspect runs
+    Then the install command exits nonzero
+    And the standards inspect stderr reports directory entry limit exceeded
+    And no files are written in the repository fixture

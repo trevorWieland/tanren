@@ -71,3 +71,20 @@ fn then_repo_methodology_config_projection_matches_fixture(
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_repo_methodology_config_projection()
 }
+
+#[given(expr = "the configured standards directory is flooded with {int} non-markdown files")]
+fn given_standards_directory_flooded_with_non_markdown_files(
+    world: &mut TanrenWorld,
+    count: u64,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.flood_standards_directory_with_non_markdown_files(count)
+}
+
+#[then(expr = "the standards inspect stderr reports directory entry limit exceeded")]
+fn then_standards_inspect_stderr_reports_directory_entry_limit(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_standards_directory_entry_limit_exceeded_output()
+}
