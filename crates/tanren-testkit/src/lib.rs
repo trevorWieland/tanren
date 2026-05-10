@@ -21,10 +21,10 @@ pub use harness::{
     WebHarness, event_kinds, execute_tanren_cli, locate_workspace_binary, record_failure,
 };
 pub use install_contract::{
-    INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,
-    InstallProofContractError, InstallProofError, InstallProofIntegration, InstallProofProfile,
-    InstallProofRepoRelativePath, PROJECT_METHODOLOGY_CONFIG_REPO_PATH, RUST_CARGO_PROFILE_ROOT,
-    RUST_CARGO_STANDARDS_ROOT, append_stale_generated_manifest_entry,
+    EffectiveConfigurationFixture, INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION,
+    InstallProofAssetClass, InstallProofContractError, InstallProofError, InstallProofIntegration,
+    InstallProofProfile, InstallProofRepoRelativePath, PROJECT_METHODOLOGY_CONFIG_REPO_PATH,
+    RUST_CARGO_PROFILE_ROOT, RUST_CARGO_STANDARDS_ROOT, append_stale_generated_manifest_entry,
     assert_manifest_rust_cargo_defaults, assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed, assert_selected_integration_command_assets,
     parse_install_integration_selection, read_workspace_catalog_file, sha256_hex_string,

@@ -20,6 +20,50 @@ pub const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
 /// Default standards root configured by rust-cargo install profile.
 pub const RUST_CARGO_STANDARDS_ROOT: &str = "profiles/rust-cargo";
 
+/// Typed effective-configuration read-model fixture for BDD assertions.
+///
+/// Represents the resolved effective configuration that standards inspect
+/// should report. Seeded by the BDD context from known inputs (profile and
+/// standards root), not by loading `.tanren/project-methodology.toml` as
+/// the canonical expected source. The repo file is a non-secret generated
+/// projection; the fixture is the authority for expected values in
+/// standards-inspect report assertions.
+#[cfg(feature = "test-hooks")]
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EffectiveConfigurationFixture {
+    profile: InstallProofProfile,
+    standards_root: String,
+}
+
+#[cfg(feature = "test-hooks")]
+impl EffectiveConfigurationFixture {
+    /// Build a fixture from the install profile and configured standards root.
+    #[must_use]
+    pub fn new(profile: InstallProofProfile, standards_root: &str) -> Self {
+        Self {
+            profile,
+            standards_root: standards_root.to_owned(),
+        }
+    }
+
+    /// The expected methodology profile.
+    #[must_use]
+    pub fn profile(&self) -> InstallProofProfile {
+        self.profile
+    }
+
+    /// The expected profile identifier string.
+    #[must_use]
+    pub fn profile_str(&self) -> &'static str {
+        self.profile.as_str()
+    }
+
+    /// The expected standards root path.
+    #[must_use]
+    pub fn standards_root(&self) -> &str {
+        &self.standards_root
+    }
+}
 /// Profile identifiers supported by install proofs.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]

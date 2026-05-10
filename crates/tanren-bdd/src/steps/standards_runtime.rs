@@ -63,3 +63,11 @@ fn then_standards_inspect_stderr_reports_parse_failure(
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_standards_parse_failure_output()
 }
+
+#[then(expr = "the repo methodology config projection matches the effective-configuration fixture")]
+fn then_repo_methodology_config_projection_matches_fixture(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_repo_methodology_config_projection()
+}

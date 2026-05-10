@@ -10,6 +10,7 @@ Feature: Load runtime standards from controlled projection and effective configu
     When tanren-cli install runs with profile "rust-cargo"
     Then the install command succeeds
     And rust-cargo profile standards projection files are installed
+    And the repo methodology config projection matches the effective-configuration fixture
     When tanren-cli standards inspect runs
     Then install command succeeds
     And standards inspect stdout reports effective configuration metadata
@@ -21,6 +22,7 @@ Feature: Load runtime standards from controlled projection and effective configu
     When tanren-cli install runs with profile "rust-cargo"
     Then the install command succeeds
     And rust-cargo profile standards projection files are installed
+    And the repo methodology config projection matches the effective-configuration fixture
     Given standards projection assets are moved to repository path "profiles/rust-cargo-relocated"
     When tanren-cli standards inspect runs
     Then install command succeeds
@@ -28,6 +30,7 @@ Feature: Load runtime standards from controlled projection and effective configu
     And no files are written in the repository fixture
     And repository file "profiles/rust-cargo-relocated/global/dependency-management.md" exists
     And repository file "profiles/rust-cargo/global/dependency-management.md" does not exist
+    And the repo methodology config projection matches the effective-configuration fixture
 
   @falsification @cli
   Scenario: Standards inspect exits nonzero when configured standards projection root is missing

@@ -212,6 +212,7 @@ impl InstallContext {
             source,
         })?;
 
+        self.seed_effective_config_fixture_after_relocate(standards_root.as_str());
         config.standards_root = standards_root;
         let config_toml = config.to_toml().map_err(|source| {
             InstallStepError::SerializeProjectMethodologyConfig {
@@ -271,6 +272,17 @@ impl InstallContext {
             }
         })?;
         Ok(())
+    }
+
+    /// Update the effective-configuration fixture after a standards root relocation.
+    fn seed_effective_config_fixture_after_relocate(&mut self, standards_root: &str) {
+        let existing_profile = self
+            .effective_config_fixture
+            .as_ref()
+            .map(tanren_testkit::EffectiveConfigurationFixture::profile);
+        if let Some(profile) = existing_profile {
+            self.seed_effective_config_fixture(profile, standards_root);
+        }
     }
 
     pub(crate) fn load_project_methodology_config(

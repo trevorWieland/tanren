@@ -3,7 +3,10 @@ use std::ffi::OsString;
 use std::fs;
 use std::path::PathBuf;
 
-use tanren_testkit::{AccountHarness, CliCommandOutcome};
+use tanren_testkit::{
+    AccountHarness, CliCommandOutcome, EffectiveConfigurationFixture, InstallProofProfile,
+    RUST_CARGO_STANDARDS_ROOT,
+};
 
 use crate::steps::install::manifest_helpers::RepositoryRelativePath;
 use crate::steps::install::repo_fixture::scenario_repository_root;
@@ -18,6 +21,10 @@ pub(crate) struct InstallContext {
     pub(super) baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
     pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
+    /// Seeded effective-configuration read-model fixture. Set after install
+    /// completes; used by standards-inspect assertions as the expected source
+    /// of truth (not the repo projection file).
+    pub(super) effective_config_fixture: Option<EffectiveConfigurationFixture>,
 }
 
 impl InstallContext {
@@ -34,6 +41,7 @@ impl InstallContext {
             baselines: BTreeMap::new(),
             snapshot_before_last_run: None,
             last_run: None,
+            effective_config_fixture: None,
         })
     }
 
@@ -61,6 +69,12 @@ impl InstallContext {
             .map_err(|source| InstallStepError::RunInstallCommand { source })?;
         self.snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
+        if self.last_run.as_ref().is_some_and(|run| run.success) {
+            let parsed_profile: InstallProofProfile = profile
+                .parse()
+                .map_err(|_| InstallStepError::InstallCommandNotExecuted)?;
+            self.seed_effective_config_fixture(parsed_profile, RUST_CARGO_STANDARDS_ROOT);
+        }
         Ok(())
     }
 
@@ -82,6 +96,27 @@ impl InstallContext {
         self.snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
         Ok(())
+    }
+
+    /// Seed the effective-configuration fixture from the install profile and
+    /// configured standards root. Called after install succeeds and after
+    /// standards assets are relocated.
+    pub(super) fn seed_effective_config_fixture(
+        &mut self,
+        profile: InstallProofProfile,
+        standards_root: &str,
+    ) {
+        self.effective_config_fixture =
+            Some(EffectiveConfigurationFixture::new(profile, standards_root));
+    }
+
+    /// Borrow the seeded effective-configuration fixture for assertions.
+    pub(super) fn effective_config_fixture(
+        &self,
+    ) -> InstallStepResult<&EffectiveConfigurationFixture> {
+        self.effective_config_fixture
+            .as_ref()
+            .ok_or(InstallStepError::InstallCommandNotExecuted)
     }
 
     pub(super) fn require_last_run(&self) -> InstallStepResult<&InstallCommandOutcome> {

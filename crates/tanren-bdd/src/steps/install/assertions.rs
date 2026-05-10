@@ -77,7 +77,7 @@ impl InstallContext {
     pub(crate) fn assert_standards_inspect_report_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         let report = parse_stdout_json_report(run)?;
-        let project_methodology_config = self.load_project_methodology_config()?;
+        let fixture = self.effective_config_fixture()?;
         if report.status != StandardsInspectReportStatus::Ok {
             return Err(InstallStepError::UnexpectedStandardsInspectStatus {
                 actual: format!("{:?}", report.status),
@@ -88,7 +88,7 @@ impl InstallContext {
                 actual: format!("{:?}", report.command),
             });
         }
-        let expected_profile = project_methodology_config.profile.as_str();
+        let expected_profile = fixture.profile_str();
         if report.profile != expected_profile {
             return Err(InstallStepError::UnexpectedStandardsInspectProfile {
                 expected: expected_profile.to_owned(),
@@ -101,12 +101,9 @@ impl InstallContext {
         if report.standards_root.trim().is_empty() {
             return Err(InstallStepError::UnexpectedStandardsInspectStandardsRootEmpty);
         }
-        if report.standards_root != project_methodology_config.standards_root.as_str() {
+        if report.standards_root != fixture.standards_root() {
             return Err(InstallStepError::UnexpectedStandardsInspectStandardsRoot {
-                expected: project_methodology_config
-                    .standards_root
-                    .as_str()
-                    .to_owned(),
+                expected: fixture.standards_root().to_owned(),
                 actual: report.standards_root,
             });
         }
@@ -118,16 +115,12 @@ impl InstallContext {
         }
         let first_standard_path = report.first_standard_path.clone();
         RepositoryRelativePath::parse(first_standard_path.clone())?;
-        let configured_standards_root_prefix =
-            format!("{}/", project_methodology_config.standards_root.as_str());
+        let configured_standards_root_prefix = format!("{}/", fixture.standards_root());
         if !first_standard_path.starts_with(&configured_standards_root_prefix) {
             return Err(
                 InstallStepError::UnexpectedStandardsInspectFirstStandardPathOutsideStandardsRoot {
                     path: first_standard_path,
-                    standards_root: project_methodology_config
-                        .standards_root
-                        .as_str()
-                        .to_owned(),
+                    standards_root: fixture.standards_root().to_owned(),
                 },
             );
         }
@@ -144,11 +137,11 @@ impl InstallContext {
 
     pub(crate) fn assert_standards_missing_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        let project_methodology_config = self.load_project_methodology_config()?;
+        let fixture = self.effective_config_fixture()?;
         for fragment in [
             "error: standards_missing -",
             "configured standards root is missing:",
-            project_methodology_config.standards_root.as_str(),
+            fixture.standards_root(),
         ] {
             if !run.stderr.contains(fragment) {
                 return Err(InstallStepError::StderrMissingExpected {
@@ -162,12 +155,12 @@ impl InstallContext {
 
     pub(crate) fn assert_standards_parse_failure_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        let project_methodology_config = self.load_project_methodology_config()?;
+        let fixture = self.effective_config_fixture()?;
         for fragment in [
             "error: standards_parse_failed -",
             "failed to parse standards frontmatter in",
             "missing opening frontmatter delimiter",
-            project_methodology_config.standards_root.as_str(),
+            fixture.standards_root(),
         ] {
             if !run.stderr.contains(fragment) {
                 return Err(InstallStepError::StderrMissingExpected {
@@ -175,6 +168,38 @@ impl InstallContext {
                     stderr: run.stderr.clone(),
                 });
             }
+        }
+        Ok(())
+    }
+
+    /// Assert the repo methodology config projection matches the effective-configuration fixture.
+    ///
+    /// The `.tanren/project-methodology.toml` file is a non-secret generated
+    /// projection of effective configuration, not the authority for effective
+    /// configuration. This assertion confirms the projection is consistent with
+    /// the seeded effective-configuration fixture.
+    pub(crate) fn assert_repo_methodology_config_projection(&self) -> InstallStepResult<()> {
+        let fixture = self.effective_config_fixture()?;
+        let config = self.load_project_methodology_config()?;
+        if config.profile.as_str() != fixture.profile_str() {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!(
+                    "repo projection profile '{}' to match effective-config fixture profile '{}'",
+                    config.profile.as_str(),
+                    fixture.profile_str(),
+                ),
+                stdout: String::new(),
+            });
+        }
+        if config.standards_root.as_str() != fixture.standards_root() {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!(
+                    "repo projection standards_root '{}' to match effective-config fixture standards_root '{}'",
+                    config.standards_root.as_str(),
+                    fixture.standards_root(),
+                ),
+                stdout: String::new(),
+            });
         }
         Ok(())
     }
