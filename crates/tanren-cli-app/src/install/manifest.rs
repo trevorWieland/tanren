@@ -18,6 +18,48 @@ const SHA256_HEX_LENGTH: usize = 64;
 pub(super) const INSTALL_MANIFEST_VERSION: u32 = 1;
 /// Repo-local metadata path for persisted install state.
 pub(super) const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
+/// Current manifest compatibility revision written by this installer.
+pub(super) const CURRENT_MANIFEST_SCHEMA_COMPATIBILITY: ManifestSchemaCompatibility =
+    ManifestSchemaCompatibility {
+        manifest_revision: ManifestSchemaRevision::R0023,
+        catalog_revision: CatalogSchemaRevision::R0026,
+    };
+
+/// Typed manifest-schema revision marker for compatibility-aware workflows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum ManifestSchemaRevision {
+    /// Initial install-manifest schema introduced in R-0023.
+    #[default]
+    R0023,
+}
+
+/// Typed catalog revision marker for upgrade planning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "kebab-case")]
+pub enum CatalogSchemaRevision {
+    /// Install catalog revision shipped by R-0023.
+    #[default]
+    R0023,
+    /// Upgrade-aware catalog revision shipped by R-0026.
+    R0026,
+}
+
+/// Typed manifest compatibility metadata used by upgrade planning.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ManifestSchemaCompatibility {
+    pub manifest_revision: ManifestSchemaRevision,
+    pub catalog_revision: CatalogSchemaRevision,
+}
+
+impl Default for ManifestSchemaCompatibility {
+    fn default() -> Self {
+        Self {
+            manifest_revision: ManifestSchemaRevision::R0023,
+            catalog_revision: CatalogSchemaRevision::R0023,
+        }
+    }
+}
 
 /// Installed-asset classification used by install drift and apply planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,6 +225,8 @@ pub struct ManifestEntry {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallManifest {
     pub manifest_version: u32,
+    #[serde(default)]
+    pub compatibility: ManifestSchemaCompatibility,
     pub profile: InstallProfile,
     pub integrations: Vec<InstallIntegration>,
     pub entries: Vec<ManifestEntry>,
@@ -198,6 +242,7 @@ impl InstallManifest {
     ) -> Self {
         Self {
             manifest_version: INSTALL_MANIFEST_VERSION,
+            compatibility: CURRENT_MANIFEST_SCHEMA_COMPATIBILITY,
             profile,
             integrations,
             entries,

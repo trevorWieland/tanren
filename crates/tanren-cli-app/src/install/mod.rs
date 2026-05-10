@@ -12,6 +12,7 @@ mod error;
 mod manifest;
 mod path_guard;
 mod plan;
+mod upgrade;
 mod writer;
 mod writer_tx;
 
@@ -20,6 +21,10 @@ pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
+pub use upgrade::{
+    MigrationConcern, NothingToUpgrade, UpgradePlan, UpgradePlanOutcome, UpgradePlannedRemoval,
+    UpgradePlannedWrite, UpgradePlannedWriteKind, plan_upgrade,
+};
 pub use writer::InstallReport;
 
 /// Calculate a hex SHA-256 digest for test fixture bytes.
