@@ -18,7 +18,6 @@ use std::io::Write;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
@@ -139,7 +138,7 @@ pub fn run(config: Config) -> ExitCode {
     }
 }
 
-fn dispatch_command(config: Config) -> std::result::Result<(), CliAppError> {
+fn dispatch_command(config: Config) -> Result<(), CliAppError> {
     match config.command {
         None | Some(Command::Health) => {
             print_health()?;
@@ -162,7 +161,7 @@ fn dispatch_command(config: Config) -> std::result::Result<(), CliAppError> {
     Ok(())
 }
 
-fn print_health() -> Result<()> {
+fn print_health() -> Result<(), CliAppError> {
     let report = Handlers::new().health(env!("CARGO_PKG_VERSION"));
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
@@ -173,36 +172,42 @@ fn print_health() -> Result<()> {
         version = report.version,
         contract = report.contract_version.value(),
     )
-    .context("write health report to stdout")?;
+    .map_err(|source| CliAppError::StdoutWriteFailure {
+        target: "health report",
+        source,
+    })?;
     Ok(())
 }
 
-fn run_migrate_up(database_url: &str) -> Result<()> {
+fn run_migrate_up(database_url: &str) -> Result<(), CliAppError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .context("build tokio runtime")?;
+        .map_err(|source| CliAppError::RuntimeBuildFailure { source })?;
     runtime.block_on(async {
         Handlers::new()
             .migrate(database_url)
             .await
-            .context("apply pending migrations")
+            .map_err(|source| CliAppError::MigrationFailure { source })
     })?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
-    writeln!(handle, "migrations: applied").context("write migrate report to stdout")?;
+    writeln!(handle, "migrations: applied").map_err(|source| CliAppError::StdoutWriteFailure {
+        target: "migrate report",
+        source,
+    })?;
     Ok(())
 }
 
-fn dispatch_account(action: AccountAction) -> Result<()> {
+fn dispatch_account(action: AccountAction) -> Result<(), CliAppError> {
     let runtime = tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .context("build tokio runtime")?;
+        .map_err(|source| CliAppError::RuntimeBuildFailure { source })?;
     runtime.block_on(run_account(action))
 }
 
-async fn run_account(action: AccountAction) -> Result<()> {
+async fn run_account(action: AccountAction) -> Result<(), CliAppError> {
     let handlers = Handlers::new();
     match action {
         AccountAction::Create {
@@ -212,106 +217,133 @@ async fn run_account(action: AccountAction) -> Result<()> {
             display_name,
             invitation,
         } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
-            match invitation {
-                None => {
-                    let response = handlers
-                        .sign_up(
-                            &store,
-                            SignUpRequest {
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                    )
-                    .context("write sign-up result")?;
-                }
-                Some(token) => {
-                    let invitation_token = InvitationToken::parse(&token)
-                        .context("parse --invitation as invitation token")?;
-                    let response = handlers
-                        .accept_invitation(
-                            &store,
-                            AcceptInvitationRequest {
-                                invitation_token,
-                                email,
-                                password,
-                                display_name,
-                            },
-                        )
-                        .await
-                        .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
-                    let stdout = std::io::stdout();
-                    let mut handle = stdout.lock();
-                    writeln!(
-                        handle,
-                        "account_id={id} session={token} joined_org={org}",
-                        id = response.account.id,
-                        token = response.session.token.expose_secret(),
-                        org = response.joined_org,
-                    )
-                    .context("write invitation-acceptance result")?;
-                }
-            }
+            run_account_create(
+                &handlers,
+                &database_url,
+                &identifier,
+                password,
+                display_name,
+                invitation,
+            )
+            .await?;
         }
         AccountAction::SignIn {
             database_url,
             identifier,
             password,
-        } => {
-            let store = Store::connect(&database_url)
-                .await
-                .context("connect to store")?;
-            let email = Email::parse(&identifier).context("parse --identifier as email")?;
-            let password = SecretString::from(password);
+        } => run_account_sign_in(&handlers, &database_url, &identifier, password).await?,
+    }
+    Ok(())
+}
+
+async fn run_account_create(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: String,
+    display_name: String,
+    invitation: Option<String>,
+) -> Result<(), CliAppError> {
+    let store = connect_store(database_url).await?;
+    let email = parse_identifier_email(identifier)?;
+    let password = SecretString::from(password);
+    match invitation {
+        None => {
             let response = handlers
-                .sign_in(&store, SignInRequest { email, password })
+                .sign_up(
+                    &store,
+                    SignUpRequest {
+                        email,
+                        password,
+                        display_name,
+                    },
+                )
                 .await
-                .map_err(account_error)?;
+                .map_err(CliAppError::from_account_service_error)?;
             persist_session(response.session.token.expose_secret())?;
-            let stdout = std::io::stdout();
-            let mut handle = stdout.lock();
-            writeln!(
-                handle,
-                "account_id={id} session={token}",
-                id = response.account.id,
-                token = response.session.token.expose_secret(),
-            )
-            .context("write sign-in result")?;
+            write_stdout(
+                "sign-up result",
+                &format!(
+                    "account_id={} session={}",
+                    response.account.id,
+                    response.session.token.expose_secret()
+                ),
+            )?;
+        }
+        Some(token) => {
+            let invitation_token = parse_invitation_token(&token)?;
+            let response = handlers
+                .accept_invitation(
+                    &store,
+                    AcceptInvitationRequest {
+                        invitation_token,
+                        email,
+                        password,
+                        display_name,
+                    },
+                )
+                .await
+                .map_err(CliAppError::from_account_service_error)?;
+            persist_session(response.session.token.expose_secret())?;
+            write_stdout(
+                "invitation-acceptance result",
+                &format!(
+                    "account_id={} session={} joined_org={}",
+                    response.account.id,
+                    response.session.token.expose_secret(),
+                    response.joined_org
+                ),
+            )?;
         }
     }
     Ok(())
 }
 
-fn account_error(err: AppServiceError) -> anyhow::Error {
-    match err {
-        AppServiceError::Account(reason) => {
-            anyhow::anyhow!("error: {} — {}", reason.code(), reason.summary())
-        }
-        AppServiceError::InvalidInput(message) => {
-            anyhow::anyhow!("error: validation_failed — {message}")
-        }
-        AppServiceError::Store(err) => {
-            anyhow::anyhow!("error: internal_error — {err}")
-        }
-        _ => anyhow::anyhow!("error: internal_error — unknown app-service failure"),
-    }
+async fn run_account_sign_in(
+    handlers: &Handlers,
+    database_url: &str,
+    identifier: &str,
+    password: String,
+) -> Result<(), CliAppError> {
+    let store = connect_store(database_url).await?;
+    let email = parse_identifier_email(identifier)?;
+    let password = SecretString::from(password);
+    let response = handlers
+        .sign_in(&store, SignInRequest { email, password })
+        .await
+        .map_err(CliAppError::from_account_service_error)?;
+    persist_session(response.session.token.expose_secret())?;
+    write_stdout(
+        "sign-in result",
+        &format!(
+            "account_id={} session={}",
+            response.account.id,
+            response.session.token.expose_secret()
+        ),
+    )?;
+    Ok(())
+}
+
+async fn connect_store(database_url: &str) -> Result<Store, CliAppError> {
+    Store::connect(database_url)
+        .await
+        .map_err(AppServiceError::from)
+        .map_err(CliAppError::from_account_service_error)
+}
+
+fn parse_identifier_email(identifier: &str) -> Result<Email, CliAppError> {
+    Email::parse(identifier).map_err(|source| CliAppError::IdentifierParseFailure { source })
+}
+
+fn parse_invitation_token(raw: &str) -> Result<InvitationToken, CliAppError> {
+    InvitationToken::parse(raw)
+        .map_err(|source| CliAppError::InvitationTokenParseFailure { source })
+}
+
+fn write_stdout(target: &'static str, line: &str) -> Result<(), CliAppError> {
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    writeln!(handle, "{line}").map_err(|source| CliAppError::StdoutWriteFailure { target, source })
 }
 
 fn session_path() -> PathBuf {
@@ -335,12 +367,19 @@ fn session_path() -> PathBuf {
     base.join("tanren").join("session")
 }
 
-fn persist_session(token: &str) -> Result<()> {
+fn persist_session(token: &str) -> Result<(), CliAppError> {
     let path = session_path();
     if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("create session dir {}", parent.display()))?;
+        fs::create_dir_all(parent).map_err(|source| {
+            CliAppError::SessionDirectoryCreateFailure {
+                path: parent.display().to_string(),
+                source,
+            }
+        })?;
     }
-    fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
+    fs::write(&path, token).map_err(|source| CliAppError::SessionWriteFailure {
+        path: path.display().to_string(),
+        source,
+    })?;
     Ok(())
 }

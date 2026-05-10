@@ -4242,7 +4242,6 @@ dependencies = [
 name = "tanren-cli-app"
 version = "0.0.0"
 dependencies = [
- "anyhow",
  "clap",
  "secrecy",
  "serde",

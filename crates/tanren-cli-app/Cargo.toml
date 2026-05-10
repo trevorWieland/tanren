@@ -16,7 +16,6 @@ default = []
 test-hooks = []
 
 [dependencies]
-anyhow = { workspace = true }
 clap = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
