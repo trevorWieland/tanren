@@ -10,7 +10,6 @@ import {
 interface UseRoleCapabilitiesResult {
   snapshot: RoleCapabilitySnapshot | null;
   capabilities: RoleAdminCapabilities | null;
-  csrfToken: string | null;
   errorMessage: string | null;
 }
 
@@ -42,7 +41,6 @@ export function useRoleCapabilities(): UseRoleCapabilitiesResult {
   return {
     snapshot,
     capabilities: snapshot?.capabilities ?? null,
-    csrfToken: snapshot?.csrfToken ?? null,
     errorMessage,
   };
 }

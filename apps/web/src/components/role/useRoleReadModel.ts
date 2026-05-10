@@ -11,8 +11,10 @@ import type {
 import {
   permissionScopeFromRoleScope,
   readRoleModel,
+  requireRoleActionSnapshot,
   ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE,
   ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE,
+  type RoleCapabilitySnapshot,
   type RoleRequestContextInput,
 } from "@/app/lib/role-client";
 
@@ -96,7 +98,9 @@ export function isSameRoleReadContext(
   );
 }
 
-export function useRoleReadModel(): UseRoleReadModelResult {
+export function useRoleReadModel(
+  capabilitySnapshot: RoleCapabilitySnapshot | null,
+): UseRoleReadModelResult {
   const [readModel, setReadModel] = useState<RoleReadModelResponse | null>(
     null,
   );
@@ -135,6 +139,10 @@ export function useRoleReadModel(): UseRoleReadModelResult {
       setRequestMode(mode);
 
       try {
+        const snapshot = requireRoleActionSnapshot(
+          capabilitySnapshot,
+          "read_roles",
+        );
         const next = await readRoleModel(
           {
             role_scope: context.roleScope,
@@ -145,6 +153,7 @@ export function useRoleReadModel(): UseRoleReadModelResult {
             grant_cursor: grantCursor,
             grant_limit: ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE,
           },
+          snapshot,
           controller.signal,
         );
 
@@ -219,7 +228,7 @@ export function useRoleReadModel(): UseRoleReadModelResult {
         }
       }
     },
-    [],
+    [capabilitySnapshot],
   );
 
   const refreshReadModel = useCallback(

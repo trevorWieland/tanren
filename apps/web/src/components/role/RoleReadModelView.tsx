@@ -19,6 +19,7 @@ interface RoleOperationResultViewProps {
 }
 
 interface RoleReadModelViewProps {
+  canReadRoles: boolean;
   readModel: RoleReadModelResponse | null;
   roleNextCursor: RoleReadModelResponse["role_next_cursor"];
   grantNextCursor: RoleReadModelResponse["grant_next_cursor"];
@@ -69,10 +70,15 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
         type="button"
         className="mb-2 rounded-md border border-[--color-border] px-3 py-1 text-xs font-medium disabled:opacity-60"
         onClick={props.onRefreshReadModel}
-        disabled={props.isRefreshing}
+        disabled={!props.canReadRoles || props.isRefreshing}
       >
         {props.isRefreshing ? "Refreshing..." : "Reload snapshot"}
       </button>
+      {!props.canReadRoles ? (
+        <p className="mb-2 text-sm text-[--color-fg-muted]">
+          This account does not have read model capability.
+        </p>
+      ) : null}
       {props.readModel === null ? (
         <p className="text-sm text-[--color-fg-muted]">No snapshot loaded.</p>
       ) : (
@@ -121,7 +127,9 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
             type="button"
             className="mt-2 rounded-md border border-[--color-border] px-3 py-1 text-xs font-medium disabled:opacity-60"
             onClick={props.onLoadMoreRoles}
-            disabled={!hasRoleCursor || props.isLoadingMoreRoles}
+            disabled={
+              !props.canReadRoles || !hasRoleCursor || props.isLoadingMoreRoles
+            }
           >
             {props.isLoadingMoreRoles ? "Loading roles..." : "Load more roles"}
           </button>
@@ -144,7 +152,11 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
             type="button"
             className="mt-2 rounded-md border border-[--color-border] px-3 py-1 text-xs font-medium disabled:opacity-60"
             onClick={props.onLoadMoreGrants}
-            disabled={!hasGrantCursor || props.isLoadingMoreGrants}
+            disabled={
+              !props.canReadRoles ||
+              !hasGrantCursor ||
+              props.isLoadingMoreGrants
+            }
           >
             {props.isLoadingMoreGrants
               ? "Loading grants..."

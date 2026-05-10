@@ -17,6 +17,8 @@ import {
   deleteRole,
   editRole,
   formatRoleError,
+  hasRoleActionCapability,
+  requireRoleActionSnapshot,
   type RoleCapabilitySnapshot,
   type RoleRequestContextInput,
 } from "@/app/lib/role-client";
@@ -56,7 +58,6 @@ export function RoleWorkbench(): ReactNode {
   const {
     snapshot: capabilitySnapshot,
     capabilities,
-    csrfToken,
     errorMessage: capabilityError,
   } = useRoleCapabilities();
   const {
@@ -74,7 +75,8 @@ export function RoleWorkbench(): ReactNode {
     upsertLocalRoleTemplate,
     removeLocalRoleTemplate,
     appendLocalDirectGrants,
-  } = useRoleReadModel();
+  } = useRoleReadModel(capabilitySnapshot);
+  const canReadRoles = hasRoleActionCapability(capabilities, "read_roles");
 
   useEffect(() => {
     if (capabilityError !== null) {
@@ -86,12 +88,15 @@ export function RoleWorkbench(): ReactNode {
     if (capabilitySnapshot === null) {
       return;
     }
+    if (!canReadRoles) {
+      return;
+    }
     void initializeReadModel(
       capabilitySnapshot.capabilities.actor.account_id,
     ).catch((reason: unknown) => {
       setRoleMessage(`read model: ${formatRoleError(reason)}`);
     });
-  }, [capabilitySnapshot, initializeReadModel]);
+  }, [canReadRoles, capabilitySnapshot, initializeReadModel]);
 
   const runRoleAction: RunRoleAction = async (
     descriptor,
@@ -120,11 +125,14 @@ export function RoleWorkbench(): ReactNode {
   };
 
   const onRefreshReadModel = useCallback((): void => {
-    if (capabilitySnapshot === null) {
-      setRoleMessage("read model: role capabilities are still loading");
+    let snapshot: RoleCapabilitySnapshot;
+    try {
+      snapshot = requireActionSnapshot(capabilitySnapshot, "read_roles");
+    } catch (reason: unknown) {
+      setRoleMessage(`read model: ${formatRoleError(reason)}`);
       return;
     }
-    const actorAccountId = capabilitySnapshot.capabilities.actor.account_id;
+    const actorAccountId = snapshot.capabilities.actor.account_id;
     const context = readContext ?? buildDefaultRoleReadContext(actorAccountId);
     void refreshReadModel(context).catch((reason: unknown) => {
       setRoleMessage(`read model: ${formatRoleError(reason)}`);
@@ -132,28 +140,39 @@ export function RoleWorkbench(): ReactNode {
   }, [capabilitySnapshot, readContext, refreshReadModel]);
 
   const onLoadMoreRoles = useCallback((): void => {
+    try {
+      requireActionSnapshot(capabilitySnapshot, "read_roles");
+    } catch (reason: unknown) {
+      setRoleMessage(`load more roles: ${formatRoleError(reason)}`);
+      return;
+    }
     void loadMoreRoleTemplates().catch((reason: unknown) => {
       setRoleMessage(`load more roles: ${formatRoleError(reason)}`);
     });
-  }, [loadMoreRoleTemplates]);
+  }, [capabilitySnapshot, loadMoreRoleTemplates]);
 
   const onLoadMoreGrants = useCallback((): void => {
+    try {
+      requireActionSnapshot(capabilitySnapshot, "read_roles");
+    } catch (reason: unknown) {
+      setRoleMessage(`load more grants: ${formatRoleError(reason)}`);
+      return;
+    }
     void loadMoreDirectGrants().catch((reason: unknown) => {
       setRoleMessage(`load more grants: ${formatRoleError(reason)}`);
     });
-  }, [loadMoreDirectGrants]);
+  }, [capabilitySnapshot, loadMoreDirectGrants]);
 
   const onCreateRole = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     void runRoleMutation(
       ROLE_OPERATION_DESCRIPTORS.create_role,
       capabilitySnapshot,
-      csrfToken,
       readContext,
       refreshReadModel,
       setOperationSummary,
       () => buildCreateRoleRequest(new FormData(event.currentTarget)),
-      (request, token) => createRole(request, token),
+      (request, snapshot) => createRole(request, snapshot),
       (context, response) => upsertLocalRoleTemplate(context, response.role),
       runRoleAction,
     );
@@ -164,12 +183,11 @@ export function RoleWorkbench(): ReactNode {
     void runRoleMutation(
       ROLE_OPERATION_DESCRIPTORS.edit_role,
       capabilitySnapshot,
-      csrfToken,
       readContext,
       refreshReadModel,
       setOperationSummary,
       () => buildEditRoleRequest(new FormData(event.currentTarget)),
-      (request, token) => editRole(request, token),
+      (request, snapshot) => editRole(request, snapshot),
       (context, response) => upsertLocalRoleTemplate(context, response.role),
       runRoleAction,
     );
@@ -180,12 +198,11 @@ export function RoleWorkbench(): ReactNode {
     void runRoleMutation(
       ROLE_OPERATION_DESCRIPTORS.delete_role,
       capabilitySnapshot,
-      csrfToken,
       readContext,
       refreshReadModel,
       setOperationSummary,
       () => buildDeleteRoleRequest(new FormData(event.currentTarget)),
-      (request, token) => deleteRole(request, token),
+      (request, snapshot) => deleteRole(request, snapshot),
       (context, response) =>
         removeLocalRoleTemplate(context, response.role.role_id),
       runRoleAction,
@@ -197,12 +214,11 @@ export function RoleWorkbench(): ReactNode {
     void runRoleMutation(
       ROLE_OPERATION_DESCRIPTORS.apply_role,
       capabilitySnapshot,
-      csrfToken,
       readContext,
       refreshReadModel,
       setOperationSummary,
       () => buildApplyRoleRequest(new FormData(event.currentTarget)),
-      (request, token) => applyRole(request, token),
+      (request, snapshot) => applyRole(request, snapshot),
       (context, response) => appendLocalDirectGrants(context, response.grants),
       runRoleAction,
     );
@@ -212,7 +228,10 @@ export function RoleWorkbench(): ReactNode {
     event.preventDefault();
     const descriptor = ROLE_OPERATION_DESCRIPTORS.check_permission;
     void runRoleAction(descriptor, async () => {
-      const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
+      const snapshot = requireActionSnapshot(
+        capabilitySnapshot,
+        descriptor.capability,
+      );
       const submission = buildPermissionCheckRequest(
         new FormData(event.currentTarget),
       );
@@ -225,9 +244,9 @@ export function RoleWorkbench(): ReactNode {
         submission.principalKind === "role"
           ? await checkPermissionRolePrincipalRejection(
               submission.request,
-              snapshot.csrfToken,
+              snapshot,
             )
-          : await checkPermission(submission.request, snapshot.csrfToken);
+          : await checkPermission(submission.request, snapshot);
       setOperationSummary(descriptor.buildSummary(response));
       if (shouldRefreshReadModel(readContext, context)) {
         await refreshReadModel(context);
@@ -255,6 +274,7 @@ export function RoleWorkbench(): ReactNode {
       />
 
       <RoleReadModelView
+        canReadRoles={canReadRoles}
         readModel={readModel}
         roleNextCursor={roleNextCursor}
         grantNextCursor={grantNextCursor}
@@ -287,14 +307,13 @@ async function runRoleMutation<
 >(
   descriptor: RoleOperationDescriptor<TAction>,
   capabilitySnapshot: RoleCapabilitySnapshot | null,
-  csrfToken: string | null,
   readContext: RoleReadContext | null,
   refreshReadModel: (context: RoleReadContext) => Promise<void>,
   setOperationSummary: (summary: OperationSummary) => void,
   buildSubmission: () => TSubmission,
   execute: (
     request: TSubmission["request"],
-    csrfToken: string,
+    snapshot: RoleCapabilitySnapshot,
   ) => Promise<RoleOperationResponseMap[TAction]>,
   applyLocalMutation: (
     context: RoleReadContext,
@@ -303,15 +322,17 @@ async function runRoleMutation<
   runRoleAction: RunRoleAction,
 ): Promise<void> {
   return runRoleAction(descriptor, async () => {
-    const token = requireCsrfToken(csrfToken);
-    const snapshot = requireCapabilitySnapshot(capabilitySnapshot);
+    const snapshot = requireActionSnapshot(
+      capabilitySnapshot,
+      descriptor.capability,
+    );
     const submission = buildSubmission();
     const context = resolveRoleReadContext(
       readContext,
       snapshot.capabilities.actor.account_id,
       submission.context,
     );
-    const response = await execute(submission.request, token);
+    const response = await execute(submission.request, snapshot);
     setOperationSummary(descriptor.buildSummary(response));
     if (shouldRefreshReadModel(readContext, context)) {
       await refreshReadModel(context);
@@ -337,18 +358,9 @@ function shouldRefreshReadModel(
   );
 }
 
-function requireCapabilitySnapshot(
+function requireActionSnapshot<TAction extends RoleAdminAction>(
   actorSnapshot: RoleCapabilitySnapshot | null,
+  action: TAction,
 ): RoleCapabilitySnapshot {
-  if (actorSnapshot === null) {
-    throw new Error("role capabilities are still loading");
-  }
-  return actorSnapshot;
-}
-
-function requireCsrfToken(token: string | null): string {
-  if (token === null) {
-    throw new Error("CSRF token is unavailable");
-  }
-  return token;
+  return requireRoleActionSnapshot(actorSnapshot, action);
 }
