@@ -51,34 +51,24 @@ export type ConnectProjectRepositoryResult =
   components["schemas"]["ConnectProjectRepositoryResponse"];
 export type CreateProjectResult =
   components["schemas"]["CreateProjectResponse"];
-export type ProjectListCursor = {
-  active_selected_at: string | null;
-  created_at: string;
-  project_id: string;
-};
-export type ProjectPageRequest = {
-  cursor?: ProjectListCursor | null;
-  page_size?: number;
-};
-export type ListVisibleProjectsInput = {
-  page?: ProjectPageRequest;
-};
-export type ProjectPaginationView = {
-  page_size: number;
-  default_page_size: number;
-  max_page_size: number;
-  has_more: boolean;
-  next_cursor: ProjectListCursor | null;
-};
-export type ProjectCollectionFreshnessView = {
-  as_of: string | null;
-};
-export type ProjectCollectionView = {
-  owning_account_id: string;
-  projects: ProjectView[];
-  pagination: ProjectPaginationView;
-  freshness: ProjectCollectionFreshnessView;
-};
+export type ProjectListCursor = components["schemas"]["ProjectListCursor"];
+export type ProjectListFilterRequest =
+  components["schemas"]["ProjectListFilterRequest"];
+export type ProjectListSelectionFilter =
+  components["schemas"]["ProjectListSelectionFilter"];
+export type ProjectListSortRequest =
+  components["schemas"]["ProjectListSortRequest"];
+export type ProjectListSortOrder =
+  components["schemas"]["ProjectListSortOrder"];
+export type ProjectPageRequest = components["schemas"]["ProjectPageRequest"];
+export type ListVisibleProjectsInput =
+  components["schemas"]["ListVisibleProjectsCookieRequest"];
+export type ProjectPaginationView =
+  components["schemas"]["ProjectPaginationView"];
+export type ProjectCollectionFreshnessView =
+  components["schemas"]["ProjectCollectionFreshnessView"];
+export type ProjectCollectionView =
+  components["schemas"]["ProjectCollectionView"];
 export type ApiProjectFailureCode = components["schemas"]["ProjectFailureCode"];
 export const projectFailureCodes = [
   "auth_required",
@@ -214,9 +204,21 @@ const projectListCursorSchema = v.strictObject({
   project_id: v.string(),
 });
 
+const projectListFilterRequestSchema = v.strictObject({
+  selection: v.optional(v.picklist(["all"])),
+});
+
+const projectListSortRequestSchema = v.strictObject({
+  order: v.optional(v.picklist(["active_selected_then_created_desc"])),
+});
+
 const projectPageRequestSchema = v.strictObject({
   cursor: v.optional(v.nullable(projectListCursorSchema)),
-  page_size: v.optional(v.pipe(v.number(), v.integer(), v.minValue(1))),
+  page_size: v.optional(
+    v.pipe(v.number(), v.integer(), v.minValue(1), v.maxValue(100)),
+  ),
+  filter: v.optional(projectListFilterRequestSchema),
+  sort: v.optional(projectListSortRequestSchema),
 });
 
 export const listVisibleProjectsInputSchema = v.strictObject({

@@ -143,8 +143,16 @@ pub struct ProjectPageRequest {
     #[serde(default)]
     pub cursor: Option<ProjectListCursor>,
     /// Requested page size, bounded server-side to `[1, max_page_size]`.
+    #[schemars(range(min = 1, max = 100))]
+    #[schema(minimum = 1, maximum = 100)]
     #[serde(default = "default_project_list_page_size")]
     pub page_size: u16,
+    /// Filter controls for this list request.
+    #[serde(default)]
+    pub filter: ProjectListFilterRequest,
+    /// Sort controls for this list request.
+    #[serde(default)]
+    pub sort: ProjectListSortRequest,
 }
 
 impl Default for ProjectPageRequest {
@@ -152,8 +160,48 @@ impl Default for ProjectPageRequest {
         Self {
             cursor: None,
             page_size: default_project_list_page_size(),
+            filter: ProjectListFilterRequest::default(),
+            sort: ProjectListSortRequest::default(),
         }
     }
+}
+
+/// Explicit filter fields supported by the project-list contract.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+pub struct ProjectListFilterRequest {
+    /// Selection-state filter for visible projects.
+    #[serde(default)]
+    pub selection: ProjectListSelectionFilter,
+}
+
+/// Supported project-list selection filters.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectListSelectionFilter {
+    /// Return all visible projects.
+    #[default]
+    All,
+}
+
+/// Explicit sort fields supported by the project-list contract.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+pub struct ProjectListSortRequest {
+    /// Deterministic ordering for visible projects.
+    #[serde(default)]
+    pub order: ProjectListSortOrder,
+}
+
+/// Supported deterministic orderings for project-list pagination.
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema, Default,
+)]
+#[serde(rename_all = "snake_case")]
+pub enum ProjectListSortOrder {
+    /// Sort by `active_selected_at DESC NULLS LAST, created_at DESC, id DESC`.
+    #[default]
+    ActiveSelectedThenCreatedDesc,
 }
 
 /// Stable cursor over the deterministic project-list ordering.

@@ -280,7 +280,10 @@ export interface components {
      * @description Cookie-scoped API/web request for listing projects visible to the
      *     authenticated session account.
      */
-    ListVisibleProjectsCookieRequest: Record<string, never>;
+    ListVisibleProjectsCookieRequest: {
+      /** @description Pagination controls for this list request. */
+      page?: components["schemas"]["ProjectPageRequest"];
+    };
     /**
      * Format: uuid
      * @description Stable identifier for a Tanren organization.
@@ -288,10 +291,22 @@ export interface components {
     OrgId: string;
     /** @description Wire projection for a project list/read response. */
     ProjectCollectionView: {
+      /** @description Projection freshness metadata for this page. */
+      freshness: components["schemas"]["ProjectCollectionFreshnessView"];
       /** @description Account that owns this collection. */
       owning_account_id: components["schemas"]["AccountId"];
+      /** @description Bounded pagination metadata for this page. */
+      pagination: components["schemas"]["ProjectPaginationView"];
       /** @description Projects currently visible under the account. */
       projects: components["schemas"]["ProjectView"][];
+    };
+    /** @description Projection freshness metadata for project lists. */
+    ProjectCollectionFreshnessView: {
+      /**
+       * Format: date-time
+       * @description The newest row timestamp visible in this page (if any rows exist).
+       */
+      as_of?: string | null;
     };
     /** @description Aggregated counts surfaced alongside project records. */
     ProjectCountsView: {
@@ -332,8 +347,74 @@ export interface components {
      * @description Stable identifier for a Tanren project. `UUIDv7` — sortable + unique.
      */
     ProjectId: string;
+    /** @description Stable cursor over the deterministic project-list ordering. */
+    ProjectListCursor: {
+      /**
+       * Format: date-time
+       * @description Active-selection timestamp used as the primary sort key.
+       */
+      active_selected_at?: string | null;
+      /**
+       * Format: date-time
+       * @description Project creation timestamp used as a secondary sort key.
+       */
+      created_at: string;
+      /** @description Project id used as a final deterministic tie-breaker. */
+      project_id: components["schemas"]["ProjectId"];
+    };
+    /** @description Explicit filter fields supported by the project-list contract. */
+    ProjectListFilterRequest: {
+      /** @description Selection-state filter for visible projects. */
+      selection?: components["schemas"]["ProjectListSelectionFilter"];
+    };
+    /**
+     * @description Supported project-list selection filters.
+     * @enum {string}
+     */
+    ProjectListSelectionFilter: "all";
+    /** @description Explicit sort fields supported by the project-list contract. */
+    ProjectListSortRequest: {
+      /** @description Deterministic ordering for visible projects. */
+      order?: components["schemas"]["ProjectListSortOrder"];
+    };
+    /**
+     * @description Supported deterministic orderings for project-list pagination.
+     * @enum {string}
+     */
+    ProjectListSortOrder: "active_selected_then_created_desc";
+    /** @description Pagination controls for project-list queries. */
+    ProjectPageRequest: {
+      /** @description Cursor pointing to the last project from the previous page. */
+      cursor?: null | components["schemas"]["ProjectListCursor"];
+      /** @description Filter controls for this list request. */
+      filter?: components["schemas"]["ProjectListFilterRequest"];
+      /**
+       * @description Requested page size, bounded server-side to `[1, max_page_size]`.
+       * @minimum 1
+       * @maximum 100
+       * @default 25
+       */
+      page_size?: number;
+      /** @description Sort controls for this list request. */
+      sort?: components["schemas"]["ProjectListSortRequest"];
+    };
+    /** @description Pagination metadata for a project-list response page. */
+    ProjectPaginationView: {
+      /** @description Default server page size when callers omit one. */
+      default_page_size: number;
+      /** @description Whether another page exists after this one. */
+      has_more: boolean;
+      /** @description Maximum server page size. */
+      max_page_size: number;
+      /** @description Cursor callers should send to request the next page. */
+      next_cursor?: null | components["schemas"]["ProjectListCursor"];
+      /** @description The page size that was actually applied after bounding. */
+      page_size: number;
+    };
     /** @description Repository metadata bound to a project. */
     ProjectRepositoryView: {
+      /** @description Source-control provider family for the repository. */
+      provider_family: components["schemas"]["ProviderFamily"];
       /** @description Canonical `owner/name` repository identity. */
       repository: components["schemas"]["RepositoryRef"];
     };
@@ -365,6 +446,13 @@ export interface components {
       /** @description Active-project selection metadata. */
       selection: components["schemas"]["ProjectSelectionView"];
     };
+    /**
+     * @description Source-control provider family identifier.
+     *
+     *     Provider families are lower-case kebab-case tokens with an
+     *     alphabetic prefix and no adjacent separators.
+     */
+    ProviderFamily: string;
     /**
      * @description Canonical repository identity (`owner/name`) used for project setup.
      *
