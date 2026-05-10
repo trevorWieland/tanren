@@ -9,6 +9,8 @@ use crate::{
     SourceControlRemoteIdentity, default_source_control_binding_host, source_control_fixture_env,
 };
 
+pub use source_control_fixture_env::FixtureEnvParseError;
+
 const SOURCE_CONTROL_PROVIDER_FIXTURE_ENV: &str = "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE";
 const SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE: &str = "allow_all";
 
@@ -83,21 +85,31 @@ pub fn fixture_allow_all_source_control_provider() -> Arc<dyn SourceControlProvi
 }
 
 /// Build a fixture provider from the standard fixture environment variable.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`FixtureEnvParseError`] when the environment value is malformed.
 #[cfg(any(test, feature = "test-hooks"))]
-pub fn fixture_source_control_provider_from_env() -> Option<Arc<dyn SourceControlProvider>> {
-    let raw = std::env::var(SOURCE_CONTROL_PROVIDER_FIXTURE_ENV).ok()?;
+pub fn fixture_source_control_provider_from_env()
+-> Result<Arc<dyn SourceControlProvider>, FixtureEnvParseError> {
+    let Ok(raw) = std::env::var(SOURCE_CONTROL_PROVIDER_FIXTURE_ENV) else {
+        return Err(FixtureEnvParseError::MissingPrefix);
+    };
     fixture_source_control_provider_from_env_value(raw.trim())
 }
 
 /// Build a fixture provider from a deterministic fixture env value.
-#[must_use]
+///
+/// # Errors
+///
+/// Returns [`FixtureEnvParseError`] when the value is not the literal
+/// `allow_all` and fails typed fixture-v1 parsing.
 #[cfg(any(test, feature = "test-hooks"))]
 pub fn fixture_source_control_provider_from_env_value(
     raw: &str,
-) -> Option<Arc<dyn SourceControlProvider>> {
+) -> Result<Arc<dyn SourceControlProvider>, FixtureEnvParseError> {
     if raw.eq_ignore_ascii_case(SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE) {
-        return Some(fixture_allow_all_source_control_provider());
+        return Ok(fixture_allow_all_source_control_provider());
     }
     source_control_fixture_env::env_fixture_source_control_provider(raw)
 }

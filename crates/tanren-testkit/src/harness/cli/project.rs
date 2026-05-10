@@ -209,9 +209,9 @@ fn cli_fixture_provider(
     harness: &CliHarness,
 ) -> HarnessResult<std::sync::Arc<dyn SourceControlProvider>> {
     let raw = harness.project_provider_fixture_env_value();
-    fixture_source_control_provider_from_env_value(&raw).ok_or_else(|| {
-        HarnessError::Transport(
-            "internal_error: failed to build CLI fixture source-control provider".to_owned(),
-        )
+    fixture_source_control_provider_from_env_value(&raw).map_err(|parse_error| {
+        HarnessError::Transport(format!(
+            "internal_error: failed to build CLI fixture source-control provider: {parse_error}"
+        ))
     })
 }

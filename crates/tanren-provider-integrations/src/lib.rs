@@ -19,9 +19,10 @@ use thiserror::Error;
 
 #[cfg(any(test, feature = "test-hooks"))]
 pub use source_control_fixture::{
-    AllowAllSourceControlProvider, FixtureSourceControlConfig, FixtureSourceControlProvider,
-    SourceControlCallCounters, fixture_allow_all_source_control_provider,
-    fixture_source_control_provider_from_env, fixture_source_control_provider_from_env_value,
+    AllowAllSourceControlProvider, FixtureEnvParseError, FixtureSourceControlConfig,
+    FixtureSourceControlProvider, SourceControlCallCounters,
+    fixture_allow_all_source_control_provider, fixture_source_control_provider_from_env,
+    fixture_source_control_provider_from_env_value,
 };
 
 /// The outbound provider trait every adapter implements.
