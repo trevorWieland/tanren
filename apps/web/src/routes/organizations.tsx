@@ -10,7 +10,10 @@ import {
   listOrganizationsApi,
   useOrganizationOperationState,
   type OrganizationAdminPermission,
+  type OrganizationCapabilityView,
+  type OrganizationEventReference,
   type OrganizationProofLink,
+  type ReadModelFreshness,
   type OrganizationSourceLink,
 } from "@/lib/organization-api";
 import {
@@ -35,9 +38,11 @@ interface OrganizationRecord {
   id: string;
   name: string;
   grantedPermissions: OrganizationAdminPermission[];
+  capabilities: OrganizationCapabilityView[];
   initialProjectCount: number | null;
   proofLink: OrganizationProofLink | null;
   sourceLink: OrganizationSourceLink | null;
+  sourceEvent: OrganizationEventReference | null;
 }
 
 export default function OrganizationsRoute(): ReactNode {
@@ -85,6 +90,9 @@ export function OrganizationHarnessRoute(): ReactNode {
   const [permissionOptions, setPermissionOptions] = useState<
     OrganizationAdminPermission[]
   >([]);
+  const [listFreshness, setListFreshness] = useState<ReadModelFreshness | null>(
+    null,
+  );
   const [organizationsByName, setOrganizationsByName] = useState<
     Record<string, OrganizationRecord>
   >({});
@@ -151,9 +159,11 @@ export function OrganizationHarnessRoute(): ReactNode {
         id: response.body.organization.id,
         name: response.body.organization.name,
         grantedPermissions: response.body.granted_permissions,
+        capabilities: response.body.capabilities,
         initialProjectCount: response.body.initial_project_count,
         proofLink: response.body.proof_link,
         sourceLink: response.body.source_link,
+        sourceEvent: response.body.source_event ?? null,
       },
     }));
 
@@ -190,13 +200,16 @@ export function OrganizationHarnessRoute(): ReactNode {
           id: organization.id,
           name: organization.name,
           grantedPermissions: prior?.grantedPermissions ?? [],
+          capabilities: organization.capabilities,
           initialProjectCount: prior?.initialProjectCount ?? null,
           proofLink: prior?.proofLink ?? null,
           sourceLink: prior?.sourceLink ?? null,
+          sourceEvent: prior?.sourceEvent ?? null,
         };
       }
       return next;
     });
+    setListFreshness(response.body.freshness);
 
     succeedOperation();
   }
@@ -391,6 +404,15 @@ export function OrganizationHarnessRoute(): ReactNode {
               >
                 {organization.grantedPermissions.join(",")}
               </div>
+              <div className="text-xs text-[--color-fg-muted]">
+                capabilities:{" "}
+                {organization.capabilities
+                  .map(
+                    (capability) =>
+                      `${capability.permission}:${capability.allowed}`,
+                  )
+                  .join(",")}
+              </div>
               {organization.proofLink ? (
                 <div className="text-xs text-[--color-fg-muted]">
                   proof: {organization.proofLink.behavior_id}
@@ -402,9 +424,22 @@ export function OrganizationHarnessRoute(): ReactNode {
                   {organization.sourceLink.event_kind}
                 </div>
               ) : null}
+              {organization.sourceEvent ? (
+                <div className="text-xs text-[--color-fg-muted]">
+                  source_event: {organization.sourceEvent.event_id}
+                </div>
+              ) : null}
             </li>
           ))}
         </ul>
+        {listFreshness ? (
+          <p className="mt-3 text-xs text-[--color-fg-muted]">
+            freshness: projection={listFreshness.projection} generated_at=
+            {listFreshness.generated_at} cursor=
+            {listFreshness.cursor ?? "<none>"} checkpoint=
+            {listFreshness.checkpoint ?? "<none>"}
+          </p>
+        ) : null}
       </section>
     </main>
   );

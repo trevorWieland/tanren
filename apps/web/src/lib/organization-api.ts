@@ -19,6 +19,11 @@ export type OrganizationProofLink =
   components["schemas"]["OrganizationProofLink"];
 export type OrganizationSourceLink =
   components["schemas"]["OrganizationSourceLink"];
+export type OrganizationCapabilityView =
+  components["schemas"]["OrganizationCapabilityView"];
+export type OrganizationEventReference =
+  components["schemas"]["OrganizationEventReference"];
+export type ReadModelFreshness = components["schemas"]["ReadModelFreshness"];
 export type OrganizationProjectSummary =
   components["schemas"]["OrganizationProjectSummary"];
 export type CreateOrganizationApiRequest =
@@ -129,7 +134,14 @@ function isGeneratedOrganizationFailureBody(
 export function isOrganizationViewResponse(
   value: unknown,
 ): value is OrganizationViewResponse {
-  return hasOnlyStringFields(value, ["id", "name"]);
+  if (!hasOnlyStringFields(value, ["id", "name"]) || !isObjectRecord(value)) {
+    return false;
+  }
+  const capabilities = value["capabilities"];
+  return (
+    Array.isArray(capabilities) &&
+    capabilities.every((capability) => isOrganizationCapabilityView(capability))
+  );
 }
 
 export function isOrganizationProofLink(
@@ -155,6 +167,63 @@ export function isOrganizationProjectSummary(
     typeof value["total_count"] === "number" &&
     Number.isInteger(value["total_count"]) &&
     value["total_count"] >= 0
+  );
+}
+
+export function isOrganizationCapabilityView(
+  value: unknown,
+): value is OrganizationCapabilityView {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (!isOrganizationAdminPermission(value["permission"])) {
+    return false;
+  }
+  return (
+    typeof value["key"] === "string" &&
+    typeof value["summary"] === "string" &&
+    typeof value["allowed"] === "boolean"
+  );
+}
+
+export function isOrganizationEventReference(
+  value: unknown,
+): value is OrganizationEventReference {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  return (
+    typeof value["event_family"] === "string" &&
+    typeof value["event_kind"] === "string" &&
+    typeof value["event_id"] === "string" &&
+    typeof value["cursor"] === "string" &&
+    typeof value["occurred_at"] === "string"
+  );
+}
+
+export function isReadModelFreshness(
+  value: unknown,
+): value is ReadModelFreshness {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (
+    value["checkpoint"] !== null &&
+    value["checkpoint"] !== undefined &&
+    typeof value["checkpoint"] !== "string"
+  ) {
+    return false;
+  }
+  if (
+    value["cursor"] !== null &&
+    value["cursor"] !== undefined &&
+    typeof value["cursor"] !== "string"
+  ) {
+    return false;
+  }
+  return (
+    typeof value["projection"] === "string" &&
+    typeof value["generated_at"] === "string"
   );
 }
 
@@ -192,6 +261,17 @@ export function isCreateOrganizationResponse(
   ) {
     return false;
   }
+  const capabilities = value["capabilities"];
+  if (!Array.isArray(capabilities)) {
+    return false;
+  }
+  if (
+    !capabilities.every((capability) =>
+      isOrganizationCapabilityView(capability),
+    )
+  ) {
+    return false;
+  }
 
   const initialProjectCount = value["initial_project_count"];
   if (
@@ -207,6 +287,13 @@ export function isCreateOrganizationResponse(
   }
 
   if (!isOrganizationSourceLink(value["source_link"])) {
+    return false;
+  }
+  if (
+    value["source_event"] !== null &&
+    value["source_event"] !== undefined &&
+    !isOrganizationEventReference(value["source_event"])
+  ) {
     return false;
   }
 
@@ -229,6 +316,12 @@ export function isListOrganizationsResponse(
     value["next_cursor"] !== undefined &&
     typeof value["next_cursor"] !== "string"
   ) {
+    return false;
+  }
+  if (!isOrganizationSourceLink(value["source_link"])) {
+    return false;
+  }
+  if (!isReadModelFreshness(value["freshness"])) {
     return false;
   }
   return organizations.every((organization) =>

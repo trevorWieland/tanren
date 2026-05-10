@@ -217,6 +217,29 @@ pub struct CreateOrganizationAtomicOutput {
     pub granted_permissions: Vec<OrganizationPermission>,
     /// New organizations own zero projects at creation time.
     pub initial_project_count: u64,
+    /// Event-log reference for the emitted `organization_created` event.
+    pub source_event: Option<EventReference>,
+}
+
+/// Stable event-log reference captured from a transactional write path.
+#[derive(Debug, Clone)]
+pub struct EventReference {
+    /// Event id in the canonical event log.
+    pub id: String,
+    /// Event append timestamp.
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Organization row plus account-scoped capability source metadata used
+/// by `list_organizations_for_account`.
+#[derive(Debug, Clone)]
+pub struct ListedOrganizationRecord {
+    /// Organization row visible to the account.
+    pub organization: OrganizationRecord,
+    /// Membership cursor row that exposed this organization.
+    pub membership_id: MembershipId,
+    /// Organization permissions granted to the requesting account.
+    pub granted_permissions: Vec<OrganizationPermission>,
 }
 
 /// Failure taxonomy for [`AccountStore::create_organization_atomic`].
@@ -238,9 +261,15 @@ pub enum CreateOrganizationError {
 #[derive(Debug, Clone)]
 pub struct ListOrganizationsPage {
     /// Organizations in this page.
-    pub organizations: Vec<OrganizationRecord>,
+    pub organizations: Vec<ListedOrganizationRecord>,
     /// Opaque cursor for the next page, if more rows remain.
     pub next_cursor: Option<MembershipId>,
+    /// Response-generation timestamp from this read path.
+    pub generated_at: DateTime<Utc>,
+    /// Optional projection checkpoint identifier when available.
+    pub checkpoint: Option<String>,
+    /// Optional store-level cursor for this read page.
+    pub cursor: Option<String>,
 }
 
 /// Enforceable guard used by leave/remove-member flows so they cannot
@@ -395,6 +424,7 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         account_id: AccountId,
         limit: u64,
         cursor: Option<MembershipId>,
+        now: DateTime<Utc>,
     ) -> Result<ListOrganizationsPage, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied

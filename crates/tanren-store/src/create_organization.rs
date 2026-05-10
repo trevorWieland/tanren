@@ -14,7 +14,7 @@ use uuid::Uuid;
 use crate::entity;
 use crate::traits::{
     CreateOrganizationAtomicOutput, CreateOrganizationAtomicRequest, CreateOrganizationError,
-    CreateOrganizationEventContext, CreateOrganizationEventsBuilder,
+    CreateOrganizationEventContext, CreateOrganizationEventsBuilder, EventReference,
     LastOrganizationAdminGuardError,
 };
 use crate::{
@@ -134,7 +134,7 @@ async fn run_in_txn(
     .await?;
     let granted_permissions =
         insert_creator_admin_grants_in_txn(txn, creator_account_id, organization_id, now).await?;
-    append_success_events_in_txn(
+    let source_event = append_success_events_in_txn(
         txn,
         events_builder,
         &CreateOrganizationEventContext {
@@ -151,6 +151,7 @@ async fn run_in_txn(
         organization,
         granted_permissions,
         initial_project_count: 0,
+        source_event,
     })
 }
 
@@ -190,6 +191,7 @@ async fn find_idempotent_replay_for_key(
         organization,
         granted_permissions: OrganizationPermission::ALL.to_vec(),
         initial_project_count: 0,
+        source_event: None,
     }))
 }
 
@@ -314,16 +316,24 @@ async fn append_success_events_in_txn(
     txn: &DatabaseTransaction,
     events_builder: CreateOrganizationEventsBuilder,
     ctx: &CreateOrganizationEventContext,
-) -> Result<(), CreateOrganizationError> {
+) -> Result<Option<EventReference>, CreateOrganizationError> {
+    let mut source_event = None;
     for payload in (events_builder)(ctx) {
+        let event_id = Uuid::now_v7();
         let model = entity::events::ActiveModel {
-            id: Set(Uuid::now_v7()),
+            id: Set(event_id),
             occurred_at: Set(ctx.now),
             payload: Set(payload),
         };
         model.insert(txn).await.map_err(StoreError::from)?;
+        if source_event.is_none() {
+            source_event = Some(EventReference {
+                id: event_id.to_string(),
+                occurred_at: ctx.now,
+            });
+        }
     }
-    Ok(())
+    Ok(source_event)
 }
 
 pub(crate) async fn has_permission(

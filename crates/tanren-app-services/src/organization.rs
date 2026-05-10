@@ -6,9 +6,9 @@ use tanren_contract::{
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
     ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
-    OrganizationBehaviorId, OrganizationCreatedEvent, OrganizationProjectSummary,
-    OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    organization_permission_options,
+    OrganizationBehaviorId, OrganizationCreatedEvent, OrganizationEventReference,
+    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
+    ReadModelFreshness, organization_capability_projection, organization_permission_options,
 };
 use tanren_identity_policy::{
     AccountId, OrgId, OrganizationPermission, OrganizationPermissionDecision,
@@ -48,7 +48,9 @@ where
         organization: OrganizationView {
             id: output.organization.id,
             name: output.organization.name,
+            capabilities: organization_capability_projection(output.granted_permissions.clone()),
         },
+        capabilities: organization_capability_projection(output.granted_permissions.clone()),
         available_permissions: organization_permission_options(),
         granted_permissions: output.granted_permissions,
         initial_project_count: output.initial_project_count,
@@ -62,6 +64,15 @@ where
             event_family: ORGANIZATION_EVENT_FAMILY.to_owned(),
             event_kind: ORGANIZATION_CREATED_EVENT_KIND.to_owned(),
         },
+        source_event: output
+            .source_event
+            .map(|source_event| OrganizationEventReference {
+                event_family: ORGANIZATION_EVENT_FAMILY.to_owned(),
+                event_kind: ORGANIZATION_CREATED_EVENT_KIND.to_owned(),
+                event_id: source_event.id.clone(),
+                cursor: source_event.id,
+                occurred_at: source_event.occurred_at,
+            }),
     })
 }
 
@@ -77,19 +88,30 @@ where
     resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
     let limit = normalize_list_limit(request.limit);
     let page = store
-        .list_organizations_for_account(request.account_id, limit, request.cursor)
+        .list_organizations_for_account(request.account_id, limit, request.cursor, now)
         .await?;
     let organizations = page
         .organizations
         .into_iter()
         .map(|record| OrganizationView {
-            id: record.id,
-            name: record.name,
+            id: record.organization.id,
+            name: record.organization.name,
+            capabilities: organization_capability_projection(record.granted_permissions),
         })
         .collect();
     Ok(ListOrganizationsResponse {
         organizations,
         next_cursor: page.next_cursor,
+        source_link: OrganizationSourceLink {
+            event_family: ORGANIZATION_EVENT_FAMILY.to_owned(),
+            event_kind: ORGANIZATION_CREATED_EVENT_KIND.to_owned(),
+        },
+        freshness: ReadModelFreshness {
+            projection: "organizations_by_account_membership".to_owned(),
+            checkpoint: page.checkpoint,
+            generated_at: page.generated_at,
+            cursor: page.cursor,
+        },
     })
 }
 

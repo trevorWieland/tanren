@@ -143,12 +143,32 @@ pub(crate) fn create_organization_outcome(response: &CreateOrganizationResponse)
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(", ");
+    let capabilities = response
+        .capabilities
+        .iter()
+        .map(|capability| {
+            format!(
+                "{}:{}:{}",
+                capability.permission, capability.key, capability.allowed
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(", ");
+    let source_event_id = response
+        .source_event
+        .as_ref()
+        .map_or_else(|| "<none>".to_owned(), |event| event.event_id.clone());
+    let source_event_cursor = response
+        .source_event
+        .as_ref()
+        .map_or_else(|| "<none>".to_owned(), |event| event.cursor.clone());
     OutcomeView {
         title: "Organization created",
         lines: vec![
             format!("organization_id: {}", response.organization.id),
             format!("name: {}", response.organization.name),
             format!("granted_permissions: {granted}"),
+            format!("capabilities: {capabilities}"),
             format!("initial_project_count: {}", response.initial_project_count),
             format!(
                 "project_total_count: {}",
@@ -159,6 +179,8 @@ pub(crate) fn create_organization_outcome(response: &CreateOrganizationResponse)
                 "source_event: {}.{}",
                 response.source_link.event_family, response.source_link.event_kind
             ),
+            format!("source_event_id: {source_event_id}"),
+            format!("source_event_cursor: {source_event_cursor}"),
         ],
     }
 }
@@ -167,12 +189,43 @@ pub(crate) fn list_organizations_outcome(response: &ListOrganizationsResponse) -
     let next_cursor = response
         .next_cursor
         .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
+    let freshness_cursor = response
+        .freshness
+        .cursor
+        .clone()
+        .unwrap_or_else(|| "<none>".to_owned());
+    let freshness_checkpoint = response
+        .freshness
+        .checkpoint
+        .clone()
+        .unwrap_or_else(|| "<none>".to_owned());
     let mut lines = vec![
         format!("count: {}", response.organizations.len()),
         format!("next_cursor: {next_cursor}"),
+        format!("freshness_projection: {}", response.freshness.projection),
+        format!(
+            "freshness_generated_at: {}",
+            response.freshness.generated_at.to_rfc3339()
+        ),
+        format!("freshness_cursor: {freshness_cursor}"),
+        format!("freshness_checkpoint: {freshness_checkpoint}"),
     ];
     for org in &response.organizations {
-        lines.push(format!("organization_id: {} name: {}", org.id, org.name));
+        let capabilities = org
+            .capabilities
+            .iter()
+            .map(|capability| {
+                format!(
+                    "{}:{}:{}",
+                    capability.permission, capability.key, capability.allowed
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!(
+            "organization_id: {} name: {} capabilities: {capabilities}",
+            org.id, org.name
+        ));
     }
     OutcomeView {
         title: "Organizations",

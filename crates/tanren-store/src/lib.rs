@@ -27,7 +27,8 @@ pub use traits::{
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
     ConsumeInvitationError, ConsumedInvitation, CreateOrganizationAtomicOutput,
     CreateOrganizationAtomicRequest, CreateOrganizationError, CreateOrganizationEventContext,
-    CreateOrganizationEventsBuilder, LastOrganizationAdminGuardError, ListOrganizationsPage,
+    CreateOrganizationEventsBuilder, EventReference, LastOrganizationAdminGuardError,
+    ListOrganizationsPage, ListedOrganizationRecord,
 };
 
 use async_trait::async_trait;
@@ -322,8 +323,10 @@ impl AccountStore for Store {
         account_id: AccountId,
         limit: u64,
         cursor: Option<MembershipId>,
+        now: DateTime<Utc>,
     ) -> Result<ListOrganizationsPage, StoreError> {
-        account_queries::list_organizations_for_account(&self.conn, account_id, limit, cursor).await
+        account_queries::list_organizations_for_account(&self.conn, account_id, limit, cursor, now)
+            .await
     }
 
     async fn append_event(

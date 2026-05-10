@@ -7,11 +7,12 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
 use std::fmt;
 use std::str::FromStr;
 use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
-    SessionToken,
+    SessionToken, organization_capability,
 };
 use utoipa::{IntoParams, ToSchema};
 
@@ -54,6 +55,8 @@ impl CreateOrganizationRequest {
 pub struct CreateOrganizationResponse {
     /// Freshly created organization.
     pub organization: OrganizationView,
+    /// Capability metadata for organization operations in the created organization.
+    pub capabilities: Vec<OrganizationCapabilityView>,
     /// Contract-projected permission options for organization operations.
     pub available_permissions: Vec<OrganizationPermission>,
     /// Administrative permissions granted to the creator.
@@ -66,6 +69,8 @@ pub struct CreateOrganizationResponse {
     pub proof_link: OrganizationProofLink,
     /// Stable source reference for the canonical creation event.
     pub source_link: OrganizationSourceLink,
+    /// Concrete source event reference from the canonical event log write.
+    pub source_event: Option<OrganizationEventReference>,
 }
 
 /// Summary projection for organization project counts.
@@ -113,6 +118,10 @@ pub struct ListOrganizationsResponse {
     pub organizations: Vec<OrganizationView>,
     /// Opaque cursor callers can pass to fetch the next page.
     pub next_cursor: Option<MembershipId>,
+    /// Canonical source link for organization lifecycle events represented in this view.
+    pub source_link: OrganizationSourceLink,
+    /// Read-model freshness metadata for this response.
+    pub freshness: ReadModelFreshness,
 }
 
 /// Query parameters for `GET /organizations`.
@@ -235,6 +244,21 @@ pub struct OrganizationView {
     pub id: OrgId,
     /// Organization name uniqueness key.
     pub name: OrganizationName,
+    /// Capability metadata projected for this organization and requesting account.
+    pub capabilities: Vec<OrganizationCapabilityView>,
+}
+
+/// Capability metadata for a specific organization permission.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationCapabilityView {
+    /// Organization permission this capability is tied to.
+    pub permission: OrganizationPermission,
+    /// Stable capability key from the identity/policy model.
+    pub key: String,
+    /// Human-readable capability summary from the identity/policy model.
+    pub summary: String,
+    /// Whether the caller currently holds this capability.
+    pub allowed: bool,
 }
 
 /// Shared failure taxonomy for create-organization command handling.
@@ -352,6 +376,34 @@ pub struct OrganizationSourceLink {
     pub event_kind: String,
 }
 
+/// Stable source event reference for organization responses.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationEventReference {
+    /// Event family in the canonical event log.
+    pub event_family: String,
+    /// Event kind in the canonical event log.
+    pub event_kind: String,
+    /// Stable event id emitted by the canonical event-log write.
+    pub event_id: String,
+    /// Cursor consumers can persist to resume from this event position.
+    pub cursor: String,
+    /// Event-log append timestamp for this event.
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Freshness metadata for organization list read models.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ReadModelFreshness {
+    /// Logical projection/read-model name serving this response.
+    pub projection: String,
+    /// Projection checkpoint identifier when available.
+    pub checkpoint: Option<String>,
+    /// Response-generation timestamp from the read path.
+    pub generated_at: DateTime<Utc>,
+    /// Cursor associated with this read model page when available.
+    pub cursor: Option<String>,
+}
+
 /// Event family used for organization lifecycle events.
 pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 /// Event kind for organization-creation events.
@@ -402,6 +454,30 @@ pub const LIST_ORGANIZATIONS_MAX_LIMIT: u64 = 100;
 #[must_use]
 pub fn organization_permission_options() -> Vec<OrganizationPermission> {
     OrganizationPermission::ALL.to_vec()
+}
+
+/// Project capability metadata for organization permissions from the
+/// identity/policy model and currently allowed permission set.
+#[must_use]
+pub fn organization_capability_projection<I>(
+    allowed_permissions: I,
+) -> Vec<OrganizationCapabilityView>
+where
+    I: IntoIterator<Item = OrganizationPermission>,
+{
+    let allowed: HashSet<OrganizationPermission> = allowed_permissions.into_iter().collect();
+    OrganizationPermission::ALL
+        .into_iter()
+        .map(|permission| {
+            let capability = organization_capability(permission);
+            OrganizationCapabilityView {
+                permission,
+                key: capability.key.to_owned(),
+                summary: capability.summary.to_owned(),
+                allowed: allowed.contains(&permission),
+            }
+        })
+        .collect()
 }
 
 /// Shared payload contract for `organization_created`.

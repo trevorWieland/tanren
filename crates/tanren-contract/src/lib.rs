@@ -19,9 +19,10 @@ pub use organization::{
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsApiQuery,
     ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
     ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY, OrganizationBehaviorId,
-    OrganizationCreatedEvent, OrganizationFailureBody, OrganizationFailureCode,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    organization_permission_options,
+    OrganizationCapabilityView, OrganizationCreatedEvent, OrganizationEventReference,
+    OrganizationFailureBody, OrganizationFailureCode, OrganizationProjectSummary,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView, ReadModelFreshness,
+    organization_capability_projection, organization_permission_options,
 };
 pub use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,

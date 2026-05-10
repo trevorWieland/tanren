@@ -4,7 +4,12 @@ use std::time::Duration;
 use expectrl::Regex;
 use secrecy::{ExposeSecret, SecretString};
 use tanren_contract::AccountFailureReason;
-use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission};
+use tanren_contract::{
+    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationBehaviorId,
+    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
+    ReadModelFreshness, organization_capability_projection,
+};
+use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use uuid::Uuid;
 
 use super::common::code_to_reason;
@@ -85,6 +90,74 @@ pub(super) fn parse_reason_code(raw: &str) -> HarnessResult<AccountFailureReason
     code_to_reason(raw.trim()).ok_or_else(|| {
         HarnessError::Transport(format!("unknown failure code in tui output: {raw}"))
     })
+}
+
+pub(super) fn build_create_organization_response(
+    org_id: OrgId,
+    name: OrganizationName,
+    granted_permissions: Vec<OrganizationPermission>,
+    initial_project_count: u64,
+    proof_behavior_id: OrganizationBehaviorId,
+    event_family: String,
+    event_kind: String,
+) -> CreateOrganizationResponse {
+    let capabilities = organization_capability_projection(OrganizationPermission::ALL.to_vec());
+    CreateOrganizationResponse {
+        organization: OrganizationView {
+            id: org_id,
+            name,
+            capabilities: capabilities.clone(),
+        },
+        capabilities,
+        available_permissions: OrganizationPermission::ALL.to_vec(),
+        granted_permissions,
+        initial_project_count,
+        project_summary: OrganizationProjectSummary {
+            total_count: initial_project_count,
+        },
+        proof_link: OrganizationProofLink {
+            behavior_id: proof_behavior_id,
+        },
+        source_link: OrganizationSourceLink {
+            event_family,
+            event_kind,
+        },
+        source_event: None,
+    }
+}
+
+pub(super) fn build_list_organization_view(
+    id_raw: &str,
+    name_raw: &str,
+) -> HarnessResult<OrganizationView> {
+    let id = parse_org_id(id_raw, "list-organizations row")?;
+    let name = OrganizationName::parse(name_raw.trim()).map_err(|e| {
+        HarnessError::Transport(format!("parse organization name in tui output: {e}"))
+    })?;
+    Ok(OrganizationView {
+        id,
+        name,
+        capabilities: Vec::new(),
+    })
+}
+
+pub(super) fn build_list_organizations_response(
+    organizations: Vec<OrganizationView>,
+) -> ListOrganizationsResponse {
+    ListOrganizationsResponse {
+        organizations,
+        next_cursor: None,
+        source_link: OrganizationSourceLink {
+            event_family: "organization".to_owned(),
+            event_kind: "organization_created".to_owned(),
+        },
+        freshness: ReadModelFreshness {
+            projection: "organizations_by_account_membership".to_owned(),
+            checkpoint: None,
+            generated_at: chrono::Utc::now(),
+            cursor: None,
+        },
+    }
 }
 
 pub(super) fn open_form(

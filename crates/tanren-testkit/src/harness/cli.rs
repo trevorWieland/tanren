@@ -21,7 +21,8 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
     CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
     OrganizationBehaviorId, OrganizationProjectSummary, OrganizationProofLink,
-    OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
+    OrganizationSourceLink, OrganizationView, ReadModelFreshness, SignInRequest, SignUpRequest,
+    organization_capability_projection,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -318,7 +319,14 @@ impl AccountHarness for CliHarness {
             ))
         })?;
         Ok(CreateOrganizationResponse {
-            organization: OrganizationView { id: org_id, name },
+            organization: OrganizationView {
+                id: org_id,
+                name,
+                capabilities: organization_capability_projection(
+                    OrganizationPermission::ALL.to_vec(),
+                ),
+            },
+            capabilities: organization_capability_projection(OrganizationPermission::ALL.to_vec()),
             available_permissions: OrganizationPermission::ALL.to_vec(),
             granted_permissions: Self::parse_permissions(granted_raw)?,
             initial_project_count,
@@ -332,6 +340,7 @@ impl AccountHarness for CliHarness {
                 event_family: event_family.to_owned(),
                 event_kind: event_kind.to_owned(),
             },
+            source_event: None,
         })
     }
 
@@ -401,11 +410,25 @@ impl AccountHarness for CliHarness {
             let name = OrganizationName::parse(name_raw).map_err(|e| {
                 HarnessError::Transport(format!("parse organization name from cli output: {e}"))
             })?;
-            organizations.push(OrganizationView { id, name });
+            organizations.push(OrganizationView {
+                id,
+                name,
+                capabilities: Vec::new(),
+            });
         }
         Ok(ListOrganizationsResponse {
             organizations,
             next_cursor,
+            source_link: OrganizationSourceLink {
+                event_family: "organization".to_owned(),
+                event_kind: "organization_created".to_owned(),
+            },
+            freshness: ReadModelFreshness {
+                projection: "organizations_by_account_membership".to_owned(),
+                checkpoint: None,
+                generated_at: Utc::now(),
+                cursor: next_cursor.map(|value| value.to_string()),
+            },
         })
     }
 

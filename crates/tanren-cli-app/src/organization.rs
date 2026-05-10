@@ -149,21 +149,43 @@ async fn create_organization(
         .map(ToString::to_string)
         .collect::<Vec<_>>()
         .join(",");
+    let capabilities = response
+        .capabilities
+        .iter()
+        .map(|capability| {
+            format!(
+                "{}:{}:{}",
+                capability.permission, capability.key, capability.allowed
+            )
+        })
+        .collect::<Vec<_>>()
+        .join(",");
     let source_event = format!(
         "{}.{}",
         response.source_link.event_family, response.source_link.event_kind
     );
+    let source_event_id = response
+        .source_event
+        .as_ref()
+        .map_or_else(|| "<none>".to_owned(), |event| event.event_id.clone());
+    let source_event_cursor = response
+        .source_event
+        .as_ref()
+        .map_or_else(|| "<none>".to_owned(), |event| event.cursor.clone());
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
     writeln!(
         handle,
-        "organization_id={id} name={name} granted_permissions={granted} initial_project_count={initial_project_count} proof_behavior_id={proof_behavior_id} source_event={source_event}",
+        "organization_id={id} name={name} granted_permissions={granted} initial_project_count={initial_project_count} proof_behavior_id={proof_behavior_id} source_event={source_event} source_event_id={source_event_id} source_event_cursor={source_event_cursor} capabilities={capabilities}",
         id = response.organization.id,
         name = response.organization.name,
         granted = granted,
         initial_project_count = response.initial_project_count,
         proof_behavior_id = response.proof_link.behavior_id,
         source_event = source_event,
+        source_event_id = source_event_id,
+        source_event_cursor = source_event_cursor,
+        capabilities = capabilities,
     )
     .map_err(|e| OrganizationCliError::Message(format!("write create-organization result: {e}")))?;
     Ok(())
@@ -201,21 +223,55 @@ async fn list_organizations(
     let next_cursor = response
         .next_cursor
         .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
+    let freshness_cursor = response
+        .freshness
+        .cursor
+        .clone()
+        .unwrap_or_else(|| "<none>".to_owned());
+    let freshness_checkpoint = response
+        .freshness
+        .checkpoint
+        .clone()
+        .unwrap_or_else(|| "<none>".to_owned());
     if response.organizations.is_empty() {
-        writeln!(handle, "organizations=0 next_cursor={next_cursor}").map_err(|e| {
+        writeln!(
+            handle,
+            "organizations=0 next_cursor={next_cursor} freshness_projection={} freshness_generated_at={} freshness_cursor={freshness_cursor} freshness_checkpoint={freshness_checkpoint}",
+            response.freshness.projection,
+            response.freshness.generated_at.to_rfc3339(),
+        )
+        .map_err(|e| {
             OrganizationCliError::Message(format!("write organization-list result: {e}"))
         })?;
     } else {
         writeln!(
             handle,
-            "organizations={} next_cursor={next_cursor}",
-            response.organizations.len()
+            "organizations={} next_cursor={next_cursor} freshness_projection={} freshness_generated_at={} freshness_cursor={freshness_cursor} freshness_checkpoint={freshness_checkpoint}",
+            response.organizations.len(),
+            response.freshness.projection,
+            response.freshness.generated_at.to_rfc3339(),
         )
         .map_err(|e| {
             OrganizationCliError::Message(format!("write organization-list count: {e}"))
         })?;
         for org in response.organizations {
-            writeln!(handle, "organization_id={} name={}", org.id, org.name).map_err(|e| {
+            let capabilities = org
+                .capabilities
+                .iter()
+                .map(|capability| {
+                    format!(
+                        "{}:{}:{}",
+                        capability.permission, capability.key, capability.allowed
+                    )
+                })
+                .collect::<Vec<_>>()
+                .join(",");
+            writeln!(
+                handle,
+                "organization_id={} name={} capabilities={}",
+                org.id, org.name, capabilities
+            )
+            .map_err(|e| {
                 OrganizationCliError::Message(format!("write organization-list row: {e}"))
             })?;
         }

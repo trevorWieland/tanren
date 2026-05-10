@@ -199,6 +199,8 @@ export interface components {
     CreateOrganizationResponse: {
       /** @description Contract-projected permission options for organization operations. */
       available_permissions: components["schemas"]["OrganizationPermission"][];
+      /** @description Capability metadata for organization operations in the created organization. */
+      capabilities: components["schemas"]["OrganizationCapabilityView"][];
       /** @description Administrative permissions granted to the creator. */
       granted_permissions: components["schemas"]["OrganizationPermission"][];
       /**
@@ -212,6 +214,7 @@ export interface components {
       project_summary: components["schemas"]["OrganizationProjectSummary"];
       /** @description Stable proof reference clients can render without event-log probing. */
       proof_link: components["schemas"]["OrganizationProofLink"];
+      source_event?: null | components["schemas"]["OrganizationEventReference"];
       /** @description Stable source reference for the canonical creation event. */
       source_link: components["schemas"]["OrganizationSourceLink"];
     };
@@ -281,9 +284,13 @@ export interface components {
     };
     /** @description List-organizations response. */
     ListOrganizationsResponse: {
+      /** @description Read-model freshness metadata for this response. */
+      freshness: components["schemas"]["ReadModelFreshness"];
       next_cursor?: null | components["schemas"]["MembershipId"];
       /** @description Organizations visible to the requested account. */
       organizations: components["schemas"]["OrganizationView"][];
+      /** @description Canonical source link for organization lifecycle events represented in this view. */
+      source_link: components["schemas"]["OrganizationSourceLink"];
     };
     /**
      * Format: uuid
@@ -300,6 +307,33 @@ export interface components {
      * @enum {string}
      */
     OrganizationBehaviorId: "B-0066";
+    /** @description Capability metadata for a specific organization permission. */
+    OrganizationCapabilityView: {
+      /** @description Whether the caller currently holds this capability. */
+      allowed: boolean;
+      /** @description Stable capability key from the identity/policy model. */
+      key: string;
+      /** @description Organization permission this capability is tied to. */
+      permission: components["schemas"]["OrganizationPermission"];
+      /** @description Human-readable capability summary from the identity/policy model. */
+      summary: string;
+    };
+    /** @description Stable source event reference for organization responses. */
+    OrganizationEventReference: {
+      /** @description Cursor consumers can persist to resume from this event position. */
+      cursor: string;
+      /** @description Event family in the canonical event log. */
+      event_family: string;
+      /** @description Stable event id emitted by the canonical event-log write. */
+      event_id: string;
+      /** @description Event kind in the canonical event log. */
+      event_kind: string;
+      /**
+       * Format: date-time
+       * @description Event-log append timestamp for this event.
+       */
+      occurred_at: string;
+    };
     /** @description Shared `{code, summary}` body for organization-operation failures. */
     OrganizationFailureBody: {
       /** @description Stable error code from the organization taxonomy. */
@@ -363,10 +397,26 @@ export interface components {
     };
     /** @description External-facing view of a Tanren organization. */
     OrganizationView: {
+      /** @description Capability metadata projected for this organization and requesting account. */
+      capabilities: components["schemas"]["OrganizationCapabilityView"][];
       /** @description Stable organization id. */
       id: components["schemas"]["OrgId"];
       /** @description Organization name uniqueness key. */
       name: components["schemas"]["OrganizationName"];
+    };
+    /** @description Freshness metadata for organization list read models. */
+    ReadModelFreshness: {
+      /** @description Projection checkpoint identifier when available. */
+      checkpoint?: string | null;
+      /** @description Cursor associated with this read model page when available. */
+      cursor?: string | null;
+      /**
+       * Format: date-time
+       * @description Response-generation timestamp from the read path.
+       */
+      generated_at: string;
+      /** @description Logical projection/read-model name serving this response. */
+      projection: string;
     };
     /** @description Transport-aware projection of a freshly minted session.
      *

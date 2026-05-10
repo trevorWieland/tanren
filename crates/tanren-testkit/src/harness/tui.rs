@@ -5,7 +5,8 @@ use super::tui_support::{
     AccountCredentials, RE_ACCEPT_SUCCESS, RE_CHECK_SUCCESS, RE_CREATE_SUCCESS, RE_ERROR_ACCEPT,
     RE_ERROR_CHECK, RE_ERROR_CREATE, RE_ERROR_LIST, RE_ERROR_SIGN_IN, RE_ERROR_SIGN_UP,
     RE_LIST_ROW, RE_LIST_SUCCESS, RE_SIGN_IN_SUCCESS, RE_SIGN_UP_SUCCESS, READY_MARKER,
-    TUI_EXPECT_TIMEOUT, close_session, expect_five_regex_captures, expect_literal,
+    TUI_EXPECT_TIMEOUT, build_create_organization_response, build_list_organization_view,
+    build_list_organizations_response, close_session, expect_five_regex_captures, expect_literal,
     expect_regex_capture, expect_three_regex_captures, expect_two_regex_captures, open_form,
     parse_account_id, parse_count, parse_initial_project_count, parse_org_id, parse_permissions,
     parse_reason_code, parse_source_event, send, sign_in_in_session,
@@ -25,9 +26,8 @@ use std::sync::Arc;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationBehaviorId,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    SignInRequest, SignUpRequest,
+    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationBehaviorId, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, Identifier, OrgId, OrganizationName, OrganizationPermission,
@@ -325,22 +325,15 @@ impl AccountHarness for TuiHarness {
                     .map_err(|err| {
                         HarnessError::Transport(format!("parse proof_behavior_id: {err}"))
                     })?;
-                Ok(CreateOrganizationResponse {
-                    organization: OrganizationView { id: org_id, name },
-                    available_permissions: OrganizationPermission::ALL.to_vec(),
+                Ok(build_create_organization_response(
+                    org_id,
+                    name,
                     granted_permissions,
                     initial_project_count,
-                    project_summary: OrganizationProjectSummary {
-                        total_count: initial_project_count,
-                    },
-                    proof_link: OrganizationProofLink {
-                        behavior_id: proof_behavior_id,
-                    },
-                    source_link: OrganizationSourceLink {
-                        event_family,
-                        event_kind,
-                    },
-                })
+                    proof_behavior_id,
+                    event_family,
+                    event_kind,
+                ))
             }
             Err(success_err) => {
                 if let Ok(code) = expect_regex_capture(
@@ -386,18 +379,9 @@ impl AccountHarness for TuiHarness {
                         2,
                         &format!("list-organizations row #{idx}"),
                     )?;
-                    let id = parse_org_id(&id_raw, "list-organizations row")?;
-                    let org_name = OrganizationName::parse(name_raw.trim()).map_err(|e| {
-                        HarnessError::Transport(format!(
-                            "parse organization name in tui output: {e}"
-                        ))
-                    })?;
-                    organizations.push(OrganizationView { id, name: org_name });
+                    organizations.push(build_list_organization_view(&id_raw, &name_raw)?);
                 }
-                Ok(ListOrganizationsResponse {
-                    organizations,
-                    next_cursor: None,
-                })
+                Ok(build_list_organizations_response(organizations))
             }
             Err(success_err) => {
                 if let Ok(code) = expect_regex_capture(
