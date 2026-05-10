@@ -2,7 +2,7 @@ use super::*;
 
 pub(super) fn assert_rust_cargo_default_assets_installed_inner(
     repository_root: &Path,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
     let expected_integrations = InstallProofIntegration::all();
     assert_manifest_profile_and_integrations(
@@ -21,7 +21,7 @@ pub(super) fn assert_rust_cargo_default_assets_installed_inner(
 
 pub(super) fn assert_rust_cargo_standards_installed_inner(
     repository_root: &Path,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
     assert_standards_assets_for_rust_cargo(repository_root, &manifest)
 }
@@ -29,10 +29,10 @@ pub(super) fn assert_rust_cargo_standards_installed_inner(
 pub(super) fn assert_selected_integration_command_assets_inner(
     repository_root: &Path,
     selected_integrations: &str,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let selected =
         parse_install_integration_selection(selected_integrations).map_err(|source| {
-            InstallProofFailure::InvalidIntegrationSelection {
+            InstallProofError::InvalidIntegrationSelection {
                 selection: selected_integrations.to_owned(),
                 source,
             }
@@ -45,7 +45,7 @@ pub(super) fn assert_selected_integration_command_assets_inner(
 
 pub(super) fn assert_manifest_rust_cargo_defaults_inner(
     repository_root: &Path,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
     let expected_integrations = InstallProofIntegration::all();
     assert_manifest_profile_and_integrations(
@@ -83,11 +83,11 @@ pub(super) fn assert_manifest_rust_cargo_defaults_inner(
 
 fn read_install_manifest(
     repository_root: &Path,
-) -> Result<ObservedInstallManifest, InstallProofFailure> {
+) -> Result<ObservedInstallManifest, InstallProofError> {
     let path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
     let raw = read_to_string_with_context(&path, "read install manifest from repository fixture")?;
     let parsed: InstallManifest =
-        toml::from_str(&raw).map_err(|source| InstallProofFailure::InstallManifestTomlParse {
+        toml::from_str(&raw).map_err(|source| InstallProofError::InstallManifestTomlParse {
             manifest_path: path.clone(),
             source,
         })?;
@@ -109,7 +109,7 @@ fn assert_manifest_profile_and_integrations(
     manifest: &ObservedInstallManifest,
     expected_profile: InstallProofProfile,
     expected_integrations: &BTreeSet<InstallProofIntegration>,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     if manifest.parsed.profile != expected_profile {
         return Err(manifest_contract_error(
             manifest,
@@ -141,7 +141,7 @@ fn assert_command_assets_for_selected_integrations(
     repository_root: &Path,
     manifest: &ObservedInstallManifest,
     selected: &BTreeSet<InstallProofIntegration>,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let mut seen = BTreeSet::new();
     for entry in manifest
         .parsed
@@ -205,7 +205,7 @@ fn assert_command_assets_for_selected_integrations(
 fn assert_standards_assets_for_rust_cargo(
     repository_root: &Path,
     manifest: &ObservedInstallManifest,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let mut saw_any = false;
     for entry in manifest
         .parsed
@@ -240,7 +240,7 @@ fn assert_standards_assets_for_rust_cargo(
 fn assert_unselected_integration_roots_are_empty(
     repository_root: &Path,
     selected: &BTreeSet<InstallProofIntegration>,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     for integration in InstallProofIntegration::all() {
         if selected.contains(&integration) {
             continue;
@@ -248,38 +248,37 @@ fn assert_unselected_integration_roots_are_empty(
 
         let root_path = repository_root.join(integration.destination_root());
         if has_any_files(&root_path)? {
-            return Err(InstallProofFailure::ExpectedFileToBeAbsent { path: root_path });
+            return Err(InstallProofError::ExpectedFileToBeAbsent { path: root_path });
         }
     }
     Ok(())
 }
 
-fn has_any_files(path: &Path) -> Result<bool, InstallProofFailure> {
+fn has_any_files(path: &Path) -> Result<bool, InstallProofError> {
     if !path.exists() {
         return Ok(false);
     }
 
-    let entries = fs::read_dir(path).map_err(|source| InstallProofFailure::ReadDirectory {
+    let entries = fs::read_dir(path).map_err(|source| InstallProofError::ReadDirectory {
         path: path.to_path_buf(),
         action: "inspect unselected integration root",
         source,
     })?;
 
     for entry in entries {
-        let entry = entry.map_err(|source| InstallProofFailure::ReadDirectoryEntry {
+        let entry = entry.map_err(|source| InstallProofError::ReadDirectoryEntry {
             path: path.to_path_buf(),
             action: "inspect unselected integration root entries",
             source,
         })?;
         let entry_path = entry.path();
-        let file_type =
-            entry
-                .file_type()
-                .map_err(|source| InstallProofFailure::InspectFileType {
-                    path: entry_path.clone(),
-                    action: "inspect unselected integration root entry type",
-                    source,
-                })?;
+        let file_type = entry
+            .file_type()
+            .map_err(|source| InstallProofError::InspectFileType {
+                path: entry_path.clone(),
+                action: "inspect unselected integration root entry type",
+                source,
+            })?;
 
         if file_type.is_file() {
             return Ok(true);
@@ -317,8 +316,8 @@ fn matches_generated_command_layout(path: &str, destination_root: &str) -> bool 
 fn manifest_contract_error(
     manifest: &ObservedInstallManifest,
     expected: &str,
-) -> InstallProofFailure {
-    InstallProofFailure::ManifestContractViolation {
+) -> InstallProofError {
+    InstallProofError::ManifestContractViolation {
         expected: expected.to_owned(),
         manifest_path: manifest.path.clone(),
         manifest: manifest.raw.clone(),
@@ -337,14 +336,14 @@ fn format_integration_set(set: &BTreeSet<InstallProofIntegration>) -> String {
 pub(super) fn tamper_manifest_with_raw_generated_entry_inner(
     repository_root: &Path,
     raw_path: &str,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     const TAMPERED_ENTRY_SHA256: &str =
         "0000000000000000000000000000000000000000000000000000000000000000";
     let manifest_path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
     let mut manifest = read_to_string_with_context(&manifest_path, "read install manifest")?;
     let path_line = format!("path = \"{raw_path}\"");
     if manifest.contains(path_line.as_str()) {
-        return Err(InstallProofFailure::StaleManifestPathAlreadyPresent {
+        return Err(InstallProofError::StaleManifestPathAlreadyPresent {
             path: raw_path.to_owned(),
         });
     }
@@ -353,7 +352,7 @@ pub(super) fn tamper_manifest_with_raw_generated_entry_inner(
         "\n[[entries]]\npath = \"{raw_path}\"\ncontent_hash = \"{TAMPERED_ENTRY_SHA256}\"\nasset_class = \"methodology-command\"\nintegration = \"{}\"\npreservation = \"replace-generated\"\n",
         InstallProofIntegration::Codex.as_str()
     );
-    fs::write(&manifest_path, manifest).map_err(|source| InstallProofFailure::WriteFile {
+    fs::write(&manifest_path, manifest).map_err(|source| InstallProofError::WriteFile {
         path: manifest_path,
         action: "write install manifest with tampered raw entry",
         source,
@@ -364,17 +363,17 @@ pub(super) fn tamper_manifest_with_raw_generated_entry_inner(
 #[cfg(feature = "test-hooks")]
 pub(super) fn read_workspace_catalog_file_inner(
     relative_path: &InstallProofRepoRelativePath,
-) -> Result<String, InstallProofFailure> {
+) -> Result<String, InstallProofError> {
     let absolute = workspace_root()?.join(relative_path.as_str());
     read_to_string_with_context(&absolute, "read workspace catalog file")
 }
 
 #[cfg(feature = "test-hooks")]
-fn workspace_root() -> Result<PathBuf, InstallProofFailure> {
+fn workspace_root() -> Result<PathBuf, InstallProofError> {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../..")
         .canonicalize()
-        .map_err(|source| InstallProofFailure::CanonicalizeWorkspaceRoot {
+        .map_err(|source| InstallProofError::CanonicalizeWorkspaceRoot {
             action: "resolving workspace root",
             source,
         })
@@ -383,10 +382,10 @@ fn workspace_root() -> Result<PathBuf, InstallProofFailure> {
 fn assert_file_exists(
     repository_root: &Path,
     relative_path: &str,
-) -> Result<(), InstallProofFailure> {
+) -> Result<(), InstallProofError> {
     let absolute = repository_root.join(relative_path);
     if !absolute.exists() {
-        return Err(InstallProofFailure::ExpectedFileToExist { path: absolute });
+        return Err(InstallProofError::ExpectedFileToExist { path: absolute });
     }
     Ok(())
 }
@@ -394,8 +393,8 @@ fn assert_file_exists(
 fn read_to_string_with_context(
     path: &Path,
     action: &'static str,
-) -> Result<String, InstallProofFailure> {
-    fs::read_to_string(path).map_err(|source| InstallProofFailure::ReadFile {
+) -> Result<String, InstallProofError> {
+    fs::read_to_string(path).map_err(|source| InstallProofError::ReadFile {
         path: path.to_path_buf(),
         action,
         source,

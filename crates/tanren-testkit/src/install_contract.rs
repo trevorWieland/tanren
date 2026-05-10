@@ -192,15 +192,14 @@ impl<'de> Deserialize<'de> for InstallProofRepoRelativePath {
     }
 }
 
-/// Delivery-owned proof failure type surfaced to BDD assertion mapping.
-#[derive(Debug, Error, Clone, PartialEq, Eq)]
-#[error("{message}")]
-pub struct InstallProofError {
-    message: String,
-}
+/// Typed parse failure for [`Sha256Hex`].
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
+#[error("content hash must be exactly 64 lowercase hex characters")]
+struct Sha256HexParseError;
 
+/// Delivery-owned proof failure type surfaced to BDD assertion mapping.
 #[derive(Debug, Error)]
-enum InstallProofFailure {
+pub enum InstallProofError {
     #[error("invalid integration assertion selection '{selection}': {source}")]
     InvalidIntegrationSelection {
         selection: String,
@@ -262,14 +261,6 @@ enum InstallProofFailure {
     },
 }
 
-impl From<InstallProofFailure> for InstallProofError {
-    fn from(source: InstallProofFailure) -> Self {
-        Self {
-            message: source.to_string(),
-        }
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 enum InstallProofPreservation {
@@ -283,13 +274,13 @@ struct Sha256Hex(String);
 impl Sha256Hex {
     const LENGTH: usize = 64;
 
-    fn parse(value: &str) -> Result<Self, &'static str> {
+    fn parse(value: &str) -> Result<Self, Sha256HexParseError> {
         if value.len() != Self::LENGTH
             || !value
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
-            return Err("content hash must be exactly 64 lowercase hex characters");
+            return Err(Sha256HexParseError);
         }
         Ok(Self(value.to_owned()))
     }
@@ -342,26 +333,18 @@ struct ObservedInstallManifest {
     parsed: InstallManifest,
 }
 
-fn as_public<T>(result: Result<T, InstallProofFailure>) -> Result<T, InstallProofError> {
-    result.map_err(InstallProofError::from)
-}
-
 /// Assert the default rust-cargo install writes both command and standards assets.
 pub fn assert_rust_cargo_default_assets_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    as_public(proof::assert_rust_cargo_default_assets_installed_inner(
-        repository_root,
-    ))
+    proof::assert_rust_cargo_default_assets_installed_inner(repository_root)
 }
 
 /// Assert rust-cargo standards profile assets are installed.
 pub fn assert_rust_cargo_standards_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    as_public(proof::assert_rust_cargo_standards_installed_inner(
-        repository_root,
-    ))
+    proof::assert_rust_cargo_standards_installed_inner(repository_root)
 }
 
 /// Assert only the selected integration command assets are installed.
@@ -369,19 +352,14 @@ pub fn assert_selected_integration_command_assets(
     repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
-    as_public(proof::assert_selected_integration_command_assets_inner(
-        repository_root,
-        selected_integrations,
-    ))
+    proof::assert_selected_integration_command_assets_inner(repository_root, selected_integrations)
 }
 
 /// Assert install manifest defaults for rust-cargo profile installs.
 pub fn assert_manifest_rust_cargo_defaults(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
-    as_public(proof::assert_manifest_rust_cargo_defaults_inner(
-        repository_root,
-    ))
+    proof::assert_manifest_rust_cargo_defaults_inner(repository_root)
 }
 
 /// Append a stale generated-manifest row for mutation-flow fixtures.
@@ -406,10 +384,7 @@ pub fn tamper_manifest_with_raw_generated_entry(
     repository_root: &Path,
     raw_path: &str,
 ) -> Result<(), InstallProofError> {
-    as_public(proof::tamper_manifest_with_raw_generated_entry_inner(
-        repository_root,
-        raw_path,
-    ))
+    proof::tamper_manifest_with_raw_generated_entry_inner(repository_root, raw_path)
 }
 
 /// Read a workspace catalog file for fixture seeding.
@@ -417,7 +392,7 @@ pub fn tamper_manifest_with_raw_generated_entry(
 pub fn read_workspace_catalog_file(
     relative_path: &InstallProofRepoRelativePath,
 ) -> Result<String, InstallProofError> {
-    as_public(proof::read_workspace_catalog_file_inner(relative_path))
+    proof::read_workspace_catalog_file_inner(relative_path)
 }
 
 /// Calculate a hex SHA-256 digest for fixture bytes.
