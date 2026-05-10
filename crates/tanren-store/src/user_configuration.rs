@@ -11,8 +11,9 @@ use crate::{
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sea_orm::{
-    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, IntoActiveModel, QueryFilter,
-    QueryOrder, QuerySelect, Set, TransactionTrait, sea_query::OnConflict,
+    ActiveModelTrait, ColumnTrait, Condition, EntityTrait, QueryFilter, QueryOrder, QuerySelect,
+    Set, TransactionTrait,
+    sea_query::{Expr, OnConflict},
 };
 use tanren_configuration_secrets::{
     OwnerScope, SealedUserCredentialValue, UserCredentialId, UserCredentialStatus, UserSettingKey,
@@ -195,41 +196,38 @@ impl UserConfigurationStore for Store {
                 detail: "sealed owner scope does not match update target".to_owned(),
             });
         }
-        let row = entity::user_credentials::Entity::find()
+        let txn = self.conn.begin().await?;
+        let updated_rows = entity::user_credentials::Entity::update_many()
+            .col_expr(
+                entity::user_credentials::Column::Status,
+                Expr::value(user_item_status_to_db(status).to_owned()),
+            )
+            .col_expr(
+                entity::user_credentials::Column::UpdatedAt,
+                Expr::value(now),
+            )
             .filter(entity::user_credentials::Column::Id.eq(parsed_id))
             .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
             .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
-            .one(&self.conn)
+            .exec_with_returning(&txn)
             .await?;
-        let Some(row) = row else {
-            return Ok(None);
+        let updated = match updated_rows.as_slice() {
+            [] => return Ok(None),
+            [updated] => updated.clone(),
+            _ => {
+                return Err(StoreError::InvalidStoreValue {
+                    column: "user_credentials.id",
+                    detail: "credential update expected exactly one row".to_owned(),
+                });
+            }
         };
-        let row_kind = crate::records::parse_user_item_kind(&row.kind)?;
+        let row_kind = crate::records::parse_user_item_kind(&updated.kind)?;
         if row_kind != sealed_value.credential_kind() {
             return Err(StoreError::CredentialEncryption {
                 detail: "sealed credential kind does not match persisted metadata kind".to_owned(),
             });
         }
-        let txn = self.conn.begin().await?;
-        let mut active = row.into_active_model();
-        active.status = Set(user_item_status_to_db(status).to_owned());
-        active.updated_at = Set(now);
-        let updated = active.update(&txn).await?;
-        if let Some(existing_value) = entity::user_credential_values::Entity::find()
-            .filter(entity::user_credential_values::Column::ItemId.eq(parsed_id))
-            .filter(entity::user_credential_values::Column::AccountId.eq(account_id.as_uuid()))
-            .one(&txn)
-            .await?
-        {
-            let mut active_value = existing_value.into_active_model();
-            active_value.cipher_scheme = Set(sealed_value.scheme().as_db_value().to_owned());
-            active_value.kdf_version = Set(sealed_value.kdf_version());
-            active_value.kdf_salt = Set(sealed_value.kdf_salt().to_vec());
-            active_value.nonce = Set(sealed_value.nonce().to_vec());
-            active_value.ciphertext = Set(sealed_value.ciphertext().to_vec());
-            active_value.updated_at = Set(now);
-            active_value.update(&txn).await?;
-        } else {
+        entity::user_credential_values::Entity::insert(
             entity::user_credential_values::ActiveModel {
                 id: Set(Uuid::now_v7()),
                 item_id: Set(parsed_id),
@@ -241,10 +239,22 @@ impl UserConfigurationStore for Store {
                 ciphertext: Set(sealed_value.ciphertext().to_vec()),
                 created_at: Set(now),
                 updated_at: Set(now),
-            }
-            .insert(&txn)
-            .await?;
-        }
+            },
+        )
+        .on_conflict(
+            OnConflict::column(entity::user_credential_values::Column::ItemId)
+                .update_columns([
+                    entity::user_credential_values::Column::CipherScheme,
+                    entity::user_credential_values::Column::KdfVersion,
+                    entity::user_credential_values::Column::KdfSalt,
+                    entity::user_credential_values::Column::Nonce,
+                    entity::user_credential_values::Column::Ciphertext,
+                    entity::user_credential_values::Column::UpdatedAt,
+                ])
+                .to_owned(),
+        )
+        .exec(&txn)
+        .await?;
         txn.commit().await?;
         Ok(Some(UserOwnedItemRecord::try_from(updated)?))
     }
@@ -318,21 +328,28 @@ impl UserConfigurationStore for Store {
         &self,
         id: UserCredentialId,
         owner_scope: OwnerScope,
-    ) -> Result<bool, StoreError> {
+    ) -> Result<Option<UserOwnedItemRecord>, StoreError> {
         let parsed_id = id.as_uuid();
         let (scope, account_id) = owner_scope_to_db(owner_scope);
-        let txn = self.conn.begin().await?;
-        let result = entity::user_credentials::Entity::delete_many()
+        let mut removed = entity::user_credentials::Entity::delete_many()
             .filter(entity::user_credentials::Column::Id.eq(parsed_id))
             .filter(entity::user_credentials::Column::AccountId.eq(account_id.as_uuid()))
             .filter(entity::user_credentials::Column::OwnerScope.eq(scope))
-            .exec(&txn)
+            .exec_with_returning(&self.conn)
             .await?;
-        if result.rows_affected == 0 {
-            txn.commit().await?;
-            return Ok(false);
+        match removed.len() {
+            0 => Ok(None),
+            1 => {
+                let row = removed.pop().ok_or_else(|| StoreError::InvalidStoreValue {
+                    column: "user_credentials.id",
+                    detail: "credential delete expected exactly one row".to_owned(),
+                })?;
+                Ok(Some(UserOwnedItemRecord::try_from(row)?))
+            }
+            _ => Err(StoreError::InvalidStoreValue {
+                column: "user_credentials.id",
+                detail: "credential delete expected exactly one row".to_owned(),
+            }),
         }
-        txn.commit().await?;
-        Ok(true)
     }
 }

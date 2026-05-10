@@ -368,7 +368,7 @@ pub trait UserConfigurationStore: Send + Sync + std::fmt::Debug {
         &self,
         id: UserCredentialId,
         owner_scope: OwnerScope,
-    ) -> Result<bool, StoreError>;
+    ) -> Result<Option<UserOwnedItemRecord>, StoreError>;
 }
 
 /// Generic page request shape for user-configuration list reads.

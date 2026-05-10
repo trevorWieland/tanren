@@ -274,11 +274,11 @@ where
         return Err(err);
     }
 
-    let Some(item) = store
-        .get_user_credential(item_id, context.requested_owner_scope())
+    let removed = store
+        .remove_user_credential(item_id, context.requested_owner_scope())
         .await
-        .map_err(map_store_error)?
-    else {
+        .map_err(map_store_error)?;
+    let Some(item) = removed else {
         append_rejected_event(
             store,
             context,
@@ -291,24 +291,6 @@ where
         .await?;
         return Err(item_not_found());
     };
-
-    let removed = store
-        .remove_user_credential(item_id, context.requested_owner_scope())
-        .await
-        .map_err(map_store_error)?;
-    if !removed {
-        append_rejected_event(
-            store,
-            context,
-            ConfigurationOperation::RemoveUserCredential,
-            ConfigurationOperationFailureReason::ItemNotFound,
-            None,
-            Some(item_id),
-            clock.now(),
-        )
-        .await?;
-        return Err(item_not_found());
-    }
 
     let now = clock.now();
     append_user_credential_removed_event(store, context, &item, now).await?;
