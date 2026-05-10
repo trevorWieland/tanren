@@ -1,6 +1,6 @@
 // Generated from Tanren's utoipa OpenAPI contract via:
 //   cargo run -q -p tanren-xtask -- export-openapi --out <path>
-// and openapi-typescript via apps/web/scripts/generate-interface-contracts.mjs
+// and openapi-typescript via scripts/generate-interface-contracts.mjs
 // Do not hand-edit this file.
 
 export interface paths {

@@ -850,13 +850,13 @@ web-install:
 web-build:
     pnpm --filter @tanren/web build
 
-# Regenerate the web interface contract from the Rust/utoipa OpenAPI document.
+# Regenerate the shared web interface contract from the Rust/utoipa OpenAPI document.
 web-contracts-generate:
-    pnpm --filter @tanren/web run contracts:generate
+    node scripts/generate-interface-contracts.mjs
 
-# Assert the checked-in web interface contract matches generated output.
+# Assert the checked-in shared web interface contract matches generated output.
 web-contracts-check:
-    pnpm --filter @tanren/web run contracts:check
+    node scripts/generate-interface-contracts.mjs --check
 
 # Compile inlang/paraglide messages so subsequent web-* recipes can
 # resolve `@/i18n/paraglide/messages` at typecheck/lint time. No-op

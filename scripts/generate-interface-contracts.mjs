@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { execFileSync } from "node:child_process";
-import { readFileSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
@@ -9,14 +9,13 @@ import { fileURLToPath } from "node:url";
 import openapiTS, { astToString } from "openapi-typescript";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const WEB_ROOT = resolve(__dirname, "..");
-const REPO_ROOT = resolve(WEB_ROOT, "..", "..");
+const REPO_ROOT = resolve(__dirname, "..");
 const OUTPUT_PATH = resolve(
-  WEB_ROOT,
-  "src",
-  "app",
-  "lib",
-  "generated-interface-contracts.ts",
+  REPO_ROOT,
+  "crates",
+  "tanren-contract",
+  "generated",
+  "web-interface-contracts.ts",
 );
 const CHECK_MODE = process.argv.includes("--check");
 
@@ -46,11 +45,15 @@ function loadOpenApi() {
 }
 
 function formatTypescript(source) {
-  return execFileSync("pnpm", ["exec", "prettier", "--parser", "typescript"], {
-    cwd: WEB_ROOT,
-    encoding: "utf8",
-    input: source,
-  });
+  return execFileSync(
+    "pnpm",
+    ["--filter", "@tanren/web", "exec", "prettier", "--parser", "typescript"],
+    {
+      cwd: REPO_ROOT,
+      encoding: "utf8",
+      input: source,
+    },
+  );
 }
 
 async function renderOpenApiTypes(openapi) {
@@ -90,7 +93,7 @@ function generateFile(openapi, renderedOpenApiTypes, aliasOrder) {
   return [
     "// Generated from Tanren's utoipa OpenAPI contract via:",
     "//   cargo run -q -p tanren-xtask -- export-openapi --out <path>",
-    "// and openapi-typescript via apps/web/scripts/generate-interface-contracts.mjs",
+    "// and openapi-typescript via scripts/generate-interface-contracts.mjs",
     "// Do not hand-edit this file.",
     "",
     renderedOpenApiTypes.trimEnd(),
@@ -109,6 +112,14 @@ function generateFile(openapi, renderedOpenApiTypes, aliasOrder) {
   ].join("\n");
 }
 
+function currentContent() {
+  try {
+    return readFileSync(OUTPUT_PATH, "utf8");
+  } catch {
+    return "";
+  }
+}
+
 async function main() {
   const openapi = loadOpenApi();
   const aliasOrder = resolveContractSchemaOrder(openapi);
@@ -116,16 +127,19 @@ async function main() {
   const nextContent = formatTypescript(
     generateFile(openapi, renderedOpenApiTypes, aliasOrder),
   );
-  const currentContent = readFileSync(OUTPUT_PATH, "utf8");
+  const existing = currentContent();
+
   if (CHECK_MODE) {
-    if (currentContent !== nextContent) {
+    if (existing !== nextContent) {
       throw new Error(
-        "generated-interface-contracts.ts is out of date. Run: pnpm --filter @tanren/web run contracts:generate",
+        "crates/tanren-contract/generated/web-interface-contracts.ts is out of date. Run: just web-contracts-generate",
       );
     }
     return;
   }
-  if (currentContent !== nextContent) {
+
+  if (existing !== nextContent) {
+    mkdirSync(dirname(OUTPUT_PATH), { recursive: true });
     writeFileSync(OUTPUT_PATH, nextContent, "utf8");
   }
 }

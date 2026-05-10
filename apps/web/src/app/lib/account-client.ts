@@ -8,8 +8,8 @@ import type {
   PermissionGrantSource,
   operations,
   paths,
-} from "@/app/lib/generated-interface-contracts";
-import { isInterfaceErrorCode } from "@/app/lib/generated-interface-contracts";
+} from "@tanren/web-interface-contracts";
+import { isInterfaceErrorCode } from "@tanren/web-interface-contracts";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
