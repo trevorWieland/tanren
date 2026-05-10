@@ -6,7 +6,7 @@ rust-version.workspace = true
 license.workspace = true
 repository.workspace = true
 publish = false
-description = "Client Integrations subsystem: inbound webhooks, subscriptions, idempotent requests, rate limits, and backpressure for external systems calling Tanren."
+description = "Client Integrations subsystem: inbound webhooks, subscriptions, idempotent requests, rate limits, and backpressure for external systems calling Tanren. Excludes first-party web/API account session transport and active-account switching ownership."
 
 [lints]
 workspace = true

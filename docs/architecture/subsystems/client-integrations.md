@@ -53,6 +53,8 @@ The client integrations subsystem does not own:
   adapter mechanics;
 - the internal database or event schema;
 - the general API framework, routing, or generated client mechanics;
+- first-party account session transport and active-account window switching
+  semantics for web/API clients;
 - identity-policy evaluation;
 - credential or secret value storage;
 - projection implementation;
@@ -64,6 +66,11 @@ Provider integrations and client integrations can involve the same external
 platform. A CI service may call Tanren through client integrations to report
 status, while Tanren may also call that CI service through provider
 integrations to poll status or request a rerun.
+
+First-party interactive account flow behavior, including cookie or bearer
+session transport and active-account window switching, remains an
+interfaces-and-identity concern. Client integrations consume those public
+contracts as machine clients where needed, but do not own their behavior.
 
 ## Core Invariants
 

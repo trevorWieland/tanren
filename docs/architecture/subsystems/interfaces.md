@@ -449,6 +449,10 @@ Requests that target an account outside that set fail with
 `target_account_not_signed_in` (HTTP 403). This applies consistently
 across web, API, CLI, MCP, and TUI surfaces.
 
+This active-account and session-switching behavior is an
+interfaces-and-identity boundary concern. It is not a
+client-integrations-owned machine-client capability.
+
 ### Error taxonomy extension
 
 The account/auth surface extends the shared error taxonomy with:
