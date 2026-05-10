@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import type {
+  AccountId,
   PermissionCheckResponse,
   PermissionScope,
   PrincipalRef,
@@ -12,6 +13,7 @@ import type {
   RoleReadModelResponse,
   RoleScope,
 } from "@/app/lib/generated/role-contract";
+import { asAccountId } from "@/app/lib/generated/role-contract";
 import {
   applyRole,
   checkPermission,
@@ -21,9 +23,11 @@ import {
   fetchRoleCapabilities,
   formatRoleError,
   readPermissionBundle,
+  readPermissionNameField,
   readPermissionScope,
   readPrincipalRef,
   readRequiredField,
+  readRoleIdField,
   readRoleModel,
   readRoleScope,
 } from "@/app/lib/role-client";
@@ -167,7 +171,7 @@ export function RoleWorkbench(): ReactNode {
       const response = await editRole(
         {
           role: {
-            role_id: readRequiredField(form, "role_id"),
+            role_id: readRoleIdField(form, "role_id"),
             scope: roleScope,
           },
           name: readRequiredField(form, "name"),
@@ -206,7 +210,7 @@ export function RoleWorkbench(): ReactNode {
       const response = await deleteRole(
         {
           role: {
-            role_id: readRequiredField(form, "role_id"),
+            role_id: readRoleIdField(form, "role_id"),
             scope: roleScope,
           },
         },
@@ -244,7 +248,7 @@ export function RoleWorkbench(): ReactNode {
       const response = await applyRole(
         {
           role: {
-            role_id: readRequiredField(form, "role_id"),
+            role_id: readRoleIdField(form, "role_id"),
             scope: roleScope,
           },
           principal,
@@ -279,7 +283,7 @@ export function RoleWorkbench(): ReactNode {
     void runRoleAction("check permission", async () => {
       const response = await checkPermission({
         principal,
-        permission: readRequiredField(form, "permission"),
+        permission: readPermissionNameField(form, "permission"),
         scope,
       });
       setOperationSummary(buildPermissionSummary(response));
@@ -451,7 +455,7 @@ function hasRoleCapability(
   return capabilities?.actions.includes(action) ?? false;
 }
 
-function buildDefaultReadContext(actorAccountId: string): RoleReadContext {
+function buildDefaultReadContext(actorAccountId: AccountId): RoleReadContext {
   const scope: RoleScope = { scope: "account", account_id: actorAccountId };
   return {
     roleScope: scope,
@@ -477,7 +481,7 @@ function resolveContext(
       grantScope,
     };
   }
-  const fallbackAccountId = capabilities?.actor.account_id ?? "";
+  const fallbackAccountId = capabilities?.actor.account_id ?? asAccountId("");
   return {
     roleScope,
     grantPrincipal: {

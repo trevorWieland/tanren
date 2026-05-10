@@ -5,6 +5,7 @@ import type {
   RoleFailureCode,
   RoleScope,
 } from "../../../src/app/lib/generated/role-contract";
+import { asOrgId } from "../../../src/app/lib/generated/role-contract";
 
 interface PrincipalAccount {
   accountId: string;
@@ -68,7 +69,7 @@ Given("a clean role-template environment", async ({ page, world }) => {
 Given("an organization role scope", async ({ page, world }) => {
   const scope: RoleScope = {
     scope: "organization",
-    org_id: crypto.randomUUID(),
+    org_id: asOrgId(crypto.randomUUID()),
   };
   world.scope = scope;
   await seedRoleAdminGrants(requiredOperator(world).accountId, scope);
@@ -315,7 +316,7 @@ function roleScope(world: RoleWorld): RoleScope {
   }
   const scope: RoleScope = {
     scope: "organization",
-    org_id: crypto.randomUUID(),
+    org_id: asOrgId(crypto.randomUUID()),
   };
   world.scope = scope;
   return scope;

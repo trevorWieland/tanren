@@ -1,4 +1,5 @@
 import type {
+  AccountId,
   ApplyRoleRequest,
   ApplyRoleResponse,
   CreateRoleRequest,
@@ -7,8 +8,12 @@ import type {
   DeleteRoleResponse,
   EditRoleRequest,
   EditRoleResponse,
+  OrgId,
+  PermissionName,
+  ProjectId,
   PermissionCheckRequest,
   PermissionCheckResponse,
+  RoleId,
   RoleReadModelRequest,
   RoleReadModelResponse,
   PermissionScope,
@@ -17,7 +22,23 @@ import type {
   RoleFailureBody,
   RoleScope,
 } from "./generated/role-contract";
-import { parseRoleFailure } from "./generated/role-contract";
+import {
+  asAccountId,
+  asOrgId,
+  asPermissionName,
+  asProjectId,
+  asRoleId,
+  parseApplyRoleResponse,
+  parseCreateRoleResponse,
+  parseDeleteRoleResponse,
+  parseEditRoleResponse,
+  parsePermissionCheckResponse,
+  parsePrincipalKind,
+  parseRoleCapabilitySnapshotPayload,
+  parseRoleFailure,
+  parseRoleReadModelResponse,
+  parseRoleScopeKind,
+} from "./generated/role-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
@@ -42,9 +63,19 @@ type RoleCommandRequest =
   | PermissionCheckRequest
   | RoleReadModelRequest;
 
+type ResponseDecoder<TResponse> = (payload: unknown) => TResponse;
+
+function toRoleTransportFailure(summary: string): RoleFailureBody {
+  return {
+    code: "transport_error",
+    summary,
+  };
+}
+
 async function postRoleJson<TResponse>(
   path: string,
   body: RoleCommandRequest,
+  decode: ResponseDecoder<TResponse>,
   csrfToken?: string,
 ): Promise<TResponse> {
   let response: Response;
@@ -59,23 +90,35 @@ async function postRoleJson<TResponse>(
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new RoleRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    throw new RoleRequestError(
+      toRoleTransportFailure(
+        cause instanceof Error ? cause.message : String(cause),
+      ),
+    );
+  }
+
+  let payload: unknown = undefined;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = undefined;
   }
 
   if (!response.ok) {
-    let payload: unknown = undefined;
-    try {
-      payload = (await response.json()) as unknown;
-    } catch {
-      payload = undefined;
-    }
     throw new RoleRequestError(parseRoleFailure(payload));
   }
 
-  return (await response.json()) as TResponse;
+  try {
+    return decode(payload);
+  } catch (cause: unknown) {
+    throw new RoleRequestError(
+      toRoleTransportFailure(
+        cause instanceof Error
+          ? cause.message
+          : `unexpected ${path} response payload`,
+      ),
+    );
+  }
 }
 
 export interface RoleCapabilitySnapshot {
@@ -95,15 +138,16 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new RoleRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    throw new RoleRequestError(
+      toRoleTransportFailure(
+        cause instanceof Error ? cause.message : String(cause),
+      ),
+    );
   }
 
   let payload: unknown = undefined;
   try {
-    payload = (await response.json()) as unknown;
+    payload = await response.json();
   } catch {
     payload = undefined;
   }
@@ -112,66 +156,78 @@ export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
     throw new RoleRequestError(parseRoleFailure(payload));
   }
 
-  const typed = payload as {
-    capabilities?: RoleAdminCapabilities;
-    csrf_token?: string;
-  };
-  if (typed.capabilities === undefined) {
-    throw new RoleRequestError({
-      code: "transport_error",
-      summary: "unexpected capability payload",
-    });
+  try {
+    const typed = parseRoleCapabilitySnapshotPayload(payload);
+    if (typed.csrf_token.length === 0) {
+      throw new Error("missing csrf token in capability payload");
+    }
+    return {
+      capabilities: typed.capabilities,
+      csrfToken: typed.csrf_token,
+    };
+  } catch (cause: unknown) {
+    throw new RoleRequestError(
+      toRoleTransportFailure(
+        cause instanceof Error
+          ? cause.message
+          : "unexpected capability payload",
+      ),
+    );
   }
-  if (typeof typed.csrf_token !== "string" || typed.csrf_token.length === 0) {
-    throw new RoleRequestError({
-      code: "transport_error",
-      summary: "missing csrf token in capability payload",
-    });
-  }
-  return {
-    capabilities: typed.capabilities,
-    csrfToken: typed.csrf_token,
-  };
 }
 
 export function createRole(
   request: CreateRoleRequest,
   csrfToken: string,
 ): Promise<CreateRoleResponse> {
-  return postRoleJson<CreateRoleResponse>("/roles", request, csrfToken);
+  return postRoleJson("/roles", request, parseCreateRoleResponse, csrfToken);
 }
 
 export function editRole(
   request: EditRoleRequest,
   csrfToken: string,
 ): Promise<EditRoleResponse> {
-  return postRoleJson<EditRoleResponse>("/roles/edit", request, csrfToken);
+  return postRoleJson("/roles/edit", request, parseEditRoleResponse, csrfToken);
 }
 
 export function deleteRole(
   request: DeleteRoleRequest,
   csrfToken: string,
 ): Promise<DeleteRoleResponse> {
-  return postRoleJson<DeleteRoleResponse>("/roles/delete", request, csrfToken);
+  return postRoleJson(
+    "/roles/delete",
+    request,
+    parseDeleteRoleResponse,
+    csrfToken,
+  );
 }
 
 export function applyRole(
   request: ApplyRoleRequest,
   csrfToken: string,
 ): Promise<ApplyRoleResponse> {
-  return postRoleJson<ApplyRoleResponse>("/roles/apply", request, csrfToken);
+  return postRoleJson(
+    "/roles/apply",
+    request,
+    parseApplyRoleResponse,
+    csrfToken,
+  );
 }
 
 export function checkPermission(
   request: PermissionCheckRequest,
 ): Promise<PermissionCheckResponse> {
-  return postRoleJson<PermissionCheckResponse>("/permissions/check", request);
+  return postRoleJson(
+    "/permissions/check",
+    request,
+    parsePermissionCheckResponse,
+  );
 }
 
 export function readRoleModel(
   request: RoleReadModelRequest,
 ): Promise<RoleReadModelResponse> {
-  return postRoleJson<RoleReadModelResponse>("/roles/read-model", request);
+  return postRoleJson("/roles/read-model", request, parseRoleReadModelResponse);
 }
 
 export function readRequiredField(form: FormData, name: string): string {
@@ -182,23 +238,26 @@ export function readRequiredField(form: FormData, name: string): string {
   return value.trim();
 }
 
-export function readPermissionBundle(form: FormData, name: string): string[] {
+export function readPermissionBundle(
+  form: FormData,
+  name: string,
+): PermissionName[] {
   return readRequiredField(form, name)
     .split(",")
-    .map((part) => part.trim())
+    .map((part) => asPermissionName(part.trim()))
     .filter((part) => part.length > 0);
 }
 
 export function readRoleScope(form: FormData, prefix: string): RoleScope {
-  const kind = readRequiredField(form, `${prefix}kind`) as ScopeKind;
+  const kind = parseScopeKind(readRequiredField(form, `${prefix}kind`));
   const id = readRequiredField(form, `${prefix}id`);
   if (kind === "organization") {
-    return { scope: "organization", org_id: id };
+    return { scope: "organization", org_id: asOrgIdValue(id) };
   }
   if (kind === "project") {
-    return { scope: "project", project_id: id };
+    return { scope: "project", project_id: asProjectIdValue(id) };
   }
-  return { scope: "account", account_id: id };
+  return { scope: "account", account_id: asAccountIdValue(id) };
 }
 
 export function readPermissionScope(
@@ -216,10 +275,45 @@ export function readPermissionScope(
 }
 
 export function readPrincipalRef(form: FormData, prefix: string): PrincipalRef {
-  const kind = readRequiredField(form, `${prefix}kind`) as PrincipalKind;
+  const kind = parseFormPrincipalKind(readRequiredField(form, `${prefix}kind`));
   const id = readRequiredField(form, `${prefix}id`);
   if (kind === "role") {
-    return { principal: "role", role_id: id };
+    return { principal: "role", role_id: asRoleIdValue(id) };
   }
-  return { principal: "account", account_id: id };
+  return { principal: "account", account_id: asAccountIdValue(id) };
+}
+
+export function readRoleIdField(form: FormData, name: string): RoleId {
+  return asRoleIdValue(readRequiredField(form, name));
+}
+
+export function readPermissionNameField(
+  form: FormData,
+  name: string,
+): PermissionName {
+  return asPermissionName(readRequiredField(form, name));
+}
+
+function parseScopeKind(value: string): ScopeKind {
+  return parseRoleScopeKind(value);
+}
+
+function parseFormPrincipalKind(value: string): PrincipalKind {
+  return parsePrincipalKind(value);
+}
+
+function asRoleIdValue(value: string): RoleId {
+  return asRoleId(value);
+}
+
+function asAccountIdValue(value: string): AccountId {
+  return asAccountId(value);
+}
+
+function asOrgIdValue(value: string): OrgId {
+  return asOrgId(value);
+}
+
+function asProjectIdValue(value: string): ProjectId {
+  return asProjectId(value);
 }

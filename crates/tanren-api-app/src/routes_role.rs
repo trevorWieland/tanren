@@ -312,7 +312,7 @@ fn role_permission_denied(summary: &str) -> Response {
     (
         StatusCode::FORBIDDEN,
         Json(RoleFailureBody {
-            code: RoleFailureReason::PermissionDenied.code().to_owned(),
+            code: RoleFailureReason::PermissionDenied,
             summary: summary.to_owned(),
         }),
     )
@@ -323,7 +323,7 @@ fn internal_role_error() -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
         Json(RoleFailureBody {
-            code: "internal_error".to_owned(),
+            code: RoleFailureReason::InternalError,
             summary: "Tanren encountered an internal error.".to_owned(),
         }),
     )

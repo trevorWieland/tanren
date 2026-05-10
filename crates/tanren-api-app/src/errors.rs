@@ -56,7 +56,7 @@ pub(crate) fn map_role_error(err: RoleServiceError) -> Response {
         RoleServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
             Json(RoleFailureBody {
-                code: RoleFailureReason::ValidationFailed.code().to_owned(),
+                code: RoleFailureReason::ValidationFailed,
                 summary: message,
             }),
         )
@@ -88,10 +88,9 @@ fn role_failure_body(reason: RoleFailureReason) -> Response {
 fn internal_error_response() -> Response {
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(json!({
-            "code": "internal_error",
-            "summary": "Tanren encountered an internal error.",
-        })),
+        Json(RoleFailureBody::from_reason(
+            RoleFailureReason::InternalError,
+        )),
     )
         .into_response()
 }

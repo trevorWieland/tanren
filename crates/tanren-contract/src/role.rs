@@ -257,7 +257,7 @@ pub struct PermissionGrantView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct RoleFailureBody {
     /// Stable error code from [`RoleFailureReason`].
-    pub code: String,
+    pub code: RoleFailureReason,
     /// Human-readable failure summary.
     pub summary: String,
 }
@@ -267,14 +267,14 @@ impl RoleFailureBody {
     #[must_use]
     pub fn from_reason(reason: RoleFailureReason) -> Self {
         Self {
-            code: reason.code().to_owned(),
+            code: reason,
             summary: reason.summary().to_owned(),
         }
     }
 }
 
 /// Closed taxonomy of role-template and permission-evaluation failures.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, ToSchema)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
 #[non_exhaustive]
 pub enum RoleFailureReason {
@@ -288,6 +288,8 @@ pub enum RoleFailureReason {
     PermissionDenied,
     /// Role identifiers cannot be used as authorization principals.
     RoleAsPrincipalRejected,
+    /// Internal transport or server failure outside role-domain state transitions.
+    InternalError,
 }
 
 impl RoleFailureReason {
@@ -300,6 +302,7 @@ impl RoleFailureReason {
             Self::Conflict => "conflict",
             Self::PermissionDenied => "permission_denied",
             Self::RoleAsPrincipalRejected => "role_as_principal_rejected",
+            Self::InternalError => "internal_error",
         }
     }
 
@@ -318,6 +321,7 @@ impl RoleFailureReason {
             Self::RoleAsPrincipalRejected => {
                 "Roles are permission templates and cannot be used as authorization principals."
             }
+            Self::InternalError => "Tanren encountered an internal error.",
         }
     }
 
@@ -329,6 +333,7 @@ impl RoleFailureReason {
             Self::NotFound => 404,
             Self::Conflict => 409,
             Self::PermissionDenied => 403,
+            Self::InternalError => 500,
         }
     }
 }
