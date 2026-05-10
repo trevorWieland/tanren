@@ -4368,6 +4368,7 @@ dependencies = [
  "serde_json",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-observation",
  "tanren-store",
  "thiserror 2.0.18",
 ]
@@ -4391,6 +4392,7 @@ dependencies = [
  "serde_json",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-observation",
  "tanren-testkit",
  "tokio",
 ]
@@ -4453,6 +4455,7 @@ dependencies = [
  "secrecy",
  "serde",
  "tanren-identity-policy",
+ "tanren-observation",
  "thiserror 2.0.18",
  "utoipa",
 ]
@@ -4536,8 +4539,10 @@ name = "tanren-observation"
 version = "0.0.0"
 dependencies = [
  "chrono",
+ "schemars",
  "serde",
  "thiserror 2.0.18",
+ "utoipa",
 ]
 
 [[package]]
@@ -4639,6 +4644,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-mcp-app",
+ "tanren-observation",
  "tanren-store",
  "thiserror 2.0.18",
  "tokio",

@@ -28,6 +28,7 @@ pub use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
     SessionToken,
 };
+pub use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

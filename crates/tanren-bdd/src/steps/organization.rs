@@ -13,6 +13,7 @@ use tanren_contract::{
     ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
+use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use tanren_testkit::{HarnessError, HarnessOutcome, HarnessResult, record_failure};
 
 use crate::TanrenWorld;
@@ -349,6 +350,45 @@ fn assert_canonical_create_links(created: &CreateOrganizationResponse) {
     assert_eq!(
         created.source_link.event_kind, ORGANIZATION_CREATED_EVENT_KIND,
         "create response should carry the canonical source event kind"
+    );
+}
+
+#[then(expr = "the organization list includes observation-aligned provenance")]
+async fn then_list_includes_observation_provenance(world: &mut TanrenWorld) -> HarnessResult<()> {
+    let ctx = world.ensure_account_ctx().await;
+    let listed = require_last_listed_organizations(ctx)?;
+    assert_observation_provenance(&listed.freshness);
+    Ok(())
+}
+
+fn assert_observation_provenance(freshness: &tanren_contract::ReadModelFreshness) {
+    assert!(
+        !freshness.projection.is_empty(),
+        "freshness projection must identify the read model"
+    );
+    assert_eq!(
+        freshness.value_kind,
+        ClaimValueKind::Measured,
+        "organization list should carry measured value kind"
+    );
+    assert_eq!(
+        freshness.completeness,
+        CompletenessState::Complete,
+        "organization list should carry complete completeness"
+    );
+    assert_eq!(
+        freshness.freshness_state,
+        FreshnessState::Fresh,
+        "organization list should carry fresh freshness state"
+    );
+    assert_eq!(
+        freshness.visibility,
+        VisibilityState::Visible,
+        "organization list should carry visible state for authenticated member"
+    );
+    assert!(
+        !freshness.source.is_empty(),
+        "freshness source must identify the source subsystem"
     );
 }
 

@@ -10,6 +10,7 @@ use tanren_contract::{
     ReadModelFreshness, organization_capability_projection,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
+use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use uuid::Uuid;
 
 use super::common::code_to_reason;
@@ -156,6 +157,11 @@ pub(super) fn build_list_organizations_response(
             checkpoint: None,
             generated_at: chrono::Utc::now(),
             cursor: None,
+            source: "organization_membership_store".to_owned(),
+            value_kind: ClaimValueKind::Measured,
+            completeness: CompletenessState::Complete,
+            freshness_state: FreshnessState::Fresh,
+            visibility: VisibilityState::Visible,
         },
     }
 }

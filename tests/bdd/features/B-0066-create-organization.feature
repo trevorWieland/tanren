@@ -20,6 +20,7 @@ Feature: Create an organization
       And organization "alpha api org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha api org" is listed for alice
+      And the organization list includes observation-aligned provenance
       When alice checks organization permission "invite" in "alpha api org"
       Then the operation succeeds
       When alice checks organization permission "manage_access" in "alpha api org"
@@ -77,6 +78,7 @@ Feature: Create an organization
       And organization "alpha web org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha web org" is listed for alice
+      And the organization list includes observation-aligned provenance
       When alice checks organization permission "invite" in "alpha web org"
       Then the operation succeeds
       When alice checks organization permission "manage_access" in "alpha web org"
@@ -159,6 +161,7 @@ Feature: Create an organization
       And organization "alpha-cli-org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha-cli-org" is listed for alice
+      And the organization list includes observation-aligned provenance
       When alice checks organization permission "invite" in "alpha-cli-org"
       Then the operation succeeds
       When alice checks organization permission "manage_access" in "alpha-cli-org"
@@ -216,6 +219,7 @@ Feature: Create an organization
       And organization "alpha mcp org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha mcp org" is listed for alice
+      And the organization list includes observation-aligned provenance
       When alice checks organization permission "invite" in "alpha mcp org"
       Then the operation succeeds
       When alice checks organization permission "manage_access" in "alpha mcp org"
@@ -273,6 +277,7 @@ Feature: Create an organization
       And organization "alpha tui org" exposes canonical proof and source links
       When alice lists available organizations
       Then organization "alpha tui org" is listed for alice
+      And the organization list includes observation-aligned provenance
       When alice checks organization permission "invite" in "alpha tui org"
       Then the operation succeeds
       When alice checks organization permission "manage_access" in "alpha tui org"

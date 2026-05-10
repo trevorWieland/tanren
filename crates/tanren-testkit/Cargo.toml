@@ -40,6 +40,7 @@ serde_json = { workspace = true }
 tanren-api-app = { path = "../tanren-api-app", features = ["test-hooks"] }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
+tanren-observation = { path = "../tanren-observation" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }

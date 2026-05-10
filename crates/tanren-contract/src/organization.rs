@@ -1,9 +1,8 @@
 //! Organization command/response wire shapes.
 //!
-//! These types are the request/response surface used by the api, mcp,
-//! cli, tui, and web client when callers create organizations, list
-//! accessible organizations, and check organization permissions.
-
+//! Request/response surface for the api, mcp, cli, tui, and web client
+//! when callers create organizations, list organizations, and check
+//! organization permissions.
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -14,6 +13,7 @@ use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
     SessionToken, organization_capability,
 };
+use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use utoipa::{IntoParams, ToSchema};
 
 /// Create-organization request.
@@ -23,18 +23,16 @@ pub struct CreateOrganizationRequest {
     pub session_token: SessionToken,
     /// Account creating the organization.
     pub account_id: AccountId,
-    /// Candidate organization name. Validated + normalized by
-    /// `OrganizationName` during deserialization.
+    /// Candidate organization name, validated and normalized by `OrganizationName`.
     pub name: OrganizationName,
-    /// Stable client idempotency key. Replays with the same actor and
-    /// key return the same semantic result. Must be non-empty after
-    /// trimming, max 128 chars, and free of control characters.
+    /// Stable client idempotency key. Replays with the same actor and key
+    /// return the same semantic result. Non-empty, max 128 chars, no controls.
     pub idempotency_key: Option<IdempotencyKey>,
 }
 
 impl CreateOrganizationRequest {
-    /// Build a create-organization service request from authenticated
-    /// transport context plus the validated API body.
+    /// Build a create-organization request from authenticated transport context
+    /// plus the validated API body.
     #[must_use]
     pub fn from_api(
         session_token: SessionToken,
@@ -53,9 +51,9 @@ impl CreateOrganizationRequest {
 /// Create-organization response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationResponse {
-    /// Freshly created organization.
+    /// Newly created organization.
     pub organization: OrganizationView,
-    /// Capability metadata for organization operations in the created organization.
+    /// Capability metadata for organization operations in this organization.
     pub capabilities: Vec<OrganizationCapabilityView>,
     /// Contract-projected permission options for organization operations.
     pub available_permissions: Vec<OrganizationPermission>,
@@ -63,7 +61,7 @@ pub struct CreateOrganizationResponse {
     pub granted_permissions: Vec<OrganizationPermission>,
     /// New organizations always begin with zero projects.
     pub initial_project_count: u64,
-    /// Organization project summary (extensible beyond initial create semantics).
+    /// Organization project summary.
     pub project_summary: OrganizationProjectSummary,
     /// Stable proof reference clients can render without event-log probing.
     pub proof_link: OrganizationProofLink,
@@ -73,7 +71,7 @@ pub struct CreateOrganizationResponse {
     pub source_event: Option<OrganizationEventReference>,
 }
 
-/// Summary projection for organization project counts.
+/// Summary projection of organization project counts.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationProjectSummary {
     /// Total projects currently present in the organization.
@@ -94,8 +92,8 @@ pub struct ListOrganizationsRequest {
 }
 
 impl ListOrganizationsRequest {
-    /// Build a list-organizations request from authenticated transport
-    /// context and query parameters.
+    /// Build a list-organizations request from authenticated transport context
+    /// and query parameters.
     #[must_use]
     pub fn from_api_query(
         session_token: SessionToken,
@@ -147,8 +145,8 @@ pub struct CheckOrganizationPermissionRequest {
 }
 
 impl CheckOrganizationPermissionRequest {
-    /// Build a permission-check request from authenticated transport
-    /// context plus the validated API body.
+    /// Build a permission-check request from authenticated transport context
+    /// plus the validated API body.
     #[must_use]
     pub fn from_api(
         session_token: SessionToken,
@@ -162,7 +160,6 @@ impl CheckOrganizationPermissionRequest {
             permission: body.permission,
         }
     }
-
     /// Build a configure-permission check request.
     #[must_use]
     pub fn configure(session_token: SessionToken, account_id: AccountId, org_id: OrgId) -> Self {
@@ -178,12 +175,10 @@ impl CheckOrganizationPermissionRequest {
 /// API body for create-organization routes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationApiRequest {
-    /// Candidate organization name. Validated + normalized by
-    /// `OrganizationName` during deserialization.
+    /// Candidate organization name, validated and normalized by `OrganizationName`.
     pub name: OrganizationName,
-    /// Stable client idempotency key. Replays with the same actor and
-    /// key return the same semantic result. Must be non-empty after
-    /// trimming, max 128 chars, and free of control characters.
+    /// Stable client idempotency key. Replays with the same actor and key
+    /// return the same semantic result. Non-empty, max 128 chars, no controls.
     pub idempotency_key: Option<IdempotencyKey>,
 }
 
@@ -236,7 +231,6 @@ pub struct CheckOrganizationPermissionResponse {
     /// Whether the requested permission is currently granted.
     pub allowed: bool,
 }
-
 /// External-facing view of a Tanren organization.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationView {
@@ -247,8 +241,7 @@ pub struct OrganizationView {
     /// Capability metadata projected for this organization and requesting account.
     pub capabilities: Vec<OrganizationCapabilityView>,
 }
-
-/// Capability metadata for a specific organization permission.
+/// Capability metadata for one organization permission.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationCapabilityView {
     /// Organization permission this capability is tied to.
@@ -304,7 +297,6 @@ impl CreateOrganizationFailureReason {
         409
     }
 }
-
 /// Closed error-code taxonomy for organization operations across all
 /// interfaces.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -350,7 +342,6 @@ impl OrganizationFailureCode {
         }
     }
 }
-
 /// Shared `{code, summary}` body for organization-operation failures.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationFailureBody {
@@ -360,14 +351,14 @@ pub struct OrganizationFailureBody {
     pub summary: String,
 }
 
-/// Stable reference to behavior proof coverage for organization create.
+/// Reference to behavior proof coverage for organization operations.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationProofLink {
     /// Canonical behavior id proving this command contract.
     pub behavior_id: OrganizationBehaviorId,
 }
 
-/// Stable reference to source evidence for organization create.
+/// Reference to source evidence for organization events.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationSourceLink {
     /// Event family in the canonical event log.
@@ -376,7 +367,7 @@ pub struct OrganizationSourceLink {
     pub event_kind: String,
 }
 
-/// Stable source event reference for organization responses.
+/// Source event reference for organization responses.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationEventReference {
     /// Event family in the canonical event log.
@@ -391,7 +382,10 @@ pub struct OrganizationEventReference {
     pub occurred_at: DateTime<Utc>,
 }
 
-/// Freshness metadata for organization list read models.
+/// Freshness and provenance metadata for organization list read models.
+///
+/// Aligned with the Observation Claim Model (see
+/// docs/architecture/subsystems/observation.md).
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ReadModelFreshness {
     /// Logical projection/read-model name serving this response.
@@ -402,8 +396,17 @@ pub struct ReadModelFreshness {
     pub generated_at: DateTime<Utc>,
     /// Cursor associated with this read model page when available.
     pub cursor: Option<String>,
+    /// Source subsystem that produced the underlying data.
+    pub source: String,
+    /// How the claim value was derived.
+    pub value_kind: ClaimValueKind,
+    /// Whether source data is complete, partial, or empty.
+    pub completeness: CompletenessState,
+    /// Whether the claim is fresh, stale, or unknown.
+    pub freshness_state: FreshnessState,
+    /// Visibility of this claim for the requesting actor.
+    pub visibility: VisibilityState,
 }
-
 /// Event family used for organization lifecycle events.
 pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 /// Event kind for organization-creation events.
@@ -479,7 +482,6 @@ where
         })
         .collect()
 }
-
 /// Shared payload contract for `organization_created`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationCreatedEvent {
@@ -491,7 +493,7 @@ pub struct OrganizationCreatedEvent {
     pub creator_account_id: AccountId,
     /// Creator permissions granted at bootstrap.
     pub granted_permissions: Vec<OrganizationPermission>,
-    /// Initial project count for the new organization.
+    /// Initial project count (always zero at creation).
     pub initial_project_count: u64,
     /// Service-side timestamp for the create event.
     pub created_at: DateTime<Utc>,

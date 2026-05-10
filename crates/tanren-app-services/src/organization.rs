@@ -14,6 +14,7 @@ use tanren_identity_policy::{
     AccountId, OrgId, OrganizationPermission, OrganizationPermissionDecision,
     OrganizationPermissionGate, SessionToken, evaluate_organization_permission_gate,
 };
+use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use tanren_store::{
     AccountStore, CreateOrganizationAtomicRequest, CreateOrganizationError, SessionRecord,
 };
@@ -111,6 +112,11 @@ where
             checkpoint: page.checkpoint,
             generated_at: page.generated_at,
             cursor: page.cursor,
+            source: "organization_membership_store".to_owned(),
+            value_kind: ClaimValueKind::Measured,
+            completeness: CompletenessState::Complete,
+            freshness_state: FreshnessState::Fresh,
+            visibility: VisibilityState::Visible,
         },
     })
 }

@@ -188,18 +188,38 @@ export interface components {
       /** @description Permission that was checked. */
       permission: components["schemas"]["OrganizationPermission"];
     };
+    /**
+     * @description How an observation claim's value was derived.
+     *
+     *     Observation should not collapse these into a generic certainty score.
+     *     If a summary is uncertain the view shows why: missing source, stale
+     *     projection, redaction, limited history, conflicting signals, or
+     *     explicit forecast bounds.
+     * @enum {string}
+     */
+    ClaimValueKind:
+      | "measured"
+      | "bounded"
+      | "estimated"
+      | "inferred"
+      | "unavailable"
+      | "redacted";
+    /**
+     * @description Whether a read model's source data is complete.
+     * @enum {string}
+     */
+    CompletenessState: "complete" | "partial" | "empty";
     /** @description API body for create-organization routes. */
     CreateOrganizationApiRequest: {
       idempotency_key?: null | components["schemas"]["IdempotencyKey"];
-      /** @description Candidate organization name. Validated + normalized by
-       *     `OrganizationName` during deserialization. */
+      /** @description Candidate organization name, validated and normalized by `OrganizationName`. */
       name: components["schemas"]["OrganizationName"];
     };
     /** @description Create-organization response. */
     CreateOrganizationResponse: {
       /** @description Contract-projected permission options for organization operations. */
       available_permissions: components["schemas"]["OrganizationPermission"][];
-      /** @description Capability metadata for organization operations in the created organization. */
+      /** @description Capability metadata for organization operations in this organization. */
       capabilities: components["schemas"]["OrganizationCapabilityView"][];
       /** @description Administrative permissions granted to the creator. */
       granted_permissions: components["schemas"]["OrganizationPermission"][];
@@ -208,9 +228,9 @@ export interface components {
        * @description New organizations always begin with zero projects.
        */
       initial_project_count: number;
-      /** @description Freshly created organization. */
+      /** @description Newly created organization. */
       organization: components["schemas"]["OrganizationView"];
-      /** @description Organization project summary (extensible beyond initial create semantics). */
+      /** @description Organization project summary. */
       project_summary: components["schemas"]["OrganizationProjectSummary"];
       /** @description Stable proof reference clients can render without event-log probing. */
       proof_link: components["schemas"]["OrganizationProofLink"];
@@ -241,6 +261,11 @@ export interface components {
      *     `tests/bdd/features/B-0043-create-account.feature`, not through Rust unit tests.
      */
     Email: string;
+    /**
+     * @description How fresh a read model's projection is relative to its source.
+     * @enum {string}
+     */
+    FreshnessState: "fresh" | "stale" | "unknown";
     /** @description Liveness response. */
     HealthResponse: {
       /**
@@ -307,7 +332,7 @@ export interface components {
      * @enum {string}
      */
     OrganizationBehaviorId: "B-0066";
-    /** @description Capability metadata for a specific organization permission. */
+    /** @description Capability metadata for one organization permission. */
     OrganizationCapabilityView: {
       /** @description Whether the caller currently holds this capability. */
       allowed: boolean;
@@ -318,7 +343,7 @@ export interface components {
       /** @description Human-readable capability summary from the identity/policy model. */
       summary: string;
     };
-    /** @description Stable source event reference for organization responses. */
+    /** @description Source event reference for organization responses. */
     OrganizationEventReference: {
       /** @description Cursor consumers can persist to resume from this event position. */
       cursor: string;
@@ -375,7 +400,7 @@ export interface components {
       | "configure"
       | "set_policy"
       | "delete";
-    /** @description Summary projection for organization project counts. */
+    /** @description Summary projection of organization project counts. */
     OrganizationProjectSummary: {
       /**
        * Format: int64
@@ -383,12 +408,12 @@ export interface components {
        */
       total_count: number;
     };
-    /** @description Stable reference to behavior proof coverage for organization create. */
+    /** @description Reference to behavior proof coverage for organization operations. */
     OrganizationProofLink: {
       /** @description Canonical behavior id proving this command contract. */
       behavior_id: components["schemas"]["OrganizationBehaviorId"];
     };
-    /** @description Stable reference to source evidence for organization create. */
+    /** @description Reference to source evidence for organization events. */
     OrganizationSourceLink: {
       /** @description Event family in the canonical event log. */
       event_family: string;
@@ -404,12 +429,19 @@ export interface components {
       /** @description Organization name uniqueness key. */
       name: components["schemas"]["OrganizationName"];
     };
-    /** @description Freshness metadata for organization list read models. */
+    /** @description Freshness and provenance metadata for organization list read models.
+     *
+     *     Aligned with the Observation Claim Model (see
+     *     docs/architecture/subsystems/observation.md). */
     ReadModelFreshness: {
       /** @description Projection checkpoint identifier when available. */
       checkpoint?: string | null;
+      /** @description Whether source data is complete, partial, or empty. */
+      completeness: components["schemas"]["CompletenessState"];
       /** @description Cursor associated with this read model page when available. */
       cursor?: string | null;
+      /** @description Whether the claim is fresh, stale, or unknown. */
+      freshness_state: components["schemas"]["FreshnessState"];
       /**
        * Format: date-time
        * @description Response-generation timestamp from the read path.
@@ -417,6 +449,12 @@ export interface components {
       generated_at: string;
       /** @description Logical projection/read-model name serving this response. */
       projection: string;
+      /** @description Source subsystem that produced the underlying data. */
+      source: string;
+      /** @description How the claim value was derived. */
+      value_kind: components["schemas"]["ClaimValueKind"];
+      /** @description Visibility of this claim for the requesting actor. */
+      visibility: components["schemas"]["VisibilityState"];
     };
     /** @description Transport-aware projection of a freshly minted session.
      *
@@ -499,6 +537,11 @@ export interface components {
       /** @description Cookie-projected session envelope. */
       session: components["schemas"]["SessionEnvelope"];
     };
+    /**
+     * @description Whether a claim's data is visible to the requesting actor.
+     * @enum {string}
+     */
+    VisibilityState: "visible" | "hidden" | "redacted";
   };
   responses: never;
   parameters: never;

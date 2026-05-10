@@ -25,6 +25,7 @@ use tanren_contract::{
     organization_capability_projection,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
+use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -428,6 +429,11 @@ impl AccountHarness for CliHarness {
                 checkpoint: None,
                 generated_at: Utc::now(),
                 cursor: next_cursor.map(|value| value.to_string()),
+                source: "organization_membership_store".to_owned(),
+                value_kind: ClaimValueKind::Measured,
+                completeness: CompletenessState::Complete,
+                freshness_state: FreshnessState::Fresh,
+                visibility: VisibilityState::Visible,
             },
         })
     }
