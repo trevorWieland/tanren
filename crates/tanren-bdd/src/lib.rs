@@ -102,11 +102,8 @@ impl AccountContext {
     }
 
     /// Build a context with the harness matching the supplied tag
-    /// kind. Falls back to the in-process harness if the requested
-    /// transport fails to come up (e.g. a missing CLI binary on a
-    /// fresh checkout) — the failure is recorded in `last_outcome`
-    /// so it surfaces during the first step rather than blocking
-    /// scenario discovery.
+    /// kind. Harness startup failures are fatal so interface-tagged
+    /// scenarios cannot silently pass against the wrong surface.
     pub async fn new_for(kind: HarnessKind) -> Self {
         let harness: Box<dyn AccountHarness> = match kind {
             HarnessKind::InProcess => Box::new(
@@ -148,6 +145,9 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
 /// wire harness from the active scenario's tags.
 pub async fn run_features(features_dir: impl Into<PathBuf>) {
     TanrenWorld::cucumber()
+        // Real-wire harnesses spawn processes and DB-backed stores per
+        // scenario; serial execution avoids resource-contention flakes.
+        .max_concurrent_scenarios(1)
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
             Box::pin(async move {

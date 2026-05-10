@@ -300,10 +300,21 @@ impl App {
             Screen::SwitchActive {
                 accounts, selected, ..
             } => {
-                let Some(entry) = accounts.get(*selected) else {
-                    return;
-                };
-                entry.account.id
+                if let Ok(raw) = env::var("TANREN_TUI_TEST_SWITCH_TARGET_ACCOUNT_ID") {
+                    if let Ok(parsed) = uuid::Uuid::parse_str(&raw) {
+                        tanren_identity_policy::AccountId::new(parsed)
+                    } else {
+                        let Some(entry) = accounts.get(*selected) else {
+                            return;
+                        };
+                        entry.account.id
+                    }
+                } else {
+                    let Some(entry) = accounts.get(*selected) else {
+                        return;
+                    };
+                    entry.account.id
+                }
             }
             _ => return,
         };

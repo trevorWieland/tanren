@@ -29,10 +29,8 @@
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
+//! - `@tui` — full impl. Spawns `tanren-tui` inside an `expectrl` pty
+//!   and drives keystrokes against rendered terminal output.
 //! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
 //!   parallel Node-side Playwright harness for the same `@web` Gherkin
 //!   scenarios via `playwright-bdd`. The two layers prove themselves
@@ -86,8 +84,7 @@ pub enum HarnessKind {
     /// Spawns the `tanren-mcp` server on an ephemeral port; rmcp
     /// streamable-HTTP client.
     Mcp,
-    /// Drives the `tanren-tui` binary inside a pty (deferred — falls
-    /// back to in-process for PR 9).
+    /// Drives the `tanren-tui` binary inside a pty.
     Tui,
     /// Drives the web frontend via Playwright (deferred to PR 11 —
     /// falls back to in-process).

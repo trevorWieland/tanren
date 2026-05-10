@@ -249,7 +249,11 @@ async fn then_session_token(world: &mut TanrenWorld, actor: String) {
                 .map(|a| a.session.has_token)
         })
         .unwrap_or(false);
-    assert!(received, "expected a session token for {actor}");
+    assert!(
+        received,
+        "expected a session token for {actor}; last_outcome={:?}; actor_state={:?}",
+        ctx.last_outcome, entry
+    );
 }
 
 #[then(expr = "{word}'s account belongs to no organization")]
