@@ -103,10 +103,12 @@ type ResponseDecoder<TResponse> = (payload: unknown) => TResponse;
 
 interface PostRoleEndpointOptions {
   signal?: AbortSignal;
+  timeoutMs?: number;
 }
 
 export const ROLE_READ_MODEL_DEFAULT_ROLE_PAGE_SIZE = 50;
 export const ROLE_READ_MODEL_DEFAULT_GRANT_PAGE_SIZE = 50;
+export const ROLE_REQUEST_TIMEOUT_MS = 10_000;
 
 const ROLE_POST_DECODERS: {
   [K in RolePostPath]: ResponseDecoder<RolePostEndpointMap[K]["response"]>;
@@ -154,6 +156,41 @@ function toRoleTransportError(
 
 function isAbortError(cause: unknown): boolean {
   return cause instanceof DOMException && cause.name === "AbortError";
+}
+
+function toTimeoutError(timeoutMs: number): DOMException {
+  return new DOMException(
+    `request timed out after ${timeoutMs}ms`,
+    "TimeoutError",
+  );
+}
+
+function composeAbortSignal(
+  timeoutMs: number,
+  externalSignal?: AbortSignal,
+): { signal: AbortSignal; cleanup: () => void } {
+  const controller = new AbortController();
+  const timeout = setTimeout(
+    () => controller.abort(toTimeoutError(timeoutMs)),
+    timeoutMs,
+  );
+
+  if (externalSignal?.aborted) {
+    controller.abort(externalSignal.reason);
+  }
+
+  const onExternalAbort = (): void => {
+    controller.abort(externalSignal?.reason);
+  };
+  externalSignal?.addEventListener("abort", onExternalAbort, { once: true });
+
+  return {
+    signal: controller.signal,
+    cleanup: () => {
+      clearTimeout(timeout);
+      externalSignal?.removeEventListener("abort", onExternalAbort);
+    },
+  };
 }
 
 function parseRoleFailurePayload(payload: unknown): RoleFailureBody {
@@ -234,6 +271,8 @@ async function postRoleEndpoint<K extends RolePostPath>(
   csrfToken?: string,
   options?: PostRoleEndpointOptions,
 ): Promise<RolePostEndpointMap[K]["response"]> {
+  const timeoutMs = options?.timeoutMs ?? ROLE_REQUEST_TIMEOUT_MS;
+  const timedSignal = composeAbortSignal(timeoutMs, options?.signal);
   let response: Response;
   try {
     response = await fetch(resolveRoleApiPath(path), {
@@ -244,14 +283,16 @@ async function postRoleEndpoint<K extends RolePostPath>(
       },
       body: JSON.stringify(body),
       credentials: "include",
-      signal: options?.signal ?? null,
+      signal: timedSignal.signal,
     });
   } catch (cause: unknown) {
+    timedSignal.cleanup();
     if (isAbortError(cause)) {
       throw cause;
     }
     throw toRoleTransportError(cause, String(cause));
   }
+  timedSignal.cleanup();
 
   let payload: unknown = undefined;
   try {
@@ -320,15 +361,19 @@ export function formatRoleError(reason: unknown): string {
 }
 
 export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
+  const timedSignal = composeAbortSignal(ROLE_REQUEST_TIMEOUT_MS);
   let response: Response;
   try {
     response = await fetch(resolveRoleApiPath("/roles/capabilities"), {
       method: "GET",
       credentials: "include",
+      signal: timedSignal.signal,
     });
   } catch (cause: unknown) {
+    timedSignal.cleanup();
     throw toRoleTransportError(cause, String(cause));
   }
+  timedSignal.cleanup();
 
   let payload: unknown = undefined;
   try {
@@ -577,7 +622,16 @@ export function readPermissionBundle(
       `field ${name} must contain non-empty permission names`,
     );
   }
-  return parts.map((part) => asPermissionName(part));
+  const permissions: PermissionName[] = [];
+  const seen = new Set<string>();
+  for (const part of parts) {
+    if (seen.has(part)) {
+      continue;
+    }
+    seen.add(part);
+    permissions.push(asPermissionName(part));
+  }
+  return permissions;
 }
 
 export function readRoleScope(form: FormData, prefix: string): RoleScope {

@@ -766,31 +766,45 @@ async function readRoleTemplatePermissions(
   page: import("@playwright/test").Page,
   roleId: string,
 ): Promise<string[]> {
-  const lines = await readRoleTemplateLines(page);
-  const roleLine = lines.find((line) => line.includes(`(${roleId})`));
-  if (roleLine === undefined) {
+  const row = await readRoleTemplateRow(page, roleId);
+  if (row === null) {
     throw new Error(`role ${roleId} was not found in the read model`);
   }
 
-  const permissionsMarker = " permissions: ";
-  const markerIndex = roleLine.indexOf(permissionsMarker);
-  if (markerIndex === -1) {
-    throw new Error(`role read-model line missing permissions: ${roleLine}`);
+  if (row.permissionsCsv.length === 0) {
+    throw new Error(`role read-model row missing permissions for ${roleId}`);
   }
 
-  return parsePermissionsCsv(
-    roleLine.slice(markerIndex + permissionsMarker.length),
-  );
+  return parsePermissionsCsv(row.permissionsCsv);
 }
 
 async function readRoleTemplateLines(
   page: import("@playwright/test").Page,
 ): Promise<string[]> {
   const section = roleReadModelSection(page);
-  const allLines = (await section.locator("li").allTextContents()).map((line) =>
-    line.trim(),
+  const rows = section.locator("li[data-role-id]");
+  const count = await rows.count();
+  const lines: string[] = [];
+  for (let index = 0; index < count; index += 1) {
+    lines.push(((await rows.nth(index).textContent()) ?? "").trim());
+  }
+  return lines;
+}
+
+async function readRoleTemplateRow(
+  page: import("@playwright/test").Page,
+  roleId: string,
+): Promise<{ permissionsCsv: string } | null> {
+  const row = roleReadModelSection(page).locator(
+    `li[data-role-id="${roleId}"]`,
   );
-  return allLines.filter((line) => line.includes(" permissions: "));
+  if ((await row.count()) === 0) {
+    return null;
+  }
+  const permissionsCsv = await row.getAttribute("data-role-permissions");
+  return {
+    permissionsCsv: (permissionsCsv ?? "").trim(),
+  };
 }
 
 async function waitForApiResponse(

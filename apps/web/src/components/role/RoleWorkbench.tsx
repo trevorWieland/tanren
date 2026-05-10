@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent, ReactNode } from "react";
 
 import type { RoleAdminAction } from "@/app/lib/generated/role-contract";
@@ -50,6 +50,9 @@ export function RoleWorkbench(): ReactNode {
   const [submitState, setSubmitState] = useState<
     Record<RoleOperationSubmitStateKey, boolean>
   >(buildSubmitState(false));
+  const submitInFlightRef = useRef<
+    Record<RoleOperationSubmitStateKey, boolean>
+  >(buildSubmitState(false));
   const {
     snapshot: capabilitySnapshot,
     capabilities,
@@ -94,6 +97,10 @@ export function RoleWorkbench(): ReactNode {
     descriptor,
     action: () => Promise<void>,
   ): Promise<void> => {
+    if (submitInFlightRef.current[descriptor.submitStateKey]) {
+      return;
+    }
+    submitInFlightRef.current[descriptor.submitStateKey] = true;
     setSubmitState((current) => ({
       ...current,
       [descriptor.submitStateKey]: true,
@@ -104,6 +111,7 @@ export function RoleWorkbench(): ReactNode {
     } catch (reason: unknown) {
       setRoleMessage(`${descriptor.label}: ${formatRoleError(reason)}`);
     } finally {
+      submitInFlightRef.current[descriptor.submitStateKey] = false;
       setSubmitState((current) => ({
         ...current,
         [descriptor.submitStateKey]: false,

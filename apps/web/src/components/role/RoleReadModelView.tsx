@@ -30,21 +30,27 @@ interface RoleReadModelViewProps {
   onLoadMoreGrants: () => void;
 }
 
+const ROLE_PERMISSION_PREVIEW_LIMIT = 5;
+const OPERATION_SUMMARY_LINE_LIMIT = 120;
+
 export function RoleOperationResultView(
   props: RoleOperationResultViewProps,
 ): ReactNode {
+  const summary = props.summary;
   return (
     <section className="max-w-3xl rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4">
       <h2 className="mb-2 text-lg font-medium">Role operation result</h2>
       <p className="mb-2 text-sm">{props.message}</p>
-      {props.summary === null ? (
+      {summary === null ? (
         <p className="text-sm text-[--color-fg-muted]">No operations yet.</p>
       ) : (
         <>
-          <p className="mb-2 text-sm font-medium">{props.summary.label}</p>
+          <p className="mb-2 text-sm font-medium">{summary.label}</p>
           <ul className="list-disc space-y-1 pl-5 text-sm">
-            {props.summary.lines.map((line) => (
-              <li key={line}>{line}</li>
+            {summary.lines.map((line, index) => (
+              <li key={`${summary.label}-${String(index)}`}>
+                {truncateLine(line, OPERATION_SUMMARY_LINE_LIMIT)}
+              </li>
             ))}
           </ul>
         </>
@@ -98,10 +104,15 @@ export function RoleReadModelView(props: RoleReadModelViewProps): ReactNode {
           ) : (
             <ul className="mt-1 space-y-1 text-sm">
               {props.readModel.role_templates.map((role) => (
-                <li key={role.id}>
+                <li
+                  key={role.id}
+                  data-role-id={role.id}
+                  data-role-permissions={role.permissions.join(",")}
+                >
                   <span className="font-medium">{role.name}</span>
                   {` (${role.id})`}
-                  {` permissions: ${role.permissions.join(", ")}`}
+                  {` permissions: ${role.permissions.length}`}
+                  {` [${summarizePermissions(role.permissions)}]`}
                 </li>
               ))}
             </ul>
@@ -198,4 +209,24 @@ function formatGrantCursor(
     return "none";
   }
   return `${cursor.granted_at} (${cursor.id})`;
+}
+
+function summarizePermissions(permissions: string[]): string {
+  if (permissions.length === 0) {
+    return "none";
+  }
+  const preview = permissions
+    .slice(0, ROLE_PERMISSION_PREVIEW_LIMIT)
+    .join(", ");
+  if (permissions.length <= ROLE_PERMISSION_PREVIEW_LIMIT) {
+    return preview;
+  }
+  return `${preview} +${permissions.length - ROLE_PERMISSION_PREVIEW_LIMIT} more`;
+}
+
+function truncateLine(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+  return `${value.slice(0, maxLength - 3)}...`;
 }
