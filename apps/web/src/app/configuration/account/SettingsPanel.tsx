@@ -1,6 +1,10 @@
 import { useState } from "react";
 import type { ReactNode } from "react";
 
+import {
+  USER_SETTING_DESCRIPTORS,
+  userSettingDescriptorForKey,
+} from "@/app/configuration/account/settingDescriptors";
 import type {
   ConfigurationCapabilities,
   ListUserSettingsResult,
@@ -37,10 +41,13 @@ export function SettingsPanel({
   readModel,
   settingsAllowedActions,
 }: SettingsPanelProps): ReactNode {
-  const [settingKey, setSettingKey] = useState<UserSettingKey>("theme");
+  const [settingKey, setSettingKey] = useState<UserSettingKey>(
+    USER_SETTING_DESCRIPTORS[0]?.key ?? "theme",
+  );
   const [settingValue, setSettingValue] = useState("system");
-  const [removeSettingKey, setRemoveSettingKey] =
-    useState<UserSettingKey>("theme");
+  const [removeSettingKey, setRemoveSettingKey] = useState<UserSettingKey>(
+    USER_SETTING_DESCRIPTORS[0]?.key ?? "theme",
+  );
 
   const rows = readModel?.items ?? [];
   const allowedActions = new Set(settingsAllowedActions);
@@ -56,6 +63,7 @@ export function SettingsPanel({
     (item): item is { label: string; value: string } =>
       typeof item.value === "string" && item.value.trim() !== "",
   );
+  const selectedDescriptor = userSettingDescriptorForKey(settingKey);
 
   async function submitSet(): Promise<void> {
     const rawValue = settingValue.trim();
@@ -63,12 +71,7 @@ export function SettingsPanel({
       return;
     }
 
-    const valuePayload =
-      settingKey === "theme"
-        ? rawValue === "system" || rawValue === "light" || rawValue === "dark"
-          ? ({ kind: "theme", value: rawValue } as const)
-          : null
-        : ({ kind: "editor", value: rawValue } as const);
+    const valuePayload = selectedDescriptor.toValue(rawValue);
     if (valuePayload === null) {
       return;
     }
@@ -128,18 +131,17 @@ export function SettingsPanel({
               }
               className="rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-2 py-1.5 text-sm"
             >
-              <option value="theme">{m.config_setting_key_theme()}</option>
-              <option value="editor">{m.config_setting_key_editor()}</option>
+              {USER_SETTING_DESCRIPTORS.map((descriptor) => (
+                <option key={descriptor.key} value={descriptor.key}>
+                  {descriptor.label()}
+                </option>
+              ))}
             </select>
             <input
               value={settingValue}
               onChange={(event) => setSettingValue(event.target.value)}
               className="min-w-48 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
-              placeholder={
-                settingKey === "theme"
-                  ? m.config_settings_placeholder_theme_values()
-                  : m.config_settings_placeholder_editor_command()
-              }
+              placeholder={selectedDescriptor.placeholder()}
             />
             <button
               type="button"
@@ -165,8 +167,11 @@ export function SettingsPanel({
               }
               className="rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-2 py-1.5 text-sm"
             >
-              <option value="theme">{m.config_setting_key_theme()}</option>
-              <option value="editor">{m.config_setting_key_editor()}</option>
+              {USER_SETTING_DESCRIPTORS.map((descriptor) => (
+                <option key={descriptor.key} value={descriptor.key}>
+                  {descriptor.label()}
+                </option>
+              ))}
             </select>
             <button
               type="button"

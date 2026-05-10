@@ -22,8 +22,10 @@ pub use secret_store::{
     UserCredentialSealContext, seal_user_credential_value_from_env,
 };
 pub use user_registry::{
-    parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,
-    user_setting_key_wire_name, validate_user_credential_kind, validate_user_setting,
+    USER_CREDENTIAL_KIND_DESCRIPTORS, USER_SETTING_DESCRIPTORS, UserCredentialKindDescriptor,
+    UserSettingDescriptor, parse_user_credential_kind, parse_user_setting_key,
+    user_credential_kind_wire_name, user_setting_key_wire_name, validate_user_credential_kind,
+    validate_user_setting,
 };
 
 /// Maximum byte length allowed for the editor setting value.

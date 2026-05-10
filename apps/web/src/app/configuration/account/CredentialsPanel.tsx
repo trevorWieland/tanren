@@ -11,8 +11,8 @@ import {
   type CredentialPanelName,
   type CredentialPanelTabDescriptor,
 } from "@/app/configuration/account/CredentialPanelTabs";
-import { USER_CREDENTIAL_KIND_DESCRIPTORS } from "@/app/configuration/account/credentialKinds";
 import { credentialMetadataCandidates } from "@/app/configuration/account/credentialMetadata";
+import { USER_CREDENTIAL_KIND_DESCRIPTORS } from "@/app/configuration/account/settingDescriptors";
 import { hasNonEmptyTrimmedString } from "@/app/configuration/account/stringGuards";
 import type {
   CredentialListPageInput,

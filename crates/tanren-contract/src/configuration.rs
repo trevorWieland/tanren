@@ -12,8 +12,9 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_configuration_secrets::UserCredentialMetadata;
 pub use tanren_configuration_secrets::{
-    ConfigurationValidationFailure, OwnerScope, ThemePreference, UserCredentialId,
-    UserCredentialKind, UserCredentialStatus, UserSettingKey, UserSettingValue,
+    ConfigurationValidationFailure, OwnerScope, ThemePreference, USER_CREDENTIAL_KIND_DESCRIPTORS,
+    USER_SETTING_DESCRIPTORS, UserCredentialId, UserCredentialKind, UserCredentialKindDescriptor,
+    UserCredentialStatus, UserSettingDescriptor, UserSettingKey, UserSettingValue,
     parse_user_credential_kind, parse_user_setting_key, user_credential_kind_wire_name,
     user_setting_key_wire_name,
 };
@@ -275,11 +276,34 @@ impl UserConfigurationFailureReason {
 }
 
 /// Stable list of supported user-setting keys for interface prompts/messages.
-pub const SUPPORTED_USER_SETTING_KEYS: [&str; 2] = ["theme", "editor"];
+pub const SUPPORTED_USER_SETTING_KEYS: [&str; USER_SETTING_DESCRIPTORS.len()] =
+    supported_user_setting_keys();
 /// Stable list of supported credential kinds for interface prompts/messages.
-pub const SUPPORTED_USER_CREDENTIAL_KINDS: [&str; 2] = ["provider_api_token", "harness_api_token"];
+pub const SUPPORTED_USER_CREDENTIAL_KINDS: [&str; USER_CREDENTIAL_KIND_DESCRIPTORS.len()] =
+    supported_user_credential_kinds();
 /// Stable list of supported theme preferences for interface prompts/messages.
 pub const SUPPORTED_THEME_PREFERENCES: [&str; 3] = ["system", "light", "dark"];
+
+const fn supported_user_setting_keys() -> [&'static str; USER_SETTING_DESCRIPTORS.len()] {
+    let mut names = [""; USER_SETTING_DESCRIPTORS.len()];
+    let mut index = 0;
+    while index < USER_SETTING_DESCRIPTORS.len() {
+        names[index] = USER_SETTING_DESCRIPTORS[index].wire_name;
+        index += 1;
+    }
+    names
+}
+
+const fn supported_user_credential_kinds() -> [&'static str; USER_CREDENTIAL_KIND_DESCRIPTORS.len()]
+{
+    let mut names = [""; USER_CREDENTIAL_KIND_DESCRIPTORS.len()];
+    let mut index = 0;
+    while index < USER_CREDENTIAL_KIND_DESCRIPTORS.len() {
+        names[index] = USER_CREDENTIAL_KIND_DESCRIPTORS[index].wire_name;
+        index += 1;
+    }
+    names
+}
 
 /// Resolve a user-setting key to a stable transport name.
 #[must_use]

@@ -1,8 +1,8 @@
 import type { ReactNode } from "react";
 
 import { CredentialSecretForm } from "@/app/configuration/account/CredentialSecretForm";
-import type { CredentialKindDescriptor } from "@/app/configuration/account/credentialKinds";
-import { toUserCredentialKind } from "@/app/configuration/account/credentialKinds";
+import type { CredentialKindDescriptor } from "@/app/configuration/account/settingDescriptors";
+import { toUserCredentialKind } from "@/app/configuration/account/settingDescriptors";
 import type {
   SecretInput,
   UserCredentialItemId,

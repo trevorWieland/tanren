@@ -20,7 +20,17 @@ type OperationJsonRequest<Op extends keyof operations> =
 
 export type UserSettingKey = components["schemas"]["UserSettingKey"];
 export type UserCredentialKind = components["schemas"]["UserCredentialKind"];
+export type ThemePreference = components["schemas"]["ThemePreference"];
 export type UserSettingValue = components["schemas"]["UserSettingValue"];
+export const USER_SETTING_KEY_VALUES = [
+  "theme",
+  "editor",
+] as const satisfies readonly UserSettingKey[];
+export const THEME_PREFERENCE_VALUES = [
+  "system",
+  "light",
+  "dark",
+] as const satisfies readonly ThemePreference[];
 export const USER_CREDENTIAL_KIND_VALUES = [
   "provider_api_token",
   "harness_api_token",
