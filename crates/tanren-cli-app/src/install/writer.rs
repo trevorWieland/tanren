@@ -1,6 +1,5 @@
 //! Filesystem writer for manifest-driven install plans.
 
-use std::collections::BTreeMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 
@@ -10,7 +9,8 @@ use crate::install::path_guard::resolve_repo_path;
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 use crate::install::uninstall_plan::UninstallPreview;
 use crate::install::writer_tx::{
-    cleanup_staged_payloads, commit_staged_replacement, prepare_apply, resolve_apply_failure,
+    atomic_replace_file, cleanup_staged_payloads, commit_staged_replacement, prepare_apply,
+    resolve_apply_failure,
 };
 
 /// Install apply report grouped by observable outcome.
@@ -52,6 +52,19 @@ struct PreparedUninstallRemoval {
     path: RepoRelativePath,
     absolute: PathBuf,
     prior_content: Vec<u8>,
+    class: UninstallRemovalClass,
+}
+
+#[derive(Debug, Clone)]
+struct PlannedUninstallRemoval {
+    path: RepoRelativePath,
+    class: UninstallRemovalClass,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UninstallRemovalClass {
+    GeneratedAsset,
+    InstallMetadata,
 }
 
 /// Apply a previously validated install plan.
@@ -116,34 +129,33 @@ pub(super) fn apply_uninstall_preview(
 ) -> Result<UninstallApplyReport, InstallError> {
     let repository_root = validate_repository_root(repository)?;
     let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
-    let mut removals = preview.remove().to_vec();
     let manifest_absolute = resolve_manifest_absolute_path(&repository_root, &manifest_path)?;
-    if manifest_absolute.exists() {
-        removals.push(manifest_path.clone());
-    }
-    removals.sort();
-    removals.dedup();
-    if removals.is_empty() {
+    let planned_removals =
+        build_uninstall_removal_plan(preview.remove(), manifest_absolute.exists(), &manifest_path);
+    if planned_removals.is_empty() {
         return Ok(UninstallApplyReport::default());
     }
 
-    let prepared = prepare_uninstall_apply(&repository_root, &removals)?;
+    let prepared = prepare_uninstall_apply(&repository_root, &planned_removals)?;
     let mut report = UninstallApplyReport::default();
-    let mut changed_paths = Vec::with_capacity(prepared.len());
+    let mut changed_indices = Vec::with_capacity(prepared.len());
 
     let apply_result: Result<(), InstallError> = (|| {
-        for removal in &prepared {
+        for (index, removal) in prepared.iter().enumerate() {
             std::fs::remove_file(&removal.absolute).map_err(|err| InstallError::RemoveFailure {
                 path: removal.path.as_str().to_owned(),
                 message: err.to_string(),
             })?;
 
-            if removal.path == manifest_path {
-                report.removed_metadata.push(removal.path.clone());
-            } else {
-                report.removed_generated.push(removal.path.clone());
+            match removal.class {
+                UninstallRemovalClass::GeneratedAsset => {
+                    report.removed_generated.push(removal.path.clone());
+                }
+                UninstallRemovalClass::InstallMetadata => {
+                    report.removed_metadata.push(removal.path.clone());
+                }
             }
-            changed_paths.push(removal.path.clone());
+            changed_indices.push(index);
         }
 
         Ok(())
@@ -153,13 +165,47 @@ pub(super) fn apply_uninstall_preview(
         return Err(resolve_uninstall_apply_error(
             &repository_root,
             &prepared,
-            &changed_paths,
+            &changed_indices,
             error,
         ));
     }
 
     report.sort_paths();
     Ok(report)
+}
+
+fn build_uninstall_removal_plan(
+    removal_paths: &[RepoRelativePath],
+    manifest_exists: bool,
+    manifest_path: &RepoRelativePath,
+) -> Vec<PlannedUninstallRemoval> {
+    let mut planned = Vec::with_capacity(removal_paths.len() + usize::from(manifest_exists));
+    for path in removal_paths {
+        planned.push(PlannedUninstallRemoval {
+            path: path.clone(),
+            class: UninstallRemovalClass::GeneratedAsset,
+        });
+    }
+    if !manifest_exists {
+        return planned;
+    }
+
+    match removal_paths.binary_search(manifest_path) {
+        Ok(index) => {
+            planned[index].class = UninstallRemovalClass::InstallMetadata;
+        }
+        Err(index) => {
+            planned.insert(
+                index,
+                PlannedUninstallRemoval {
+                    path: manifest_path.clone(),
+                    class: UninstallRemovalClass::InstallMetadata,
+                },
+            );
+        }
+    }
+
+    planned
 }
 
 fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
@@ -192,37 +238,38 @@ fn resolve_manifest_absolute_path(
 
 fn prepare_uninstall_apply(
     repository_root: &Path,
-    removal_paths: &[RepoRelativePath],
+    planned_removals: &[PlannedUninstallRemoval],
 ) -> Result<Vec<PreparedUninstallRemoval>, InstallError> {
-    let mut removals = Vec::with_capacity(removal_paths.len());
-    for path in removal_paths {
-        let absolute = resolve_repo_path(repository_root, path)?;
+    let mut removals = Vec::with_capacity(planned_removals.len());
+    for planned in planned_removals {
+        let absolute = resolve_repo_path(repository_root, &planned.path)?;
         let metadata = match std::fs::symlink_metadata(&absolute) {
             Ok(metadata) => metadata,
             Err(err) if err.kind() == ErrorKind::NotFound => continue,
             Err(err) => {
                 return Err(InstallError::ReadFailure {
-                    path: path.as_str().to_owned(),
+                    path: planned.path.as_str().to_owned(),
                     message: err.to_string(),
                 });
             }
         };
         if !metadata.is_file() {
             return Err(InstallError::RemoveFailure {
-                path: path.as_str().to_owned(),
+                path: planned.path.as_str().to_owned(),
                 message: "planned uninstall target is not a regular file".to_owned(),
             });
         }
 
         let prior_content =
             std::fs::read(&absolute).map_err(|err| InstallError::RemoveFailure {
-                path: path.as_str().to_owned(),
+                path: planned.path.as_str().to_owned(),
                 message: err.to_string(),
             })?;
         removals.push(PreparedUninstallRemoval {
-            path: path.clone(),
+            path: planned.path.clone(),
             absolute,
             prior_content,
+            class: planned.class,
         });
     }
     Ok(removals)
@@ -231,14 +278,15 @@ fn prepare_uninstall_apply(
 fn resolve_uninstall_apply_error(
     repository_root: &Path,
     prepared: &[PreparedUninstallRemoval],
-    changed_paths: &[RepoRelativePath],
+    changed_indices: &[usize],
     cause: InstallError,
 ) -> InstallError {
-    if changed_paths.is_empty() {
+    if changed_indices.is_empty() {
         return cause;
     }
 
-    if let Err(rollback_error) = rollback_changed_paths(repository_root, prepared, changed_paths) {
+    if let Err(rollback_error) = rollback_changed_paths(repository_root, prepared, changed_indices)
+    {
         return InstallError::WriteFailure {
             path: ".".to_owned(),
             message: format!("apply failed: {cause}; rollback failed: {rollback_error}"),
@@ -251,17 +299,13 @@ fn resolve_uninstall_apply_error(
 fn rollback_changed_paths(
     repository_root: &Path,
     prepared: &[PreparedUninstallRemoval],
-    changed_paths: &[RepoRelativePath],
+    changed_indices: &[usize],
 ) -> Result<(), InstallError> {
-    let prepared_by_path = prepared
-        .iter()
-        .map(|entry| (entry.path.as_str(), entry))
-        .collect::<BTreeMap<_, _>>();
-
-    for path in changed_paths.iter().rev() {
-        let Some(removal) = prepared_by_path.get(path.as_str()) else {
+    for index in changed_indices.iter().rev() {
+        let Some(removal) = prepared.get(*index) else {
             continue;
         };
+        let path = &removal.path;
 
         let revalidated = resolve_repo_path(repository_root, path)?;
         if revalidated != removal.absolute {
@@ -271,23 +315,7 @@ fn rollback_changed_paths(
             });
         }
 
-        if let Some(parent) = revalidated.parent()
-            && !parent.exists()
-        {
-            std::fs::create_dir_all(parent).map_err(|err| {
-                InstallError::CreateDirectoryFailure {
-                    path: path.as_str().to_owned(),
-                    message: err.to_string(),
-                }
-            })?;
-        }
-
-        std::fs::write(&revalidated, &removal.prior_content).map_err(|err| {
-            InstallError::WriteFailure {
-                path: path.as_str().to_owned(),
-                message: err.to_string(),
-            }
-        })?;
+        atomic_replace_file(path, &revalidated, &removal.prior_content)?;
     }
 
     Ok(())

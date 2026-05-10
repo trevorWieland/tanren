@@ -75,19 +75,37 @@ pub struct UninstallCommand {
     confirm: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum UninstallExecutionMode {
+    PreviewOnly,
+    ApplyConfirmed,
+}
+
+impl UninstallExecutionMode {
+    fn from_confirm_flag(confirm: bool) -> Self {
+        if confirm {
+            Self::ApplyConfirmed
+        } else {
+            Self::PreviewOnly
+        }
+    }
+}
+
 impl UninstallCommand {
     /// Build preview, optionally apply it, and emit deterministic reports.
     pub fn run(&self) -> Result<(), InstallCommandError> {
+        let execution_mode = UninstallExecutionMode::from_confirm_flag(self.confirm);
         let preview =
             plan_uninstall(&self.repo).map_err(InstallCommandError::from_uninstall_error)?;
         self.write_preview_report(&preview)?;
-        if !self.confirm {
-            return Ok(());
+        match execution_mode {
+            UninstallExecutionMode::PreviewOnly => Ok(()),
+            UninstallExecutionMode::ApplyConfirmed => {
+                let report = apply_uninstall(&self.repo, &preview)
+                    .map_err(InstallCommandError::from_uninstall_error)?;
+                self.write_apply_report(&preview, &report)
+            }
         }
-
-        let report = apply_uninstall(&self.repo, &preview)
-            .map_err(InstallCommandError::from_uninstall_error)?;
-        self.write_apply_report(&preview, &report)
     }
 
     fn write_preview_report(&self, preview: &UninstallPreview) -> Result<(), InstallCommandError> {

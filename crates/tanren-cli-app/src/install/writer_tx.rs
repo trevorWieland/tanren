@@ -347,7 +347,7 @@ fn ensure_parent_directory(path: &RepoRelativePath, absolute: &Path) -> Result<(
     Ok(())
 }
 
-fn atomic_replace_file(
+pub(super) fn atomic_replace_file(
     path: &RepoRelativePath,
     absolute: &Path,
     content: &[u8],
