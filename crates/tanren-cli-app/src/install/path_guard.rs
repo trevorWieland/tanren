@@ -58,3 +58,24 @@ pub(crate) fn resolve_repo_path(
     }
     Ok(absolute)
 }
+
+/// Build the parent repo-relative path for a validated path.
+pub(crate) fn resolve_repo_parent_path(
+    path: &RepoRelativePath,
+) -> Result<Option<RepoRelativePath>, InstallError> {
+    let mut segments = path
+        .as_path()
+        .components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>();
+
+    if segments.len() <= 1 {
+        return Ok(None);
+    }
+
+    let _ = segments.pop();
+    RepoRelativePath::parse(&segments.join("/")).map(Some)
+}

@@ -4,7 +4,8 @@ use crate::install::error::InstallError;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 use crate::install::writer_tx::{
-    cleanup_staged_payloads, commit_staged_replacement, prepare_apply, resolve_apply_failure,
+    ManifestChange, cleanup_rollback_scratch_files, cleanup_staged_payloads,
+    commit_staged_replacement, prepare_apply, remove_prepared_file, resolve_apply_failure,
 };
 
 /// Install apply report grouped by observable outcome.
@@ -38,10 +39,7 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
 
     let apply_result: Result<(), InstallError> = (|| {
         for removal in &prepared.removals {
-            std::fs::remove_file(&removal.absolute).map_err(|err| InstallError::RemoveFailure {
-                path: removal.path.as_str().to_owned(),
-                message: err.to_string(),
-            })?;
+            remove_prepared_file(plan, &removal.path, &removal.absolute)?;
             report.removed.push(removal.path.clone());
             changed_paths.push(removal.path.clone());
         }
@@ -56,13 +54,15 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
             changed_paths.push(write.staged.path.clone());
         }
 
-        commit_staged_replacement(plan, &prepared.manifest.staged)?;
-        if prepared.manifest.prior.is_none() {
-            report.created.push(prepared.manifest.staged.path.clone());
-        } else if prepared.manifest.prior.as_deref() != Some(prepared.manifest.payload.as_slice()) {
-            report.updated.push(prepared.manifest.staged.path.clone());
+        if let Some(manifest) = &prepared.manifest.staged {
+            commit_staged_replacement(plan, manifest)?;
+            match prepared.manifest.change {
+                ManifestChange::Created => report.created.push(manifest.path.clone()),
+                ManifestChange::Updated => report.updated.push(manifest.path.clone()),
+                ManifestChange::Unchanged => {}
+            }
+            changed_paths.push(manifest.path.clone());
         }
-        changed_paths.push(prepared.manifest.staged.path.clone());
 
         Ok(())
     })();
@@ -70,14 +70,13 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
     cleanup_staged_payloads(&prepared);
 
     if let Err(error) = apply_result {
-        return Err(resolve_apply_failure(
-            plan,
-            &prepared.rollback_records,
-            &changed_paths,
-            error,
-        ));
+        let rollback_error =
+            resolve_apply_failure(plan, &prepared.rollback_records, &changed_paths, error);
+        cleanup_rollback_scratch_files(&prepared.rollback_records);
+        return Err(rollback_error);
     }
 
+    cleanup_rollback_scratch_files(&prepared.rollback_records);
     report.sort_paths();
     Ok(report)
 }

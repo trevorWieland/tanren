@@ -16,6 +16,7 @@ mod plan;
 mod upgrade;
 mod writer;
 mod writer_tx;
+mod writer_tx_support;
 
 pub use cli::InstallCommand;
 pub use error::InstallError;
