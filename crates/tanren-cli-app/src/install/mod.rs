@@ -8,6 +8,7 @@ mod catalog;
 mod cli;
 #[cfg(feature = "test-hooks")]
 pub mod contract;
+mod drift;
 mod error;
 mod manifest;
 mod path_guard;
@@ -16,7 +17,8 @@ mod writer;
 mod writer_tx;
 
 pub use cli::InstallCommand;
-pub use error::InstallError;
+pub use drift::{InstallDriftEntry, InstallDriftReport, InstallDriftStatus};
+pub use error::{InstallDriftError, InstallError};
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
@@ -152,4 +154,13 @@ pub fn apply_install(
 ) -> Result<InstallReport, InstallError> {
     let plan = plan_install(repository, profile, integration_selection)?;
     writer::apply_install_plan(&plan)
+}
+
+/// Validate install inputs, then analyze repository drift without mutations.
+pub fn check_install_drift(
+    repository: &Path,
+    profile: &str,
+    integration_selection: Option<&str>,
+) -> Result<InstallDriftReport, InstallDriftError> {
+    drift::check_install_drift(repository, profile, integration_selection)
 }

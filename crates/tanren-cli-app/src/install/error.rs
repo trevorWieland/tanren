@@ -82,3 +82,21 @@ impl From<InstallError> for InstallCommandError {
         }
     }
 }
+
+/// Typed read-only drift check failures.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum InstallDriftError {
+    /// Input, path, catalog, or manifest validation failed before analysis.
+    #[error("error: drift_check_failed — {source}")]
+    DriftCheckFailed {
+        #[source]
+        source: InstallError,
+    },
+}
+
+impl From<InstallError> for InstallDriftError {
+    fn from(source: InstallError) -> Self {
+        Self::DriftCheckFailed { source }
+    }
+}
