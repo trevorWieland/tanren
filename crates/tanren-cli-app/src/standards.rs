@@ -13,8 +13,11 @@ use tanren_configuration_secrets::{
 use thiserror::Error;
 
 use crate::install::resolve_repo_relative_path;
+use scanner::scan_standards;
 
 const PROJECT_METHODOLOGY_CONFIG_REPO_PATH: &str = ".tanren/project-methodology.toml";
+
+mod scanner;
 
 /// `tanren-cli standards` command arguments.
 #[derive(Debug, Clone, Args)]
@@ -170,12 +173,32 @@ pub(crate) enum StandardsError {
     NoStandardsFiles { path: String },
     #[error("failed to parse standards frontmatter in '{path}': {message}")]
     FrontmatterParse { path: String, message: String },
-}
-
-#[derive(Debug, Clone)]
-struct ParsedStandard {
-    path: String,
-    name: String,
+    #[error("standards tree walk exceeded maximum directory depth {limit} at '{path}'")]
+    DirectoryDepthLimitExceeded { path: String, limit: usize },
+    #[error("standards scan exceeded markdown file limit {limit} at '{path}'")]
+    MarkdownFileLimitExceeded { path: String, limit: usize },
+    #[error("standard markdown file exceeds byte limit {limit} in '{path}' ({actual} bytes)")]
+    StandardFileTooLarge {
+        path: String,
+        limit: u64,
+        actual: u64,
+    },
+    #[error(
+        "standards scan exceeded total byte limit {limit} while reading '{path}' (total {actual} bytes)"
+    )]
+    StandardsTotalBytesLimitExceeded {
+        path: String,
+        limit: u64,
+        actual: u64,
+    },
+    #[error(
+        "standards frontmatter exceeds byte limit {limit} in '{path}' (at least {actual} bytes)"
+    )]
+    FrontmatterTooLarge {
+        path: String,
+        limit: usize,
+        actual: usize,
+    },
 }
 
 fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, StandardsCommandError> {
@@ -235,11 +258,12 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
         });
     }
 
-    let mut parsed = Vec::new();
-    collect_standards(&repository_root, &standards_root, &mut parsed)?;
-    parsed.sort_by(|left, right| left.path.cmp(&right.path));
+    let scan_summary = scan_standards(&repository_root, &standards_root)?;
 
-    let Some(first) = parsed.first() else {
+    let (Some(first_standard_name), Some(first_standard_path)) = (
+        scan_summary.first_standard_name,
+        scan_summary.first_standard_path,
+    ) else {
         return Err(StandardsCommandError::StandardsMissing {
             source: StandardsError::NoStandardsFiles {
                 path: config.standards_root.as_str().to_owned(),
@@ -250,9 +274,9 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
     Ok(StandardsInspectReport {
         profile: methodology_profile_name(config.profile).to_owned(),
         standards_root: config.standards_root,
-        standards_count: parsed.len(),
-        first_standard_name: first.name.clone(),
-        first_standard_path: first.path.clone(),
+        standards_count: scan_summary.standards_count,
+        first_standard_name,
+        first_standard_path,
         effective_configuration: StandardsInspectEffectiveConfigurationReport {
             profile: EffectiveConfigurationMetadata::project_explicit(
                 EffectiveConfigurationSettingFamily::StandardsProfile,
@@ -262,177 +286,6 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
             ),
         },
     })
-}
-
-fn collect_standards(
-    repository_root: &Path,
-    directory: &Path,
-    parsed: &mut Vec<ParsedStandard>,
-) -> Result<(), StandardsCommandError> {
-    let directory_path =
-        to_repo_relative_path(repository_root, directory).map_err(validation_failed)?;
-    let entries =
-        fs::read_dir(directory).map_err(|source| StandardsCommandError::StandardsMissing {
-            source: StandardsError::ReadFailure {
-                path: directory_path.clone(),
-                message: source.to_string(),
-            },
-        })?;
-
-    for entry_result in entries {
-        let entry = entry_result.map_err(|source| StandardsCommandError::StandardsMissing {
-            source: StandardsError::ReadFailure {
-                path: directory_path.clone(),
-                message: source.to_string(),
-            },
-        })?;
-        let path = entry.path();
-        let path_relative =
-            to_repo_relative_path(repository_root, &path).map_err(validation_failed)?;
-        let file_type =
-            entry
-                .file_type()
-                .map_err(|source| StandardsCommandError::StandardsMissing {
-                    source: StandardsError::ReadFailure {
-                        path: path_relative.clone(),
-                        message: source.to_string(),
-                    },
-                })?;
-
-        if file_type.is_dir() {
-            collect_standards(repository_root, &path, parsed)?;
-            continue;
-        }
-        if !file_type.is_file() {
-            continue;
-        }
-        if path.extension().and_then(|value| value.to_str()) != Some("md") {
-            continue;
-        }
-
-        let standard_path_relative = path_relative;
-        let raw = fs::read_to_string(&path).map_err(|source| {
-            StandardsCommandError::StandardsParseFailed {
-                source: StandardsError::ReadFailure {
-                    path: standard_path_relative.clone(),
-                    message: source.to_string(),
-                },
-            }
-        })?;
-        let standard_name = parse_standard_name(&raw).map_err(|source| {
-            StandardsCommandError::StandardsParseFailed {
-                source: StandardsError::FrontmatterParse {
-                    path: standard_path_relative.clone(),
-                    message: source,
-                },
-            }
-        })?;
-
-        parsed.push(ParsedStandard {
-            path: standard_path_relative,
-            name: standard_name,
-        });
-    }
-
-    Ok(())
-}
-
-fn parse_standard_name(content: &str) -> Result<String, String> {
-    let frontmatter = extract_frontmatter(content)?;
-    let name = parse_frontmatter_name(frontmatter)?;
-    let name = name.trim();
-    if name.is_empty() {
-        return Err("frontmatter 'name' must not be empty".to_owned());
-    }
-    Ok(name.to_owned())
-}
-
-fn extract_frontmatter(content: &str) -> Result<&str, String> {
-    let mut lines = content.split_inclusive('\n');
-    let Some(first) = lines.next() else {
-        return Err("missing opening frontmatter delimiter".to_owned());
-    };
-    if trim_line_ending(first) != "---" {
-        return Err("missing opening frontmatter delimiter".to_owned());
-    }
-
-    let body_start = first.len();
-    let mut body_end = body_start;
-
-    for line in lines {
-        if trim_line_ending(line) == "---" {
-            return content
-                .get(body_start..body_end)
-                .ok_or_else(|| "invalid frontmatter byte bounds".to_owned());
-        }
-        body_end += line.len();
-    }
-
-    Err("missing closing frontmatter delimiter".to_owned())
-}
-
-fn parse_frontmatter_name(frontmatter: &str) -> Result<&str, String> {
-    let mut name: Option<&str> = None;
-    let mut in_list = false;
-
-    for raw_line in frontmatter.lines() {
-        let line = trim_line_ending(raw_line);
-        let trimmed = line.trim();
-        if trimmed.is_empty() {
-            continue;
-        }
-
-        if in_list && trimmed.starts_with("- ") {
-            continue;
-        }
-        in_list = false;
-
-        if line.starts_with(' ') || line.starts_with('\t') {
-            return Err(format!(
-                "invalid frontmatter line: expected top-level key, got '{trimmed}'"
-            ));
-        }
-
-        let Some((key_raw, value_raw)) = trimmed.split_once(':') else {
-            return Err(format!(
-                "invalid frontmatter line: expected key:value, got '{trimmed}'"
-            ));
-        };
-
-        let key = key_raw.trim();
-        if key.is_empty() {
-            return Err("invalid frontmatter line: empty key before ':'".to_owned());
-        }
-
-        let value = value_raw.trim();
-        if value.is_empty() {
-            in_list = true;
-            continue;
-        }
-
-        if key == "name" {
-            if name.is_some() {
-                return Err("frontmatter contains duplicate 'name' entries".to_owned());
-            }
-            name = Some(unquote_yaml_scalar(value));
-        }
-    }
-
-    name.ok_or_else(|| "frontmatter missing required 'name' key".to_owned())
-}
-
-fn unquote_yaml_scalar(value: &str) -> &str {
-    let quoted = (value.starts_with('"') && value.ends_with('"'))
-        || (value.starts_with('\'') && value.ends_with('\''));
-    if quoted && value.len() >= 2 {
-        &value[1..value.len() - 1]
-    } else {
-        value
-    }
-}
-
-fn trim_line_ending(line: &str) -> &str {
-    line.trim_end_matches('\n').trim_end_matches('\r')
 }
 
 const fn methodology_profile_name(profile: MethodologyProfile) -> &'static str {
