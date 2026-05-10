@@ -4247,6 +4247,7 @@ dependencies = [
  "clap",
  "secrecy",
  "serde",
+ "serde_json",
  "sha2",
  "tanren-app-services",
  "tanren-configuration-secrets",

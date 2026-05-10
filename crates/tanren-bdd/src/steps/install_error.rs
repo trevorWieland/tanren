@@ -1,6 +1,10 @@
 use std::path::PathBuf;
 
-use tanren_configuration_secrets::ConfigSecretsError;
+use tanren_configuration_secrets::{
+    ConfigSecretsError, EffectiveConfigurationActorUsability, EffectiveConfigurationFreshness,
+    EffectiveConfigurationPolicyConstraint, EffectiveConfigurationResolutionKind,
+    EffectiveConfigurationSettingFamily, EffectiveConfigurationSourceScope,
+};
 use thiserror::Error;
 
 use tanren_testkit::{HarnessError, InstallProofError};
@@ -41,6 +45,17 @@ pub(crate) enum InstallStepError {
     InstallCommandExpectedFailure { stdout: String, stderr: String },
     #[error("expected install stdout to contain `{expected}`; got:\n{stdout}")]
     StdoutMissingExpected { expected: String, stdout: String },
+    #[error(
+        "expected install stdout to decode as standards inspect JSON report: {source}\nstdout:\n{stdout}"
+    )]
+    StdoutJsonDecode {
+        source: serde_json::Error,
+        stdout: String,
+    },
+    #[error(
+        "expected install stdout standards inspect JSON report to include field path `{field_path}`\nstdout:\n{stdout}"
+    )]
+    StdoutJsonMissingField { field_path: String, stdout: String },
     #[error("expected install stderr to contain `{expected}`; got:\n{stderr}")]
     StderrMissingExpected { expected: String, stderr: String },
     #[error(
@@ -53,6 +68,47 @@ pub(crate) enum InstallStepError {
     },
     #[error("expected validation failure in stderr; got:\n{stderr}")]
     ValidationFailureMissing { stderr: String },
+    #[error("unexpected standards inspect status `{actual}` in success report")]
+    UnexpectedStandardsInspectStatus { actual: String },
+    #[error("unexpected standards inspect command `{actual}` in success report")]
+    UnexpectedStandardsInspectCommand { actual: String },
+    #[error("unexpected standards inspect profile; expected `{expected}`, got `{actual}`")]
+    UnexpectedStandardsInspectProfile { expected: String, actual: String },
+    #[error("standards inspect report returned an empty repository field")]
+    UnexpectedStandardsInspectRepositoryEmpty,
+    #[error("standards inspect report returned an empty standards_root")]
+    UnexpectedStandardsInspectStandardsRootEmpty,
+    #[error("standards inspect report returned standards_count=0")]
+    UnexpectedStandardsInspectCountZero,
+    #[error("standards inspect report returned an empty first_standard_name")]
+    UnexpectedStandardsInspectFirstStandardNameEmpty,
+    #[error(
+        "unexpected effective-configuration setting_family; expected `{expected:?}`, got `{actual:?}`"
+    )]
+    UnexpectedEffectiveConfigurationSettingFamily {
+        expected: EffectiveConfigurationSettingFamily,
+        actual: EffectiveConfigurationSettingFamily,
+    },
+    #[error("unexpected effective-configuration source_scope `{actual:?}`")]
+    UnexpectedEffectiveConfigurationSourceScope {
+        actual: EffectiveConfigurationSourceScope,
+    },
+    #[error("unexpected effective-configuration resolution_kind `{actual:?}`")]
+    UnexpectedEffectiveConfigurationResolutionKind {
+        actual: EffectiveConfigurationResolutionKind,
+    },
+    #[error("unexpected effective-configuration policy_constraint `{actual:?}`")]
+    UnexpectedEffectiveConfigurationPolicyConstraint {
+        actual: EffectiveConfigurationPolicyConstraint,
+    },
+    #[error("unexpected effective-configuration actor_usability `{actual:?}`")]
+    UnexpectedEffectiveConfigurationActorUsability {
+        actual: EffectiveConfigurationActorUsability,
+    },
+    #[error("unexpected effective-configuration freshness `{actual:?}`")]
+    UnexpectedEffectiveConfigurationFreshness {
+        actual: EffectiveConfigurationFreshness,
+    },
     #[error("expected repository fixture to remain unchanged after command")]
     RepositorySnapshotMismatch,
     #[error("expected stale path to be absent before manifest injection: {path}")]

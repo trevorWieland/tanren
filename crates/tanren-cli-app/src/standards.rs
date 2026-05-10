@@ -5,7 +5,11 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::{Args, Subcommand};
-use tanren_configuration_secrets::{MethodologyProfile, ProjectMethodologyConfig};
+use serde::Serialize;
+use tanren_configuration_secrets::{
+    EffectiveConfigurationMetadata, EffectiveConfigurationSettingFamily, MethodologyProfile,
+    ProjectMethodologyConfig, StandardsRoot,
+};
 use thiserror::Error;
 
 use crate::install::resolve_repo_relative_path;
@@ -46,32 +50,69 @@ struct StandardsInspectCommand {
 impl StandardsInspectCommand {
     fn run(&self) -> Result<(), StandardsCommandError> {
         let report = inspect_standards(&self.repo)?;
+        let output = StandardsInspectSuccessReport {
+            status: StandardsInspectReportStatus::Ok,
+            command: StandardsInspectReportCommand::StandardsInspect,
+            repository: display_repository_argument(&self.repo),
+            profile: report.profile,
+            standards_root: report.standards_root,
+            standards_count: report.standards_count,
+            first_standard_name: report.first_standard_name,
+            first_standard_path: report.first_standard_path,
+            effective_configuration: report.effective_configuration,
+        };
 
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        writeln!(
-            handle,
-            "status=ok command=standards.inspect repo={} profile={} standards_root={} standards_count={} first_standard_name={} first_standard_path={}",
-            display_repository_argument(&self.repo),
-            report.profile,
-            report.standards_root,
-            report.standards_count,
-            report.first_standard_name,
-            report.first_standard_path,
-        )
-        .map_err(|source| StandardsCommandError::StdoutWriteFailure { source })?;
+        serde_json::to_writer(&mut handle, &output)
+            .map_err(|source| StandardsCommandError::ReportSerializeFailure { source })?;
+        writeln!(handle).map_err(|source| StandardsCommandError::StdoutWriteFailure { source })?;
 
         Ok(())
     }
 }
 
-#[derive(Debug, Clone)]
-struct StandardsInspectReport {
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct StandardsInspectSuccessReport {
+    status: StandardsInspectReportStatus,
+    command: StandardsInspectReportCommand,
+    repository: String,
     profile: String,
-    standards_root: String,
+    standards_root: StandardsRoot,
     standards_count: usize,
     first_standard_name: String,
     first_standard_path: String,
+    effective_configuration: StandardsInspectEffectiveConfigurationReport,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "snake_case")]
+enum StandardsInspectReportStatus {
+    Ok,
+}
+
+#[derive(Debug, Clone, Copy, Serialize)]
+enum StandardsInspectReportCommand {
+    #[serde(rename = "standards.inspect")]
+    StandardsInspect,
+}
+
+#[derive(Debug, Clone)]
+struct StandardsInspectReport {
+    profile: String,
+    standards_root: StandardsRoot,
+    standards_count: usize,
+    first_standard_name: String,
+    first_standard_path: String,
+    effective_configuration: StandardsInspectEffectiveConfigurationReport,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "snake_case")]
+struct StandardsInspectEffectiveConfigurationReport {
+    profile: EffectiveConfigurationMetadata,
+    standards_root: EffectiveConfigurationMetadata,
 }
 
 #[derive(Debug, Error)]
@@ -94,6 +135,12 @@ pub(crate) enum StandardsCommandError {
     StandardsParseFailed {
         #[source]
         source: StandardsError,
+    },
+    /// Serializing success report as JSON failed.
+    #[error("error: output_serialize_failed - serialize standards report as JSON: {source}")]
+    ReportSerializeFailure {
+        #[source]
+        source: serde_json::Error,
     },
     /// Emitting success output to stdout failed.
     #[error("error: output_write_failed - write standards report to stdout: {source}")]
@@ -202,10 +249,18 @@ fn inspect_standards(repository: &Path) -> Result<StandardsInspectReport, Standa
 
     Ok(StandardsInspectReport {
         profile: methodology_profile_name(config.profile).to_owned(),
-        standards_root: config.standards_root.as_str().to_owned(),
+        standards_root: config.standards_root,
         standards_count: parsed.len(),
         first_standard_name: first.name.clone(),
         first_standard_path: first.path.clone(),
+        effective_configuration: StandardsInspectEffectiveConfigurationReport {
+            profile: EffectiveConfigurationMetadata::project_explicit(
+                EffectiveConfigurationSettingFamily::StandardsProfile,
+            ),
+            standards_root: EffectiveConfigurationMetadata::project_explicit(
+                EffectiveConfigurationSettingFamily::StandardsRoot,
+            ),
+        },
     })
 }
 

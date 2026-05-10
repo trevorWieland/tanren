@@ -1575,6 +1575,7 @@
             "positive",
             "falsification"
           ],
+          "witness_command": "just tests",
           "description": "Positive: with installed standards present, a representative Tanren command that depends on standards succeeds and reflects them in its output. Falsification: with installed standards missing, the same command fails explicitly with a 'standards missing' message. Falsification: with installed standards present but malformed, the command fails with a parse error rather than substituting unrelated content."
         }
       ],

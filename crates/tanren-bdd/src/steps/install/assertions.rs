@@ -1,5 +1,14 @@
 use std::fs;
 
+use serde::Deserialize;
+use serde_json::Value;
+use tanren_configuration_secrets::{
+    EffectiveConfigurationActorUsability, EffectiveConfigurationFreshness,
+    EffectiveConfigurationMetadata, EffectiveConfigurationPolicyConstraint,
+    EffectiveConfigurationResolutionKind, EffectiveConfigurationSettingFamily,
+    EffectiveConfigurationSourceScope, StandardsRoot,
+};
+
 use crate::steps::install::context::InstallCommandOutcome;
 
 use super::context::InstallContext;
@@ -67,16 +76,44 @@ impl InstallContext {
 
     pub(crate) fn assert_standards_inspect_report_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
-        ensure_stdout_contains(run, "status=ok command=standards.inspect")?;
-        for field in [
-            "profile=rust-cargo",
-            "standards_root=",
-            "standards_count=",
-            "first_standard_name=",
-            "first_standard_path=",
-        ] {
-            ensure_stdout_contains(run, field)?;
+        let report = parse_stdout_json_report(run)?;
+        if report.status != StandardsInspectReportStatus::Ok {
+            return Err(InstallStepError::UnexpectedStandardsInspectStatus {
+                actual: format!("{:?}", report.status),
+            });
         }
+        if report.command != StandardsInspectReportCommand::StandardsInspect {
+            return Err(InstallStepError::UnexpectedStandardsInspectCommand {
+                actual: format!("{:?}", report.command),
+            });
+        }
+        if report.profile != "rust-cargo" {
+            return Err(InstallStepError::UnexpectedStandardsInspectProfile {
+                expected: "rust-cargo".to_owned(),
+                actual: report.profile,
+            });
+        }
+        if report.repository.trim().is_empty() {
+            return Err(InstallStepError::UnexpectedStandardsInspectRepositoryEmpty);
+        }
+        if report.standards_root.as_str().trim().is_empty() {
+            return Err(InstallStepError::UnexpectedStandardsInspectStandardsRootEmpty);
+        }
+        if report.standards_count == 0 {
+            return Err(InstallStepError::UnexpectedStandardsInspectCountZero);
+        }
+        if report.first_standard_name.trim().is_empty() {
+            return Err(InstallStepError::UnexpectedStandardsInspectFirstStandardNameEmpty);
+        }
+        RepositoryRelativePath::parse(report.first_standard_path.clone())?;
+        assert_effective_configuration_metadata(
+            &report.effective_configuration.profile,
+            EffectiveConfigurationSettingFamily::StandardsProfile,
+        )?;
+        assert_effective_configuration_metadata(
+            &report.effective_configuration.standards_root,
+            EffectiveConfigurationSettingFamily::StandardsRoot,
+        )?;
         Ok(())
     }
 
@@ -264,4 +301,156 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
         });
     }
     Ok(())
+}
+
+fn parse_stdout_json_report(
+    run: &InstallCommandOutcome,
+) -> InstallStepResult<StandardsInspectReport> {
+    let json: Value = serde_json::from_str(run.stdout.trim()).map_err(|source| {
+        InstallStepError::StdoutJsonDecode {
+            source,
+            stdout: run.stdout.clone(),
+        }
+    })?;
+    for path in [
+        ["effective_configuration", "profile", "setting_family"],
+        ["effective_configuration", "profile", "source_scope"],
+        ["effective_configuration", "profile", "resolution_kind"],
+        ["effective_configuration", "profile", "policy_constraint"],
+        ["effective_configuration", "profile", "actor_usability"],
+        ["effective_configuration", "profile", "freshness"],
+        ["effective_configuration", "profile", "projection_position"],
+        [
+            "effective_configuration",
+            "standards_root",
+            "setting_family",
+        ],
+        ["effective_configuration", "standards_root", "source_scope"],
+        [
+            "effective_configuration",
+            "standards_root",
+            "resolution_kind",
+        ],
+        [
+            "effective_configuration",
+            "standards_root",
+            "policy_constraint",
+        ],
+        [
+            "effective_configuration",
+            "standards_root",
+            "actor_usability",
+        ],
+        ["effective_configuration", "standards_root", "freshness"],
+        [
+            "effective_configuration",
+            "standards_root",
+            "projection_position",
+        ],
+    ] {
+        if !json_path_exists(&json, &path) {
+            return Err(InstallStepError::StdoutJsonMissingField {
+                field_path: path.join("."),
+                stdout: run.stdout.clone(),
+            });
+        }
+    }
+    serde_json::from_value(json).map_err(|source| InstallStepError::StdoutJsonDecode {
+        source,
+        stdout: run.stdout.clone(),
+    })
+}
+
+fn json_path_exists(value: &Value, path: &[&str]) -> bool {
+    let mut cursor = value;
+    for segment in path {
+        let Some(next) = cursor.get(*segment) else {
+            return false;
+        };
+        cursor = next;
+    }
+    true
+}
+
+fn assert_effective_configuration_metadata(
+    metadata: &EffectiveConfigurationMetadata,
+    family: EffectiveConfigurationSettingFamily,
+) -> InstallStepResult<()> {
+    if metadata.setting_family != family {
+        return Err(
+            InstallStepError::UnexpectedEffectiveConfigurationSettingFamily {
+                expected: family,
+                actual: metadata.setting_family,
+            },
+        );
+    }
+    if metadata.source_scope != EffectiveConfigurationSourceScope::Project {
+        return Err(
+            InstallStepError::UnexpectedEffectiveConfigurationSourceScope {
+                actual: metadata.source_scope,
+            },
+        );
+    }
+    if metadata.resolution_kind != EffectiveConfigurationResolutionKind::Explicit {
+        return Err(
+            InstallStepError::UnexpectedEffectiveConfigurationResolutionKind {
+                actual: metadata.resolution_kind,
+            },
+        );
+    }
+    if metadata.policy_constraint != EffectiveConfigurationPolicyConstraint::None {
+        return Err(
+            InstallStepError::UnexpectedEffectiveConfigurationPolicyConstraint {
+                actual: metadata.policy_constraint,
+            },
+        );
+    }
+    if metadata.actor_usability != EffectiveConfigurationActorUsability::Usable {
+        return Err(
+            InstallStepError::UnexpectedEffectiveConfigurationActorUsability {
+                actual: metadata.actor_usability,
+            },
+        );
+    }
+    if metadata.freshness != EffectiveConfigurationFreshness::Current {
+        return Err(
+            InstallStepError::UnexpectedEffectiveConfigurationFreshness {
+                actual: metadata.freshness,
+            },
+        );
+    }
+    Ok(())
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct StandardsInspectReport {
+    status: StandardsInspectReportStatus,
+    command: StandardsInspectReportCommand,
+    repository: String,
+    profile: String,
+    standards_root: StandardsRoot,
+    standards_count: usize,
+    first_standard_name: String,
+    first_standard_path: String,
+    effective_configuration: StandardsInspectEffectiveConfigurationReport,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum StandardsInspectReportStatus {
+    Ok,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+enum StandardsInspectReportCommand {
+    #[serde(rename = "standards.inspect")]
+    StandardsInspect,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "snake_case", deny_unknown_fields)]
+struct StandardsInspectEffectiveConfigurationReport {
+    profile: EffectiveConfigurationMetadata,
+    standards_root: EffectiveConfigurationMetadata,
 }

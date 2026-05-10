@@ -71,6 +71,116 @@ pub enum ConfigSecretsError {
 /// Project methodology contract schema version.
 pub const PROJECT_METHODOLOGY_SCHEMA_VERSION: u32 = 1;
 
+/// Setting families for typed effective-configuration resolution metadata.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveConfigurationSettingFamily {
+    /// Standards methodology profile adoption.
+    StandardsProfile,
+    /// Standards repository root selection.
+    StandardsRoot,
+}
+
+/// Configuration source scope for an effective setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveConfigurationSourceScope {
+    /// User-scoped configuration.
+    User,
+    /// Account-scoped configuration.
+    Account,
+    /// Organization-scoped configuration.
+    Organization,
+    /// Project-scoped configuration.
+    Project,
+    /// Service-account scoped configuration.
+    ServiceAccount,
+    /// Assignment-scoped configuration.
+    Assignment,
+    /// Installation-scoped configuration.
+    Installation,
+}
+
+/// Resolution shape for an effective setting.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveConfigurationResolutionKind {
+    /// Declared directly at the source scope.
+    Explicit,
+    /// Inherited from an upstream scope.
+    Inherited,
+    /// Applied from a default.
+    Defaulted,
+    /// Overridden by a more specific setting.
+    Overridden,
+    /// Locked by policy.
+    Locked,
+}
+
+/// Policy constraint that governed the effective result.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveConfigurationPolicyConstraint {
+    /// No additional constraint applied.
+    None,
+}
+
+/// Whether the effective value is currently usable for the active actor.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveConfigurationActorUsability {
+    /// Usable by the current actor.
+    Usable,
+    /// Not usable by the current actor.
+    NotUsable,
+}
+
+/// Freshness state for an effective-configuration projection.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EffectiveConfigurationFreshness {
+    /// Projection is current for the inspected repository snapshot.
+    Current,
+    /// Projection may be stale.
+    Stale,
+}
+
+/// Resolution metadata attached to an effective configuration field.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct EffectiveConfigurationMetadata {
+    /// Setting family associated with this resolved field.
+    pub setting_family: EffectiveConfigurationSettingFamily,
+    /// Scope where the effective value originated.
+    pub source_scope: EffectiveConfigurationSourceScope,
+    /// How the value became effective.
+    pub resolution_kind: EffectiveConfigurationResolutionKind,
+    /// Policy constraint applied during resolution.
+    pub policy_constraint: EffectiveConfigurationPolicyConstraint,
+    /// Whether the value is usable by the active actor.
+    pub actor_usability: EffectiveConfigurationActorUsability,
+    /// Freshness state of the projection that produced this value.
+    pub freshness: EffectiveConfigurationFreshness,
+    /// Projection position, when available.
+    pub projection_position: Option<u64>,
+}
+
+impl EffectiveConfigurationMetadata {
+    /// Create project-scoped explicit metadata for a standards setting.
+    #[must_use]
+    pub const fn project_explicit(setting_family: EffectiveConfigurationSettingFamily) -> Self {
+        Self {
+            setting_family,
+            source_scope: EffectiveConfigurationSourceScope::Project,
+            resolution_kind: EffectiveConfigurationResolutionKind::Explicit,
+            policy_constraint: EffectiveConfigurationPolicyConstraint::None,
+            actor_usability: EffectiveConfigurationActorUsability::Usable,
+            freshness: EffectiveConfigurationFreshness::Current,
+            projection_position: None,
+        }
+    }
+}
+
 /// Supported standards methodology profiles.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
