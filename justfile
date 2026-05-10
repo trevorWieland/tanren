@@ -133,7 +133,7 @@ bootstrap:
     fi
 
     # === Node.js + pnpm ===
-    echo "==> Ensuring Node.js (LTS 22.x via fnm/nvm/corepack)..."
+    echo "==> Ensuring Node.js (LTS 24.x via fnm/nvm/corepack)..."
     need_node=true
     if command -v node &>/dev/null; then
         node_major="$(node --version | sed 's/^v//' | cut -d. -f1)"

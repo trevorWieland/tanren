@@ -6,6 +6,10 @@ import { playwright } from "@vitest/browser-playwright";
 import { defineConfig } from "vitest/config";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
+const webInterfaceContractPath = resolve(
+  __dirname,
+  "../../crates/tanren-contract/generated/web-interface-contracts.ts",
+);
 
 // Two Vitest projects share this config:
 //
@@ -26,6 +30,7 @@ export default defineConfig({
   resolve: {
     alias: {
       "@": resolve(__dirname, "./src"),
+      "@tanren/web-interface-contracts": webInterfaceContractPath,
     },
   },
   test: {
