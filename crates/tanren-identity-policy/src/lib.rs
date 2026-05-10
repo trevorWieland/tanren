@@ -2,10 +2,10 @@
 //!
 //! Owns accounts, organizations, projects, memberships, roles, service
 //! accounts, API keys, approval policy, and runtime placement policy. The
-//! mechanism for credential verification (local password hashing, OIDC
-//! introspection, ...) is deliberately not committed here — R-0001 pins
-//! the mechanism behind a [`CredentialVerifier`] impl, with
-//! [`Argon2idVerifier`] as the canonical local-password implementation.
+//! mechanism for credential verification (local password hashing, OIDC introspection, ...)
+//! is deliberately not committed here — R-0001 pins the mechanism behind a
+//! [`CredentialVerifier`] impl, with [`Argon2idVerifier`] as the canonical
+//! local-password implementation.
 
 mod argon2_verifier;
 mod organization;
@@ -15,7 +15,9 @@ mod session_token;
 pub use argon2_verifier::Argon2idVerifier;
 use chrono::{DateTime, Utc};
 pub use organization::{
-    IdempotencyKey, OrganizationName, OrganizationPermission, ParseOrganizationPermissionError,
+    IdempotencyKey, OrganizationCapability, OrganizationName, OrganizationPermission,
+    OrganizationPermissionDecision, OrganizationPermissionGate, ParseOrganizationPermissionError,
+    evaluate_organization_permission_gate, organization_capability,
 };
 use schemars::JsonSchema;
 use secrecy::SecretString;
@@ -174,10 +176,8 @@ impl std::fmt::Display for MembershipId {
 /// the same logical email register as separate accounts. Codex P1
 /// review on PR #133.
 ///
-/// Validation invariants are exercised end-to-end by the @api / @web
-/// scenarios in `tests/bdd/features/B-0043-create-account.feature` —
-/// case-variant rejection and malformed-email rejection both run
-/// through the live wire surface, not through Rust unit tests.
+/// Validation invariants are exercised end-to-end by the @api / @web scenarios in
+/// `tests/bdd/features/B-0043-create-account.feature`, not through Rust unit tests.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "email")]

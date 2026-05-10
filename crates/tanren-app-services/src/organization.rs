@@ -10,8 +10,10 @@ use tanren_contract::{
     OrganizationProofLink, OrganizationSourceLink, OrganizationView,
     organization_permission_options,
 };
-use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission, SessionToken};
-use tanren_policy::{Decision, OrganizationPermissionGate, evaluate_organization_permission_gate};
+use tanren_identity_policy::{
+    AccountId, OrgId, OrganizationPermission, OrganizationPermissionDecision,
+    OrganizationPermissionGate, SessionToken, evaluate_organization_permission_gate,
+};
 use tanren_store::{
     AccountStore, CreateOrganizationAtomicRequest, CreateOrganizationError, SessionRecord,
 };
@@ -198,7 +200,7 @@ where
         .await?;
     if matches!(
         evaluate_organization_permission_gate(allowed),
-        Decision::Allow
+        OrganizationPermissionDecision::Allow
     ) {
         return Ok(gate);
     }

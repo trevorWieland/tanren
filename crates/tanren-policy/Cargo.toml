@@ -13,5 +13,4 @@ workspace = true
 
 [dependencies]
 serde = { workspace = true }
-tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }

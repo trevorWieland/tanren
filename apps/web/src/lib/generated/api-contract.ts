@@ -234,10 +234,8 @@ export interface components {
      *     the same logical email register as separate accounts. Codex P1
      *     review on PR #133.
      *
-     *     Validation invariants are exercised end-to-end by the @api / @web
-     *     scenarios in `tests/bdd/features/B-0043-create-account.feature` —
-     *     case-variant rejection and malformed-email rejection both run
-     *     through the live wire surface, not through Rust unit tests.
+     *     Validation invariants are exercised end-to-end by the @api / @web scenarios in
+     *     `tests/bdd/features/B-0043-create-account.feature`, not through Rust unit tests.
      */
     Email: string;
     /** @description Liveness response. */

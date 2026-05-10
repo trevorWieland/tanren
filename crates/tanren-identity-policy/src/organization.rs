@@ -218,3 +218,80 @@ impl std::str::FromStr for OrganizationPermission {
 pub struct ParseOrganizationPermissionError {
     value: String,
 }
+
+/// Stable capability metadata for organization-scoped permission gates.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrganizationCapability {
+    /// Stable capability id surfaced to interface layers.
+    pub key: &'static str,
+    /// Human-readable capability summary.
+    pub summary: &'static str,
+}
+
+/// Permission gate definition for organization capabilities.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct OrganizationPermissionGate {
+    /// Capability metadata for this gate.
+    pub capability: OrganizationCapability,
+    /// Backing organization permission required by the capability.
+    pub permission: OrganizationPermission,
+}
+
+impl OrganizationPermissionGate {
+    /// Build a gate from an organization permission.
+    #[must_use]
+    pub const fn from_permission(permission: OrganizationPermission) -> Self {
+        Self {
+            capability: organization_capability(permission),
+            permission,
+        }
+    }
+}
+
+/// Map an organization permission to stable capability metadata.
+#[must_use]
+pub const fn organization_capability(permission: OrganizationPermission) -> OrganizationCapability {
+    match permission {
+        OrganizationPermission::Invite => OrganizationCapability {
+            key: "organization.invite",
+            summary: "Invite people to the organization",
+        },
+        OrganizationPermission::ManageAccess => OrganizationCapability {
+            key: "organization.manage_access",
+            summary: "Manage organization access for members",
+        },
+        OrganizationPermission::Configure => OrganizationCapability {
+            key: "organization.configure",
+            summary: "Configure organization-level defaults",
+        },
+        OrganizationPermission::SetPolicy => OrganizationCapability {
+            key: "organization.set_policy",
+            summary: "Manage organization policy settings",
+        },
+        OrganizationPermission::Delete => OrganizationCapability {
+            key: "organization.delete",
+            summary: "Delete the organization",
+        },
+    }
+}
+
+/// Outcome of evaluating an organization permission gate.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OrganizationPermissionDecision {
+    /// The permission gate check allowed the request.
+    Allow,
+    /// The permission gate check denied the request.
+    Deny,
+}
+
+/// Evaluate a permission gate from a concrete store permission result.
+#[must_use]
+pub const fn evaluate_organization_permission_gate(
+    allowed: bool,
+) -> OrganizationPermissionDecision {
+    if allowed {
+        OrganizationPermissionDecision::Allow
+    } else {
+        OrganizationPermissionDecision::Deny
+    }
+}

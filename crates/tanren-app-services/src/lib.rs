@@ -21,7 +21,7 @@ use tanren_contract::{
     SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-use tanren_policy::{OrganizationCapability, OrganizationPermissionGate};
+use tanren_identity_policy::{OrganizationCapability, OrganizationPermissionGate};
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -273,10 +273,10 @@ impl Handlers {
     pub const fn organization_permission_capability(
         permission: tanren_identity_policy::OrganizationPermission,
     ) -> OrganizationCapability {
-        tanren_policy::organization_capability(permission)
+        tanren_identity_policy::organization_capability(permission)
     }
 
-    /// Generic policy-owned organization capability guard.
+    /// Generic identity-policy-owned organization capability guard.
     ///
     /// # Errors
     ///
