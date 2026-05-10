@@ -14,8 +14,12 @@ use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
+mod credential_status;
 mod secret_store;
 mod user_registry;
+pub use credential_status::{
+    validate_credential_create_status, validate_credential_status_transition,
+};
 pub use secret_store::{
     CREDENTIAL_SEAL_PASSPHRASE_ENV, CredentialSealScheme, CredentialSealVersion,
     CredentialSealingFailure, CredentialValueSealer, SealedUserCredentialValue,
@@ -347,6 +351,14 @@ pub enum ConfigurationValidationFailure {
     CredentialIdInvalid {
         /// Invalid raw credential id.
         value: String,
+    },
+    /// Credential status transition is not part of the closed registry.
+    #[error("credential status transition from '{from}' to '{to}' is not allowed")]
+    InvalidStatusTransition {
+        /// Current status label (or "none" for initial creation).
+        from: String,
+        /// Requested target status label.
+        to: String,
     },
 }
 

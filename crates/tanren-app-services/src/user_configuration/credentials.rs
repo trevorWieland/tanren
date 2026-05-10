@@ -1,5 +1,6 @@
 use tanren_configuration_secrets::{
     CredentialValueSealer, UserCredentialId, UserCredentialSealContext, UserCredentialStatus,
+    validate_credential_create_status, validate_credential_status_transition,
     validate_user_credential_kind, validate_user_credential_value,
 };
 use tanren_contract::{
@@ -20,8 +21,6 @@ use crate::user_configuration_support::{
     validation_error,
 };
 use crate::{AppServiceError, Clock};
-
-const CREDENTIAL_WRITE_STATUS: UserCredentialStatus = UserCredentialStatus::Pending;
 
 pub(crate) async fn add_user_credential<S>(
     store: &S,
@@ -108,8 +107,10 @@ where
         .await
         .map_err(|err| map_sealing_error(&err))?;
 
+    let create_status = validate_credential_create_status(UserCredentialStatus::Pending)
+        .map_err(validation_error)?;
     let item = store
-        .add_user_credential(sealed_value, CREDENTIAL_WRITE_STATUS, now)
+        .add_user_credential(sealed_value, create_status, now)
         .await
         .map_err(map_store_error)?;
 
@@ -196,12 +197,15 @@ where
         .map_err(|err| map_sealing_error(&err))?;
 
     let now = clock.now();
+    let target_status =
+        validate_credential_status_transition(existing_item.status, UserCredentialStatus::Pending)
+            .map_err(validation_error)?;
     let Some(item) = store
         .update_user_credential(
             item_id,
             context.requested_owner_scope(),
             sealed_value,
-            CREDENTIAL_WRITE_STATUS,
+            target_status,
             now,
         )
         .await
