@@ -162,6 +162,7 @@ pub(crate) fn posture_outcome(
             "unavailable: {}",
             format_unavailable_caps(&current.capability_summary.unavailable)
         ));
+        lines.push(format!("audit reference: {}", current.audit_reference));
     } else {
         lines.push(String::new());
         lines.push("current posture: not set".to_owned());

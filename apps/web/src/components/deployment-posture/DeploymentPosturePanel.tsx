@@ -31,6 +31,7 @@ export function DeploymentPosturePanel(): ReactNode {
     useState<DeploymentPostureGetResponse["current"]>(null);
   const [postureError, setPostureError] = useState<string | null>(null);
   const [postureNotice, setPostureNotice] = useState<string | null>(null);
+  const [auditReference, setAuditReference] = useState<string | null>(null);
   const [loadingSupported, setLoadingSupported] = useState(false);
   const [loadingCurrent, setLoadingCurrent] = useState(false);
   const [savingPosture, setSavingPosture] = useState(false);
@@ -77,6 +78,7 @@ export function DeploymentPosturePanel(): ReactNode {
     }
     setPostureError(null);
     setPostureNotice(null);
+    setAuditReference(null);
     if ((await ensureSupported()) === null) {
       return;
     }
@@ -108,6 +110,7 @@ export function DeploymentPosturePanel(): ReactNode {
     }
     setPostureError(null);
     setPostureNotice(null);
+    setAuditReference(null);
     const supportedPostures = await ensureSupported();
     if (supportedPostures === null) {
       return;
@@ -135,6 +138,7 @@ export function DeploymentPosturePanel(): ReactNode {
         scope: response.scope,
         capability_summary: response.capability_summary,
       });
+      setAuditReference(response.audit_reference);
       setPostureNotice(m.posture_saved());
     } catch (reason: unknown) {
       const message =
@@ -260,6 +264,11 @@ export function DeploymentPosturePanel(): ReactNode {
         )}
         {postureNotice !== null ? (
           <p className="text-[--color-fg-muted]">{postureNotice}</p>
+        ) : null}
+        {auditReference !== null ? (
+          <p className="font-mono text-[--color-fg-muted]">
+            audit reference: {auditReference}
+          </p>
         ) : null}
         {postureError !== null ? (
           <p className="text-[--color-error]">{postureError}</p>

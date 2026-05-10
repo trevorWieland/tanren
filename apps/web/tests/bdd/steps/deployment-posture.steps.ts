@@ -206,6 +206,7 @@ async function seedActorWithoutPermission(
 }
 
 interface EventEnvelope {
+  id?: string;
   payload?: {
     family?: string;
     kind?: string;
@@ -368,6 +369,16 @@ Then(
   },
 );
 
+Then("the web view includes an audit reference", async ({ world }) => {
+  const last = stateFor(world).lastSet;
+  if (!last) {
+    throw new Error("no posture-set response recorded");
+  }
+  if (last.audit_reference.trim() === "") {
+    throw new Error("expected a non-empty audit reference");
+  }
+});
+
 Then(
   "the recorded posture for the actor account over web is {string}",
   async ({ page, world }, posture: string) => {
@@ -400,11 +411,16 @@ Then(
 Then(
   "recent events attribute the posture change to the actor with posture {string}",
   async ({ page, world }, posture: string) => {
-    const actorId = stateFor(world).actorAccountId;
+    const state = stateFor(world);
+    const actorId = state.actorAccountId;
+    const auditReference = state.lastSet?.audit_reference;
     if (!actorId) {
       throw new Error(
         "actor account id missing before event attribution check",
       );
+    }
+    if (!auditReference || auditReference.trim() === "") {
+      throw new Error("audit reference missing before event attribution check");
     }
 
     for (let attempt = 0; attempt < 5; attempt += 1) {
@@ -412,6 +428,7 @@ Then(
       const matched = events.some((event) => {
         const payload = event.payload?.payload;
         return (
+          event.id === auditReference &&
           event.payload?.family === "deployment_posture" &&
           event.payload?.kind === "changed" &&
           payload?.changed_by === actorId &&

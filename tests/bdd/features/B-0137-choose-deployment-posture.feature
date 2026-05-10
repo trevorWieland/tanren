@@ -16,6 +16,7 @@ Feature: Choose a deployment posture
       When the actor sets deployment posture "self_hosted" for their account scope over API
       Then the API response shows posture "self_hosted"
       And the API response includes available and unavailable capability summaries
+      And the API response includes an audit reference
       And the recorded posture for the actor account over API is "self_hosted"
       When the actor sets deployment posture "local_only" for their account scope over API
       Then the API response shows posture "local_only"
@@ -60,6 +61,7 @@ Feature: Choose a deployment posture
       When the actor sets deployment posture "hosted" for their account scope over web
       Then the web view shows posture "hosted"
       And the web view shows available and unavailable capability summaries
+      And the web view includes an audit reference
       And the recorded posture for the actor account over web is "hosted"
       When the actor sets deployment posture "self_hosted" for their account scope over web
       Then the web view shows posture "self_hosted"
@@ -104,6 +106,7 @@ Feature: Choose a deployment posture
       When the actor sets deployment posture "local_only" for their account scope over MCP
       Then the MCP response shows posture "local_only"
       And the MCP response includes available and unavailable capability summaries
+      And the MCP response includes an audit reference
       And the recorded posture for the actor account over MCP is "local_only"
       When the actor sets deployment posture "hosted" for their account scope over MCP
       Then the MCP response shows posture "hosted"
@@ -148,6 +151,7 @@ Feature: Choose a deployment posture
       When the actor sets deployment posture "self_hosted" for their account scope over CLI
       Then the CLI output shows posture "self_hosted"
       And the CLI output includes available and unavailable capability summaries
+      And the CLI output includes an audit reference
       And the recorded posture for the actor account over CLI is "self_hosted"
       When the actor sets deployment posture "hosted" for their account scope over CLI
       Then the CLI output shows posture "hosted"
@@ -192,6 +196,7 @@ Feature: Choose a deployment posture
       When the actor sets deployment posture "hosted" for their account scope over TUI
       Then the TUI output shows posture "hosted"
       And the TUI output includes available and unavailable capability summaries
+      And the TUI output includes an audit reference
       And the recorded posture for the actor account over TUI is "hosted"
       When the actor sets deployment posture "local_only" for their account scope over TUI
       Then the TUI output shows posture "local_only"

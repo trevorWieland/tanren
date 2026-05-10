@@ -12,22 +12,14 @@ mod entity;
 mod migration;
 mod records;
 mod traits;
-
+use async_trait::async_trait;
+use chrono::{DateTime, Utc};
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, DeploymentPosture, DeploymentPostureRecord, DeploymentPostureScope,
     InvitationRecord, MembershipRecord, NewAccount, NewDeploymentPosture, NewInvitation,
     SessionRecord,
 };
-pub use traits::{
-    AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
-    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, DeploymentPostureStore,
-    ResolvedDeploymentPostureScope,
-};
-
-use async_trait::async_trait;
-use chrono::{DateTime, Utc};
 use sea_orm::sea_query::OnConflict;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
@@ -41,6 +33,12 @@ use tanren_identity_policy::{
     ValidationError,
 };
 use thiserror::Error;
+pub use traits::{
+    AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
+    AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
+    ConsumeInvitationError, ConsumedInvitation, DeploymentPostureMutationRecord,
+    DeploymentPostureStore, ResolvedDeploymentPostureScope,
+};
 use uuid::Uuid;
 
 /// A connected handle to Tanren's canonical event store.
@@ -369,7 +367,7 @@ impl DeploymentPostureStore for Store {
         &self,
         new: NewDeploymentPosture,
         event_payload: serde_json::Value,
-    ) -> Result<DeploymentPostureRecord, StoreError> {
+    ) -> Result<DeploymentPostureMutationRecord, StoreError> {
         let (scope_kind, scope_id) = records::DeploymentPostureScopeKind::from_scope(new.scope);
         let tx = self.conn.begin().await?;
 
@@ -395,21 +393,23 @@ impl DeploymentPostureStore for Store {
         .exec(&tx)
         .await?;
 
+        let event_id = Uuid::now_v7();
         entity::events::ActiveModel {
-            id: Set(Uuid::now_v7()),
+            id: Set(event_id),
             occurred_at: Set(new.changed_at),
             payload: Set(event_payload),
         }
         .insert(&tx)
         .await?;
-
         tx.commit().await?;
-
-        Ok(DeploymentPostureRecord {
-            scope: new.scope,
-            posture: new.posture,
-            changed_by: new.changed_by,
-            changed_at: new.changed_at,
+        Ok(DeploymentPostureMutationRecord {
+            record: DeploymentPostureRecord {
+                scope: new.scope,
+                posture: new.posture,
+                changed_by: new.changed_by,
+                changed_at: new.changed_at,
+            },
+            audit_reference: event_id.to_string(),
         })
     }
 }

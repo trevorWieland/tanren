@@ -146,6 +146,23 @@ async fn then_has_capability_summary(world: &mut TanrenWorld, interface: String)
     );
 }
 
+#[then(expr = "the {word} response includes an audit reference")]
+#[then(expr = "the {word} output includes an audit reference")]
+#[then(expr = "the {word} view includes an audit reference")]
+async fn then_response_includes_audit_reference(world: &mut TanrenWorld, interface: String) {
+    let ctx = world.ensure_account_ctx().await;
+    assert_interface(ctx.harness.kind(), &interface);
+    let last = ctx
+        .deployment_posture
+        .last_set
+        .as_ref()
+        .expect("a posture set response must be recorded");
+    assert!(
+        !last.audit_reference.trim().is_empty(),
+        "expected a non-empty posture audit reference"
+    );
+}
+
 #[then(expr = "the recorded posture for the actor account over {word} is {string}")]
 async fn then_recorded_posture(world: &mut TanrenWorld, interface: String, posture: String) {
     let actor_id = account_id_for(world, "actor").await;
@@ -168,6 +185,14 @@ async fn then_recorded_posture(world: &mut TanrenWorld, interface: String, postu
 async fn then_event_attribution(world: &mut TanrenWorld, posture: String) {
     let actor_id = account_id_for(world, "actor").await.to_string();
     let expected_posture = posture;
+    let expected_audit_reference = {
+        let ctx = world.ensure_account_ctx().await;
+        ctx.deployment_posture
+            .last_set
+            .as_ref()
+            .map(|view| view.audit_reference.clone())
+            .expect("a posture set response must be recorded before event checks")
+    };
     let ctx = world.ensure_account_ctx().await;
     let found = poll_until(|| async {
         let events = ctx
@@ -176,6 +201,7 @@ async fn then_event_attribution(world: &mut TanrenWorld, posture: String) {
             .await
             .expect("recent_events should succeed under BDD");
         events.iter().any(|event| {
+            let event_id = event.id.to_string();
             let family = event
                 .payload
                 .get("family")
@@ -201,6 +227,7 @@ async fn then_event_attribution(world: &mut TanrenWorld, posture: String) {
                 .unwrap_or_default();
             family == "deployment_posture"
                 && kind == "changed"
+                && event_id == expected_audit_reference
                 && changed_by == actor_id
                 && posture == expected_posture
         })

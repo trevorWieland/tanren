@@ -331,6 +331,8 @@ pub struct SetDeploymentPostureResponse {
     pub posture: DeploymentPosture,
     /// Canonical capability explanation for the posture.
     pub capability_summary: DeploymentPostureCapabilitySummary,
+    /// Audit reference for the accepted `deployment_posture.changed` event.
+    pub audit_reference: String,
 }
 
 /// Canonical rendered failure payload for posture interfaces.

@@ -169,6 +169,8 @@ pub struct HarnessPostureView {
     pub posture: DeploymentPosture,
     /// Canonical capability explanation for the posture.
     pub capability_summary: DeploymentPostureCapabilitySummary,
+    /// Audit reference for the accepted posture-change mutation.
+    pub audit_reference: String,
 }
 
 impl From<SetDeploymentPostureResponse> for HarnessPostureView {
@@ -177,6 +179,7 @@ impl From<SetDeploymentPostureResponse> for HarnessPostureView {
             scope: value.scope,
             posture: value.posture,
             capability_summary: value.capability_summary,
+            audit_reference: value.audit_reference,
         }
     }
 }
@@ -187,6 +190,7 @@ impl From<DeploymentPostureReadModel> for HarnessPostureView {
             scope: value.scope,
             posture: value.posture,
             capability_summary: value.capability_summary,
+            audit_reference: String::new(),
         }
     }
 }

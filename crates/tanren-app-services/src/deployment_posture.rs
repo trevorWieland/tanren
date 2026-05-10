@@ -154,8 +154,9 @@ where
         .await?;
 
     Ok(to_response(
-        scope_from_store(stored.scope),
-        posture_from_store(stored.posture),
+        scope_from_store(stored.record.scope),
+        posture_from_store(stored.record.posture),
+        stored.audit_reference,
     ))
 }
 
@@ -218,11 +219,13 @@ fn scope_not_found(_scope: DeploymentPostureScope) -> DeploymentPostureContractF
 fn to_response(
     scope: DeploymentPostureScope,
     posture: DeploymentPosture,
+    audit_reference: String,
 ) -> SetDeploymentPostureResponse {
     SetDeploymentPostureResponse {
         scope,
         posture,
         capability_summary: DeploymentPostureCapabilitySummary::for_posture(posture),
+        audit_reference,
     }
 }
 

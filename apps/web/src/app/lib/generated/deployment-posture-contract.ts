@@ -49,6 +49,7 @@ export interface SetDeploymentPostureRequest {
 }
 
 export interface SetDeploymentPostureResponse {
+  audit_reference: string;
   capability_summary: DeploymentPostureCapabilitySummary;
   posture: DeploymentPosture;
   scope: DeploymentPostureScope;
@@ -305,6 +306,13 @@ export function decodeSetDeploymentPostureResponse(
   if (!isObjectRecord(raw)) {
     failDecode("set posture response", "expected object");
   }
+  const auditReference = raw["audit_reference"];
+  if (typeof auditReference !== "string" || auditReference === "") {
+    failDecode(
+      "set posture response.audit_reference",
+      "expected non-empty string",
+    );
+  }
   return {
     posture: decodeEnumValue(
       raw["posture"],
@@ -319,5 +327,6 @@ export function decodeSetDeploymentPostureResponse(
       raw["capability_summary"],
       "set posture response.capability_summary",
     ),
+    audit_reference: auditReference,
   };
 }

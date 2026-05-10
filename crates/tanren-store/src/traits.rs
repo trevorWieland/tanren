@@ -324,6 +324,15 @@ pub enum ConsumeInvitationError {
     Store(#[from] StoreError),
 }
 
+/// Persisted posture row plus the durable event id that audited the change.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DeploymentPostureMutationRecord {
+    /// Scope/posture row stored by the mutation.
+    pub record: DeploymentPostureRecord,
+    /// Event id for the appended `deployment_posture.changed` event.
+    pub audit_reference: String,
+}
+
 /// Port for deployment-posture persistence. Keeps row entities private
 /// and exposes typed record envelopes to callers.
 #[async_trait]
@@ -348,5 +357,5 @@ pub trait DeploymentPostureStore: Send + Sync + std::fmt::Debug {
         &self,
         new: NewDeploymentPosture,
         event_payload: serde_json::Value,
-    ) -> Result<DeploymentPostureRecord, StoreError>;
+    ) -> Result<DeploymentPostureMutationRecord, StoreError>;
 }
