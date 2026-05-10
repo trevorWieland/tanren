@@ -389,6 +389,18 @@ Contract types derive or generate:
 Generated TypeScript is consumed by the web UI and any bundled client helpers.
 The web UI must not define independent copies of API resources or error shapes.
 
+The active-account web contract artifact is
+`apps/web/src/app/lib/generated/account-contract.ts`. Ownership is explicit:
+
+- generation command: `cargo run -q -p tanren-xtask -- generate-web-contracts`;
+- generator implementation: `xtask/src/generate_web_contracts.rs`;
+- schema source crates: `crates/tanren-contract` and
+  `crates/tanren-identity-policy`.
+
+CI enforces reproducibility with `just check-web-contract-generation`,
+which builds the generator in a fresh `CARGO_TARGET_DIR`, re-emits the
+artifact, and fails on drift.
+
 Contract generation failures are build failures.
 
 ## Validation And Proof

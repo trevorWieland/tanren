@@ -346,6 +346,7 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "web contract generation" just check-web-contract-generation
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
@@ -742,6 +743,26 @@ check-orphan-traits:
 # drift from the running server. Wired into `check` by PR 12.
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
+
+# Rebuild the web contract generator in a fresh target dir, re-emit the
+# checked-in artifact, then fail if drift exists. The fresh target dir
+# prevents a stale local `target/` cache from masking generator/input
+# changes in `tanren-contract` or `tanren-identity-policy`.
+check-web-contract-generation:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    artifact="apps/web/src/app/lib/generated/account-contract.ts"
+    before="$(mktemp)"
+    target_dir="$(mktemp -d)"
+    cp "${artifact}" "${before}"
+    trap 'rm -f "${before}"; rm -rf "${target_dir}"' EXIT
+    CARGO_TARGET_DIR="${target_dir}" {{ cargo }} run -q -p tanren-xtask -- generate-web-contracts
+    (cd apps/web && pnpm exec prettier --write src/app/lib/generated/account-contract.ts >/dev/null)
+    if ! cmp -s "${before}" "${artifact}"; then
+        echo "FAIL: generated web contract drifted. Re-run \`cargo run -q -p tanren-xtask -- generate-web-contracts\` and commit the artifact." >&2
+        diff -u "${before}" "${artifact}" || true
+        exit 1
+    fi
 
 # Run the regression-fixture test suite that proves each guard rejects
 # its synthetic regression. Each fixture under

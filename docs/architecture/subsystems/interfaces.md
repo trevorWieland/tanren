@@ -420,10 +420,13 @@ enum SessionEnvelope {
 }
 ```
 
-API and web responses receive `Cookie`; CLI/MCP/TUI receive `Bearer`.
-The discriminator is part of the contract because a generated client
-must know which transport it is using to know whether to attach
-credentials from a cookie jar or from request state.
+The account-session endpoints (`POST /accounts/signup`,
+`POST /accounts/signin`, and `POST /accounts/accept-invitation`) expose
+this envelope in their response bodies. Web/API responses use
+`SessionEnvelope::Cookie`; CLI/MCP/TUI responses use
+`SessionEnvelope::Bearer`. The discriminator is part of the contract
+because generated clients must know whether credentials come from a
+cookie jar or from bearer request state.
 
 ### Active-account switching and window scope
 
@@ -435,11 +438,11 @@ redacted switcher projection that includes only `id`, `display_name`, and
 `org` (or `null` for personal accounts); identifier/email and other
 account-profile fields are excluded.
 
-For cookie-backed web and API traffic, callers may include
+For cookie-backed web and API traffic, callers must send
 `x-tanren-window-id` so concurrent windows keep independent active
-account state. Missing or blank window IDs fall back to a default window
-scope; present values must be UUID strings. Non-UTF8, overlong, or
-non-UUID values fail with `validation_failed`.
+account state. The header must be valid UTF-8, non-empty, at most 128
+bytes, and parse as a UUID. Missing or invalid values fail with
+`validation_failed` (HTTP 400).
 
 Switch requests are constrained to the caller's signed-in account set.
 Requests that target an account outside that set fail with
@@ -448,12 +451,14 @@ across web, API, CLI, MCP, and TUI surfaces.
 
 ### Error taxonomy extension
 
-The shared error taxonomy (above) gains `validation_failed` for empty
-or malformed request input — HTTP 400. This is distinct from
-`invalid_credential` (HTTP 401, "credentials don't match a user"):
-empty-input requests must NOT map to 401, because doing so leaks
-"credentials shape valid" as separate from "credentials accepted." Any
-empty-field input returns `validation_failed`.
+The account/auth surface extends the shared error taxonomy with:
+
+- `validation_failed` (HTTP 400): empty or malformed request input,
+  including invalid `x-tanren-window-id`.
+- `invalid_credential` (HTTP 401): missing/expired session or submitted
+  credentials that do not match a user.
+- `target_account_not_signed_in` (HTTP 403): active-account switch
+  target is outside the caller's signed-in account set.
 
 ### OpenAPI generation
 
