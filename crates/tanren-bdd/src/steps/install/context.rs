@@ -97,9 +97,8 @@ impl InstallContext {
             .ok_or(InstallStepError::InstallCommandNotExecuted)
     }
 
-    pub(super) fn repository_path(&self, relative_path: &str) -> InstallStepResult<PathBuf> {
-        super::manifest_helpers::validate_relative_path(relative_path)?;
-        Ok(self.repository_root.join(relative_path))
+    pub(super) fn repository_path(&self, relative_path: &RepositoryRelativePath) -> PathBuf {
+        self.repository_root.join(relative_path.as_str())
     }
 }
 

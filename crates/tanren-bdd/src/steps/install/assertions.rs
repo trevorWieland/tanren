@@ -108,7 +108,7 @@ impl InstallContext {
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=drift command=drift")?;
-        ensure_stdout_list_field_contains(run, "changed_generated", relative_path.as_str())
+        ensure_stdout_list_field_contains(run, DriftListField::ChangedGenerated, relative_path)
     }
 
     pub(crate) fn assert_drift_output_reports_missing_generated_asset(
@@ -117,7 +117,7 @@ impl InstallContext {
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=drift command=drift")?;
-        ensure_stdout_list_field_contains(run, "missing_generated", relative_path.as_str())
+        ensure_stdout_list_field_contains(run, DriftListField::MissingGenerated, relative_path)
     }
 
     pub(crate) fn assert_drift_output_reports_missing_preserved_standard(
@@ -126,7 +126,7 @@ impl InstallContext {
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=drift command=drift")?;
-        ensure_stdout_list_field_contains(run, "missing_preserved", relative_path.as_str())
+        ensure_stdout_list_field_contains(run, DriftListField::MissingPreserved, relative_path)
     }
 
     pub(crate) fn assert_drift_output_reports_accepted_preserved_edit(
@@ -135,7 +135,7 @@ impl InstallContext {
     ) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         ensure_stdout_contains(run, "status=ok command=drift")?;
-        ensure_stdout_list_field_contains(run, "accepted_preserved", relative_path.as_str())
+        ensure_stdout_list_field_contains(run, DriftListField::AcceptedPreserved, relative_path)
     }
 
     pub(crate) fn assert_no_writes_since_last_run(&self) -> InstallStepResult<()> {
@@ -179,7 +179,7 @@ impl InstallContext {
         &self,
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_path(relative_path);
         if !absolute.exists() {
             return Err(InstallStepError::ExpectedFileToExist { path: absolute });
         }
@@ -190,7 +190,7 @@ impl InstallContext {
         &self,
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_path(relative_path);
         if absolute.exists() {
             return Err(InstallStepError::ExpectedFileToBeAbsent { path: absolute });
         }
@@ -202,7 +202,7 @@ impl InstallContext {
         relative_path: &RepositoryRelativePath,
         expected: String,
     ) -> InstallStepResult<()> {
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_path(relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute.clone(),
             action: "read repository fixture file",
@@ -224,7 +224,7 @@ impl InstallContext {
                 .ok_or_else(|| InstallStepError::MissingBaseline {
                     path: relative_path.as_str().to_owned(),
                 })?;
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_path(relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute.clone(),
             action: "read repository fixture file",
@@ -246,7 +246,7 @@ impl InstallContext {
                 .ok_or_else(|| InstallStepError::MissingBaseline {
                     path: relative_path.as_str().to_owned(),
                 })?;
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_path(relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute.clone(),
             action: "read repository fixture file",
@@ -293,10 +293,11 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
 
 fn ensure_stdout_list_field_contains(
     run: &InstallCommandOutcome,
-    field: &str,
-    path: &str,
+    field: DriftListField,
+    path: &RepositoryRelativePath,
 ) -> InstallStepResult<()> {
-    let marker = format!("{field}=[");
+    let field_name = field.as_str();
+    let marker = format!("{field_name}=[");
     let value_start = run.stdout.find(marker.as_str()).ok_or_else(|| {
         InstallStepError::StdoutMissingExpected {
             expected: marker.clone(),
@@ -308,15 +309,34 @@ fn ensure_stdout_list_field_contains(
     let closing = remainder
         .find(']')
         .ok_or_else(|| InstallStepError::StdoutMissingExpected {
-            expected: format!("{field} list closing bracket"),
+            expected: format!("{field_name} list closing bracket"),
             stdout: run.stdout.clone(),
         })?;
     let list = &remainder[..closing];
-    if !list.split(',').any(|item| item == path) {
+    if !list.split(',').any(|item| item == path.as_str()) {
         return Err(InstallStepError::StdoutMissingExpected {
-            expected: format!("{field} contains {path}"),
+            expected: format!("{field_name} contains {}", path.as_str()),
             stdout: run.stdout.clone(),
         });
     }
     Ok(())
+}
+
+#[derive(Clone, Copy)]
+enum DriftListField {
+    ChangedGenerated,
+    MissingGenerated,
+    MissingPreserved,
+    AcceptedPreserved,
+}
+
+impl DriftListField {
+    fn as_str(self) -> &'static str {
+        match self {
+            Self::ChangedGenerated => "changed_generated",
+            Self::MissingGenerated => "missing_generated",
+            Self::MissingPreserved => "missing_preserved",
+            Self::AcceptedPreserved => "accepted_preserved",
+        }
+    }
 }
