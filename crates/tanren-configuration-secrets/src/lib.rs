@@ -29,10 +29,10 @@ pub use user_registry::{
 pub const USER_SETTING_EDITOR_MAX_BYTES: usize = 1_024;
 /// Maximum byte length allowed for user credential secret values.
 pub const USER_CREDENTIAL_SECRET_MAX_BYTES: usize = 8_192;
-/// Minimum byte length required for credential sealing passphrases.
-pub const CREDENTIAL_SEAL_PASSPHRASE_MIN_BYTES: usize = 16;
-/// Minimum estimated entropy bits required for credential sealing passphrases.
-pub const CREDENTIAL_SEAL_PASSPHRASE_MIN_ESTIMATED_ENTROPY_BITS: usize = 48;
+/// Minimum byte length required for credential-seal operator passphrases.
+pub const CREDENTIAL_SEAL_PASSPHRASE_MIN_BYTES: usize = 24;
+/// Minimum estimated entropy bits required for credential-seal operator passphrases.
+pub const CREDENTIAL_SEAL_PASSPHRASE_MIN_ESTIMATED_ENTROPY_BITS: usize = 72;
 
 /// Configuration tiers in inheritance order, from most-specific to most-general.
 #[derive(
@@ -347,13 +347,13 @@ pub enum ConfigurationValidationFailure {
     },
 }
 
-/// Validation failures for credential-seal passphrases.
+/// Validation failures for credential-seal operator passphrases.
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum CredentialSealPassphraseValidationFailure {
     /// Passphrase is shorter than the minimum supported byte length.
     #[error(
-        "credential seal passphrase is too short ({actual_bytes} bytes); minimum is {min_bytes} bytes"
+        "credential seal operator passphrase is too short ({actual_bytes} bytes); minimum is {min_bytes} bytes"
     )]
     TooShort {
         /// Required minimum byte length.
@@ -363,7 +363,7 @@ pub enum CredentialSealPassphraseValidationFailure {
     },
     /// Passphrase failed the minimum entropy heuristic.
     #[error(
-        "credential seal passphrase entropy is too low ({estimated_bits} bits); minimum is {min_estimated_bits} bits"
+        "credential seal operator passphrase entropy is too low ({estimated_bits} bits); minimum is {min_estimated_bits} bits"
     )]
     LowEntropy {
         /// Required minimum estimated entropy bits.

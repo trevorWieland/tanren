@@ -217,6 +217,10 @@ Secret storage rules:
 - secret values are write-only/use-only after storage;
 - generated API keys or tokens may be displayed once at creation;
 - stored API keys and secret values are not recoverable through Tanren;
+- installation operators must set
+  `TANREN_CREDENTIAL_SEAL_PASSPHRASE` to a production-grade passphrase with
+  at least 24 bytes and at least 72 bits of estimated entropy before
+  credential values can be sealed;
 - rotation creates a new secret version and retires or revokes prior versions
   according to policy;
 - secret-store adapter failures surface as typed provider or availability

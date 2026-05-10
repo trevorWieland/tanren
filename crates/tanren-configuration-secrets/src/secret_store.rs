@@ -2,7 +2,7 @@
 //!
 //! This module owns the credential sealing policy contract:
 //! - key source: `TANREN_CREDENTIAL_SEAL_PASSPHRASE` from process env;
-//! - passphrase validation: [`CredentialSealPassphrase`];
+//! - operator passphrase validation: [`CredentialSealPassphrase`];
 //! - key derivation: Argon2id (v1 policy constants below);
 //! - random per-write KDF salt and nonce generation;
 //! - AEAD associated data binding to credential id, owner account/scope,
@@ -200,7 +200,7 @@ pub enum CredentialSealingFailure {
 
 /// Seal one credential value according to Tanren's v1 user-credential policy.
 ///
-/// The passphrase source and validation policy are:
+/// The operator passphrase source and validation policy are:
 /// - env var: [`CREDENTIAL_SEAL_PASSPHRASE_ENV`]
 /// - minimum length: [`crate::CREDENTIAL_SEAL_PASSPHRASE_MIN_BYTES`]
 /// - minimum entropy estimate:
