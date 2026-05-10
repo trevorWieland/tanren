@@ -15,15 +15,23 @@ Feature: Detect installer drift without mutating files
       And the drift output reports no drift
 
     @positive @cli
-    Scenario: Drift check reports generated asset drift and missing preserved standards
+    Scenario: Drift check reports generated asset drift
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
       Given repository file ".codex/skills/plan-product.md" contains "generated drift"
-      And repository file "profiles/rust-cargo/testing/mock-boundaries.md" is deleted from the repository fixture
       When tanren-cli drift runs with profile "rust-cargo"
       Then the drift command exits nonzero
       And the drift output reports generated asset drift for ".codex/skills/plan-product.md"
+
+    @positive @cli
+    Scenario: Drift check reports missing preserved standards
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given repository file "profiles/rust-cargo/testing/mock-boundaries.md" is deleted from the repository fixture
+      When tanren-cli drift runs with profile "rust-cargo"
+      Then the drift command exits nonzero
       And the drift output reports missing preserved standard "profiles/rust-cargo/testing/mock-boundaries.md"
 
     @positive @cli
@@ -52,7 +60,9 @@ Feature: Detect installer drift without mutating files
       Given a clean repository fixture
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
-      Given repository file ".codex/skills/plan-product.md" is deleted from the repository fixture
+      Given repository file "profiles/rust-cargo/global/dependency-management.md" baseline is recorded
+      And repository file ".codex/skills/plan-product.md" is deleted from the repository fixture
       When tanren-cli drift runs with profile "rust-cargo"
       Then the drift command exits nonzero
       And the drift output reports missing generated asset ".codex/skills/plan-product.md"
+      And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content

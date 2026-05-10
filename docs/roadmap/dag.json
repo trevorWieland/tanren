@@ -1536,6 +1536,7 @@
             "positive",
             "falsification"
           ],
+          "witness_command": "just tests",
           "description": "Positive: against a freshly-installed repo, drift is reported as none. Positive: modify a generated asset; drift check reports drift. Positive: delete a preserved standard; drift check reports it as missing. Positive: edit a preserved standard manually; drift check reports it as accepted (not drift). Falsification: the drift check leaves no file modifications behind. Falsification: a missing generated asset is reported as drift even when a preserved standard is unchanged."
         }
       ],

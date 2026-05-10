@@ -46,7 +46,7 @@ nightly CI.
 Repository install behavior is currently covered by:
 
 - `tests/bdd/features/B-0068-bootstrap-tanren-assets.feature`
-- `tests/bdd/features/B-0070-generate-selected-agent-integrations.feature`
+- `tests/bdd/features/B-0070-select-agent-integrations.feature`
 
 These slices assert the concrete `tanren-cli install` surface:
 
@@ -63,3 +63,9 @@ Keep scope boundaries explicit in new BDD edits:
 - install materialization and validation belong here;
 - drift detection/remediation, upgrade, and uninstall are separate nodes and
   should not be folded into install-proof scenarios in this slice.
+
+## Current CLI Drift Behavior Slices
+
+Repository drift detection behavior is currently covered by:
+
+- `tests/bdd/features/B-0069-detect-installer-drift.feature`
