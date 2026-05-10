@@ -1,7 +1,8 @@
 use std::path::PathBuf;
 
-use tanren_configuration_secrets::{
-    ConfigSecretsError, EffectiveConfigurationActorUsability, EffectiveConfigurationFreshness,
+use tanren_configuration_secrets::ConfigSecretsError;
+use tanren_contract::{
+    EffectiveConfigurationActorUsability, EffectiveConfigurationFreshness,
     EffectiveConfigurationPolicyConstraint, EffectiveConfigurationResolutionKind,
     EffectiveConfigurationSettingFamily, EffectiveConfigurationSourceScope,
 };

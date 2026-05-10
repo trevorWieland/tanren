@@ -1,12 +1,12 @@
 use std::fs;
 
-use serde::Deserialize;
 use serde_json::Value;
-use tanren_configuration_secrets::{
+use tanren_contract::{
     EffectiveConfigurationActorUsability, EffectiveConfigurationFreshness,
-    EffectiveConfigurationMetadata, EffectiveConfigurationPolicyConstraint,
+    EffectiveConfigurationMetadataWire, EffectiveConfigurationPolicyConstraint,
     EffectiveConfigurationResolutionKind, EffectiveConfigurationSettingFamily,
-    EffectiveConfigurationSourceScope, StandardsRoot,
+    EffectiveConfigurationSourceScope, StandardsInspectReport, StandardsInspectReportCommand,
+    StandardsInspectReportStatus,
 };
 
 use crate::steps::install::context::InstallCommandOutcome;
@@ -98,16 +98,16 @@ impl InstallContext {
         if report.repository.trim().is_empty() {
             return Err(InstallStepError::UnexpectedStandardsInspectRepositoryEmpty);
         }
-        if report.standards_root.as_str().trim().is_empty() {
+        if report.standards_root.trim().is_empty() {
             return Err(InstallStepError::UnexpectedStandardsInspectStandardsRootEmpty);
         }
-        if report.standards_root.as_str() != project_methodology_config.standards_root.as_str() {
+        if report.standards_root != project_methodology_config.standards_root.as_str() {
             return Err(InstallStepError::UnexpectedStandardsInspectStandardsRoot {
                 expected: project_methodology_config
                     .standards_root
                     .as_str()
                     .to_owned(),
-                actual: report.standards_root.as_str().to_owned(),
+                actual: report.standards_root,
             });
         }
         if report.standards_count == 0 {
@@ -402,7 +402,7 @@ fn json_path_exists(value: &Value, path: &[&str]) -> bool {
 }
 
 fn assert_effective_configuration_metadata(
-    metadata: &EffectiveConfigurationMetadata,
+    metadata: &EffectiveConfigurationMetadataWire,
     family: EffectiveConfigurationSettingFamily,
 ) -> InstallStepResult<()> {
     if metadata.setting_family != family {
@@ -449,37 +449,4 @@ fn assert_effective_configuration_metadata(
         );
     }
     Ok(())
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-struct StandardsInspectReport {
-    status: StandardsInspectReportStatus,
-    command: StandardsInspectReportCommand,
-    repository: String,
-    profile: String,
-    standards_root: StandardsRoot,
-    standards_count: usize,
-    first_standard_name: String,
-    first_standard_path: String,
-    effective_configuration: StandardsInspectEffectiveConfigurationReport,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-#[serde(rename_all = "snake_case")]
-enum StandardsInspectReportStatus {
-    Ok,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
-enum StandardsInspectReportCommand {
-    #[serde(rename = "standards.inspect")]
-    StandardsInspect,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-#[serde(rename_all = "snake_case", deny_unknown_fields)]
-struct StandardsInspectEffectiveConfigurationReport {
-    profile: EffectiveConfigurationMetadata,
-    standards_root: EffectiveConfigurationMetadata,
 }

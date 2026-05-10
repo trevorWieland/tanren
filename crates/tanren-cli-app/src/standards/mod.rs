@@ -4,6 +4,7 @@ use std::io;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
+use tanren_contract::StandardsInspectReport;
 
 mod config;
 mod error;
@@ -54,7 +55,7 @@ impl StandardsInspectCommand {
 
 fn inspect_standards(
     repository: &std::path::Path,
-) -> Result<report::StandardsInspectSuccessReport, StandardsCommandError> {
+) -> Result<StandardsInspectReport, StandardsCommandError> {
     let targets = config::resolve_inspection_targets(repository)?;
     let scan_summary =
         scan::scan_standards(targets.repository_root(), targets.standards_root_path())?;

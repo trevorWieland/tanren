@@ -3,53 +3,21 @@
 use std::io::Write;
 use std::path::Path;
 
-use serde::Serialize;
-use tanren_configuration_secrets::{
-    EffectiveConfigurationMetadata, EffectiveConfigurationSettingFamily, StandardsRoot,
+use tanren_contract::{
+    EffectiveConfigurationMetadataWire, EffectiveConfigurationSettingFamily as WireSettingFamily,
+    StandardsInspectEffectiveConfigurationReport, StandardsInspectReport,
+    StandardsInspectReportCommand, StandardsInspectReportStatus,
 };
 
 use super::config::{StandardsInspectionTargets, display_repository_argument};
 use super::error::{StandardsCommandError, StandardsError};
 use super::scan::StandardsScanSummary;
 
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-pub(super) struct StandardsInspectSuccessReport {
-    status: StandardsInspectReportStatus,
-    command: StandardsInspectReportCommand,
-    repository: String,
-    profile: String,
-    standards_root: StandardsRoot,
-    standards_count: usize,
-    first_standard_name: String,
-    first_standard_path: String,
-    effective_configuration: StandardsInspectEffectiveConfigurationReport,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-#[serde(rename_all = "snake_case")]
-enum StandardsInspectReportStatus {
-    Ok,
-}
-
-#[derive(Debug, Clone, Copy, Serialize)]
-enum StandardsInspectReportCommand {
-    #[serde(rename = "standards.inspect")]
-    StandardsInspect,
-}
-
-#[derive(Debug, Clone, Serialize)]
-#[serde(rename_all = "snake_case")]
-struct StandardsInspectEffectiveConfigurationReport {
-    profile: EffectiveConfigurationMetadata,
-    standards_root: EffectiveConfigurationMetadata,
-}
-
 pub(super) fn build_inspect_success_report(
     repository: &Path,
     targets: &StandardsInspectionTargets,
     scan_summary: StandardsScanSummary,
-) -> Result<StandardsInspectSuccessReport, StandardsCommandError> {
+) -> Result<StandardsInspectReport, StandardsCommandError> {
     let Some(first_standard_name) = scan_summary.first_standard_name else {
         return Err(StandardsCommandError::standards_missing(
             StandardsError::NoStandardsFiles {
@@ -65,21 +33,21 @@ pub(super) fn build_inspect_success_report(
         ));
     };
 
-    Ok(StandardsInspectSuccessReport {
+    Ok(StandardsInspectReport {
         status: StandardsInspectReportStatus::Ok,
         command: StandardsInspectReportCommand::StandardsInspect,
         repository: display_repository_argument(repository),
         profile: targets.profile().as_str().to_owned(),
-        standards_root: targets.standards_root().clone(),
+        standards_root: targets.standards_root().as_str().to_owned(),
         standards_count: scan_summary.standards_count,
         first_standard_name,
         first_standard_path,
         effective_configuration: StandardsInspectEffectiveConfigurationReport {
-            profile: EffectiveConfigurationMetadata::project_explicit(
-                EffectiveConfigurationSettingFamily::StandardsProfile,
+            profile: EffectiveConfigurationMetadataWire::project_explicit(
+                WireSettingFamily::StandardsProfile,
             ),
-            standards_root: EffectiveConfigurationMetadata::project_explicit(
-                EffectiveConfigurationSettingFamily::StandardsRoot,
+            standards_root: EffectiveConfigurationMetadataWire::project_explicit(
+                WireSettingFamily::StandardsRoot,
             ),
         },
     })
@@ -87,7 +55,7 @@ pub(super) fn build_inspect_success_report(
 
 pub(super) fn write_success_report(
     writer: &mut impl Write,
-    report: &StandardsInspectSuccessReport,
+    report: &StandardsInspectReport,
 ) -> Result<(), StandardsCommandError> {
     serde_json::to_writer(&mut *writer, report)
         .map_err(StandardsCommandError::report_serialize_failure)?;

@@ -6,10 +6,19 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod standards;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use standards::{
+    EffectiveConfigurationActorUsability, EffectiveConfigurationFreshness,
+    EffectiveConfigurationMetadataWire, EffectiveConfigurationPolicyConstraint,
+    EffectiveConfigurationResolutionKind, EffectiveConfigurationSettingFamily,
+    EffectiveConfigurationSourceScope, StandardsInspectEffectiveConfigurationReport,
+    StandardsInspectReport, StandardsInspectReportCommand, StandardsInspectReportStatus,
 };
 
 use serde::{Deserialize, Serialize};
