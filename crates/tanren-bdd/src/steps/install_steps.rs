@@ -308,14 +308,14 @@ fn then_uninstall_preview_preserves_user_owned_files(
     world: &mut TanrenWorld,
 ) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
-    ctx.assert_no_writes_since_last_run()?;
-    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(
+    ctx.assert_uninstall_preview_leaves_repository_snapshot_unchanged()?;
+    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(
         DEFAULT_UNINSTALL_USER_SPEC_PATH.to_owned(),
     )?)?;
-    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(
+    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(
         DEFAULT_UNINSTALL_USER_SOURCE_PATH.to_owned(),
     )?)?;
-    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(
+    ctx.assert_uninstall_preserves_baseline_file_content(&RepositoryRelativePath::parse(
         DEFAULT_UNINSTALL_STANDARDS_PATH.to_owned(),
     )?)?;
     Ok(())

@@ -213,6 +213,12 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_uninstall_preview_leaves_repository_snapshot_unchanged(
+        &self,
+    ) -> InstallStepResult<()> {
+        self.assert_no_writes_since_last_run()
+    }
+
     pub(crate) fn assert_stderr_contains(&self, expected: &str) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         if !run.stderr.contains(expected) {
@@ -286,16 +292,18 @@ impl InstallContext {
                 .ok_or_else(|| InstallStepError::MissingBaseline {
                     path: relative_path.as_str().to_owned(),
                 })?;
-        let absolute = self.repository_path(relative_path.as_str())?;
-        let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
-            path: absolute.clone(),
-            action: "read repository fixture file",
-            source,
-        })?;
-        if &bytes != baseline {
-            return Err(InstallStepError::FileContentChanged { path: absolute });
-        }
-        Ok(())
+        manifest_helpers::assert_uninstall_preserves_baseline_file_content(
+            &self.repository_root,
+            relative_path,
+            baseline,
+        )
+    }
+
+    pub(crate) fn assert_uninstall_preserves_baseline_file_content(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        self.assert_file_content_preserved(relative_path)
     }
 
     pub(crate) fn assert_file_content_replaced(

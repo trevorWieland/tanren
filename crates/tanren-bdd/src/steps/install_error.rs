@@ -78,8 +78,6 @@ pub(crate) enum InstallStepError {
     RepositorySnapshotMismatch,
     #[error("expected stale path to be absent before manifest injection: {path}")]
     StaleManifestPathAlreadyPresent { path: String },
-    #[error("expected repository file content to equal baseline for `{path}`")]
-    FileContentChanged { path: PathBuf },
     #[error("expected repository file content to differ from baseline for `{path}`")]
     FileContentNotReplaced { path: PathBuf },
     #[error("unexpected repository file content for `{path}`")]

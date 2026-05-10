@@ -9,6 +9,7 @@ use thiserror::Error;
 use crate::install::catalog::generated_integration_destination_roots;
 use crate::install::manifest::{
     AssetClass, INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallManifest,
+    RepoRelativePath,
 };
 use crate::install::{
     InstallError, InstallIntegration, InstallProfile, parse_integration_selection,
@@ -20,8 +21,8 @@ const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
 mod test_hooks;
 #[cfg(feature = "test-hooks")]
 pub use test_hooks::{
-    append_stale_generated_manifest_entry, read_workspace_catalog_file,
-    tamper_manifest_with_raw_generated_entry,
+    append_uninstall_stale_generated_manifest_entry, read_workspace_catalog_file,
+    tamper_uninstall_manifest_with_raw_generated_entry,
 };
 
 /// Delivery-owned proof failures surfaced to BDD assertion mapping.
@@ -76,6 +77,8 @@ pub enum InstallProofError {
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository path to be absent: {path}")]
     ExpectedFileToBeAbsent { path: PathBuf },
+    #[error("expected repository file content to match recorded baseline: {path}")]
+    ExpectedFileContentToMatchBaseline { path: PathBuf },
     #[error("expected fixture path to be absent before manifest injection: {path}")]
     StaleManifestPathAlreadyPresent { path: String },
     #[error(
@@ -181,6 +184,27 @@ pub fn assert_uninstall_removes_generated_assets_and_manifest(
         });
     }
     assert_unselected_integration_roots_are_empty(repository_root, &BTreeSet::new())
+}
+
+/// Assert a repository path preserves recorded baseline bytes after uninstall flows.
+pub fn assert_uninstall_preserves_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &RepoRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallProofError> {
+    let absolute_path = repository_root.join(relative_path.as_str());
+    let observed_bytes =
+        fs::read(&absolute_path).map_err(|source| InstallProofError::ReadFile {
+            path: absolute_path.clone(),
+            action: "read uninstall-preserved repository fixture file",
+            source,
+        })?;
+    if observed_bytes != baseline {
+        return Err(InstallProofError::ExpectedFileContentToMatchBaseline {
+            path: absolute_path,
+        });
+    }
+    Ok(())
 }
 
 #[derive(Debug)]

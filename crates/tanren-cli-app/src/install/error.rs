@@ -96,7 +96,8 @@ impl InstallCommandError {
 
     pub(super) fn from_uninstall_error(source: InstallError) -> Self {
         match source {
-            InstallError::InvalidRepositoryPath { .. }
+            InstallError::InvalidRepoRelativePath { .. }
+            | InstallError::InvalidRepositoryPath { .. }
             | InstallError::InvalidInstallManifest { .. }
             | InstallError::UnsafeRepositoryPath { .. }
             | InstallError::RepositoryPathNotDirectory { .. } => Self::ValidationFailed { source },

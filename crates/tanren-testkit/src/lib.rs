@@ -24,11 +24,13 @@ pub use install_contract::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallProofAssetClass,
     InstallProofContractError, InstallProofError, InstallProofIntegration,
     InstallProofPreservationPolicy, InstallProofProfile, InstallProofRepoRelativePath,
-    RUST_CARGO_PROFILE_ROOT, append_stale_generated_manifest_entry,
+    RUST_CARGO_PROFILE_ROOT, append_uninstall_stale_generated_manifest_entry,
     assert_manifest_rust_cargo_defaults, assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed, assert_selected_integration_command_assets,
+    assert_uninstall_preserves_baseline_file_content,
     assert_uninstall_removes_generated_assets_and_manifest, parse_install_integration_selection,
-    read_workspace_catalog_file, sha256_hex_string, tamper_manifest_with_raw_generated_entry,
+    read_workspace_catalog_file, sha256_hex_string,
+    tamper_uninstall_manifest_with_raw_generated_entry,
 };
 
 use chrono::{DateTime, Duration, Utc};

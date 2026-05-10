@@ -5,9 +5,11 @@ use tanren_testkit::{
     assert_rust_cargo_default_assets_installed as contract_assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed as contract_assert_rust_cargo_standards_installed,
     assert_selected_integration_command_assets as contract_assert_selected_integration_command_assets,
+    assert_uninstall_preserves_baseline_file_content as contract_assert_uninstall_preserves_baseline_file_content,
     assert_uninstall_removes_generated_assets_and_manifest as contract_assert_uninstall_removes_generated_assets_and_manifest,
 };
 
+use super::RepositoryRelativePath;
 use crate::steps::install::InstallStepError;
 
 pub(crate) fn assert_rust_cargo_default_assets_installed(
@@ -44,4 +46,17 @@ pub(crate) fn assert_uninstall_removes_generated_assets_and_manifest(
 ) -> Result<(), InstallStepError> {
     contract_assert_uninstall_removes_generated_assets_and_manifest(repository_root)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_preserves_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &RepositoryRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_preserves_baseline_file_content(
+        repository_root,
+        &relative_path.as_install_path()?,
+        baseline,
+    )
+    .map_err(|source| InstallStepError::InstallProofFailure { source })
 }

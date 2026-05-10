@@ -172,23 +172,40 @@ pub fn assert_uninstall_removes_generated_assets_and_manifest(
     contract::assert_uninstall_removes_generated_assets_and_manifest(repository_root)
 }
 
+/// Assert uninstall flow preserved a repository file's recorded baseline bytes.
+pub fn assert_uninstall_preserves_baseline_file_content(
+    repository_root: &Path,
+    relative_path: &InstallProofRepoRelativePath,
+    baseline: &[u8],
+) -> Result<(), InstallProofError> {
+    contract::assert_uninstall_preserves_baseline_file_content(
+        repository_root,
+        relative_path,
+        baseline,
+    )
+}
+
 /// Append a stale generated-manifest row for mutation-flow fixtures.
 #[cfg(feature = "test-hooks")]
-pub fn append_stale_generated_manifest_entry(
+pub fn append_uninstall_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &InstallProofRepoRelativePath,
     content_hash: &str,
 ) {
-    contract::append_stale_generated_manifest_entry(manifest, relative_path, content_hash);
+    contract::append_uninstall_stale_generated_manifest_entry(
+        manifest,
+        relative_path,
+        content_hash,
+    );
 }
 
 /// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
 #[cfg(feature = "test-hooks")]
-pub fn tamper_manifest_with_raw_generated_entry(
+pub fn tamper_uninstall_manifest_with_raw_generated_entry(
     repository_root: &Path,
     raw_path: &str,
 ) -> Result<(), InstallProofError> {
-    contract::tamper_manifest_with_raw_generated_entry(repository_root, raw_path)
+    contract::tamper_uninstall_manifest_with_raw_generated_entry(repository_root, raw_path)
 }
 
 /// Read a workspace catalog file for fixture seeding.

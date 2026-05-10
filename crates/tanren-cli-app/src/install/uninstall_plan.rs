@@ -2,7 +2,10 @@
 
 use std::collections::BTreeSet;
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+use sha2::{Digest, Sha256};
 
 use crate::install::catalog::{
     build_trusted_generated_asset_registry, is_trusted_generated_manifest_entry,
@@ -300,9 +303,9 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
 
 fn load_manifest(manifest_path: &Path) -> Result<InstallManifest, InstallError> {
     let raw_manifest =
-        fs::read_to_string(manifest_path).map_err(|err| InstallError::ReadFailure {
+        fs::read_to_string(manifest_path).map_err(|err| InstallError::InvalidInstallManifest {
             path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
-            message: err.to_string(),
+            message: format!("failed to read manifest: {err}"),
         })?;
 
     toml::from_str(&raw_manifest).map_err(|err| InstallError::InvalidInstallManifest {
@@ -321,12 +324,31 @@ fn validate_manifest_version(manifest: &InstallManifest) -> Result<(), InstallEr
     Ok(())
 }
 
-fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, InstallError> {
-    let current = fs::read(path).map_err(|err| InstallError::ReadFailure {
+fn hash_matches_manifest(
+    path: &Path,
+    display_path: &str,
+    expected_hash: &Sha256Hex,
+) -> Result<bool, InstallError> {
+    let mut file = fs::File::open(path).map_err(|err| InstallError::ReadFailure {
         path: display_path.to_owned(),
         message: err.to_string(),
     })?;
-    Ok(sha256_hex(&current))
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 16_384];
+    loop {
+        let read_count = file
+            .read(&mut buffer)
+            .map_err(|err| InstallError::ReadFailure {
+                path: display_path.to_owned(),
+                message: err.to_string(),
+            })?;
+        if read_count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read_count]);
+    }
+    let observed_hash = sha256_hex(&hasher.finalize());
+    Ok(observed_hash == *expected_hash)
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -348,8 +370,7 @@ fn classify_removal_candidate(
         return Ok(RemovalCandidateState::PreserveAsContentDrifted);
     }
 
-    let current_hash = hash_current_file(path, display_path)?;
-    if current_hash == *expected_hash {
+    if hash_matches_manifest(path, display_path, expected_hash)? {
         return Ok(RemovalCandidateState::Remove);
     }
 

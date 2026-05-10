@@ -12,7 +12,7 @@ const TAMPERED_ENTRY_SHA256: &str =
 
 /// Append a stale generated-manifest row for mutation-flow fixtures.
 #[cfg(feature = "test-hooks")]
-pub fn append_stale_generated_manifest_entry(
+pub fn append_uninstall_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &RepoRelativePath,
     content_hash: &str,
@@ -28,7 +28,7 @@ pub fn append_stale_generated_manifest_entry(
 
 /// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
 #[cfg(feature = "test-hooks")]
-pub fn tamper_manifest_with_raw_generated_entry(
+pub fn tamper_uninstall_manifest_with_raw_generated_entry(
     repository_root: &Path,
     raw_path: &str,
 ) -> Result<(), InstallProofError> {
