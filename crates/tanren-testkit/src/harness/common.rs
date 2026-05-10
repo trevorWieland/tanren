@@ -3,10 +3,13 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use axum::http::HeaderValue;
+use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, CheckOrganizationPermissionApiRequest,
+    CreateOrganizationApiRequest, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::{OrgId, OrganizationName, OrganizationPermission};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 use tokio::time::{Instant, sleep};
@@ -27,7 +30,7 @@ pub(crate) fn sqlite_url(path: &Path) -> String {
     format!("sqlite://{}?mode=rwc", path.display())
 }
 
-pub(crate) fn sign_up_body(req: &SignUpRequest) -> serde_json::Value {
+pub(crate) fn sign_up_body(req: &SignUpRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -36,7 +39,7 @@ pub(crate) fn sign_up_body(req: &SignUpRequest) -> serde_json::Value {
     })
 }
 
-pub(crate) fn sign_in_body(req: &SignInRequest) -> serde_json::Value {
+pub(crate) fn sign_in_body(req: &SignInRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -44,13 +47,41 @@ pub(crate) fn sign_in_body(req: &SignInRequest) -> serde_json::Value {
     })
 }
 
-pub(crate) fn accept_invitation_body(req: &AcceptInvitationRequest) -> serde_json::Value {
+pub(crate) fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
         "password": req.password.expose_secret(),
         "display_name": req.display_name,
     })
+}
+
+pub(crate) fn create_organization_api_request(
+    name: OrganizationName,
+    idempotency_key: Option<tanren_identity_policy::IdempotencyKey>,
+) -> CreateOrganizationApiRequest {
+    CreateOrganizationApiRequest::new(name, idempotency_key)
+}
+
+pub(crate) fn create_organization_body(req: &CreateOrganizationApiRequest) -> Value {
+    serde_json::to_value(req).unwrap_or_else(|_| serde_json::json!({}))
+}
+
+pub(crate) fn check_permission_api_request(
+    org_id: OrgId,
+    permission: OrganizationPermission,
+) -> CheckOrganizationPermissionApiRequest {
+    CheckOrganizationPermissionApiRequest::new(org_id, permission)
+}
+
+pub(crate) fn check_configure_permission_api_request(
+    org_id: OrgId,
+) -> CheckOrganizationPermissionApiRequest {
+    CheckOrganizationPermissionApiRequest::configure(org_id)
+}
+
+pub(crate) fn check_permission_body(req: &CheckOrganizationPermissionApiRequest) -> Value {
+    serde_json::to_value(req).unwrap_or_else(|_| serde_json::json!({}))
 }
 
 pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
@@ -65,6 +96,24 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
         _ => return None,
     })
+}
+
+pub(crate) fn failure_from_error_body(json: &Value) -> HarnessError {
+    let code = json
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or("transport_error")
+        .to_owned();
+    let summary = json
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown failure")
+        .to_owned();
+    if let Some(reason) = code_to_reason(&code) {
+        HarnessError::Account(reason, summary)
+    } else {
+        HarnessError::Transport(format!("{code}: {summary}"))
+    }
 }
 
 pub(crate) async fn wait_for_http_ready(base_url: &str, timeout: Duration) -> HarnessResult<()> {

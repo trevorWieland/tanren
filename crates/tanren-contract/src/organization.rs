@@ -29,6 +29,24 @@ pub struct CreateOrganizationRequest {
     pub idempotency_key: Option<IdempotencyKey>,
 }
 
+impl CreateOrganizationRequest {
+    /// Build a create-organization service request from authenticated
+    /// transport context plus the validated API body.
+    #[must_use]
+    pub fn from_api(
+        session_token: SessionToken,
+        account_id: AccountId,
+        body: CreateOrganizationApiRequest,
+    ) -> Self {
+        Self {
+            session_token,
+            account_id,
+            name: body.name,
+            idempotency_key: body.idempotency_key,
+        }
+    }
+}
+
 /// Create-organization response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationResponse {
@@ -68,6 +86,24 @@ pub struct ListOrganizationsRequest {
     pub cursor: Option<MembershipId>,
 }
 
+impl ListOrganizationsRequest {
+    /// Build a list-organizations request from authenticated transport
+    /// context and query parameters.
+    #[must_use]
+    pub fn from_api_query(
+        session_token: SessionToken,
+        account_id: AccountId,
+        query: &ListOrganizationsApiQuery,
+    ) -> Self {
+        Self {
+            session_token,
+            account_id,
+            limit: query.limit,
+            cursor: query.cursor,
+        }
+    }
+}
+
 /// List-organizations response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListOrganizationsResponse {
@@ -99,6 +135,35 @@ pub struct CheckOrganizationPermissionRequest {
     pub permission: OrganizationPermission,
 }
 
+impl CheckOrganizationPermissionRequest {
+    /// Build a permission-check request from authenticated transport
+    /// context plus the validated API body.
+    #[must_use]
+    pub fn from_api(
+        session_token: SessionToken,
+        account_id: AccountId,
+        body: &CheckOrganizationPermissionApiRequest,
+    ) -> Self {
+        Self {
+            session_token,
+            account_id,
+            org_id: body.org_id,
+            permission: body.permission,
+        }
+    }
+
+    /// Build a configure-permission check request.
+    #[must_use]
+    pub fn configure(session_token: SessionToken, account_id: AccountId, org_id: OrgId) -> Self {
+        Self {
+            session_token,
+            account_id,
+            org_id,
+            permission: OrganizationPermission::Configure,
+        }
+    }
+}
+
 /// API body for create-organization routes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationApiRequest {
@@ -111,6 +176,17 @@ pub struct CreateOrganizationApiRequest {
     pub idempotency_key: Option<IdempotencyKey>,
 }
 
+impl CreateOrganizationApiRequest {
+    /// Build a create-organization API body from typed values.
+    #[must_use]
+    pub const fn new(name: OrganizationName, idempotency_key: Option<IdempotencyKey>) -> Self {
+        Self {
+            name,
+            idempotency_key,
+        }
+    }
+}
+
 /// API body for check-organization-permission routes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CheckOrganizationPermissionApiRequest {
@@ -118,6 +194,23 @@ pub struct CheckOrganizationPermissionApiRequest {
     pub org_id: OrgId,
     /// Permission being checked.
     pub permission: OrganizationPermission,
+}
+
+impl CheckOrganizationPermissionApiRequest {
+    /// Build a permission-check API body from typed values.
+    #[must_use]
+    pub const fn new(org_id: OrgId, permission: OrganizationPermission) -> Self {
+        Self { org_id, permission }
+    }
+
+    /// Build a configure-permission API body.
+    #[must_use]
+    pub const fn configure(org_id: OrgId) -> Self {
+        Self {
+            org_id,
+            permission: OrganizationPermission::Configure,
+        }
+    }
 }
 
 /// Check-organization-permission response.

@@ -135,12 +135,11 @@ async fn create_organization(
     let response = handlers
         .create_organization(
             &store,
-            CreateOrganizationRequest {
+            CreateOrganizationRequest::from_api(
                 session_token,
                 account_id,
-                name,
-                idempotency_key: None,
-            },
+                tanren_contract::CreateOrganizationApiRequest::new(name, None),
+            ),
         )
         .await
         .map_err(|err| OrganizationCliError::from_app_service(&err))?;
@@ -186,12 +185,14 @@ async fn list_organizations(
     let response = handlers
         .list_organizations(
             &store,
-            ListOrganizationsRequest {
+            ListOrganizationsRequest::from_api_query(
                 session_token,
                 account_id,
-                limit: Some(limit),
-                cursor,
-            },
+                &tanren_contract::ListOrganizationsApiQuery {
+                    limit: Some(limit),
+                    cursor,
+                },
+            ),
         )
         .await
         .map_err(|err| OrganizationCliError::from_app_service(&err))?;
@@ -239,12 +240,11 @@ async fn check_permission(
     let response = handlers
         .check_organization_permission(
             &store,
-            CheckOrganizationPermissionRequest {
+            CheckOrganizationPermissionRequest::from_api(
                 session_token,
                 account_id,
-                org_id,
-                permission,
-            },
+                &tanren_contract::CheckOrganizationPermissionApiRequest::new(org_id, permission),
+            ),
         )
         .await
         .map_err(|err| OrganizationCliError::from_app_service(&err))?;

@@ -25,8 +25,10 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::common::{
-    accept_invitation_body, code_to_reason, scenario_db_path, sign_in_body, sign_up_body,
-    sqlite_url, wait_for_http_ready,
+    accept_invitation_body, check_configure_permission_api_request, check_permission_api_request,
+    check_permission_body, create_organization_api_request, create_organization_body,
+    failure_from_error_body, scenario_db_path, sign_in_body, sign_up_body, sqlite_url,
+    wait_for_http_ready,
 };
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
@@ -163,7 +165,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            return Err(failure_from_error_body(&json));
         }
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
@@ -207,7 +209,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            return Err(failure_from_error_body(&json));
         }
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
@@ -252,7 +254,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            return Err(failure_from_error_body(&json));
         }
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
@@ -282,7 +284,7 @@ impl AccountHarness for ApiHarness {
         account_id: AccountId,
         name: OrganizationName,
     ) -> HarnessResult<CreateOrganizationResponse> {
-        let body = serde_json::json!({ "name": name });
+        let body = create_organization_body(&create_organization_api_request(name, None));
         let url = format!("{}/organizations", self.base_url);
         let client = if let Some(client) = self.session_clients.get(&account_id) {
             client.clone()
@@ -301,7 +303,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            return Err(failure_from_error_body(&json));
         }
         serde_json::from_value(json)
             .map_err(|e| HarnessError::Transport(format!("decode create_organization: {e}")))
@@ -327,7 +329,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            return Err(failure_from_error_body(&json));
         }
         serde_json::from_value(json)
             .map_err(|e| HarnessError::Transport(format!("decode list_organizations: {e}")))
@@ -339,7 +341,12 @@ impl AccountHarness for ApiHarness {
         org_id: OrgId,
         permission: OrganizationPermission,
     ) -> HarnessResult<CheckOrganizationPermissionResponse> {
-        let body = serde_json::json!({ "org_id": org_id, "permission": permission });
+        let permission_request = if permission == OrganizationPermission::Configure {
+            check_configure_permission_api_request(org_id)
+        } else {
+            check_permission_api_request(org_id, permission)
+        };
+        let body = check_permission_body(&permission_request);
         let url = format!("{}/organizations/permissions/check", self.base_url);
         let response = self
             .session_client(account_id)?
@@ -356,7 +363,7 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            return Err(failure_from_error_body(&json));
         }
         let response: CheckOrganizationPermissionResponse =
             serde_json::from_value(json).map_err(|e| {
@@ -428,7 +435,7 @@ impl AccountHarness for ApiHarness {
                     .await
                     .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
                 if !status.is_success() {
-                    return Err(failure_from_body(&json));
+                    return Err(failure_from_error_body(&json));
                 }
                 let account: AccountView = serde_json::from_value(json["account"].clone())
                     .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
@@ -478,23 +485,5 @@ impl AccountHarness for ApiHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
-    }
-}
-
-pub(crate) fn failure_from_body(json: &Value) -> HarnessError {
-    let code = json
-        .get("code")
-        .and_then(Value::as_str)
-        .unwrap_or("transport_error")
-        .to_owned();
-    let summary = json
-        .get("summary")
-        .and_then(Value::as_str)
-        .unwrap_or("unknown failure")
-        .to_owned();
-    if let Some(reason) = code_to_reason(&code) {
-        HarnessError::Account(reason, summary)
-    } else {
-        HarnessError::Transport(format!("{code}: {summary}"))
     }
 }

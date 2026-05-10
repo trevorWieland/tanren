@@ -237,6 +237,21 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         permission: OrganizationPermission,
     ) -> HarnessResult<CheckOrganizationPermissionResponse>;
 
+    /// Check configure permission through the same organization-admin
+    /// guard path as other admin operations.
+    async fn check_organization_configure_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse> {
+        self.check_organization_admin_permission(
+            account_id,
+            org_id,
+            OrganizationPermission::Configure,
+        )
+        .await
+    }
+
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race
     /// scenario to prove `consume_invitation`'s atomicity. The default

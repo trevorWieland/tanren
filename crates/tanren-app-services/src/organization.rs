@@ -16,7 +16,7 @@ use tanren_store::{
     AccountStore, CreateOrganizationAtomicRequest, CreateOrganizationError, SessionRecord,
 };
 
-use crate::{AppServiceError, Clock};
+use crate::{AppServiceError, Clock, events::organization_created_envelope};
 
 pub(crate) async fn create_organization<S>(
     store: &S,
@@ -99,7 +99,34 @@ pub(crate) async fn check_organization_permission<S>(
 where
     S: AccountStore + ?Sized,
 {
-    let gate = require_organization_permission(
+    let gate = require_checked_organization_permission(store, clock, &request).await?;
+    Ok(CheckOrganizationPermissionResponse {
+        account_id: request.account_id,
+        org_id: request.org_id,
+        permission: gate.permission,
+        allowed: true,
+    })
+}
+
+async fn require_checked_organization_permission<S>(
+    store: &S,
+    clock: &Clock,
+    request: &CheckOrganizationPermissionRequest,
+) -> Result<OrganizationPermissionGate, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    if request.permission == OrganizationPermission::Configure {
+        return require_configure_organization_permission(
+            store,
+            clock,
+            &request.session_token,
+            request.account_id,
+            request.org_id,
+        )
+        .await;
+    }
+    require_organization_permission(
         store,
         clock,
         &request.session_token,
@@ -107,13 +134,7 @@ where
         request.org_id,
         request.permission,
     )
-    .await?;
-    Ok(CheckOrganizationPermissionResponse {
-        account_id: request.account_id,
-        org_id: request.org_id,
-        permission: gate.permission,
-        allowed: true,
-    })
+    .await
 }
 
 pub(crate) async fn require_organization_permission<S>(
@@ -134,6 +155,27 @@ where
         account_id,
         org_id,
         OrganizationPermissionGate::from_permission(permission),
+    )
+    .await
+}
+
+pub(crate) async fn require_configure_organization_permission<S>(
+    store: &S,
+    clock: &Clock,
+    session_token: &SessionToken,
+    account_id: AccountId,
+    org_id: OrgId,
+) -> Result<OrganizationPermissionGate, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    require_organization_permission(
+        store,
+        clock,
+        session_token,
+        account_id,
+        org_id,
+        OrganizationPermission::Configure,
     )
     .await
 }
@@ -188,18 +230,15 @@ where
 fn build_create_organization_events_builder() -> tanren_store::CreateOrganizationEventsBuilder {
     Box::new(|ctx| {
         let initial_project_count = 0;
-        vec![serde_json::json!({
-            "family": ORGANIZATION_EVENT_FAMILY,
-            "kind": ORGANIZATION_CREATED_EVENT_KIND,
-            "payload": OrganizationCreatedEvent {
-                org_id: ctx.organization.id,
-                name: ctx.organization.name.clone(),
-                creator_account_id: ctx.creator_account_id,
-                granted_permissions: ctx.granted_permissions.clone(),
-                initial_project_count,
-                created_at: ctx.now,
-            },
-        })]
+        let payload = OrganizationCreatedEvent {
+            org_id: ctx.organization.id,
+            name: ctx.organization.name.clone(),
+            creator_account_id: ctx.creator_account_id,
+            granted_permissions: ctx.granted_permissions.clone(),
+            initial_project_count,
+            created_at: ctx.now,
+        };
+        vec![organization_created_envelope(&payload)]
     })
 }
 

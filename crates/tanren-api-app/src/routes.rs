@@ -324,12 +324,7 @@ pub(crate) async fn create_organization_route(
         }
     };
     record_authenticated_account(&span, auth.0);
-    let request = tanren_contract::CreateOrganizationRequest {
-        session_token: auth.1,
-        account_id: auth.0,
-        name: body.name,
-        idempotency_key: body.idempotency_key,
-    };
+    let request = tanren_contract::CreateOrganizationRequest::from_api(auth.1, auth.0, body);
     match state
         .handlers
         .create_organization(state.store.as_ref(), request)
@@ -377,12 +372,7 @@ pub(crate) async fn list_organizations_route(
         }
     };
     record_authenticated_account(&span, auth.0);
-    let request = tanren_contract::ListOrganizationsRequest {
-        session_token: auth.1,
-        account_id: auth.0,
-        limit: query.limit,
-        cursor: query.cursor,
-    };
+    let request = tanren_contract::ListOrganizationsRequest::from_api_query(auth.1, auth.0, &query);
     match state
         .handlers
         .list_organizations(state.store.as_ref(), request)
@@ -419,38 +409,30 @@ pub(crate) async fn check_organization_permission_route(
         CheckOrganizationPermissionApiRequest,
     >,
 ) -> Response {
-    let span = organization_route_span("check_organization_permission", Some(body.org_id));
+    let org_id = body.org_id;
+    let span = organization_route_span("check_organization_permission", Some(org_id));
     let _span_guard = span.enter();
     let auth = match require_authoritative_auth(&state, &session).await {
         Ok(auth) => auth,
         Err(response) => {
-            emit_route_auth_denial("check_organization_permission", Some(body.org_id));
+            emit_route_auth_denial("check_organization_permission", Some(org_id));
             return response;
         }
     };
     record_authenticated_account(&span, auth.0);
-    let request = tanren_contract::CheckOrganizationPermissionRequest {
-        session_token: auth.1,
-        account_id: auth.0,
-        org_id: body.org_id,
-        permission: body.permission,
-    };
+    let request =
+        tanren_contract::CheckOrganizationPermissionRequest::from_api(auth.1, auth.0, &body);
     match state
         .handlers
         .check_organization_permission(state.store.as_ref(), request)
         .await
     {
         Ok(response) => {
-            emit_route_success("check_organization_permission", auth.0, Some(body.org_id));
+            emit_route_success("check_organization_permission", auth.0, Some(org_id));
             (StatusCode::OK, Json(response)).into_response()
         }
         Err(err) => {
-            emit_route_failure(
-                "check_organization_permission",
-                auth.0,
-                Some(body.org_id),
-                &err,
-            );
+            emit_route_failure("check_organization_permission", auth.0, Some(org_id), &err);
             map_organization_app_error(err)
         }
     }

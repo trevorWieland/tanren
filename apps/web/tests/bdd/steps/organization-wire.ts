@@ -15,6 +15,9 @@ import {
   ORGANIZATION_API_ROUTES,
   ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
+  buildCheckOrganizationPermissionApiRequest,
+  buildConfigurePermissionApiRequest,
+  isOrganizationAdminPermission,
   normalizeOrganizationName,
   organizationIdTestId,
   organizationInitialProjectsTestId,
@@ -254,13 +257,40 @@ export async function checkOrganizationPermissionViaWire(
   orgId: string,
   permission: string,
 ): Promise<CheckPermissionOperation> {
+  if (!isOrganizationAdminPermission(permission)) {
+    throw new Error(
+      `unsupported organization permission '${permission}' in scenario`,
+    );
+  }
+  return checkOrganizationPermissionRequestViaWire(
+    page,
+    permission === "configure"
+      ? buildConfigurePermissionApiRequest(orgId)
+      : buildCheckOrganizationPermissionApiRequest(orgId, permission),
+  );
+}
+
+export async function checkOrganizationConfigurePermissionViaWire(
+  page: Page,
+  orgId: string,
+): Promise<CheckPermissionOperation> {
+  return checkOrganizationPermissionRequestViaWire(
+    page,
+    buildConfigurePermissionApiRequest(orgId),
+  );
+}
+
+async function checkOrganizationPermissionRequestViaWire(
+  page: Page,
+  request: { org_id: string; permission: string },
+): Promise<CheckPermissionOperation> {
   await openOrganizationWireSurface(page);
   await page
     .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionOrgIdInput)
-    .fill(orgId);
+    .fill(request.org_id);
   await page
     .getByTestId(ORGANIZATION_WIRE_TEST_IDS.permissionSelect)
-    .selectOption(assertOrganizationPermission(permission));
+    .selectOption(assertOrganizationPermission(request.permission));
 
   const previousSequence = await readWireSequence(page);
   const responsePromise = waitForOrganizationRouteResponse(

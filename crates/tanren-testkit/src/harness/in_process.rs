@@ -159,12 +159,11 @@ impl AccountHarness for InProcessHarness {
         self.handlers
             .create_organization(
                 &self.store,
-                CreateOrganizationRequest {
+                CreateOrganizationRequest::from_api(
                     session_token,
                     account_id,
-                    name,
-                    idempotency_key: None,
-                },
+                    tanren_contract::CreateOrganizationApiRequest::new(name, None),
+                ),
             )
             .await
             .map_err(translate_app_error)
@@ -180,12 +179,14 @@ impl AccountHarness for InProcessHarness {
         self.handlers
             .list_organizations(
                 &self.store,
-                ListOrganizationsRequest {
+                ListOrganizationsRequest::from_api_query(
                     session_token,
                     account_id,
-                    limit: Some(LIST_ORGANIZATIONS_DEFAULT_LIMIT),
-                    cursor: None,
-                },
+                    &tanren_contract::ListOrganizationsApiQuery {
+                        limit: Some(LIST_ORGANIZATIONS_DEFAULT_LIMIT),
+                        cursor: None,
+                    },
+                ),
             )
             .await
             .map_err(translate_app_error)
@@ -204,12 +205,13 @@ impl AccountHarness for InProcessHarness {
             .handlers
             .check_organization_permission(
                 &self.store,
-                CheckOrganizationPermissionRequest {
+                CheckOrganizationPermissionRequest::from_api(
                     session_token,
                     account_id,
-                    org_id,
-                    permission,
-                },
+                    &tanren_contract::CheckOrganizationPermissionApiRequest::new(
+                        org_id, permission,
+                    ),
+                ),
             )
             .await
         {

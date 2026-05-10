@@ -7,7 +7,6 @@ import type { ReactNode } from "react";
 import {
   checkOrganizationPermissionApi,
   createOrganizationApi,
-  isOrganizationPermission,
   listOrganizationsApi,
   useOrganizationOperationState,
   type OrganizationAdminPermission,
@@ -15,6 +14,10 @@ import {
   type OrganizationSourceLink,
 } from "@/lib/organization-api";
 import {
+  buildCheckOrganizationPermissionApiRequest,
+  buildConfigurePermissionApiRequest,
+  buildCreateOrganizationApiRequest,
+  isOrganizationAdminPermission,
   ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
   normalizeOrganizationName,
@@ -109,7 +112,7 @@ export function OrganizationHarnessRoute(): ReactNode {
       }
       const options = parsed.filter(
         (entry): entry is OrganizationAdminPermission =>
-          isOrganizationPermission(entry),
+          isOrganizationAdminPermission(entry),
       );
       if (options.length > 0) {
         setPermissionOptions(options);
@@ -123,11 +126,9 @@ export function OrganizationHarnessRoute(): ReactNode {
   async function createOrganization(): Promise<void> {
     beginOperation();
 
-    const response = await createOrganizationApi({
-      name: createName,
-      idempotency_key:
-        createIdempotencyKey.trim() === "" ? null : createIdempotencyKey,
-    });
+    const response = await createOrganizationApi(
+      buildCreateOrganizationApiRequest(createName, createIdempotencyKey),
+    );
 
     if (!response.ok) {
       failOperation(response);
@@ -196,7 +197,7 @@ export function OrganizationHarnessRoute(): ReactNode {
 
   async function checkPermission(): Promise<void> {
     beginOperation();
-    if (!isOrganizationPermission(permission)) {
+    if (!isOrganizationAdminPermission(permission)) {
       failOperation({
         ok: false,
         status: 400,
@@ -211,10 +212,14 @@ export function OrganizationHarnessRoute(): ReactNode {
       return;
     }
 
-    const response = await checkOrganizationPermissionApi({
-      org_id: permissionOrgId,
-      permission,
-    });
+    const request =
+      permission === "configure"
+        ? buildConfigurePermissionApiRequest(permissionOrgId)
+        : buildCheckOrganizationPermissionApiRequest(
+            permissionOrgId,
+            permission,
+          );
+    const response = await checkOrganizationPermissionApi(request);
 
     if (!response.ok) {
       failOperation(response);
@@ -308,7 +313,7 @@ export function OrganizationHarnessRoute(): ReactNode {
           id="org-permission-select"
           onChange={(event) => {
             const value = event.target.value;
-            setPermission(isOrganizationPermission(value) ? value : "");
+            setPermission(isOrganizationAdminPermission(value) ? value : "");
           }}
           value={permission}
         >

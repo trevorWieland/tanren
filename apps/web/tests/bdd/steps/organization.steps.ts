@@ -18,6 +18,7 @@ import {
   requireOrganizationWorld,
 } from "./organization-world";
 import {
+  checkOrganizationConfigurePermissionViaWire,
   checkOrganizationPermissionViaWire,
   createOrganizationViaWire,
   listOrganizationsViaWire,
@@ -357,11 +358,10 @@ When(
       );
     }
 
-    const operation = await checkOrganizationPermissionViaWire(
-      page,
-      org.id,
-      permission,
-    );
+    const operation =
+      permission === "configure"
+        ? await checkOrganizationConfigurePermissionViaWire(page, org.id)
+        : await checkOrganizationPermissionViaWire(page, org.id, permission);
     if (operation.outcome.status !== "success" || !operation.response.ok) {
       a.hasSession = false;
       a.lastFailureCode =
@@ -399,11 +399,10 @@ When(
     }
 
     await page.context().clearCookies();
-    const operation = await checkOrganizationPermissionViaWire(
-      page,
-      org.id,
-      permission,
-    );
+    const operation =
+      permission === "configure"
+        ? await checkOrganizationConfigurePermissionViaWire(page, org.id)
+        : await checkOrganizationPermissionViaWire(page, org.id, permission);
 
     if (operation.outcome.status === "success" && operation.response.ok) {
       state.lastCheckResponse = operation.response.body;
@@ -461,11 +460,10 @@ Then(
 
     await signInActorViaUi(page, typedWorld, name);
     for (const permission of expected) {
-      const operation = await checkOrganizationPermissionViaWire(
-        page,
-        org.id,
-        permission,
-      );
+      const operation =
+        permission === "configure"
+          ? await checkOrganizationConfigurePermissionViaWire(page, org.id)
+          : await checkOrganizationPermissionViaWire(page, org.id, permission);
       if (operation.outcome.status !== "success" || !operation.response.ok) {
         throw new Error(
           `admin permission check failed for ${permission}: ${

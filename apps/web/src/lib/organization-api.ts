@@ -5,24 +5,14 @@ import type {
   operations,
   paths,
 } from "@/lib/generated/api-contract";
+import {
+  ORGANIZATION_API_ROUTES,
+  buildListOrganizationsApiRequest,
+  isOrganizationAdminPermission,
+} from "@/lib/organization-routes";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 const DEFAULT_ORGANIZATION_LIST_LIMIT = 50;
-
-type OrganizationCreatePath = "/organizations";
-type OrganizationListPath = "/organizations";
-type OrganizationPermissionPath = "/organizations/permissions/check";
-
-export const ORGANIZATION_API_ROUTES = {
-  create: "/organizations" as OrganizationCreatePath,
-  list: "/organizations" as OrganizationListPath,
-  checkPermission:
-    "/organizations/permissions/check" as OrganizationPermissionPath,
-} as const satisfies {
-  create: keyof paths;
-  list: keyof paths;
-  checkPermission: keyof paths;
-};
 
 export type OrganizationAdminPermission =
   components["schemas"]["OrganizationPermission"];
@@ -115,7 +105,7 @@ function hasOnlyStringFields(value: unknown, keys: readonly string[]): boolean {
 export function isOrganizationPermission(
   value: unknown,
 ): value is OrganizationAdminPermission {
-  return typeof value === "string" && value.trim() !== "";
+  return isOrganizationAdminPermission(value);
 }
 
 export function assertOrganizationPermission(
@@ -184,7 +174,9 @@ export function isCreateOrganizationResponse(
     return false;
   }
   if (
-    !permissions.every((permission) => isOrganizationPermission(permission))
+    !permissions.every((permission) =>
+      isOrganizationAdminPermission(permission),
+    )
   ) {
     return false;
   }
@@ -195,7 +187,7 @@ export function isCreateOrganizationResponse(
   }
   if (
     !availablePermissions.every((permission) =>
-      isOrganizationPermission(permission),
+      isOrganizationAdminPermission(permission),
     )
   ) {
     return false;
@@ -254,7 +246,7 @@ export function isCheckOrganizationPermissionResponse(
   if (!hasOnlyStringFields(value, ["account_id", "org_id", "permission"])) {
     return false;
   }
-  if (!isOrganizationPermission(value["permission"])) {
+  if (!isOrganizationAdminPermission(value["permission"])) {
     return false;
   }
   return typeof value["allowed"] === "boolean";
@@ -403,10 +395,14 @@ export async function createOrganizationApi(
 export async function listOrganizationsApi(
   request: ListOrganizationsApiRequest = {},
 ): Promise<OrganizationApiResponse<ListOrganizationsResponse>> {
+  const normalizedRequest = buildListOrganizationsApiRequest(request);
   const params = new URLSearchParams();
-  params.set("limit", String(request.limit ?? DEFAULT_ORGANIZATION_LIST_LIMIT));
-  if (request.cursor) {
-    params.set("cursor", request.cursor);
+  params.set(
+    "limit",
+    String(normalizedRequest.limit ?? DEFAULT_ORGANIZATION_LIST_LIMIT),
+  );
+  if (normalizedRequest.cursor) {
+    params.set("cursor", normalizedRequest.cursor);
   }
   const response = await callOrganizationApi(
     "GET",

@@ -157,10 +157,15 @@ async fn when_check_org_permission(
     let org_id = organization_id_for_name(ctx, &org_name)?;
     let permission = parse_permission(&permission)?;
 
-    let result = ctx
-        .harness
-        .check_organization_admin_permission(account_id, org_id, permission)
-        .await;
+    let result = if permission == OrganizationPermission::Configure {
+        ctx.harness
+            .check_organization_configure_permission(account_id, org_id)
+            .await
+    } else {
+        ctx.harness
+            .check_organization_admin_permission(account_id, org_id, permission)
+            .await
+    };
     match result {
         Ok(response) => {
             ctx.last_checked_organization_permission = Some(response);
@@ -188,10 +193,15 @@ async fn when_check_org_permission_unsigned(
     let org_id = organization_id_for_name(ctx, &org_name)?;
     let permission = parse_permission(&permission)?;
 
-    let result = ctx
-        .harness
-        .check_organization_admin_permission(AccountId::fresh(), org_id, permission)
-        .await;
+    let result = if permission == OrganizationPermission::Configure {
+        ctx.harness
+            .check_organization_configure_permission(AccountId::fresh(), org_id)
+            .await
+    } else {
+        ctx.harness
+            .check_organization_admin_permission(AccountId::fresh(), org_id, permission)
+            .await
+    };
     match result {
         Ok(response) => {
             ctx.last_checked_organization_permission = Some(response);

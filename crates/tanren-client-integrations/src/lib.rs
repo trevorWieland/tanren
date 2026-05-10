@@ -253,10 +253,10 @@ impl TuiApiClient {
         &self,
         input: CreateOrganizationInput,
     ) -> Result<CreateOrganizationResponse, TuiClientError> {
-        let req = CreateOrganizationApiRequest {
-            name: OrganizationName::parse(&input.name).map_err(|e| validation_error(&e))?,
-            idempotency_key: None,
-        };
+        let req = CreateOrganizationApiRequest::new(
+            OrganizationName::parse(&input.name).map_err(|e| validation_error(&e))?,
+            None,
+        );
         let response = self
             .http
             .post(format!("{}/organizations", self.base_url))
@@ -287,9 +287,12 @@ impl TuiApiClient {
         &self,
         input: CheckOrganizationPermissionInput,
     ) -> Result<CheckOrganizationPermissionResponse, TuiClientError> {
-        let req = CheckOrganizationPermissionApiRequest {
-            org_id: parse_org_id(&input.org_id)?,
-            permission: parse_permission(&input.permission)?,
+        let org_id = parse_org_id(&input.org_id)?;
+        let permission = parse_permission(&input.permission)?;
+        let req = if permission == OrganizationPermission::Configure {
+            CheckOrganizationPermissionApiRequest::configure(org_id)
+        } else {
+            CheckOrganizationPermissionApiRequest::new(org_id, permission)
         };
         let response = self
             .http

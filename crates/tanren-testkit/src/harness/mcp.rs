@@ -28,7 +28,10 @@ use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::common::{code_to_reason, scenario_db_path, sqlite_url};
+use super::common::{
+    check_configure_permission_api_request, check_permission_api_request, code_to_reason,
+    create_organization_api_request, scenario_db_path, sqlite_url,
+};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
@@ -217,11 +220,14 @@ impl AccountHarness for McpHarness {
             .get(&account_id)
             .cloned()
             .unwrap_or_else(|| SessionToken::from_secret(SecretString::from("")));
-        let body = serde_json::json!({
-            "session_token": session_token,
-            "account_id": account_id,
-            "name": name,
-        });
+        let create_request = tanren_contract::CreateOrganizationRequest::from_api(
+            session_token,
+            account_id,
+            create_organization_api_request(name, None),
+        );
+        let body = serde_json::to_value(&create_request).map_err(|e| {
+            HarnessError::Transport(format!("encode organization.create body: {e}"))
+        })?;
         let payload = self.call_tool("organization.create", body).await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode organization.create: {e}")))
@@ -231,12 +237,16 @@ impl AccountHarness for McpHarness {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<ListOrganizationsResponse> {
-        let body = serde_json::json!({
-            "session_token": self.session_token(account_id)?,
-            "account_id": account_id,
-            "limit": LIST_ORGANIZATIONS_DEFAULT_LIMIT,
-            "cursor": null,
-        });
+        let request = tanren_contract::ListOrganizationsRequest::from_api_query(
+            self.session_token(account_id)?,
+            account_id,
+            &tanren_contract::ListOrganizationsApiQuery {
+                limit: Some(LIST_ORGANIZATIONS_DEFAULT_LIMIT),
+                cursor: None,
+            },
+        );
+        let body = serde_json::to_value(&request)
+            .map_err(|e| HarnessError::Transport(format!("encode organization.list body: {e}")))?;
         let payload = self.call_tool("organization.list", body).await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode organization.list: {e}")))
@@ -248,12 +258,20 @@ impl AccountHarness for McpHarness {
         org_id: OrgId,
         permission: OrganizationPermission,
     ) -> HarnessResult<CheckOrganizationPermissionResponse> {
-        let body = serde_json::json!({
-            "session_token": self.session_token(account_id)?,
-            "account_id": account_id,
-            "org_id": org_id,
-            "permission": permission,
-        });
+        let session_token = self.session_token(account_id)?;
+        let permission_request = if permission == OrganizationPermission::Configure {
+            check_configure_permission_api_request(org_id)
+        } else {
+            check_permission_api_request(org_id, permission)
+        };
+        let request = tanren_contract::CheckOrganizationPermissionRequest::from_api(
+            session_token,
+            account_id,
+            &permission_request,
+        );
+        let body = serde_json::to_value(&request).map_err(|e| {
+            HarnessError::Transport(format!("encode organization.check_permission body: {e}"))
+        })?;
         let payload = self
             .call_tool("organization.check_permission", body)
             .await?;

@@ -187,12 +187,14 @@ impl TanrenMcp {
             .handlers
             .create_organization(
                 self.store.as_ref(),
-                CreateOrganizationRequest {
+                CreateOrganizationRequest::from_api(
                     session_token,
-                    account_id: request.account_id,
-                    name: request.name,
-                    idempotency_key: request.idempotency_key,
-                },
+                    request.account_id,
+                    tanren_contract::CreateOrganizationApiRequest::new(
+                        request.name,
+                        request.idempotency_key,
+                    ),
+                ),
             )
             .await
         {
@@ -216,12 +218,14 @@ impl TanrenMcp {
             .handlers
             .list_organizations(
                 self.store.as_ref(),
-                ListOrganizationsRequest {
+                ListOrganizationsRequest::from_api_query(
                     session_token,
-                    account_id: request.account_id,
-                    limit: request.limit,
-                    cursor: request.cursor,
-                },
+                    request.account_id,
+                    &tanren_contract::ListOrganizationsApiQuery {
+                        limit: request.limit,
+                        cursor: request.cursor,
+                    },
+                ),
             )
             .await
         {
@@ -245,12 +249,14 @@ impl TanrenMcp {
             .handlers
             .check_organization_permission(
                 self.store.as_ref(),
-                CheckOrganizationPermissionRequest {
+                CheckOrganizationPermissionRequest::from_api(
                     session_token,
-                    account_id: request.account_id,
-                    org_id: request.org_id,
-                    permission: request.permission,
-                },
+                    request.account_id,
+                    &tanren_contract::CheckOrganizationPermissionApiRequest::new(
+                        request.org_id,
+                        request.permission,
+                    ),
+                ),
             )
             .await
         {
