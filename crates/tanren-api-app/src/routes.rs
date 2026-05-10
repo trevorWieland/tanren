@@ -6,6 +6,8 @@ use crate::errors::{
     AccountFailureBody, ProjectFailureBody, ValidatedJson, auth_required, map_app_error,
     session_install_error,
 };
+use crate::openapi_security::ApiSecurity;
+use crate::project_auth::legacy_scope_mismatch;
 use axum::Json;
 use axum::extract::{Path, State};
 use axum::http::StatusCode;
@@ -99,6 +101,7 @@ pub struct AcceptInvitationBody {
         ActiveProjectView,
         CookieSessionEnvelope,
     )),
+    modifiers(&ApiSecurity),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
@@ -271,6 +274,7 @@ pub(crate) async fn accept_invitation_route(
 #[utoipa::path(
     post,
     path = "/projects/connect-repository",
+    security(("tanren_session" = [])),
     request_body = ConnectProjectRepositoryCookieRequest,
     responses(
         (status = 201, body = ConnectProjectRepositoryResponse, description = "Repository connected as project"),
@@ -319,6 +323,7 @@ pub(crate) async fn connect_project_repository_route(
 #[utoipa::path(
     post,
     path = "/projects/create",
+    security(("tanren_session" = [])),
     request_body = CreateProjectCookieRequest,
     responses(
         (status = 201, body = CreateProjectResponse, description = "Project and repository created"),
@@ -368,6 +373,7 @@ pub(crate) async fn create_project_route(
 #[utoipa::path(
     post,
     path = "/projects/list",
+    security(("tanren_session" = [])),
     request_body = ListVisibleProjectsCookieRequest,
     responses(
         (status = 200, body = ProjectCollectionView, description = "Project list"),
@@ -407,6 +413,7 @@ pub(crate) async fn list_visible_projects_route(
 #[utoipa::path(
     post,
     path = "/projects/active",
+    security(("tanren_session" = [])),
     request_body = ActiveProjectCookieRequest,
     responses(
         (status = 200, body = ActiveProjectView, description = "Active-project metadata"),
@@ -476,13 +483,6 @@ async fn session_actor_account_id(
             Err(auth_required())
         }
     }
-}
-
-fn legacy_scope_mismatch(
-    legacy_owning_account_id: Option<tanren_identity_policy::AccountId>,
-    actor_account_id: tanren_identity_policy::AccountId,
-) -> bool {
-    legacy_owning_account_id.is_some_and(|owning| owning != actor_account_id)
 }
 
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {

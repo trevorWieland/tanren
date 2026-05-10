@@ -411,6 +411,15 @@ export interface components {
   requestBodies: never;
   headers: never;
   pathItems: never;
+  securitySchemes: {
+    tanren_session: {
+      /** @enum {string} */
+      in: "cookie";
+      name: "tanren_session";
+      /** @enum {string} */
+      type: "apiKey";
+    };
+  };
 }
 export type $defs = Record<string, never>;
 export interface operations {
@@ -551,6 +560,9 @@ export interface operations {
         "application/json": components["schemas"]["ActiveProjectCookieRequest"];
       };
     };
+    security: {
+      tanren_session: string[];
+    }[];
     responses: {
       /** @description Active-project metadata */
       200: {
@@ -593,6 +605,9 @@ export interface operations {
         "application/json": components["schemas"]["ConnectProjectRepositoryCookieRequest"];
       };
     };
+    security: {
+      tanren_session: string[];
+    }[];
     responses: {
       /** @description Repository connected as project */
       201: {
@@ -662,6 +677,9 @@ export interface operations {
         "application/json": components["schemas"]["CreateProjectCookieRequest"];
       };
     };
+    security: {
+      tanren_session: string[];
+    }[];
     responses: {
       /** @description Project and repository created */
       201: {
@@ -731,6 +749,9 @@ export interface operations {
         "application/json": components["schemas"]["ListVisibleProjectsCookieRequest"];
       };
     };
+    security: {
+      tanren_session: string[];
+    }[];
     responses: {
       /** @description Project list */
       200: {
