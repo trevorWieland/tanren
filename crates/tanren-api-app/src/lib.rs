@@ -67,12 +67,17 @@ use tower_http::cors::CorsLayer;
 use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
+use secrecy::ExposeSecret;
 
-pub use crate::errors::{AccountFailureBody, ProjectFailureBody};
+// Re-export the contract-layer failure body types so that routes, the
+// OpenAPI doc generator, and downstream consumers can reference them
+// through the api-app crate without reaching into `tanren_contract`
+// directly. This preserves the pre-refactor public API surface.
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
 };
+pub use tanren_contract::{AccountFailureBody, ProjectFailureBody};
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
@@ -117,58 +122,67 @@ impl Config {
         let database_url = env::var(DATABASE_URL_ENV).with_context(|| {
             format!("{DATABASE_URL_ENV} must be set so tanren-api can connect to the event store")
         })?;
-        let cors_allow_origins = parse_cors_origins(env::var(CORS_ORIGINS_ENV).ok().as_deref())?;
+        let cors_allow_origins =
+            Self::parse_cors_origins(env::var(CORS_ORIGINS_ENV).ok().as_deref());
         Ok(Self {
             bind,
             database_url: SecretString::from(database_url),
             cors_allow_origins,
         })
     }
-}
 
-fn parse_cors_origins(raw: Option<&str>) -> Result<Vec<HeaderValue>> {
-    let trimmed = raw.map_or("", str::trim);
-    if trimmed.is_empty() {
-        return Ok(vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)]);
-    }
-    let mut out = Vec::new();
-    for token in trimmed.split(',') {
-        let origin = token.trim();
-        if origin.is_empty() {
-            continue;
+    fn parse_cors_origins(raw: Option<&str>) -> Vec<HeaderValue> {
+        let trimmed = raw.map_or("", str::trim);
+        if trimmed.is_empty() {
+            return vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)];
         }
-        let value = HeaderValue::from_str(origin)
-            .with_context(|| format!("parse CORS origin `{origin}` as HeaderValue"))?;
-        out.push(value);
+        let mut out = Vec::new();
+        for token in trimmed.split(',') {
+            let origin = token.trim();
+            if origin.is_empty() {
+                continue;
+            }
+            match HeaderValue::from_str(origin) {
+                Ok(value) => out.push(value),
+                Err(err) => {
+                    tracing::warn!(
+                        target: "tanren_api",
+                        env_var = CORS_ORIGINS_ENV,
+                        origin,
+                        error = %err,
+                        "Ignoring invalid CORS origin"
+                    );
+                }
+            }
+        }
+        if out.is_empty() {
+            return vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)];
+        }
+        out
     }
-    if out.is_empty() {
-        return Ok(vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)]);
-    }
-    Ok(out)
 }
 
-#[derive(Clone)]
+/// Shared application state injected into all route handlers.
+#[derive(Debug, Clone)]
 pub(crate) struct AppState {
     pub(crate) handlers: Handlers,
     pub(crate) store: Arc<Store>,
     pub(crate) source_control: Arc<dyn SourceControlProvider>,
 }
 
-/// Build the axum router and the `OpenAPI` document. Exposed for the BDD
-/// harness; production callers should use [`serve`].
+/// Build an axum router from the [`Config`].
 ///
 /// # Errors
 ///
-/// Returns an error if the database connection cannot be established
-/// or the tower-sessions migrations fail.
+/// Returns an error if the cookie session-store migrations fail.
 pub async fn build_app(config: &Config) -> Result<axum::Router> {
-    use secrecy::ExposeSecret;
     let database_url = config.database_url.expose_secret();
     let store = Arc::new(
         Store::connect(database_url)
             .await
-            .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
+            .with_context(|| "connect to store")?,
     );
+
     #[cfg(feature = "test-hooks")]
     let fixture_source_control =
         FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());

@@ -1,3 +1,4 @@
+use std::fmt;
 use std::io::Write;
 
 use anyhow::{Context, Result};
@@ -10,9 +11,10 @@ use tanren_app_services::project::{
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, CreateProjectRequest,
-    ListVisibleProjectsRequest, ProjectCollectionView, ProjectPageRequest, ProjectView,
+    ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureCode, ProjectPageRequest,
+    ProjectView,
 };
-use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
+use tanren_provider_integrations::production_source_control_provider;
 use tracing::error;
 
 mod auth;
@@ -26,23 +28,37 @@ pub(super) enum ProjectOutputMode {
     Json,
 }
 
+/// Typed project failure envelope used by the CLI surface.
+///
+/// Uses [`ProjectFailureCode`] from the shared contract layer so the
+/// code field is a closed enum rather than a raw string.
 #[derive(Debug, Serialize)]
 struct ProjectFailureBody {
-    code: String,
+    code: ProjectFailureCode,
     summary: String,
 }
+
+impl fmt::Display for ProjectFailureBody {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let code_value = serde_json::to_value(self.code).unwrap_or_default();
+        let code_str = code_value.as_str().unwrap_or("unknown");
+        write!(f, "error: {code_str} — {}", self.summary)
+    }
+}
+
+impl std::error::Error for ProjectFailureBody {}
 
 impl ProjectFailureBody {
     fn validation(summary: impl Into<String>) -> Self {
         Self {
-            code: "validation_failed".to_owned(),
+            code: ProjectFailureCode::ValidationFailed,
             summary: summary.into(),
         }
     }
 
     fn internal(summary: impl Into<String>) -> Self {
         Self {
-            code: "internal_error".to_owned(),
+            code: ProjectFailureCode::InternalError,
             summary: summary.into(),
         }
     }
@@ -237,7 +253,7 @@ async fn run_project(action: ProjectAction) -> Result<()> {
 
 async fn run_connect_repository(
     handlers: &Handlers,
-    provider: &dyn SourceControlProvider,
+    provider: &dyn tanren_provider_integrations::SourceControlProvider,
     database_url: &str,
     owning_account_id: &str,
     session_token_stdin: bool,
@@ -267,7 +283,7 @@ async fn run_connect_repository(
 
 async fn run_create_project(
     handlers: &Handlers,
-    provider: &dyn SourceControlProvider,
+    provider: &dyn tanren_provider_integrations::SourceControlProvider,
     scope: ProjectRequestScope<'_>,
     repository: &str,
     designated_host: &str,
@@ -385,11 +401,7 @@ fn emit_project_failure(mode: ProjectOutputMode, failure: &ProjectFailureBody) -
     if matches!(mode, ProjectOutputMode::Json) {
         write_json(&failure).context("write project failure json")?;
     }
-    Err(anyhow::anyhow!(
-        "error: {} — {}",
-        failure.code,
-        failure.summary
-    ))
+    Err(anyhow::anyhow!("{failure}"))
 }
 
 fn print_project_collection(response: &ProjectCollectionView) -> Result<()> {
@@ -461,7 +473,7 @@ fn write_project_line(mut out: impl Write, project: &ProjectView) -> Result<()> 
 fn project_error(err: AppServiceError) -> ProjectFailureBody {
     match err {
         AppServiceError::Project(reason) => ProjectFailureBody {
-            code: reason.code().to_owned(),
+            code: ProjectFailureCode::from(reason),
             summary: reason.summary().to_owned(),
         },
         AppServiceError::InvalidInput(message) => ProjectFailureBody::validation(message),

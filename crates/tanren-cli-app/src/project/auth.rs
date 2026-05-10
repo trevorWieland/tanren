@@ -1,6 +1,7 @@
 use std::io::Read;
 
 use tanren_app_services::{AccountStore, Clock, Store};
+use tanren_contract::ProjectFailureCode;
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef, SessionToken};
 use tracing::error;
 
@@ -85,7 +86,7 @@ pub(super) async fn resolve_actor_account_id(
         token
     } else {
         load_default_session_token()?.ok_or_else(|| ProjectFailureBody {
-            code: "auth_required".to_owned(),
+            code: ProjectFailureCode::AuthRequired,
             summary: "Sign in first or provide TANREN_SESSION_TOKEN or --session-token-stdin."
                 .to_owned(),
         })?
@@ -101,7 +102,7 @@ pub(super) async fn resolve_actor_account_id(
         })?;
     let Some(session) = session else {
         return Err(ProjectFailureBody {
-            code: "auth_required".to_owned(),
+            code: ProjectFailureCode::AuthRequired,
             summary: "The supplied session token is missing or expired.".to_owned(),
         });
     };

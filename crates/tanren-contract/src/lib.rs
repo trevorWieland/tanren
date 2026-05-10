@@ -6,6 +6,7 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod failure;
 pub mod project;
 
 pub use account::{
@@ -14,6 +15,7 @@ pub use account::{
     CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest, SignInResponse,
     SignInResponseBearer, SignUpRequest, SignUpResponse, SignUpResponseBearer,
 };
+pub use failure::{AccountFailureBody, ProjectFailureBody};
 pub use project::{
     ActiveProjectCookieRequest, ActiveProjectRequest, ActiveProjectView,
     ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,

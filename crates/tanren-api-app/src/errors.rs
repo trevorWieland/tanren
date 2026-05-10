@@ -1,38 +1,18 @@
 //! Shared `{code, summary}` error body and `AppServiceError` mapping.
 //!
 //! Split out of `lib.rs` so the api-app crate stays under the workspace
-//! 500-line line-budget. The shapes here are the wire equivalent of
-//! `tanren_contract::AccountFailureReason` rendered through the
-//! API's HTTP transport.
+//! 500-line line-budget. The body types live in `tanren_contract::failure`;
+//! this module adds HTTP-response mapping helpers.
 
 use axum::Json;
 use axum::extract::{FromRequest, Request, rejection::JsonRejection};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use serde::de::DeserializeOwned;
-use serde::{Deserialize, Serialize};
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
-    AccountFailureCode, AccountFailureReason, ProjectFailureCode, ProjectFailureReason,
+    AccountFailureBody, AccountFailureReason, ProjectFailureBody, ProjectFailureReason,
 };
-
-/// Shared `{code, summary}` failure body.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct AccountFailureBody {
-    /// Stable error code from the closed taxonomy.
-    pub code: AccountFailureCode,
-    /// Human-readable summary.
-    pub summary: String,
-}
-
-/// Shared `{code, summary}` project-failure body.
-#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
-pub struct ProjectFailureBody {
-    /// Stable error code from the closed taxonomy.
-    pub code: ProjectFailureCode,
-    /// Human-readable summary.
-    pub summary: String,
-}
 
 /// Render the standard `internal_error` body for failed cookie-session
 /// writes. Shared between the sign-up / sign-in / accept-invitation
@@ -41,10 +21,7 @@ pub(crate) fn session_install_error(err: &anyhow::Error) -> Response {
     tracing::error!(target: "tanren_api", error = %err, "session install");
     (
         StatusCode::INTERNAL_SERVER_ERROR,
-        Json(AccountFailureBody {
-            code: AccountFailureCode::InternalError,
-            summary: "Tanren encountered an internal error.".to_owned(),
-        }),
+        Json(AccountFailureBody::internal_error()),
     )
         .into_response()
 }
@@ -54,10 +31,7 @@ pub(crate) fn auth_required() -> Response {
     let reason = ProjectFailureReason::AuthRequired;
     (
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::UNAUTHORIZED),
-        Json(ProjectFailureBody {
-            code: ProjectFailureCode::from(reason),
-            summary: reason.summary().to_owned(),
-        }),
+        Json(ProjectFailureBody::from_reason(reason)),
     )
         .into_response()
 }
@@ -69,29 +43,20 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
         AppServiceError::Project(reason) => project_failure_body(reason),
         AppServiceError::InvalidInput(message) => (
             StatusCode::BAD_REQUEST,
-            Json(AccountFailureBody {
-                code: AccountFailureCode::ValidationFailed,
-                summary: message,
-            }),
+            Json(AccountFailureBody::validation_failed(message)),
         )
             .into_response(),
         AppServiceError::Store(err) => {
             tracing::error!(target: "tanren_api", error = %err, "store error");
             (
                 StatusCode::INTERNAL_SERVER_ERROR,
-                Json(AccountFailureBody {
-                    code: AccountFailureCode::InternalError,
-                    summary: "Tanren encountered an internal error.".to_owned(),
-                }),
+                Json(AccountFailureBody::internal_error()),
             )
                 .into_response()
         }
         _ => (
             StatusCode::INTERNAL_SERVER_ERROR,
-            Json(AccountFailureBody {
-                code: AccountFailureCode::InternalError,
-                summary: "Tanren encountered an internal error.".to_owned(),
-            }),
+            Json(AccountFailureBody::internal_error()),
         )
             .into_response(),
     }
@@ -100,27 +65,13 @@ pub(crate) fn map_app_error(err: AppServiceError) -> Response {
 fn failure_body(reason: AccountFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(AccountFailureBody {
-            code: AccountFailureCode::from(reason),
-            summary: reason.summary().to_owned(),
-        }),
-    )
-        .into_response()
+    (status, Json(AccountFailureBody::from_reason(reason))).into_response()
 }
 
 fn project_failure_body(reason: ProjectFailureReason) -> Response {
     let status =
         StatusCode::from_u16(reason.http_status()).unwrap_or(StatusCode::INTERNAL_SERVER_ERROR);
-    (
-        status,
-        Json(ProjectFailureBody {
-            code: ProjectFailureCode::from(reason),
-            summary: reason.summary().to_owned(),
-        }),
-    )
-        .into_response()
+    (status, Json(ProjectFailureBody::from_reason(reason))).into_response()
 }
 
 /// Custom `Json` extractor that maps any deserialize-time failure
@@ -184,10 +135,7 @@ fn map_account_json_rejection(rejection: &JsonRejection) -> Response {
     let summary = rejection_summary(rejection);
     (
         StatusCode::BAD_REQUEST,
-        Json(AccountFailureBody {
-            code: AccountFailureCode::ValidationFailed,
-            summary,
-        }),
+        Json(AccountFailureBody::validation_failed(summary)),
     )
         .into_response()
 }
@@ -202,10 +150,7 @@ fn map_project_json_rejection(rejection: &JsonRejection) -> Response {
     };
     (
         StatusCode::BAD_REQUEST,
-        Json(ProjectFailureBody {
-            code: ProjectFailureCode::from(reason),
-            summary,
-        }),
+        Json(ProjectFailureBody::validation_failed(summary)),
     )
         .into_response()
 }

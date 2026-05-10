@@ -3,8 +3,7 @@
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session, session_account};
 use crate::errors::{
-    AccountFailureBody, ProjectFailureBody, ProjectValidatedJson, ValidatedJson, auth_required,
-    map_app_error, session_install_error,
+    ProjectValidatedJson, ValidatedJson, auth_required, map_app_error, session_install_error,
 };
 use crate::openapi_security::ApiSecurity;
 use axum::Json;
@@ -26,6 +25,7 @@ use tanren_contract::{
     ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest, ProjectCollectionView,
     SignInRequest, SignUpRequest,
 };
+use tanren_contract::{AccountFailureBody, ProjectFailureBody};
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
