@@ -1,3 +1,5 @@
+export type { UpgradeFixtureAction } from "./upgrade-actions";
+
 export interface FixtureActionResult {
   readonly ok: boolean;
   readonly stdout?: string;

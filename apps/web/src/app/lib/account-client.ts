@@ -78,22 +78,6 @@ interface FailureBody {
   summary?: unknown;
 }
 
-export type UpgradeFixtureAction =
-  | "reset"
-  | "write-file"
-  | "record-baseline"
-  | "seed-install"
-  | "mark-legacy-migration-concern"
-  | "capture-snapshot"
-  | "run-upgrade-preview"
-  | "run-upgrade-apply"
-  | "assert-no-writes"
-  | "assert-matches-snapshot"
-  | "assert-preserves-baseline"
-  | "assert-replaced-from-baseline"
-  | "assert-file-missing"
-  | "last-run";
-
 /**
  * Map an `AccountFailure` to a localized message via paraglide. Falls back
  * to the API-supplied summary, then to a generic "Request failed" string,
@@ -202,41 +186,4 @@ export async function signOut(): Promise<void> {
       summary: `HTTP ${response.status}`,
     });
   }
-}
-
-export async function runUpgradeFixtureAction(
-  action: UpgradeFixtureAction,
-  payload: unknown,
-): Promise<unknown> {
-  let response: Response;
-  try {
-    const testHookSecret = process.env["NEXT_PUBLIC_TEST_HOOK_SECRET"];
-    const headers: Record<string, string> = {
-      "content-type": "application/json",
-    };
-    if (testHookSecret) {
-      headers["x-test-hook-secret"] = testHookSecret;
-    }
-    response = await fetch(`${API_URL}/test-hooks/upgrade-fixture/${action}`, {
-      method: "POST",
-      headers,
-      body: JSON.stringify(payload),
-      credentials: "include",
-    });
-  } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
-  }
-
-  if (!response.ok) {
-    const message = await response.text();
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: message === "" ? `HTTP ${response.status}` : message,
-    });
-  }
-
-  return (await response.json()) as unknown;
 }

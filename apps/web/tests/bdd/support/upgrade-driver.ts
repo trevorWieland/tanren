@@ -8,10 +8,15 @@ import {
   type UpgradeWorld,
 } from "./asset-fixture";
 
+const WITNESS_PATH = "/__bdd__/upgrade-witness";
+const ACTION_LOCATOR = '[data-testid="upgrade-witness-action"]';
+const PAYLOAD_LOCATOR = '[data-testid="upgrade-witness-payload"]';
+const RUN_LOCATOR = '[data-testid="upgrade-witness-run"]';
 const OUTPUT_LOCATOR = '[data-testid="upgrade-witness-output"]';
 
 export class UpgradeDriver {
   readonly #page: Page;
+  #opened: boolean = false;
 
   constructor(page: Page) {
     this.#page = page;
@@ -78,10 +83,10 @@ export class UpgradeDriver {
   }
 
   async openHarness(): Promise<void> {
-    await this.#page.goto("/");
-    await expect(
-      this.#page.locator('[data-testid="upgrade-witness-action"]'),
-    ).toBeVisible();
+    if (this.#opened) return;
+    await this.#page.goto(WITNESS_PATH);
+    await expect(this.#page.locator(ACTION_LOCATOR)).toBeVisible();
+    this.#opened = true;
   }
 
   private async executeCommand(
@@ -108,17 +113,11 @@ export class UpgradeDriver {
   ): Promise<FixtureActionResult> {
     await this.openHarness();
 
-    await this.#page
-      .locator('[data-testid="upgrade-witness-action"]')
-      .selectOption(action);
-    await this.#page
-      .locator('[data-testid="upgrade-witness-payload"]')
-      .fill(JSON.stringify(payload));
+    await this.#page.locator(ACTION_LOCATOR).selectOption(action);
+    await this.#page.locator(PAYLOAD_LOCATOR).fill(JSON.stringify(payload));
 
-    await this.#page.locator('[data-testid="upgrade-witness-run"]').click();
-    await expect(
-      this.#page.locator('[data-testid="upgrade-witness-run"]'),
-    ).toHaveText("run");
+    await this.#page.locator(RUN_LOCATOR).click();
+    await expect(this.#page.locator(RUN_LOCATOR)).toHaveText("run");
 
     const outputRaw =
       (await this.#page.locator(OUTPUT_LOCATOR).textContent())?.trim() ?? "";

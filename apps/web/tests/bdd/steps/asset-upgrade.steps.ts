@@ -1,4 +1,3 @@
-/* eslint-disable */
 // playwright-bdd step definitions for the `@web` slice of B-0134.
 // Shared Gherkin under `tests/bdd/features/` remains the single source of truth.
 
