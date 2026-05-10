@@ -2,7 +2,7 @@
 schema: tanren.delivery_architecture.v0
 status: accepted
 owner_command: architect-system
-updated_at: 2026-04-29
+updated_at: 2026-05-10
 ---
 
 # Delivery Architecture
@@ -380,6 +380,37 @@ state; it does not run upgrade or uninstall flows. Upgrade behavior is owned by
 [Stack Uninstall](#stack-uninstall). Repository asset removal is owned by
 [Repo Uninstall](#repo-uninstall).
 
+## Current Local Upgrade Command Surface (R-0026)
+
+The implemented repository-local upgrade command is:
+
+```text
+tanren-cli upgrade [--repo <PATH>] [--confirm]
+```
+
+Current behavior:
+
+- `--repo` defaults to the current working directory (`.`).
+- The command always emits an upgrade preview first, including changed paths,
+  destructive paths, preserved paths, and compatibility concern codes.
+- Without `--confirm`, the command stops after preview and reports
+  confirmation-required status; no repository writes or removals are applied.
+- With `--confirm`, apply runs through the same validated preview plan. If the
+  repository has no install manifest, apply is a typed no-op.
+- `.tanren/install-manifest.toml` remains Tanren-owned install state.
+  Repository-local upgrade reads this manifest to determine profile and
+  integration ownership; users do not edit it as canonical upgrade input.
+- Preview reports migration or compatibility concerns before apply. Current
+  concern codes include `no-install-manifest` and
+  `destructive-asset-changes`.
+- Generated command assets continue to use `replace-generated` semantics, with
+  stale Tanren-generated files removed only when ownership is tracked in the
+  prior manifest.
+- Standards profile assets continue to use `preserve-user-edits` semantics:
+  user-edited standards content is retained during confirmed apply.
+- This repository-local command upgrades Tanren-generated assets only. It does
+  not upgrade external agent tools and does not perform stack version upgrades.
+
 ## Standards Profiles
 
 Standards profiles are Tanren-owned projections once selected for a project.
@@ -475,6 +506,11 @@ Migrations are run through explicit delivery entrypoints or in-application
 upgrade capabilities that still obey the same event, audit, and policy model.
 Automatic migration behavior must be visible and controllable enough for
 self-hosted operators.
+
+For the repository-local upgrade entrypoint above, upgrade remains a preview
+then confirm flow: no apply writes occur without explicit `--confirm`, and
+preservation rules from install-manifest ownership continue to govern generated
+asset replacement, stale-generated cleanup, and user-owned standards retention.
 
 ## Stack Uninstall
 

@@ -7,7 +7,7 @@ personas: [solo-builder, team-builder, operator]
 interfaces: [web, api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
-verification_status: unimplemented
+verification_status: implemented
 supersedes: []
 ---
 
@@ -25,6 +25,14 @@ A `solo-builder` or `team-builder` can upgrade Tanren assets installed in a repo
 - The user can preview the upgrade before applying it.
 - Generated assets update while preserved user-owned files remain protected.
 - Compatibility or migration concerns are reported before destructive changes.
+
+## Verification evidence status
+
+- Implemented behavior proof: `tests/bdd/features/B-0134-upgrade-installed-tanren-assets.feature`.
+- Proof covers positive and falsification witnesses for the CLI command
+  contract, including preview-only runs, explicit confirmation before apply,
+  migration concern reporting, no-install-manifest noop handling, and
+  preservation of user-owned standards files.
 
 ## Out of scope
 

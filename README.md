@@ -55,6 +55,8 @@ The canonical installed binaries are `tanren-cli` and `tanren-mcp`.
 scripts/runtime/install-runtime.sh
 scripts/runtime/verify-installed-runtime.sh
 tanren-cli install --dry-run
+tanren-cli upgrade
+tanren-cli upgrade --confirm
 ```
 
 ## Why Tanren Exists
