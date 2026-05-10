@@ -9,15 +9,15 @@
     "start": "next start",
     "i18n:compile": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations",
     "lint": "oxlint .",
-    "typecheck": "tsgo --noEmit",
+    "typecheck": "pnpm run bddgen && tsgo --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run --project=unit --passWithNoTests",
     "storybook": "storybook dev -p 6006",
     "storybook:build": "storybook build",
     "storybook:test": "vitest run --project=storybook",
-    "bddgen": "bddgen",
-    "e2e": "bddgen && playwright test",
+    "bddgen": "bddgen test --tags @web",
+    "e2e": "pnpm run bddgen && playwright test",
     "e2e:install": "playwright install --with-deps chromium"
   },
   "dependencies": {

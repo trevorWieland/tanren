@@ -279,5 +279,6 @@ utoipa-axum = "0.2"
 expectrl = "0.7"
 regex = "1"
 
-# Workspace crate dependency shared by CLI and BDD install proof harness.
+# Workspace crate dependencies shared by CLI and BDD install proof harnesses.
 tanren-cli-app = { path = "crates/tanren-cli-app" }
+tanren-testkit = { path = "crates/tanren-testkit" }

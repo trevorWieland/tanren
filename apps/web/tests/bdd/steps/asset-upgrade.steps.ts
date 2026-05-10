@@ -18,7 +18,19 @@ import {
 import { tmpdir } from "node:os";
 import { dirname, isAbsolute, join, resolve } from "node:path";
 
-import { createBdd, test as base } from "playwright-bdd";
+import {
+  type PlaywrightTestArgs,
+  type PlaywrightTestOptions,
+  type PlaywrightWorkerArgs,
+  type PlaywrightWorkerOptions,
+  type TestType,
+} from "@playwright/test";
+import {
+  type BddTestFixtures,
+  type BddWorkerFixtures,
+  createBdd,
+  test as base,
+} from "playwright-bdd";
 
 interface CommandResult {
   readonly stdout: string;
@@ -41,7 +53,14 @@ interface UpgradeWorld {
   lastRun?: CommandResult;
 }
 
-const test = base.extend<{ world: UpgradeWorld }>({
+type UpgradeTest = TestType<
+  PlaywrightTestArgs &
+    PlaywrightTestOptions &
+    BddTestFixtures & { world: UpgradeWorld },
+  PlaywrightWorkerArgs & PlaywrightWorkerOptions & BddWorkerFixtures
+>;
+
+export const test: UpgradeTest = base.extend<{ world: UpgradeWorld }>({
   world: async ({}, use) => {
     await use({
       labeledSnapshots: new Map<string, RepositorySnapshot>(),

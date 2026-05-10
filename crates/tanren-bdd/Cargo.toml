@@ -22,7 +22,7 @@ tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
-tanren-testkit = { path = "../tanren-testkit" }
+tanren-testkit = { workspace = true }
 tokio = { workspace = true }
 
 [[bin]]

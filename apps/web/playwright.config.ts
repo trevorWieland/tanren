@@ -9,7 +9,12 @@ import { defineBddConfig } from "playwright-bdd";
 // interface tags belong to the Rust harness.
 const testDir = defineBddConfig({
   features: ["./tests/bdd/features/**/*.feature"],
-  steps: ["./tests/bdd/steps/**/*.ts"],
+  // Restrict discovery to real step-definition modules so helper/support
+  // files can grow without widening the generator's file scan surface.
+  steps: ["./tests/bdd/steps/**/*.steps.ts"],
+  // Fail during generation (not only at runtime) when a feature step
+  // has no matching definition, so gate-time discovery catches drift.
+  missingSteps: "fail-on-gen",
   outputDir: "./tests/bdd/.bdd-gen",
   tags: "@web",
 });
