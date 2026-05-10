@@ -20,8 +20,8 @@ use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationProofLink,
-    OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
+    CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -341,6 +341,8 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--account-id",
                 &account_id.to_string(),
+                "--limit",
+                &LIST_ORGANIZATIONS_DEFAULT_LIMIT.to_string(),
             ])
             .env("TANREN_SESSION_FILE", session_file)
             .stdin(Stdio::null())
@@ -353,7 +355,23 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let summary_re =
+            Regex::new(r"organizations=\d+\s+next_cursor=([0-9a-fA-F-]+|<none>)").expect("regex");
         let row_re = Regex::new(r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)").expect("regex");
+        let next_cursor = stdout
+            .lines()
+            .find_map(|line| summary_re.captures(line))
+            .and_then(|captures| captures.get(1).map(|value| value.as_str()))
+            .and_then(|raw| {
+                if raw == "<none>" {
+                    return Some(None);
+                }
+                Uuid::parse_str(raw)
+                    .ok()
+                    .map(tanren_identity_policy::MembershipId::from)
+                    .map(Some)
+            })
+            .unwrap_or(None);
         let mut organizations = Vec::new();
         for line in stdout.lines() {
             if line.starts_with("organizations=") {
@@ -373,7 +391,10 @@ impl AccountHarness for CliHarness {
             })?;
             organizations.push(OrganizationView { id, name });
         }
-        Ok(ListOrganizationsResponse { organizations })
+        Ok(ListOrganizationsResponse {
+            organizations,
+            next_cursor,
+        })
     }
 
     async fn check_organization_admin_permission(

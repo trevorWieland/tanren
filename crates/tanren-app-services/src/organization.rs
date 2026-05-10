@@ -4,9 +4,10 @@ use chrono::{DateTime, Utc};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
-    ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
-    ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent,
-    OrganizationProofLink, OrganizationSourceLink, OrganizationView,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
+    ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID, ORGANIZATION_CREATED_EVENT_KIND,
+    ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission, SessionToken};
 use tanren_store::{
@@ -66,16 +67,22 @@ where
 {
     let now = clock.now();
     resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
-    let organizations = store
-        .list_organizations_for_account(request.account_id)
-        .await?
+    let limit = normalize_list_limit(request.limit);
+    let page = store
+        .list_organizations_for_account(request.account_id, limit, request.cursor)
+        .await?;
+    let organizations = page
+        .organizations
         .into_iter()
         .map(|record| OrganizationView {
             id: record.id,
             name: record.name,
         })
         .collect();
-    Ok(ListOrganizationsResponse { organizations })
+    Ok(ListOrganizationsResponse {
+        organizations,
+        next_cursor: page.next_cursor,
+    })
 }
 
 pub(crate) async fn check_organization_permission<S>(
@@ -175,4 +182,9 @@ fn map_create_organization_error(err: CreateOrganizationError) -> AppServiceErro
         ),
         CreateOrganizationError::Store(err) => AppServiceError::Store(err),
     }
+}
+
+fn normalize_list_limit(limit: Option<u64>) -> u64 {
+    let requested = limit.unwrap_or(LIST_ORGANIZATIONS_DEFAULT_LIMIT);
+    requested.clamp(1, LIST_ORGANIZATIONS_MAX_LIMIT)
 }

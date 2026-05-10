@@ -8,10 +8,10 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CreateOrganizationRequest,
-    ListOrganizationsRequest,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsRequest,
 };
 use tanren_identity_policy::{
-    AccountId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, MembershipId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
 };
 use uuid::Uuid;
 
@@ -39,6 +39,12 @@ pub(crate) enum OrganizationAction {
         /// Signed-in account id.
         #[arg(long)]
         account_id: String,
+        /// Page size for organization listing.
+        #[arg(long, default_value_t = LIST_ORGANIZATIONS_DEFAULT_LIMIT)]
+        limit: u64,
+        /// Opaque pagination cursor from a prior list call.
+        #[arg(long)]
+        cursor: Option<String>,
     },
     /// Check an admin permission inside an organization.
     CheckPermission {
@@ -70,7 +76,18 @@ pub(crate) async fn run_organization(
         OrganizationAction::List {
             database_url,
             account_id,
-        } => list_organizations(handlers, &database_url, &account_id).await?,
+            limit,
+            cursor,
+        } => {
+            list_organizations(
+                handlers,
+                &database_url,
+                &account_id,
+                limit,
+                cursor.as_deref(),
+            )
+            .await?;
+        }
         OrganizationAction::CheckPermission {
             database_url,
             account_id,
@@ -135,29 +152,42 @@ async fn list_organizations(
     handlers: &Handlers,
     database_url: &str,
     account_id_raw: &str,
+    limit: u64,
+    cursor_raw: Option<&str>,
 ) -> Result<()> {
     let store = Store::connect(database_url)
         .await
         .context("connect to store")?;
     let account_id = parse_account_id(account_id_raw)?;
     let session_token = read_session_token()?;
+    let cursor = parse_cursor(cursor_raw)?;
     let response = handlers
         .list_organizations(
             &store,
             ListOrganizationsRequest {
                 session_token,
                 account_id,
+                limit: Some(limit),
+                cursor,
             },
         )
         .await
         .map_err(account_error)?;
     let stdout = std::io::stdout();
     let mut handle = stdout.lock();
+    let next_cursor = response
+        .next_cursor
+        .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
     if response.organizations.is_empty() {
-        writeln!(handle, "organizations=0").context("write organization-list result")?;
+        writeln!(handle, "organizations=0 next_cursor={next_cursor}")
+            .context("write organization-list result")?;
     } else {
-        writeln!(handle, "organizations={}", response.organizations.len())
-            .context("write organization-list count")?;
+        writeln!(
+            handle,
+            "organizations={} next_cursor={next_cursor}",
+            response.organizations.len()
+        )
+        .context("write organization-list count")?;
         for org in response.organizations {
             writeln!(handle, "organization_id={} name={}", org.id, org.name)
                 .context("write organization-list row")?;
@@ -253,4 +283,16 @@ fn parse_permission(raw: &str) -> Result<OrganizationPermission> {
             .join("|");
         anyhow::anyhow!("parse --permission: expected {expected}")
     })
+}
+
+fn parse_cursor(raw: Option<&str>) -> Result<Option<MembershipId>> {
+    let Some(raw) = raw else {
+        return Ok(None);
+    };
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Ok(None);
+    }
+    let uuid = Uuid::parse_str(trimmed).context("parse --cursor as uuid")?;
+    Ok(Some(MembershipId::from(uuid)))
 }

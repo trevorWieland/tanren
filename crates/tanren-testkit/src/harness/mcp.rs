@@ -18,7 +18,8 @@ use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, SignInRequest, SignUpRequest,
+    CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
@@ -233,6 +234,8 @@ impl AccountHarness for McpHarness {
         let body = serde_json::json!({
             "session_token": self.session_token(account_id)?,
             "account_id": account_id,
+            "limit": LIST_ORGANIZATIONS_DEFAULT_LIMIT,
+            "cursor": null,
         });
         let payload = self.call_tool("organization.list", body).await?;
         serde_json::from_value(payload)

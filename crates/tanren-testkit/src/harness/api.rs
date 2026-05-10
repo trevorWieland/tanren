@@ -1,9 +1,8 @@
 //! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
 //! drives it via `reqwest::Client` with `cookie_store(true)`.
 //!
-//! Uses one per-scenario `SQLite` file shared by the app store and
-//! cookie-session store. Event assertions read through the harness's
-//! own `Store` handle.
+//! Uses one per-scenario `SQLite` file shared by the app store and cookie-session store.
+//! Event assertions read through the harness's own `Store` handle.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -17,8 +16,8 @@ use std::time::Duration;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView,
-    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
-    SignInRequest, SignUpRequest,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -60,9 +59,8 @@ impl ApiHarness {
     ///
     /// # Errors
     ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
+    /// Returns an error if the database cannot be connected / migrated,
+    /// the listener cannot bind, or the api app cannot be constructed.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -313,7 +311,10 @@ impl AccountHarness for ApiHarness {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<ListOrganizationsResponse> {
-        let url = format!("{}/organizations", self.base_url);
+        let url = format!(
+            "{}/organizations?limit={}",
+            self.base_url, LIST_ORGANIZATIONS_DEFAULT_LIMIT
+        );
         let response = self
             .session_client(account_id)?
             .get(&url)

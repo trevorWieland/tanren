@@ -13,7 +13,8 @@ use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, CheckOrganizationPermissionRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationRequest, CreateOrganizationResponse,
-    ListOrganizationsRequest, ListOrganizationsResponse, SignInRequest, SignUpRequest,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsRequest, ListOrganizationsResponse,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, Argon2idVerifier, OrganizationName, OrganizationPermission, SessionToken,
@@ -182,6 +183,8 @@ impl AccountHarness for InProcessHarness {
                 ListOrganizationsRequest {
                     session_token,
                     account_id,
+                    limit: Some(LIST_ORGANIZATIONS_DEFAULT_LIMIT),
+                    cursor: None,
                 },
             )
             .await

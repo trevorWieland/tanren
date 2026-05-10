@@ -384,7 +384,10 @@ impl AccountHarness for TuiHarness {
                     })?;
                     organizations.push(OrganizationView { id, name: org_name });
                 }
-                Ok(ListOrganizationsResponse { organizations })
+                Ok(ListOrganizationsResponse {
+                    organizations,
+                    next_cursor: None,
+                })
             }
             Err(success_err) => {
                 if let Ok(code) = expect_regex_capture(

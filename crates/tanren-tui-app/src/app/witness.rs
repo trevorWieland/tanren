@@ -51,9 +51,13 @@ pub(super) fn create_organization_success(response: &CreateOrganizationResponse)
 }
 
 pub(super) fn list_organizations_success(response: &ListOrganizationsResponse) {
+    let next_cursor = response
+        .next_cursor
+        .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
     tracing::info!(
-        "tui_witness op=list_organizations kind=success count={}",
-        response.organizations.len()
+        "tui_witness op=list_organizations kind=success count={} next_cursor={}",
+        response.organizations.len(),
+        next_cursor
     );
     for org in &response.organizations {
         tracing::info!(

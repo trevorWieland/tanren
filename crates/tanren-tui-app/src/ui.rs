@@ -163,7 +163,13 @@ pub(crate) fn create_organization_outcome(response: &CreateOrganizationResponse)
 }
 
 pub(crate) fn list_organizations_outcome(response: &ListOrganizationsResponse) -> OutcomeView {
-    let mut lines = vec![format!("count: {}", response.organizations.len())];
+    let next_cursor = response
+        .next_cursor
+        .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
+    let mut lines = vec![
+        format!("count: {}", response.organizations.len()),
+        format!("next_cursor: {next_cursor}"),
+    ];
     for org in &response.organizations {
         lines.push(format!("organization_id: {} name: {}", org.id, org.name));
     }

@@ -234,6 +234,15 @@ pub enum CreateOrganizationError {
     Store(#[from] StoreError),
 }
 
+/// One page of organizations visible to an account.
+#[derive(Debug, Clone)]
+pub struct ListOrganizationsPage {
+    /// Organizations in this page.
+    pub organizations: Vec<OrganizationRecord>,
+    /// Opaque cursor for the next page, if more rows remain.
+    pub next_cursor: Option<MembershipId>,
+}
+
 /// Enforceable guard used by leave/remove-member flows so they cannot
 /// orphan administrative organization permissions.
 #[derive(Debug, thiserror::Error)]
@@ -380,7 +389,9 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
     async fn list_organizations_for_account(
         &self,
         account_id: AccountId,
-    ) -> Result<Vec<OrganizationRecord>, StoreError>;
+        limit: u64,
+        cursor: Option<MembershipId>,
+    ) -> Result<ListOrganizationsPage, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied
     /// instant.

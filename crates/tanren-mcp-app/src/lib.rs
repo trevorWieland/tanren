@@ -36,7 +36,8 @@ use tanren_contract::{
     CreateOrganizationRequest, ListOrganizationsRequest, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, IdempotencyKey, OrgId, OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
+    SessionToken,
 };
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -93,6 +94,8 @@ struct CreateOrganizationToolRequest {
 struct ListOrganizationsToolRequest {
     session_token: Option<SessionToken>,
     account_id: AccountId,
+    limit: Option<u64>,
+    cursor: Option<MembershipId>,
 }
 
 #[derive(Debug, Clone, Deserialize, Serialize, JsonSchema)]
@@ -220,6 +223,8 @@ impl TanrenMcp {
                 ListOrganizationsRequest {
                     session_token,
                     account_id: request.account_id,
+                    limit: request.limit,
+                    cursor: request.cursor,
                 },
             )
             .await

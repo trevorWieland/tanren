@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { components, paths } from "@/lib/generated/api-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+const DEFAULT_ORGANIZATION_LIST_LIMIT = 50;
 
 type OrganizationCreatePath = "/organizations";
 type OrganizationListPath = "/organizations";
@@ -35,8 +36,14 @@ export type CreateOrganizationResponse =
   components["schemas"]["CreateOrganizationResponse"];
 export type ListOrganizationsResponse =
   components["schemas"]["ListOrganizationsResponse"];
+export type OrganizationListCursor = components["schemas"]["MembershipId"];
 export type CheckOrganizationPermissionResponse =
   components["schemas"]["CheckOrganizationPermissionResponse"];
+
+export interface ListOrganizationsApiRequest {
+  limit?: number;
+  cursor?: OrganizationListCursor;
+}
 
 export type OrganizationFailureCode =
   | "auth_required"
@@ -201,6 +208,13 @@ export function isListOrganizationsResponse(
   if (!Array.isArray(organizations)) {
     return false;
   }
+  if (
+    value["next_cursor"] !== null &&
+    value["next_cursor"] !== undefined &&
+    typeof value["next_cursor"] !== "string"
+  ) {
+    return false;
+  }
   return organizations.every((organization) =>
     isOrganizationViewResponse(organization),
   );
@@ -303,10 +317,7 @@ function tryParseJson(text: string): { hasValidJson: boolean; json: unknown } {
 
 async function callOrganizationApi(
   method: "GET" | "POST",
-  path:
-    | OrganizationCreatePath
-    | OrganizationListPath
-    | OrganizationPermissionPath,
+  path: string,
   payload?: unknown,
 ): Promise<OrganizationDecodedResponse> {
   const headers: Record<string, string> = {};
@@ -362,12 +373,17 @@ export async function createOrganizationApi(
   );
 }
 
-export async function listOrganizationsApi(): Promise<
-  OrganizationApiResponse<ListOrganizationsResponse>
-> {
+export async function listOrganizationsApi(
+  request: ListOrganizationsApiRequest = {},
+): Promise<OrganizationApiResponse<ListOrganizationsResponse>> {
+  const params = new URLSearchParams();
+  params.set("limit", String(request.limit ?? DEFAULT_ORGANIZATION_LIST_LIMIT));
+  if (request.cursor) {
+    params.set("cursor", request.cursor);
+  }
   const response = await callOrganizationApi(
     "GET",
-    ORGANIZATION_API_ROUTES.list,
+    `${ORGANIZATION_API_ROUTES.list}?${params.toString()}`,
   );
   return decodeOrganizationApiResponse(
     response,

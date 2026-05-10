@@ -8,9 +8,10 @@ use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, IdempotencyKey, OrgId, OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
+    SessionToken,
 };
-use utoipa::ToSchema;
+use utoipa::{IntoParams, ToSchema};
 
 /// Create-organization request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -50,6 +51,10 @@ pub struct ListOrganizationsRequest {
     pub session_token: SessionToken,
     /// Account whose organization memberships are requested.
     pub account_id: AccountId,
+    /// Maximum page size the caller asks for.
+    pub limit: Option<u64>,
+    /// Opaque page cursor returned by a previous list call.
+    pub cursor: Option<MembershipId>,
 }
 
 /// List-organizations response.
@@ -57,6 +62,17 @@ pub struct ListOrganizationsRequest {
 pub struct ListOrganizationsResponse {
     /// Organizations visible to the requested account.
     pub organizations: Vec<OrganizationView>,
+    /// Opaque cursor callers can pass to fetch the next page.
+    pub next_cursor: Option<MembershipId>,
+}
+
+/// Query parameters for `GET /organizations`.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, IntoParams)]
+pub struct ListOrganizationsApiQuery {
+    /// Maximum page size the caller asks for.
+    pub limit: Option<u64>,
+    /// Opaque page cursor returned by a previous list call.
+    pub cursor: Option<MembershipId>,
 }
 
 /// Check-organization-permission request.
@@ -175,6 +191,10 @@ pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 pub const ORGANIZATION_CREATED_EVENT_KIND: &str = "organization_created";
 /// Canonical behavior proof id for organization creation.
 pub const ORGANIZATION_CREATE_BEHAVIOR_ID: &str = "B-0066";
+/// Default page size for listing organizations.
+pub const LIST_ORGANIZATIONS_DEFAULT_LIMIT: u64 = 50;
+/// Maximum allowed page size for listing organizations.
+pub const LIST_ORGANIZATIONS_MAX_LIMIT: u64 = 100;
 
 /// Shared payload contract for `organization_created`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]

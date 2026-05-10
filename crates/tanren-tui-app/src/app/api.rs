@@ -7,7 +7,8 @@ use serde::Deserialize;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
-    ListOrganizationsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::OrgId;
 
@@ -156,9 +157,13 @@ impl ApiClient {
     }
 
     pub(super) async fn list_organizations(&self) -> Result<ListOrganizationsResponse, ApiError> {
+        let url = format!(
+            "{}/organizations?limit={}",
+            self.base_url, LIST_ORGANIZATIONS_DEFAULT_LIMIT
+        );
         let response = self
             .http
-            .get(format!("{}/organizations", self.base_url))
+            .get(url)
             .send()
             .await
             .map_err(|e| ApiError::Transport(format!("GET /organizations: {e}")))?;

@@ -60,7 +60,10 @@ export interface paths {
   };
   "/organizations": {
     parameters: {
-      query?: never;
+      query?: {
+        cursor?: components["schemas"]["MembershipId"];
+        limit?: number;
+      };
       header?: never;
       path?: never;
       cookie?: never;
@@ -287,9 +290,16 @@ export interface components {
     Identifier: string;
     /** @description List-organizations response. */
     ListOrganizationsResponse: {
+      /** @description Opaque cursor callers can pass to fetch the next page. */
+      next_cursor: components["schemas"]["MembershipId"] | null;
       /** @description Organizations visible to the requested account. */
       organizations: components["schemas"]["OrganizationView"][];
     };
+    /**
+     * Format: uuid
+     * @description Stable identifier for a membership row (links an account to an org).
+     */
+    MembershipId: string;
     /**
      * Format: uuid
      * @description Stable identifier for a Tanren organization.
@@ -562,7 +572,10 @@ export interface operations {
   };
   list_organizations_route: {
     parameters: {
-      query?: never;
+      query?: {
+        cursor?: components["schemas"]["MembershipId"];
+        limit?: number;
+      };
       header?: never;
       path?: never;
       cookie?: never;

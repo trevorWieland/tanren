@@ -13,7 +13,7 @@ use crate::organization_tracing::{
     record_authenticated_account,
 };
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
@@ -22,7 +22,8 @@ use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
-    ListOrganizationsResponse, SessionEnvelope, SignInRequest, SignUpRequest,
+    ListOrganizationsApiQuery, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -114,6 +115,7 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         CreateOrganizationApiRequest,
         CheckOrganizationPermissionApiRequest,
+        ListOrganizationsApiQuery,
         CreateOrganizationResponse,
         ListOrganizationsResponse,
         CheckOrganizationPermissionResponse,
@@ -353,6 +355,7 @@ pub(crate) async fn create_organization_route(
 #[utoipa::path(
     get,
     path = "/organizations",
+    params(ListOrganizationsApiQuery),
     responses(
         (status = 200, body = ListOrganizationsResponse, description = "Organization list"),
         (status = 401, body = AccountFailureBody, description = "auth_required"),
@@ -362,6 +365,7 @@ pub(crate) async fn create_organization_route(
 pub(crate) async fn list_organizations_route(
     State(state): State<AppState>,
     session: Session,
+    Query(query): Query<ListOrganizationsApiQuery>,
 ) -> Response {
     let span = organization_route_span("list_organizations", None);
     let _span_guard = span.enter();
@@ -376,6 +380,8 @@ pub(crate) async fn list_organizations_route(
     let request = tanren_contract::ListOrganizationsRequest {
         session_token: auth.1,
         account_id: auth.0,
+        limit: query.limit,
+        cursor: query.cursor,
     };
     match state
         .handlers
