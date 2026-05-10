@@ -401,6 +401,19 @@ export function myPermissions(
   );
 }
 
+export async function myPermissionsWithCapabilityCheck(
+  query: MyPermissionsQuery = {},
+): Promise<OperationSuccessBody<MyPermissionsOperation>> {
+  const capabilities = await myAccountCapabilities();
+  if (!capabilities.can_view_my_permissions) {
+    throw new AccountRequestError({
+      code: "permission_denied",
+      summary: "",
+    });
+  }
+  return myPermissions(query);
+}
+
 export function myAccountCapabilities(
   query: MyCapabilitiesQuery = {},
 ): Promise<OperationSuccessBody<MyCapabilitiesOperation>> {

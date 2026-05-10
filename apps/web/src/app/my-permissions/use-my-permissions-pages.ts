@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 
 import {
   AccountRequestError,
-  myAccountCapabilities,
-  myPermissions,
+  myPermissionsWithCapabilityCheck,
   permissionScopes,
   type AccountFailure,
   type MyPermissionsResponse,
@@ -77,23 +76,11 @@ export function useMyPermissionsPages(): UseMyPermissionsPagesResult {
   useEffect(() => {
     let cancelled = false;
 
-    myAccountCapabilities()
-      .then((response) => {
-        if (cancelled) {
-          return;
+    myPermissionsWithCapabilityCheck()
+      .then((permissionsResponse) => {
+        if (!cancelled) {
+          setPages([permissionsResponse]);
         }
-        if (!response.can_view_my_permissions) {
-          setFailure({
-            code: "permission_denied",
-            summary: "",
-          });
-          return;
-        }
-        return myPermissions().then((permissionsResponse) => {
-          if (!cancelled) {
-            setPages([permissionsResponse]);
-          }
-        });
       })
       .catch((cause: unknown) => {
         if (cancelled) {
@@ -122,7 +109,7 @@ export function useMyPermissionsPages(): UseMyPermissionsPagesResult {
     }
     setLoadingMore(true);
     setLoadMoreFailure(null);
-    myPermissions({ cursor: nextCursor })
+    myPermissionsWithCapabilityCheck({ cursor: nextCursor })
       .then((response) => {
         setPages((current) => [...current, response]);
       })
