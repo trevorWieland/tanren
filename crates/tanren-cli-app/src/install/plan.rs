@@ -226,12 +226,12 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
         repository
             .canonicalize()
             .map_err(|err| InstallError::InvalidRepositoryPath {
-                path: format!("{} ({err})", repository.display()),
+                path: format!("{} ({err})", display_repository_argument(repository)),
             })?;
 
     if !canonical.is_dir() {
         return Err(InstallError::RepositoryPathNotDirectory {
-            path: canonical.display().to_string(),
+            path: display_repository_argument(repository),
         });
     }
 
@@ -247,27 +247,27 @@ fn load_previous_manifest(
 
     let raw_manifest =
         fs::read_to_string(manifest_absolute_path).map_err(|err| InstallError::ReadFailure {
-            path: manifest_absolute_path.display().to_string(),
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
             message: err.to_string(),
         })?;
 
     toml::from_str(&raw_manifest)
         .map(Some)
         .map_err(|err| InstallError::InvalidInstallManifest {
-            path: manifest_absolute_path.display().to_string(),
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
             message: err.to_string(),
         })
 }
 
 fn validate_manifest_version(
-    manifest_absolute_path: &Path,
+    _manifest_absolute_path: &Path,
     manifest: Option<&InstallManifest>,
 ) -> Result<(), InstallError> {
     if let Some(previous_manifest) = manifest
         && previous_manifest.manifest_version != INSTALL_MANIFEST_VERSION
     {
         return Err(InstallError::InvalidInstallManifest {
-            path: manifest_absolute_path.display().to_string(),
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
             message: format!(
                 "unsupported manifest version {}",
                 previous_manifest.manifest_version
@@ -278,7 +278,7 @@ fn validate_manifest_version(
 }
 
 fn build_previous_entry_map<'a>(
-    manifest_absolute_path: &Path,
+    _manifest_absolute_path: &Path,
     manifest: Option<&'a InstallManifest>,
 ) -> Result<BTreeMap<&'a str, &'a ManifestEntry>, InstallError> {
     let Some(previous_manifest) = manifest else {
@@ -290,7 +290,7 @@ fn build_previous_entry_map<'a>(
         let path = entry.path.as_str();
         if entries.insert(path, entry).is_some() {
             return Err(InstallError::InvalidInstallManifest {
-                path: manifest_absolute_path.display().to_string(),
+                path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
                 message: format!("duplicate manifest entry for '{path}'"),
             });
         }
@@ -342,7 +342,7 @@ fn plan_asset_write(
         }));
     }
 
-    let current_hash = hash_current_file(&absolute_path)?;
+    let current_hash = hash_current_file(&absolute_path, asset.destination_path.as_str())?;
 
     if current_hash == manifest_entry.content_hash {
         return Ok(PlannedAssetAction::Unchanged);
@@ -411,7 +411,7 @@ fn build_removals(
 
         let absolute = resolve_repo_path(repository_root, &entry.path)?;
         if absolute.exists() {
-            let current_hash = hash_current_file(&absolute)?;
+            let current_hash = hash_current_file(&absolute, entry.path.as_str())?;
             if current_hash != entry.content_hash {
                 preserved_paths.push(entry.path.clone());
                 continue;
@@ -433,9 +433,9 @@ fn build_removals(
     })
 }
 
-fn hash_current_file(path: &Path) -> Result<Sha256Hex, InstallError> {
+fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, InstallError> {
     let current = fs::read(path).map_err(|err| InstallError::ReadFailure {
-        path: path.display().to_string(),
+        path: display_path.to_owned(),
         message: err.to_string(),
     })?;
     Ok(sha256_hex(&current))
@@ -443,16 +443,24 @@ fn hash_current_file(path: &Path) -> Result<Sha256Hex, InstallError> {
 
 fn ensure_removals_unique(
     removals: &[PlannedRemoval],
-    manifest_absolute_path: &Path,
+    _manifest_absolute_path: &Path,
 ) -> Result<(), InstallError> {
     let mut seen = BTreeSet::new();
     for removal in removals {
         if !seen.insert(removal.path.as_str()) {
             return Err(InstallError::InvalidInstallManifest {
-                path: manifest_absolute_path.display().to_string(),
+                path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
                 message: format!("duplicate stale removal path '{}'", removal.path.as_str()),
             });
         }
     }
     Ok(())
+}
+
+fn display_repository_argument(path: &Path) -> String {
+    if path.is_absolute() {
+        "<redacted-absolute-path>".to_owned()
+    } else {
+        path.display().to_string()
+    }
 }

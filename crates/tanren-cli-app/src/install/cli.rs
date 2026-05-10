@@ -1,7 +1,7 @@
 //! CLI adapter for `tanren-cli install`.
 
 use std::io::Write;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use clap::Args;
 
@@ -32,16 +32,13 @@ impl InstallCommand {
     }
 
     fn write_success_report(&self, report: &InstallReport) -> Result<(), InstallCommandError> {
-        let repository = self
-            .repo
-            .canonicalize()
-            .unwrap_or_else(|_| self.repo.clone());
+        let repository = display_repository_argument(&self.repo);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         writeln!(
             handle,
             "status=ok command=install repo={} created={} updated={} removed={} restored={} preserved={}",
-            repository.display(),
+            repository,
             report.created.len(),
             report.updated.len(),
             report.removed.len(),
@@ -69,4 +66,12 @@ fn format_path_list(paths: &[RepoRelativePath]) -> String {
         .map(RepoRelativePath::as_str)
         .collect::<Vec<_>>()
         .join(",")
+}
+
+fn display_repository_argument(path: &Path) -> String {
+    if path.is_absolute() {
+        "<redacted-absolute-path>".to_owned()
+    } else {
+        path.display().to_string()
+    }
 }

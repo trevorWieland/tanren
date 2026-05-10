@@ -63,7 +63,7 @@ pub(super) fn prepare_apply(plan: &InstallPlan) -> Result<PreparedApply, Install
     let prepare_result = (|| {
         let manifest_payload = toml::to_string(plan.manifest()).map_err(|err| {
             InstallError::InvalidInstallManifest {
-                path: plan.manifest_absolute_path().display().to_string(),
+                path: plan.manifest_path().as_str().to_owned(),
                 message: err.to_string(),
             }
         })?;
@@ -119,7 +119,7 @@ pub(super) fn prepare_apply(plan: &InstallPlan) -> Result<PreparedApply, Install
             let absolute =
                 revalidate_planned_apply_path(plan, removal.path(), removal.absolute_path())?;
             let prior = fs::read(&absolute).map_err(|err| InstallError::RemoveFailure {
-                path: absolute.display().to_string(),
+                path: removal.path().as_str().to_owned(),
                 message: err.to_string(),
             })?;
             rollback_records.insert(
@@ -167,7 +167,7 @@ fn read_prior_payload(
         Ok(bytes) => Ok(Some(bytes)),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(None),
         Err(err) => Err(InstallError::ReadFailure {
-            path: format!("{} ({})", path.as_str(), absolute.display()),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         }),
     }
@@ -180,7 +180,7 @@ fn stage_replacement_payload(
     content: &[u8],
 ) -> Result<StagedReplacement, InstallError> {
     let absolute = revalidate_planned_apply_path(plan, path, planned_absolute)?;
-    ensure_parent_directory(&absolute)?;
+    ensure_parent_directory(path, &absolute)?;
     let absolute = revalidate_planned_apply_path(plan, path, planned_absolute)?;
     let temp_path = create_staged_temporary_payload(path, &absolute, content)?;
     Ok(StagedReplacement {
@@ -199,18 +199,18 @@ fn create_staged_temporary_payload(
 
     let Some(parent) = absolute.parent() else {
         return Err(InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: "destination path has no parent directory".to_owned(),
         });
     };
 
-    let temp = create_temp_file(parent, absolute)?;
+    let temp = create_temp_file(path, parent, absolute)?;
     let mut file = temp.file;
 
     if let Err(err) = file.write_all(content) {
         cleanup_temporary_file(&temp.path);
         return Err(InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         });
     }
@@ -218,7 +218,7 @@ fn create_staged_temporary_payload(
     if let Err(err) = file.sync_all() {
         cleanup_temporary_file(&temp.path);
         return Err(InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         });
     }
@@ -236,7 +236,7 @@ pub(super) fn commit_staged_replacement(
     fs::rename(&staged.temp_path, &absolute).map_err(|err| {
         cleanup_temporary_file(&staged.temp_path);
         InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: staged.path.as_str().to_owned(),
             message: err.to_string(),
         }
     })
@@ -261,7 +261,7 @@ pub(super) fn resolve_apply_failure(
 
     if let Err(rollback_error) = rollback_changed_paths(plan, rollback_records, changed_paths) {
         return InstallError::WriteFailure {
-            path: plan.repository_root().display().to_string(),
+            path: ".".to_owned(),
             message: format!("apply failed: {cause}; rollback failed: {rollback_error}"),
         };
     }
@@ -280,9 +280,9 @@ fn rollback_changed_paths(
         };
         let absolute = revalidate_planned_apply_path(plan, path, &record.absolute)?;
         match &record.prior {
-            PriorState::Missing => remove_if_present(&absolute)?,
+            PriorState::Missing => remove_if_present(path, &absolute)?,
             PriorState::Present(bytes) => {
-                ensure_parent_directory(&absolute)?;
+                ensure_parent_directory(path, &absolute)?;
                 atomic_replace_file(path, &absolute, bytes)?;
             }
         }
@@ -291,12 +291,12 @@ fn rollback_changed_paths(
     Ok(())
 }
 
-fn remove_if_present(path: &Path) -> Result<(), InstallError> {
+fn remove_if_present(relative_path: &RepoRelativePath, path: &Path) -> Result<(), InstallError> {
     match fs::remove_file(path) {
         Ok(()) => Ok(()),
         Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
         Err(err) => Err(InstallError::WriteFailure {
-            path: path.display().to_string(),
+            path: relative_path.as_str().to_owned(),
             message: err.to_string(),
         }),
     }
@@ -321,29 +321,25 @@ fn revalidate_planned_apply_path(
 
 fn ensure_revalidated_matches_planned(
     path: &RepoRelativePath,
-    planned: &Path,
-    revalidated: &Path,
+    planned_absolute: &Path,
+    revalidated_absolute: &Path,
 ) -> Result<(), InstallError> {
-    if planned != revalidated {
+    if planned_absolute != revalidated_absolute {
         return Err(InstallError::UnsafeRepositoryPath {
             path: path.as_str().to_owned(),
-            message: format!(
-                "resolved path changed between planning and apply: planned='{}' apply='{}'",
-                planned.display(),
-                revalidated.display(),
-            ),
+            message: "resolved path changed between planning and apply".to_owned(),
         });
     }
 
     Ok(())
 }
 
-fn ensure_parent_directory(absolute: &Path) -> Result<(), InstallError> {
+fn ensure_parent_directory(path: &RepoRelativePath, absolute: &Path) -> Result<(), InstallError> {
     if let Some(parent) = absolute.parent()
         && !parent.exists()
     {
         fs::create_dir_all(parent).map_err(|err| InstallError::CreateDirectoryFailure {
-            path: parent.display().to_string(),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         })?;
     }
@@ -360,18 +356,18 @@ fn atomic_replace_file(
 
     let Some(parent) = absolute.parent() else {
         return Err(InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: "destination path has no parent directory".to_owned(),
         });
     };
 
-    let temp = create_temp_file(parent, absolute)?;
+    let temp = create_temp_file(path, parent, absolute)?;
     let mut file = temp.file;
 
     if let Err(err) = file.write_all(content) {
         cleanup_temporary_file(&temp.path);
         return Err(InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         });
     }
@@ -379,7 +375,7 @@ fn atomic_replace_file(
     if let Err(err) = file.sync_all() {
         cleanup_temporary_file(&temp.path);
         return Err(InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         });
     }
@@ -388,7 +384,7 @@ fn atomic_replace_file(
     fs::rename(&temp.path, absolute).map_err(|err| {
         cleanup_temporary_file(&temp.path);
         InstallError::WriteFailure {
-            path: absolute.display().to_string(),
+            path: path.as_str().to_owned(),
             message: err.to_string(),
         }
     })
@@ -415,7 +411,11 @@ struct TemporaryFile {
     file: fs::File,
 }
 
-fn create_temp_file(parent: &Path, destination: &Path) -> Result<TemporaryFile, InstallError> {
+fn create_temp_file(
+    path: &RepoRelativePath,
+    parent: &Path,
+    destination: &Path,
+) -> Result<TemporaryFile, InstallError> {
     let mut last_message = String::from("failed allocating temporary file path");
 
     for attempt in 0..64 {
@@ -436,7 +436,7 @@ fn create_temp_file(parent: &Path, destination: &Path) -> Result<TemporaryFile, 
             }
             Err(err) => {
                 return Err(InstallError::WriteFailure {
-                    path: destination.display().to_string(),
+                    path: path.as_str().to_owned(),
                     message: err.to_string(),
                 });
             }
@@ -444,7 +444,7 @@ fn create_temp_file(parent: &Path, destination: &Path) -> Result<TemporaryFile, 
     }
 
     Err(InstallError::WriteFailure {
-        path: destination.display().to_string(),
+        path: path.as_str().to_owned(),
         message: format!("temporary file allocation exhausted retries: {last_message}"),
     })
 }

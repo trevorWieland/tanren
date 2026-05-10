@@ -11,6 +11,7 @@ Feature: Bootstrap Tanren assets into an existing repository
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
       And the install output reports created, updated, removed, restored, and preserved summaries
+      And the install output redacts absolute repository paths
       And rust-cargo defaults install all methodology command assets and standards files
       And the install manifest records the rust-cargo profile and default integrations
 
@@ -64,6 +65,7 @@ Feature: Bootstrap Tanren assets into an existing repository
       When tanren-cli install runs with profile "rust-cargo" and integrations "codex"
       Then the install command exits nonzero
       And the install output reports a validation failure
+      And the install output redacts absolute repository paths
       And the install stderr contains "repository path '.codex/skills/"
 
     @falsification @cli

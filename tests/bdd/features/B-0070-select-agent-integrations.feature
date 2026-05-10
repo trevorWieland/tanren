@@ -11,6 +11,7 @@ Feature: Select agent integrations during Tanren install
       When tanren-cli install runs with profile "rust-cargo" and integrations "claude,codex"
       Then the install command succeeds
       And the install output reports created, updated, removed, restored, and preserved summaries
+      And the install output redacts absolute repository paths
       And only integrations "claude,codex" command assets are installed
       And repository file ".opencode/commands/plan-product.md" does not exist
 
@@ -48,5 +49,6 @@ Feature: Select agent integrations during Tanren install
       When tanren-cli install runs with profile "rust-cargo" and integrations "claude,not-an-integration"
       Then the install command exits nonzero
       And the install output reports a validation failure
+      And the install output redacts absolute repository paths
       And the install stderr contains "unsupported install integration 'not-an-integration'"
       And no files are written in the repository fixture

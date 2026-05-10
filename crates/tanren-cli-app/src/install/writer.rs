@@ -39,7 +39,7 @@ pub fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, InstallEr
     let apply_result: Result<(), InstallError> = (|| {
         for removal in &prepared.removals {
             std::fs::remove_file(&removal.absolute).map_err(|err| InstallError::RemoveFailure {
-                path: removal.absolute.display().to_string(),
+                path: removal.path.as_str().to_owned(),
                 message: err.to_string(),
             })?;
             report.removed.push(removal.path.clone());

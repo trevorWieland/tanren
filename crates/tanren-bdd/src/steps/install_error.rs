@@ -40,6 +40,14 @@ pub(crate) enum InstallStepError {
     StdoutMissingExpected { expected: String, stdout: String },
     #[error("expected install stderr to contain `{expected}`; got:\n{stderr}")]
     StderrMissingExpected { expected: String, stderr: String },
+    #[error(
+        "install command output leaked absolute repository path `{path}`\nstdout:\n{stdout}\nstderr:\n{stderr}"
+    )]
+    OutputLeakedAbsoluteRepositoryPath {
+        path: String,
+        stdout: String,
+        stderr: String,
+    },
     #[error("expected validation failure in stderr; got:\n{stderr}")]
     ValidationFailureMissing { stderr: String },
     #[error("expected repository fixture to remain unchanged after command")]

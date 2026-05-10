@@ -24,7 +24,7 @@ pub(crate) fn resolve_repo_path(
 
                 let metadata =
                     fs::symlink_metadata(&absolute).map_err(|err| InstallError::ReadFailure {
-                        path: absolute.display().to_string(),
+                        path: path.as_str().to_owned(),
                         message: err.to_string(),
                     })?;
 

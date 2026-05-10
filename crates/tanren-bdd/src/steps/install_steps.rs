@@ -163,6 +163,14 @@ fn then_install_output_reports_validation_failure(
     ctx.assert_validation_failure_output()
 }
 
+#[then(expr = "the install output redacts absolute repository paths")]
+fn then_install_output_redacts_absolute_repository_paths(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_no_absolute_repository_path_leaked()
+}
+
 #[then(expr = "no files are written in the repository fixture")]
 #[then(expr = "no files are written in repository fixture")]
 fn then_no_files_are_written(world: &mut TanrenWorld) -> InstallStepResult<()> {

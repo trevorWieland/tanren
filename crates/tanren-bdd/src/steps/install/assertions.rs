@@ -89,6 +89,19 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_no_absolute_repository_path_leaked(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let repository_path = self.repository_root.display().to_string();
+        if run.stdout.contains(&repository_path) || run.stderr.contains(&repository_path) {
+            return Err(InstallStepError::OutputLeakedAbsoluteRepositoryPath {
+                path: repository_path,
+                stdout: run.stdout.clone(),
+                stderr: run.stderr.clone(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_file_exists(
         &self,
         relative_path: &RepositoryRelativePath,
