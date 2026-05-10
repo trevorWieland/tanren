@@ -21,13 +21,14 @@
 //! See the dual-coverage note in `apps/web/tests/bdd/steps/account.steps.ts`.
 
 use async_trait::async_trait;
+use std::ffi::OsString;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, CliCommandOutcome, HarnessAcceptance, HarnessInvitation, HarnessKind,
+    HarnessResult, HarnessSession, unsupported_cli_command,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -56,6 +57,13 @@ impl WebHarness {
 impl AccountHarness for WebHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Web
+    }
+
+    async fn execute_cli_command(
+        &mut self,
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(unsupported_cli_command(self.kind(), &args))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {

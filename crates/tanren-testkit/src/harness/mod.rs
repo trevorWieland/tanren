@@ -117,6 +117,25 @@ impl HarnessKind {
         }
         Self::InProcess
     }
+
+    /// Stable lowercase name used in diagnostics.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::InProcess => "in_process",
+            Self::Api => "api",
+            Self::Cli => "cli",
+            Self::Mcp => "mcp",
+            Self::Tui => "tui",
+            Self::Web => "web",
+        }
+    }
+}
+
+impl std::fmt::Display for HarnessKind {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
 }
 
 /// Outcome of a successful sign-up / sign-in / accept-invitation call
@@ -201,18 +220,17 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     fn kind(&self) -> HarnessKind;
 
     /// Execute a raw `tanren-cli` command through this harness.
-    /// CLI-specific BDD flows (for example install) use this to ensure
-    /// command execution routes through the active scenario harness
-    /// selected by interface tags.
+    /// CLI-specific BDD flows (for example install/uninstall) use this
+    /// to ensure command execution is intentionally owned by the active
+    /// scenario harness selected by interface tags.
+    ///
+    /// Implementations that cannot execute CLI commands over their
+    /// interface wire must return a typed transport error with concrete
+    /// harness + args context.
     async fn execute_cli_command(
         &mut self,
-        _args: Vec<OsString>,
-    ) -> HarnessResult<CliCommandOutcome> {
-        Err(HarnessError::Transport(format!(
-            "{:?} harness cannot execute tanren-cli commands",
-            self.kind()
-        )))
-    }
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome>;
 
     /// Self-signup against the underlying surface.
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession>;
@@ -253,6 +271,21 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+}
+
+pub(crate) fn unsupported_cli_command(kind: HarnessKind, args: &[OsString]) -> HarnessError {
+    HarnessError::Transport(format!(
+        "unsupported_cli_command interface={} args={}",
+        kind.as_str(),
+        render_cli_args(args)
+    ))
+}
+
+pub(crate) fn render_cli_args(args: &[OsString]) -> String {
+    args.iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 /// Default short-window timeout used by the wire harnesses.

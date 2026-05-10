@@ -9,6 +9,7 @@
 //! goes through the harness's own `Store` handle (the api app's
 //! `Arc<Store>` is a clone of the same `Store`).
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -25,8 +26,8 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, CliCommandOutcome, HarnessAcceptance, HarnessError, HarnessInvitation,
+    HarnessKind, HarnessResult, HarnessSession, unsupported_cli_command,
 };
 
 /// `@api` wire harness.
@@ -124,6 +125,13 @@ impl Drop for ApiHarness {
 impl AccountHarness for ApiHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Api
+    }
+
+    async fn execute_cli_command(
+        &mut self,
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(unsupported_cli_command(self.kind(), &args))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {

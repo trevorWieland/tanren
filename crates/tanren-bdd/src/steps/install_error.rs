@@ -16,8 +16,30 @@ pub(crate) enum InstallStepError {
         path: PathBuf,
         source: std::io::Error,
     },
-    #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
-    RunInstallCommand { source: HarnessError },
+    #[error(
+        "failed to execute tanren-cli install via harness `{harness}` with args `{args}`: {source}"
+    )]
+    RunInstallCommand {
+        harness: String,
+        args: String,
+        source: HarnessError,
+    },
+    #[error(
+        "failed to execute tanren-cli uninstall preview via harness `{harness}` with args `{args}`: {source}"
+    )]
+    RunUninstallPreviewCommand {
+        harness: String,
+        args: String,
+        source: HarnessError,
+    },
+    #[error(
+        "failed to execute tanren-cli uninstall apply via harness `{harness}` with args `{args}`: {source}"
+    )]
+    RunUninstallApplyCommand {
+        harness: String,
+        args: String,
+        source: HarnessError,
+    },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
     #[error("install command must run before no-write assertion")]
@@ -50,6 +72,8 @@ pub(crate) enum InstallStepError {
     },
     #[error("expected validation failure in stderr; got:\n{stderr}")]
     ValidationFailureMissing { stderr: String },
+    #[error("expected uninstall preview to include at least one removable path; got:\n{stdout}")]
+    UninstallPreviewExpectedRemovals { stdout: String },
     #[error("expected repository fixture to remain unchanged after command")]
     RepositorySnapshotMismatch,
     #[error("expected stale path to be absent before manifest injection: {path}")]
@@ -114,13 +138,19 @@ pub(crate) enum InstallStepError {
         source: std::io::Error,
     },
     #[error(
-        "install context unavailable; install steps must run under explicit @cli scenario dispatch"
+        "install context unavailable; install steps must run under explicit interface-tagged scenario dispatch"
     )]
     InstallContextUnavailable,
     #[error(
         "account harness context unavailable; scenario before-hook dispatch did not initialize"
     )]
     AccountContextUnavailable,
+    #[error("unknown interface witness `{interface}`; expected one of web|api|mcp|cli|tui")]
+    UnknownInterfaceWitness { interface: String },
+    #[error(
+        "interface witness mismatch: scenario runs with `{active}` harness but step asked for `{expected}`"
+    )]
+    InterfaceWitnessMismatch { expected: String, active: String },
 }
 
 pub(crate) type InstallStepResult<T> = Result<T, InstallStepError>;

@@ -55,6 +55,121 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_uninstall_preview_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=ok command=uninstall phase=preview")?;
+        for field in ["remove=", "preserve=", "warning=", "nothing_to_uninstall="] {
+            ensure_stdout_contains(run, field)?;
+        }
+        ensure_stdout_contains(run, "paths remove=[")?;
+        ensure_stdout_contains(run, "preserve=[")?;
+        ensure_stdout_contains(run, "warning=[")?;
+        Ok(())
+    }
+
+    pub(crate) fn assert_uninstall_apply_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=ok command=uninstall phase=apply")?;
+        for field in [
+            "removed_generated=",
+            "removed_metadata=",
+            "nothing_to_uninstall=",
+        ] {
+            ensure_stdout_contains(run, field)?;
+        }
+        ensure_stdout_contains(run, "paths removed_generated=[")?;
+        ensure_stdout_contains(run, "removed_metadata=[")?;
+        Ok(())
+    }
+
+    pub(crate) fn assert_uninstall_preview_has_removals(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let remove_count = parse_status_count(&run.stdout, "remove").ok_or_else(|| {
+            InstallStepError::StdoutMissingExpected {
+                expected: "remove=<count>".to_owned(),
+                stdout: run.stdout.clone(),
+            }
+        })?;
+        if remove_count == 0 {
+            return Err(InstallStepError::UninstallPreviewExpectedRemovals {
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_uninstall_preview_lists_removal_path(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let remove_entries = parse_paths_segment(&run.stdout, "remove").ok_or_else(|| {
+            InstallStepError::StdoutMissingExpected {
+                expected: "paths remove=[...]".to_owned(),
+                stdout: run.stdout.clone(),
+            }
+        })?;
+        let has_path = split_csv(remove_entries)
+            .into_iter()
+            .any(|entry| entry == relative_path.as_str());
+        if !has_path {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!("remove path '{}'", relative_path.as_str()),
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_uninstall_preview_lists_preserved_path(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let preserve_entries = parse_paths_segment(&run.stdout, "preserve").ok_or_else(|| {
+            InstallStepError::StdoutMissingExpected {
+                expected: "paths preserve=[...]".to_owned(),
+                stdout: run.stdout.clone(),
+            }
+        })?;
+        let has_path = split_csv(preserve_entries).into_iter().any(|entry| {
+            entry
+                .split_once(':')
+                .is_some_and(|(path, _reason)| path == relative_path.as_str())
+        });
+        if !has_path {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!("preserve path '{}'", relative_path.as_str()),
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_uninstall_apply_lists_removed_generated_path(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        let removed_entries =
+            parse_paths_segment(&run.stdout, "removed_generated").ok_or_else(|| {
+                InstallStepError::StdoutMissingExpected {
+                    expected: "paths removed_generated=[...]".to_owned(),
+                    stdout: run.stdout.clone(),
+                }
+            })?;
+        let has_path = split_csv(removed_entries)
+            .into_iter()
+            .any(|entry| entry == relative_path.as_str());
+        if !has_path {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!("removed_generated path '{}'", relative_path.as_str()),
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_validation_failure_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         if !run.stderr.contains("error: validation_failed") {
@@ -206,6 +321,14 @@ impl InstallContext {
     pub(crate) fn assert_manifest_rust_cargo_defaults(&self) -> InstallStepResult<()> {
         manifest_helpers::assert_manifest_rust_cargo_defaults(&self.repository_root)
     }
+
+    pub(crate) fn assert_uninstall_removed_generated_assets_and_manifest(
+        &self,
+    ) -> InstallStepResult<()> {
+        manifest_helpers::assert_uninstall_removes_generated_assets_and_manifest(
+            &self.repository_root,
+        )
+    }
 }
 
 fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> InstallStepResult<()> {
@@ -216,4 +339,36 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
         });
     }
     Ok(())
+}
+
+fn parse_status_count(stdout: &str, field: &str) -> Option<usize> {
+    let prefix = format!("{field}=");
+    stdout
+        .lines()
+        .find(|line| line.starts_with("status=ok command=uninstall"))
+        .and_then(|line| {
+            line.split_whitespace()
+                .find_map(|segment| segment.strip_prefix(&prefix))
+        })
+        .and_then(|raw| raw.parse::<usize>().ok())
+}
+
+fn parse_paths_segment<'a>(stdout: &'a str, key: &str) -> Option<&'a str> {
+    let marker = format!("{key}=[");
+    stdout
+        .lines()
+        .find(|line| line.starts_with("paths "))
+        .and_then(|line| {
+            let start = line.find(&marker)?;
+            let remainder = &line[start + marker.len()..];
+            let end = remainder.find(']')?;
+            Some(&remainder[..end])
+        })
+}
+
+fn split_csv(list: &str) -> Vec<&str> {
+    if list.is_empty() {
+        return Vec::new();
+    }
+    list.split(',').filter(|entry| !entry.is_empty()).collect()
 }

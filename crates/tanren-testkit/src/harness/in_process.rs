@@ -4,6 +4,7 @@
 //! PR 11 wires `playwright-bdd`) and `@tui` (until expectrl scraping
 //! is hardened).
 
+use std::ffi::OsString;
 use std::sync::Arc;
 
 use async_trait::async_trait;
@@ -14,8 +15,8 @@ use tanren_identity_policy::Argon2idVerifier;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, CliCommandOutcome, HarnessAcceptance, HarnessError, HarnessInvitation,
+    HarnessKind, HarnessResult, HarnessSession, unsupported_cli_command,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -80,6 +81,13 @@ impl InProcessHarness {
 impl AccountHarness for InProcessHarness {
     fn kind(&self) -> HarnessKind {
         self.kind
+    }
+
+    async fn execute_cli_command(
+        &mut self,
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(unsupported_cli_command(self.kind(), &args))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {

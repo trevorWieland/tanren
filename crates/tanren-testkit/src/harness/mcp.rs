@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::ffi::OsString;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -22,8 +23,8 @@ use tokio::task::JoinHandle;
 
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, CliCommandOutcome, HarnessAcceptance, HarnessError, HarnessInvitation,
+    HarnessKind, HarnessResult, HarnessSession, unsupported_cli_command,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -144,6 +145,13 @@ impl Drop for McpHarness {
 impl AccountHarness for McpHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Mcp
+    }
+
+    async fn execute_cli_command(
+        &mut self,
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(unsupported_cli_command(self.kind(), &args))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {

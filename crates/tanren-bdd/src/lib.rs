@@ -62,6 +62,29 @@ impl TanrenWorld {
             .await
     }
 
+    pub(crate) async fn run_uninstall_preview(&mut self) -> InstallStepResult<()> {
+        self.require_account_ctx()?.run_uninstall_preview().await
+    }
+
+    pub(crate) async fn run_uninstall_apply(&mut self) -> InstallStepResult<()> {
+        self.require_account_ctx()?.run_uninstall_apply().await
+    }
+
+    pub(crate) fn assert_active_harness_interface(
+        &mut self,
+        interface: &str,
+    ) -> InstallStepResult<()> {
+        let expected = parse_interface_harness_kind(interface)?;
+        let active = self.require_account_ctx()?.harness.kind();
+        if expected != active {
+            return Err(InstallStepError::InterfaceWitnessMismatch {
+                expected: expected.as_str().to_owned(),
+                active: active.as_str().to_owned(),
+            });
+        }
+        Ok(())
+    }
+
     fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
         if let Some(error) = self.install_setup_error.take() {
             return Err(error);
@@ -87,10 +110,12 @@ impl TanrenWorld {
             .collect();
         let kind = HarnessKind::from_tags(tags.iter().map(String::as_str));
         let mut ctx = AccountContext::new_for(kind).await;
-        if tags
-            .iter()
-            .any(|tag| tag.strip_prefix('@').unwrap_or(tag) == "cli")
-        {
+        if tags.iter().any(|tag| {
+            matches!(
+                tag.strip_prefix('@').unwrap_or(tag),
+                "api" | "cli" | "mcp" | "tui" | "web"
+            )
+        }) {
             ctx.install = Some(InstallContext::new()?);
         }
         self.account = Some(ctx);
@@ -116,7 +141,7 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
-    /// Install-flow fixture state for CLI-tagged scenarios.
+    /// Install/uninstall fixture state for interface-tagged scenarios.
     pub(crate) install: Option<InstallContext>,
 }
 
@@ -197,6 +222,22 @@ impl AccountContext {
             .run_install(self.harness.as_mut(), profile, integrations)
             .await
     }
+
+    async fn run_uninstall_preview(&mut self) -> InstallStepResult<()> {
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install.run_uninstall_preview(self.harness.as_mut()).await
+    }
+
+    async fn run_uninstall_apply(&mut self) -> InstallStepResult<()> {
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install.run_uninstall_apply(self.harness.as_mut()).await
+    }
 }
 
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
@@ -206,6 +247,19 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
         HarnessOutcome::AcceptedInvitation(_) => "AcceptedInvitation",
         HarnessOutcome::Failure(_) => "Failure",
         HarnessOutcome::Other(_) => "Other",
+    }
+}
+
+fn parse_interface_harness_kind(interface: &str) -> InstallStepResult<HarnessKind> {
+    match interface {
+        "web" => Ok(HarnessKind::Web),
+        "api" => Ok(HarnessKind::Api),
+        "mcp" => Ok(HarnessKind::Mcp),
+        "cli" => Ok(HarnessKind::Cli),
+        "tui" => Ok(HarnessKind::Tui),
+        _ => Err(InstallStepError::UnknownInterfaceWitness {
+            interface: interface.to_owned(),
+        }),
     }
 }
 

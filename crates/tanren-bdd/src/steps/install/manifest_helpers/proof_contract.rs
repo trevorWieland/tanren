@@ -5,6 +5,7 @@ use tanren_testkit::{
     assert_rust_cargo_default_assets_installed as contract_assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed as contract_assert_rust_cargo_standards_installed,
     assert_selected_integration_command_assets as contract_assert_selected_integration_command_assets,
+    assert_uninstall_removes_generated_assets_and_manifest as contract_assert_uninstall_removes_generated_assets_and_manifest,
 };
 
 use crate::steps::install::InstallStepError;
@@ -35,5 +36,12 @@ pub(crate) fn assert_manifest_rust_cargo_defaults(
     repository_root: &Path,
 ) -> Result<(), InstallStepError> {
     contract_assert_manifest_rust_cargo_defaults(repository_root)
+        .map_err(|source| InstallStepError::InstallProofFailure { source })
+}
+
+pub(crate) fn assert_uninstall_removes_generated_assets_and_manifest(
+    repository_root: &Path,
+) -> Result<(), InstallStepError> {
+    contract_assert_uninstall_removes_generated_assets_and_manifest(repository_root)
         .map_err(|source| InstallStepError::InstallProofFailure { source })
 }

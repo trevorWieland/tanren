@@ -7,10 +7,54 @@ use crate::steps::install::{
     InstallStepResult, RepositoryRelativePath, read_workspace_catalog_file,
 };
 
+const DEFAULT_UNINSTALL_USER_SPEC_PATH: &str = "docs/behaviors/user-uninstall-notes.md";
+const DEFAULT_UNINSTALL_USER_SOURCE_PATH: &str =
+    "crates/tanren-cli-app/src/user_uninstall_notes.rs";
+const DEFAULT_UNINSTALL_STANDARDS_PATH: &str =
+    "profiles/rust-cargo/global/dependency-management.md";
+
 #[given(expr = "a clean repository fixture")]
 #[given(expr = "a clean install repository fixture")]
 fn given_clean_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<()> {
     world.reset_install_ctx()
+}
+
+#[given(expr = "an installed repository fixture")]
+async fn given_installed_repository_fixture(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    world.reset_install_ctx()?;
+    world.run_install("rust-cargo", None).await?;
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_success()
+}
+
+#[given(expr = "a repository with Tanren-managed assets")]
+async fn given_repository_with_tanren_managed_assets(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    given_installed_repository_fixture(world).await
+}
+
+#[given(expr = "a repository with Tanren-managed assets and user-owned files")]
+async fn given_repository_with_tanren_managed_assets_and_user_owned_files(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    given_installed_repository_fixture(world).await?;
+    let ctx = world.ensure_install_ctx()?;
+    let spec_path = RepositoryRelativePath::parse(DEFAULT_UNINSTALL_USER_SPEC_PATH.to_owned())?;
+    let source_path = RepositoryRelativePath::parse(DEFAULT_UNINSTALL_USER_SOURCE_PATH.to_owned())?;
+    let standards_path =
+        RepositoryRelativePath::parse(DEFAULT_UNINSTALL_STANDARDS_PATH.to_owned())?;
+
+    ctx.write_fixture_file(&spec_path, "team-owned spec evidence".to_owned())?;
+    ctx.record_baseline(spec_path)?;
+    ctx.write_fixture_file(&source_path, "team-owned source evidence".to_owned())?;
+    ctx.record_baseline(source_path)?;
+    ctx.write_fixture_file(
+        &standards_path,
+        "custom standards baseline for uninstall witness".to_owned(),
+    )?;
+    ctx.record_baseline(standards_path)?;
+    Ok(())
 }
 
 #[given(expr = "repository file {string} contains {string}")]
@@ -22,6 +66,33 @@ fn given_repository_file_contains(
     let ctx = world.ensure_install_ctx()?;
     let relative_path = RepositoryRelativePath::parse(path)?;
     ctx.write_fixture_file(&relative_path, content)
+}
+
+#[given(expr = "user-owned spec file {string} contains {string}")]
+fn given_user_owned_spec_file_contains(
+    world: &mut TanrenWorld,
+    path: String,
+    content: String,
+) -> InstallStepResult<()> {
+    given_repository_file_contains(world, path, content)
+}
+
+#[given(expr = "user-owned source file {string} contains {string}")]
+fn given_user_owned_source_file_contains(
+    world: &mut TanrenWorld,
+    path: String,
+    content: String,
+) -> InstallStepResult<()> {
+    given_repository_file_contains(world, path, content)
+}
+
+#[given(expr = "standards file {string} contains {string}")]
+fn given_standards_file_contains(
+    world: &mut TanrenWorld,
+    path: String,
+    content: String,
+) -> InstallStepResult<()> {
+    given_repository_file_contains(world, path, content)
 }
 
 #[given(expr = "repository file {string} is seeded from workspace catalog")]
@@ -119,6 +190,27 @@ async fn when_install_runs_with_profile_and_integrations(
         .await
 }
 
+#[when(expr = "tanren-cli uninstall preview runs without confirmation")]
+async fn when_uninstall_preview_runs_without_confirmation(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    world.run_uninstall_preview().await
+}
+
+#[when(expr = "tanren-cli uninstall runs with confirmation")]
+async fn when_uninstall_runs_with_confirmation(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    world.run_uninstall_apply().await
+}
+
+#[when(expr = "uninstall preview runs through the {word} interface")]
+async fn when_uninstall_preview_runs_through_interface(
+    world: &mut TanrenWorld,
+    interface: String,
+) -> InstallStepResult<()> {
+    world.assert_active_harness_interface(interface.as_str())?;
+    world.run_uninstall_preview().await
+}
+
 #[then(expr = "the install command succeeds")]
 #[then(expr = "install command succeeds")]
 fn then_install_command_succeeds(world: &mut TanrenWorld) -> InstallStepResult<()> {
@@ -133,12 +225,104 @@ fn then_install_command_exits_nonzero(world: &mut TanrenWorld) -> InstallStepRes
     ctx.assert_nonzero()
 }
 
+#[then(expr = "the uninstall command succeeds")]
+fn then_uninstall_command_succeeds(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_success()
+}
+
 #[then(
     expr = "the install output reports created, updated, removed, restored, and preserved summaries"
 )]
 fn then_install_output_reports_summaries(world: &mut TanrenWorld) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_summary_output()
+}
+
+#[then(expr = "the uninstall preview output reports remove, preserve, and warning path lists")]
+fn then_uninstall_preview_output_reports_summary(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_uninstall_preview_output()
+}
+
+#[then(expr = "the uninstall apply output reports removed generated and metadata summaries")]
+fn then_uninstall_apply_output_reports_summary(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_uninstall_apply_output()
+}
+
+#[then(expr = "the uninstall preview lists removable path {string}")]
+fn then_uninstall_preview_lists_removable_path(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    ctx.assert_uninstall_preview_lists_removal_path(&relative_path)
+}
+
+#[then(expr = "the uninstall preview lists preserved path {string}")]
+fn then_uninstall_preview_lists_preserved_path(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    ctx.assert_uninstall_preview_lists_preserved_path(&relative_path)
+}
+
+#[then(expr = "the uninstall apply output lists removed generated path {string}")]
+fn then_uninstall_apply_lists_removed_generated_path(
+    world: &mut TanrenWorld,
+    path: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    ctx.assert_uninstall_apply_lists_removed_generated_path(&relative_path)
+}
+
+#[then(expr = "the uninstall preview includes at least one removable Tanren-managed path")]
+fn then_uninstall_preview_includes_removable_path(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_uninstall_preview_has_removals()
+}
+
+#[then(expr = "the preview includes at least one removable Tanren-managed path")]
+fn then_preview_includes_removable_path(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    then_uninstall_preview_includes_removable_path(world)
+}
+
+#[then(expr = "the uninstall preview preserves user-owned files")]
+fn then_uninstall_preview_preserves_user_owned_files(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_no_writes_since_last_run()?;
+    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(
+        DEFAULT_UNINSTALL_USER_SPEC_PATH.to_owned(),
+    )?)?;
+    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(
+        DEFAULT_UNINSTALL_USER_SOURCE_PATH.to_owned(),
+    )?)?;
+    ctx.assert_file_content_preserved(&RepositoryRelativePath::parse(
+        DEFAULT_UNINSTALL_STANDARDS_PATH.to_owned(),
+    )?)?;
+    Ok(())
+}
+
+#[then(expr = "the preview preserves user-owned files")]
+fn then_preview_preserves_user_owned_files(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    then_uninstall_preview_preserves_user_owned_files(world)
+}
+
+#[then(expr = "the uninstall apply removes generated assets and install metadata")]
+fn then_uninstall_apply_removes_generated_assets_and_manifest(
+    world: &mut TanrenWorld,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_uninstall_removed_generated_assets_and_manifest()
 }
 
 #[then(expr = "rust-cargo defaults install all methodology command assets and standards files")]

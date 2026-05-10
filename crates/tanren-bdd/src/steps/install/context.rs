@@ -43,7 +43,6 @@ impl InstallContext {
         profile: &str,
         integrations: Option<&str>,
     ) -> InstallStepResult<()> {
-        let before = RepositorySnapshot::capture(&self.repository_root)?;
         let mut args = vec![
             OsString::from("install"),
             OsString::from("--repo"),
@@ -55,10 +54,71 @@ impl InstallContext {
             args.push(OsString::from("--integrations"));
             args.push(OsString::from(selected));
         }
-        let outcome = harness
-            .execute_cli_command(args)
+        self.run_cli_command(harness, args, InstallCommandKind::Install)
             .await
-            .map_err(|source| InstallStepError::RunInstallCommand { source })?;
+    }
+
+    pub(crate) async fn run_uninstall_preview(
+        &mut self,
+        harness: &mut dyn AccountHarness,
+    ) -> InstallStepResult<()> {
+        let args = vec![
+            OsString::from("uninstall"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+        ];
+        self.run_cli_command(harness, args, InstallCommandKind::UninstallPreview)
+            .await
+    }
+
+    pub(crate) async fn run_uninstall_apply(
+        &mut self,
+        harness: &mut dyn AccountHarness,
+    ) -> InstallStepResult<()> {
+        let args = vec![
+            OsString::from("uninstall"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+            OsString::from("--confirm"),
+        ];
+        self.run_cli_command(harness, args, InstallCommandKind::UninstallApply)
+            .await
+    }
+
+    async fn run_cli_command(
+        &mut self,
+        harness: &mut dyn AccountHarness,
+        args: Vec<OsString>,
+        command_kind: InstallCommandKind,
+    ) -> InstallStepResult<()> {
+        let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let harness_name = harness.kind().as_str().to_owned();
+        let rendered_args = render_cli_args(&args);
+        let outcome =
+            harness
+                .execute_cli_command(args)
+                .await
+                .map_err(|source| match command_kind {
+                    InstallCommandKind::Install => InstallStepError::RunInstallCommand {
+                        harness: harness_name.clone(),
+                        args: rendered_args.clone(),
+                        source,
+                    },
+                    InstallCommandKind::UninstallPreview => {
+                        InstallStepError::RunUninstallPreviewCommand {
+                            harness: harness_name.clone(),
+                            args: rendered_args.clone(),
+                            source,
+                        }
+                    }
+                    InstallCommandKind::UninstallApply => {
+                        InstallStepError::RunUninstallApplyCommand {
+                            harness: harness_name.clone(),
+                            args: rendered_args.clone(),
+                            source,
+                        }
+                    }
+                })?;
         self.snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
         Ok(())
@@ -77,3 +137,17 @@ impl InstallContext {
 }
 
 pub(super) type InstallCommandOutcome = CliCommandOutcome;
+
+#[derive(Debug, Clone, Copy)]
+enum InstallCommandKind {
+    Install,
+    UninstallPreview,
+    UninstallApply,
+}
+
+fn render_cli_args(args: &[OsString]) -> String {
+    args.iter()
+        .map(|arg| arg.to_string_lossy().into_owned())
+        .collect::<Vec<_>>()
+        .join(" ")
+}

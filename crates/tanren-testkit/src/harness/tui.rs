@@ -16,13 +16,14 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
+use std::ffi::OsString;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    AccountHarness, CliCommandOutcome, HarnessAcceptance, HarnessInvitation, HarnessKind,
+    HarnessResult, HarnessSession, unsupported_cli_command,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -50,6 +51,13 @@ impl TuiHarness {
 impl AccountHarness for TuiHarness {
     fn kind(&self) -> HarnessKind {
         HarnessKind::Tui
+    }
+
+    async fn execute_cli_command(
+        &mut self,
+        args: Vec<OsString>,
+    ) -> HarnessResult<CliCommandOutcome> {
+        Err(unsupported_cli_command(self.kind(), &args))
     }
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
