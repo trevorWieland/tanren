@@ -87,6 +87,15 @@ impl UninstallWarning {
     }
 }
 
+/// Why uninstall preview has nothing scheduled for removal.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UninstallNothingReason {
+    /// No prior install manifest exists in the repository.
+    ManifestMissing,
+    /// Manifest entries were present, but none qualified for removal.
+    NoRemovalCandidates,
+}
+
 /// Non-mutating uninstall preview grouped into deterministic outcome buckets.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct UninstallPreview {
@@ -94,6 +103,7 @@ pub struct UninstallPreview {
     preserve: Vec<UninstallPreservedPath>,
     warning: Vec<UninstallWarning>,
     nothing_to_uninstall: bool,
+    nothing_reason: Option<UninstallNothingReason>,
 }
 
 impl UninstallPreview {
@@ -119,6 +129,12 @@ impl UninstallPreview {
     #[must_use]
     pub const fn nothing_to_uninstall(&self) -> bool {
         self.nothing_to_uninstall
+    }
+
+    /// Typed no-op reason when no uninstall removals are scheduled.
+    #[must_use]
+    pub const fn nothing_reason(&self) -> Option<UninstallNothingReason> {
+        self.nothing_reason
     }
 }
 
@@ -162,6 +178,7 @@ fn manifest_missing_preview() -> UninstallPreview {
             path: None,
         }],
         nothing_to_uninstall: true,
+        nothing_reason: Some(UninstallNothingReason::ManifestMissing),
     }
 }
 
@@ -190,12 +207,19 @@ impl PreviewOutcomes {
 
     fn finish(mut self) -> UninstallPreview {
         self.remove.sort();
+        self.remove.dedup();
         self.preserve.sort();
         self.preserve.dedup();
         self.warning.sort();
         self.warning.dedup();
+        let nothing_to_uninstall = self.remove.is_empty();
         UninstallPreview {
-            nothing_to_uninstall: self.remove.is_empty(),
+            nothing_reason: if nothing_to_uninstall {
+                Some(UninstallNothingReason::NoRemovalCandidates)
+            } else {
+                None
+            },
+            nothing_to_uninstall,
             remove: self.remove,
             preserve: self.preserve,
             warning: self.warning,
@@ -265,6 +289,16 @@ fn plan_manifest_entry<'a>(
         RemovalCandidateState::PreserveAsContentDrifted => {
             outcomes.preserve(entry.path.clone(), UninstallPreserveReason::ContentDrifted);
             outcomes.warn(UninstallWarningKind::ContentDrifted, entry.path.clone());
+        }
+        RemovalCandidateState::PreserveAsUnsafeRepositoryPath => {
+            outcomes.preserve(
+                entry.path.clone(),
+                UninstallPreserveReason::UnsafeRepositoryPath,
+            );
+            outcomes.warn(
+                UninstallWarningKind::UnsafeRepositoryPath,
+                entry.path.clone(),
+            );
         }
     }
     Ok(())
@@ -359,6 +393,7 @@ fn hash_matches_manifest(
 enum RemovalCandidateState {
     Remove,
     PreserveAsContentDrifted,
+    PreserveAsUnsafeRepositoryPath,
 }
 
 fn classify_removal_candidate(
@@ -366,10 +401,13 @@ fn classify_removal_candidate(
     display_path: &str,
     expected_hash: &Sha256Hex,
 ) -> Result<RemovalCandidateState, InstallError> {
-    let metadata = fs::metadata(path).map_err(|err| InstallError::ReadFailure {
+    let metadata = fs::symlink_metadata(path).map_err(|err| InstallError::ReadFailure {
         path: display_path.to_owned(),
         message: err.to_string(),
     })?;
+    if metadata.file_type().is_symlink() {
+        return Ok(RemovalCandidateState::PreserveAsUnsafeRepositoryPath);
+    }
     if !metadata.is_file() {
         return Ok(RemovalCandidateState::PreserveAsContentDrifted);
     }

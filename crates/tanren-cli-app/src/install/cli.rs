@@ -8,8 +8,9 @@ use clap::Args;
 use crate::install::error::InstallCommandError;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::{
-    InstallReport, UninstallApplyReport, UninstallPreserveReason, UninstallPreview,
-    UninstallWarning, UninstallWarningKind, apply_install, apply_uninstall, plan_uninstall,
+    InstallReport, UninstallApplyReport, UninstallNothingReason, UninstallPreserveReason,
+    UninstallPreview, UninstallWarning, UninstallWarningKind, apply_install, apply_uninstall,
+    plan_uninstall,
 };
 
 /// `tanren-cli install` arguments.
@@ -209,13 +210,8 @@ fn uninstall_nothing_reason(preview: &UninstallPreview) -> &'static str {
         return "not_empty";
     }
 
-    if preview
-        .warning()
-        .iter()
-        .any(|warning| warning.kind() == UninstallWarningKind::ManifestMissing)
-    {
-        return "manifest_missing";
+    match preview.nothing_reason() {
+        Some(UninstallNothingReason::ManifestMissing) => "manifest_missing",
+        Some(UninstallNothingReason::NoRemovalCandidates) | None => "no_removal_candidates",
     }
-
-    "no_removal_candidates"
 }

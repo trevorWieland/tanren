@@ -31,8 +31,8 @@ pub const INSTALL_MANIFEST_REPO_PATH: &str = manifest::INSTALL_MANIFEST_REPO_PAT
 pub const INSTALL_MANIFEST_VERSION: u32 = manifest::INSTALL_MANIFEST_VERSION;
 pub use plan::InstallPlan;
 pub use uninstall_plan::{
-    UninstallPreserveReason, UninstallPreservedPath, UninstallPreview, UninstallWarning,
-    UninstallWarningKind,
+    UninstallNothingReason, UninstallPreserveReason, UninstallPreservedPath, UninstallPreview,
+    UninstallWarning, UninstallWarningKind,
 };
 pub use writer::{InstallReport, UninstallApplyReport};
 
