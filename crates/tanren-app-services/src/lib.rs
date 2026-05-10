@@ -8,6 +8,7 @@
 pub mod account;
 pub mod events;
 pub mod project;
+mod project_command_reservations;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};

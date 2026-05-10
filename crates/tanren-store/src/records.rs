@@ -173,6 +173,61 @@ impl TryFrom<entity::project_repositories::Model> for ProjectRepositoryRecord {
     }
 }
 
+/// Persisted project-command reservation row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectCommandReservationRecord {
+    /// Account that owns the command key.
+    pub owning_account_id: AccountId,
+    /// Source-control provider family for this key.
+    pub provider_family: ProviderFamily,
+    /// Canonical repository identity (`owner/name`) for this key.
+    pub repository_ref: RepositoryRef,
+    /// Reservation status (`pending`, `succeeded`, `failed`).
+    pub status: String,
+    /// Active reservation attempt id, when status is `pending`.
+    pub active_reservation_id: Option<ProjectId>,
+    /// Timestamp when the active reservation was acquired.
+    pub reserved_at: Option<DateTime<Utc>>,
+    /// Lease-expiration timestamp for pending reservations.
+    pub lease_expires_at: Option<DateTime<Utc>>,
+    /// Consecutive failed-attempt counter.
+    pub failure_count: i32,
+    /// Optional temporary backoff-until timestamp.
+    pub blocked_until: Option<DateTime<Utc>>,
+    /// Row creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last row update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::project_command_reservations::Model> for ProjectCommandReservationRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::project_command_reservations::Model) -> Result<Self, Self::Error> {
+        let provider_family = parse_db_provider_family(&model.provider_family)?;
+        let repository_ref = parse_db_repository_ref(&model.repository_ref)?;
+        let active_reservation_id = model
+            .active_reservation_id
+            .map(|value| {
+                parse_db_project_id(value, "project_command_reservations.active_reservation_id")
+            })
+            .transpose()?;
+        Ok(Self {
+            owning_account_id: AccountId::new(model.owning_account_id),
+            provider_family,
+            repository_ref,
+            status: model.status,
+            active_reservation_id,
+            reserved_at: model.reserved_at,
+            lease_expires_at: model.lease_expires_at,
+            failure_count: model.failure_count,
+            blocked_until: model.blocked_until,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
 /// Persisted session row — issued by `tanren-app-services` on
 /// successful sign-up / sign-in / invitation acceptance.
 ///

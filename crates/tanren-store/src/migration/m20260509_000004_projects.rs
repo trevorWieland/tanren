@@ -18,10 +18,13 @@ pub(super) struct Migration;
 const REPOSITORY_REF_MAX_LEN: u32 = 140;
 const PROVIDER_FAMILY_MAX_LEN: u32 = 48;
 const DESIGNATED_HOST_MAX_LEN: u32 = 253;
+const RESERVATION_STATUS_MAX_LEN: u32 = 24;
 const PROJECTS_LIST_INDEX: &str = "idx_projects_list_by_account";
 const PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX: &str =
     "idx_project_repositories_owning_account_project";
 const PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX: &str = "idx_projects_single_active_per_account";
+const PROJECT_COMMAND_RESERVATIONS_BLOCKED_LOOKUP_INDEX: &str =
+    "idx_project_command_reservations_blocked_lookup";
 
 impl std::fmt::Debug for Migration {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -34,12 +37,22 @@ impl MigrationTrait for Migration {
     async fn up(&self, manager: &SchemaManager) -> Result<(), DbErr> {
         create_projects_table(manager).await?;
         create_project_repositories_table(manager).await?;
+        create_project_command_reservations_table(manager).await?;
         create_project_indexes(manager).await?;
 
         Ok(())
     }
 
     async fn down(&self, manager: &SchemaManager) -> Result<(), DbErr> {
+        manager
+            .drop_index(
+                Index::drop()
+                    .name(PROJECT_COMMAND_RESERVATIONS_BLOCKED_LOOKUP_INDEX)
+                    .table(ProjectCommandReservations::Table)
+                    .to_owned(),
+            )
+            .await?;
+
         manager
             .drop_index(
                 Index::drop()
@@ -70,6 +83,13 @@ impl MigrationTrait for Migration {
 
         manager
             .drop_table(Table::drop().table(ProjectRepositories::Table).to_owned())
+            .await?;
+        manager
+            .drop_table(
+                Table::drop()
+                    .table(ProjectCommandReservations::Table)
+                    .to_owned(),
+            )
             .await?;
 
         manager
@@ -169,6 +189,85 @@ async fn create_project_repositories_table(manager: &SchemaManager<'_>) -> Resul
         .await
 }
 
+async fn create_project_command_reservations_table(
+    manager: &SchemaManager<'_>,
+) -> Result<(), DbErr> {
+    manager
+        .create_table(
+            Table::create()
+                .table(ProjectCommandReservations::Table)
+                .if_not_exists()
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::OwningAccountId)
+                        .uuid()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::ProviderFamily)
+                        .string_len(PROVIDER_FAMILY_MAX_LEN)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::RepositoryRef)
+                        .string_len(REPOSITORY_REF_MAX_LEN)
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::Status)
+                        .string_len(RESERVATION_STATUS_MAX_LEN)
+                        .not_null(),
+                )
+                .col(ColumnDef::new(ProjectCommandReservations::ActiveReservationId).uuid())
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::ReservedAt)
+                        .timestamp_with_time_zone(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::LeaseExpiresAt)
+                        .timestamp_with_time_zone(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::FailureCount)
+                        .integer()
+                        .not_null()
+                        .default(0),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::BlockedUntil)
+                        .timestamp_with_time_zone(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::CreatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .col(
+                    ColumnDef::new(ProjectCommandReservations::UpdatedAt)
+                        .timestamp_with_time_zone()
+                        .not_null(),
+                )
+                .primary_key(
+                    Index::create()
+                        .col(ProjectCommandReservations::OwningAccountId)
+                        .col(ProjectCommandReservations::ProviderFamily)
+                        .col(ProjectCommandReservations::RepositoryRef),
+                )
+                .foreign_key(
+                    ForeignKey::create()
+                        .name("fk_project_command_reservations_owning_account")
+                        .from(
+                            ProjectCommandReservations::Table,
+                            ProjectCommandReservations::OwningAccountId,
+                        )
+                        .to(Accounts::Table, Accounts::Id)
+                        .on_delete(ForeignKeyAction::Cascade)
+                        .on_update(ForeignKeyAction::Cascade),
+                )
+                .to_owned(),
+        )
+        .await
+}
+
 async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
     create_projects_list_index(manager).await?;
 
@@ -192,6 +291,16 @@ async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr
                 .table(ProjectRepositories::Table)
                 .col(ProjectRepositories::OwningAccountId)
                 .col(ProjectRepositories::ProjectId)
+                .to_owned(),
+        )
+        .await?;
+
+    manager
+        .create_index(
+            Index::create()
+                .name(PROJECT_COMMAND_RESERVATIONS_BLOCKED_LOOKUP_INDEX)
+                .table(ProjectCommandReservations::Table)
+                .col(ProjectCommandReservations::BlockedUntil)
                 .to_owned(),
         )
         .await?;
@@ -278,4 +387,20 @@ enum ProjectRepositories {
     ProviderFamily,
     DesignatedHost,
     CreatedAt,
+}
+
+#[derive(DeriveIden)]
+enum ProjectCommandReservations {
+    Table,
+    OwningAccountId,
+    ProviderFamily,
+    RepositoryRef,
+    Status,
+    ActiveReservationId,
+    ReservedAt,
+    LeaseExpiresAt,
+    FailureCount,
+    BlockedUntil,
+    CreatedAt,
+    UpdatedAt,
 }

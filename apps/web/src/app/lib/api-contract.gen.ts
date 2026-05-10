@@ -337,6 +337,8 @@ export interface components {
     ProjectFailureCode:
       | "auth_required"
       | "duplicate_repository"
+      | "in_flight"
+      | "rate_limited"
       | "no_access"
       | "validation_failed"
       | "provider_unavailable"
@@ -763,6 +765,15 @@ export interface operations {
           "application/json": components["schemas"]["ProjectFailureBody"];
         };
       };
+      /** @description rate_limited */
+      429: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectFailureBody"];
+        };
+      };
       /** @description provider_failure */
       502: {
         headers: {
@@ -828,6 +839,15 @@ export interface operations {
       };
       /** @description duplicate_repository */
       409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ProjectFailureBody"];
+        };
+      };
+      /** @description rate_limited */
+      429: {
         headers: {
           [name: string]: unknown;
         };

@@ -288,6 +288,10 @@ pub enum ProjectFailureReason {
     AuthRequired,
     /// A project already exists for this repository in the owning account.
     DuplicateRepository,
+    /// Another identical command is already in progress.
+    InFlight,
+    /// Command retries were throttled due to repeated failures.
+    RateLimited,
     /// The actor does not have access to the requested account or repository.
     NoAccess,
     /// User-supplied input failed contract-level validation.
@@ -304,6 +308,8 @@ pub enum ProjectFailureReason {
 pub enum ProjectFailureCode {
     AuthRequired,
     DuplicateRepository,
+    InFlight,
+    RateLimited,
     NoAccess,
     ValidationFailed,
     ProviderUnavailable,
@@ -316,6 +322,8 @@ impl From<ProjectFailureReason> for ProjectFailureCode {
         match reason {
             ProjectFailureReason::AuthRequired => Self::AuthRequired,
             ProjectFailureReason::DuplicateRepository => Self::DuplicateRepository,
+            ProjectFailureReason::InFlight => Self::InFlight,
+            ProjectFailureReason::RateLimited => Self::RateLimited,
             ProjectFailureReason::NoAccess => Self::NoAccess,
             ProjectFailureReason::ValidationFailed => Self::ValidationFailed,
             ProjectFailureReason::ProviderUnavailable => Self::ProviderUnavailable,
@@ -331,6 +339,8 @@ impl ProjectFailureReason {
         match self {
             Self::AuthRequired => "auth_required",
             Self::DuplicateRepository => "duplicate_repository",
+            Self::InFlight => "in_flight",
+            Self::RateLimited => "rate_limited",
             Self::NoAccess => "no_access",
             Self::ValidationFailed => "validation_failed",
             Self::ProviderUnavailable => "provider_unavailable",
@@ -345,6 +355,12 @@ impl ProjectFailureReason {
             Self::AuthRequired => "Authentication is required or the session is missing/expired.",
             Self::DuplicateRepository => {
                 "A project for the supplied repository already exists in this account."
+            }
+            Self::InFlight => {
+                "A matching project command is already running. Retry once it completes."
+            }
+            Self::RateLimited => {
+                "Project commands for this repository are temporarily rate-limited."
             }
             Self::NoAccess => "The requested account, host, or repository is not accessible.",
             Self::ValidationFailed => {
@@ -364,7 +380,8 @@ impl ProjectFailureReason {
     pub const fn http_status(self) -> u16 {
         match self {
             Self::AuthRequired => 401,
-            Self::DuplicateRepository => 409,
+            Self::DuplicateRepository | Self::InFlight => 409,
+            Self::RateLimited => 429,
             Self::NoAccess => 403,
             Self::ValidationFailed => 400,
             Self::ProviderUnavailable => 503,

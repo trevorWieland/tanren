@@ -155,7 +155,7 @@ impl TanrenMcp {
     /// Connect an existing repository as a project.
     #[rmcp::tool(
         name = "project.connect_repository",
-        description = "Connect an existing repository as a Tanren project. Failure codes: duplicate_repository, no_access, validation_failed, provider_unavailable, provider_failure."
+        description = "Connect an existing repository as a Tanren project. Failure codes: duplicate_repository, in_flight, rate_limited, no_access, validation_failed, provider_unavailable, provider_failure."
     )]
     async fn project_connect_repository(
         &self,
@@ -186,7 +186,7 @@ impl TanrenMcp {
     /// Create a project by creating a repository at a designated host first.
     #[rmcp::tool(
         name = "project.create",
-        description = "Create a repository at a designated host and register it as a Tanren project. Failure codes: duplicate_repository, no_access, validation_failed, provider_unavailable, provider_failure."
+        description = "Create a repository at a designated host and register it as a Tanren project. Failure codes: duplicate_repository, in_flight, rate_limited, no_access, validation_failed, provider_unavailable, provider_failure."
     )]
     async fn project_create(
         &self,

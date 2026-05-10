@@ -307,6 +307,32 @@ pub enum ProjectStoreError {
     Store(#[from] StoreError),
 }
 
+/// Durable idempotency reservation for project create/connect commands.
+#[derive(Debug, Clone)]
+pub struct ProjectCommandReservation {
+    /// Reservation attempt id used for compare-and-finalize ownership checks.
+    pub reservation_id: ProjectId,
+    /// Account that owns the target project command.
+    pub owning_account_id: AccountId,
+    /// Provider family for the command's repository key.
+    pub provider_family: ProviderFamily,
+    /// Canonical repository identity (`owner/name`) for this command key.
+    pub repository_ref: RepositoryRef,
+}
+
+/// Result of trying to reserve an account/repository project command key.
+#[derive(Debug, Clone)]
+pub enum ProjectCommandReservationResult {
+    /// Caller owns the reservation and can proceed.
+    Acquired(ProjectCommandReservation),
+    /// A completed reservation already exists for this command key.
+    DuplicateRepository,
+    /// Another command currently owns an in-flight reservation.
+    InFlight,
+    /// Command attempts for this key are temporarily rate-limited.
+    RateLimited,
+}
+
 /// Failure taxonomy for active-project selection.
 #[derive(Debug, thiserror::Error)]
 pub enum SetActiveProjectError {
@@ -352,6 +378,32 @@ pub struct ProjectListPage {
 pub trait ProjectStore: Send + Sync + std::fmt::Debug {
     /// Return whether an account id exists.
     async fn account_exists(&self, account_id: AccountId) -> Result<bool, StoreError>;
+
+    /// Create or reuse a durable reservation for project create/connect
+    /// commands keyed by account + provider + repository.
+    async fn reserve_project_command(
+        &self,
+        owning_account_id: AccountId,
+        provider_family: &ProviderFamily,
+        repository_ref: &RepositoryRef,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectCommandReservationResult, StoreError>;
+
+    /// Finalize a previously acquired reservation after successful command
+    /// completion.
+    async fn finalize_project_command_reservation(
+        &self,
+        reservation: &ProjectCommandReservation,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// Mark a previously acquired reservation failed after command rejection or
+    /// internal failure.
+    async fn fail_project_command_reservation(
+        &self,
+        reservation: &ProjectCommandReservation,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
 
     /// Insert a project row.
     async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError>;

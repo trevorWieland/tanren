@@ -6,6 +6,7 @@ const ACCOUNTS_IDENTIFIER_UNIQUE_CONSTRAINT: &str = "accounts_identifier_key";
 const PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX: &str = "idx_projects_single_active_per_account";
 const PROJECT_REPOSITORIES_OWNING_ACCOUNT_REPO_UNIQUE_INDEX: &str =
     "idx_project_repositories_owning_account_repo_unique";
+const PROJECT_COMMAND_RESERVATIONS_PRIMARY_KEY: &str = "project_command_reservations_pkey";
 
 /// Structured metadata for a unique-constraint failure.
 #[derive(Debug, Clone, Copy)]
@@ -90,6 +91,16 @@ pub(crate) fn is_projects_single_active_unique_conflict(err: &DbErr) -> bool {
             err,
             "projects",
             &["owning_account_id", "active_selection_guard"],
+        )
+}
+
+/// Project-command reservation key conflict classifier.
+pub(crate) fn is_project_command_reservation_unique_conflict(err: &DbErr) -> bool {
+    unique_violation_matches_named_constraint(err, PROJECT_COMMAND_RESERVATIONS_PRIMARY_KEY)
+        || unique_violation_matches_table_columns(
+            err,
+            "project_command_reservations",
+            &["owning_account_id", "provider_family", "repository_ref"],
         )
 }
 

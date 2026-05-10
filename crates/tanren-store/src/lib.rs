@@ -11,20 +11,23 @@ mod accept_invitation;
 mod db_constraints;
 mod entity;
 mod migration;
+mod project_reservations;
 mod project_store;
+mod project_store_helpers;
 mod records;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, NewProject,
-    NewProjectRepository, ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord,
-    SessionRecord,
+    NewProjectRepository, ProjectCommandReservationRecord, ProjectRecord, ProjectRepositoryRecord,
+    ProjectSetupRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, ProjectListCursor, ProjectListPage, ProjectStore,
+    ConsumeInvitationError, ConsumedInvitation, ProjectCommandReservation,
+    ProjectCommandReservationResult, ProjectListCursor, ProjectListPage, ProjectStore,
     ProjectStoreError, SetActiveProjectError,
 };
 

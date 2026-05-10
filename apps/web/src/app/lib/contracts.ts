@@ -74,6 +74,8 @@ export type ApiProjectFailureCode = components["schemas"]["ProjectFailureCode"];
 export const projectFailureCodes = [
   "auth_required",
   "duplicate_repository",
+  "in_flight",
+  "rate_limited",
   "no_access",
   "validation_failed",
   "provider_unavailable",

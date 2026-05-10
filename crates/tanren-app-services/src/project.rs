@@ -19,6 +19,7 @@ use tanren_store::{
     ProjectSetupRecord, ProjectStore, ProjectStoreError,
 };
 
+use crate::project_command_reservations::{complete_or_fail_reservation, reserve_project_command};
 use crate::{AppServiceError, Clock};
 
 /// Command envelope for connecting an existing repository.
@@ -75,14 +76,37 @@ where
     .await?;
 
     let provider_family = provider.family();
-    ensure_repository_not_registered(
+    let reservation = reserve_project_command(
         store,
         command.request.owning_account_id,
         &provider_family,
         &command.request.repository,
+        clock.now(),
     )
     .await?;
 
+    let result = connect_existing_repository_with_reservation(
+        store,
+        provider,
+        clock,
+        command,
+        provider_family,
+    )
+    .await;
+    complete_or_fail_reservation(store, &reservation, clock, result).await
+}
+
+async fn connect_existing_repository_with_reservation<S, P>(
+    store: &S,
+    provider: &P,
+    clock: &Clock,
+    command: ConnectExistingRepositoryCommand,
+    provider_family: ProviderFamily,
+) -> Result<ConnectProjectRepositoryResponse, AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+    P: SourceControlProvider + ?Sized,
+{
     provider
         .ensure_provider_reachable()
         .await
@@ -125,7 +149,6 @@ where
     S: ProjectStore + ?Sized,
     P: SourceControlProvider + ?Sized,
 {
-    let designated_host = &command.request.designated_host;
     let provider_family = provider.family();
 
     validate_actor_scope(
@@ -134,25 +157,43 @@ where
         command.request.owning_account_id,
     )
     .await?;
-    ensure_repository_not_registered(
+    let reservation = reserve_project_command(
         store,
         command.request.owning_account_id,
         &provider_family,
         &command.request.repository,
+        clock.now(),
     )
     .await?;
 
+    let result =
+        create_new_project_with_reservation(store, provider, clock, command, provider_family).await;
+    complete_or_fail_reservation(store, &reservation, clock, result).await
+}
+
+async fn create_new_project_with_reservation<S, P>(
+    store: &S,
+    provider: &P,
+    clock: &Clock,
+    command: CreateNewProjectCommand,
+    provider_family: ProviderFamily,
+) -> Result<CreateProjectResponse, AppServiceError>
+where
+    S: ProjectStore + ?Sized,
+    P: SourceControlProvider + ?Sized,
+{
+    let designated_host = command.request.designated_host.clone();
     provider
         .ensure_provider_reachable()
         .await
         .map_err(map_provider_error)?;
     provider
-        .ensure_host_reachable(designated_host)
+        .ensure_host_reachable(&designated_host)
         .await
         .map_err(map_provider_error)?;
 
     let can_create = provider
-        .can_create_repository_at_host(command.actor_account_id, designated_host)
+        .can_create_repository_at_host(command.actor_account_id, &designated_host)
         .await
         .map_err(map_provider_error)?;
     if !can_create {
@@ -162,26 +203,42 @@ where
     let created_repository = provider
         .create_repository(
             command.actor_account_id,
-            designated_host,
+            &designated_host,
             &command.request.repository,
         )
         .await
         .map_err(map_provider_error)?;
 
-    let setup = register_or_compensate_created_repository(
+    let setup_result = register_project_repository(
         store,
-        provider,
-        CreateRepositoryRegistration {
-            actor_account_id: command.actor_account_id,
-            owning_account_id: command.request.owning_account_id,
-            provider_family,
-            designated_host: designated_host.clone(),
-            repository: created_repository,
-            select_as_active: command.request.select_as_active,
-        },
+        command.request.owning_account_id,
+        provider_family,
+        designated_host.clone(),
+        created_repository.clone(),
+        command.request.select_as_active,
         clock,
     )
-    .await?;
+    .await;
+    let setup = match setup_result {
+        Ok(setup) => setup,
+        Err(err @ AppServiceError::Project(ProjectFailureReason::DuplicateRepository)) => {
+            return Err(err);
+        }
+        Err(err) => {
+            if let Err(cleanup_err) = provider
+                .delete_repository(
+                    command.actor_account_id,
+                    &designated_host,
+                    &created_repository,
+                )
+                .await
+                .map_err(map_provider_error)
+            {
+                let _ = cleanup_err;
+            }
+            return Err(err);
+        }
+    };
 
     Ok(CreateProjectResponse {
         project: project_view(&setup),
@@ -269,28 +326,6 @@ where
     Ok(())
 }
 
-async fn ensure_repository_not_registered<S>(
-    store: &S,
-    owning_account_id: AccountId,
-    provider_family: &ProviderFamily,
-    repository: &RepositoryRef,
-) -> Result<(), AppServiceError>
-where
-    S: ProjectStore + ?Sized,
-{
-    if store
-        .find_project_repository(owning_account_id, provider_family, repository)
-        .await?
-        .is_some()
-    {
-        return Err(AppServiceError::Project(
-            ProjectFailureReason::DuplicateRepository,
-        ));
-    }
-
-    Ok(())
-}
-
 async fn register_project_repository<S>(
     store: &S,
     owning_account_id: AccountId,
@@ -327,58 +362,6 @@ where
         .map_err(map_project_store_error)?;
 
     Ok(setup)
-}
-
-async fn register_or_compensate_created_repository<S, P>(
-    store: &S,
-    provider: &P,
-    registration: CreateRepositoryRegistration,
-    clock: &Clock,
-) -> Result<ProjectSetupRecord, AppServiceError>
-where
-    S: ProjectStore + ?Sized,
-    P: SourceControlProvider + ?Sized,
-{
-    let repository_for_compensation = registration.repository.clone();
-    match register_project_repository(
-        store,
-        registration.owning_account_id,
-        registration.provider_family,
-        registration.designated_host.clone(),
-        registration.repository,
-        registration.select_as_active,
-        clock,
-    )
-    .await
-    {
-        Ok(setup) => Ok(setup),
-        Err(err @ AppServiceError::Project(ProjectFailureReason::DuplicateRepository)) => {
-            // A racing command registered the same repository between preflight
-            // and insert; preserve the unique-constraint taxonomy and avoid any
-            // external compensation against the winner's repository.
-            Err(err)
-        }
-        Err(err) => {
-            provider
-                .delete_repository(
-                    registration.actor_account_id,
-                    &registration.designated_host,
-                    &repository_for_compensation,
-                )
-                .await
-                .map_err(map_provider_error)?;
-            Err(err)
-        }
-    }
-}
-
-struct CreateRepositoryRegistration {
-    actor_account_id: AccountId,
-    owning_account_id: AccountId,
-    provider_family: ProviderFamily,
-    designated_host: DesignatedHost,
-    repository: RepositoryRef,
-    select_as_active: bool,
 }
 
 fn bounded_page_size(requested: u16) -> u16 {
