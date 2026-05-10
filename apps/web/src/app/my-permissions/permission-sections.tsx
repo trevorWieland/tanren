@@ -17,7 +17,7 @@ import {
 import type { PermissionPageView } from "./use-my-permissions-pages";
 
 function checkpointSummary(pageView: PermissionPageView): string {
-  const checkpoint = pageView.response.read_metadata.source_checkpoint;
+  const checkpoint = pageView.read_metadata.source_checkpoint;
   const grantId =
     checkpoint.max_permission_grant_id ?? m.myPermissions_metadataNone();
   const constraintId =
@@ -243,14 +243,12 @@ export function PermissionPageSection({
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataProjectionLabel()}
         </dt>
-        <dd className="break-all">{pageView.response.read_metadata.source}</dd>
+        <dd className="break-all">{pageView.read_metadata.source}</dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataGeneratedAtLabel()}
         </dt>
         <dd>
-          {new Date(
-            pageView.response.read_metadata.generated_at,
-          ).toLocaleString()}
+          {new Date(pageView.read_metadata.generated_at).toLocaleString()}
         </dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataCheckpointLabel()}
@@ -259,27 +257,25 @@ export function PermissionPageSection({
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataStalenessLabel()}
         </dt>
-        <dd>{pageView.response.read_metadata.staleness}</dd>
+        <dd>{pageView.read_metadata.staleness}</dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataLimitLabel()}
         </dt>
-        <dd>{pageView.response.page.limit}</dd>
+        <dd>{pageView.page.limit}</dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataReturnedLabel()}
         </dt>
-        <dd>{pageView.response.page.returned}</dd>
+        <dd>{pageView.page.returned}</dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataRequestCursorLabel()}
         </dt>
         <dd className="break-all">
-          {cursorOrNone(pageView.response.page.request_cursor)}
+          {cursorOrNone(pageView.page.request_cursor)}
         </dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataNextCursorLabel()}
         </dt>
-        <dd className="break-all">
-          {cursorOrNone(pageView.response.page.next_cursor)}
-        </dd>
+        <dd className="break-all">{cursorOrNone(pageView.page.next_cursor)}</dd>
       </dl>
 
       <div className="grid gap-6 lg:grid-cols-2">

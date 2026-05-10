@@ -4,7 +4,9 @@ import {
   AccountRequestError,
   myAccountCapabilities,
   myPermissionsWithCapabilityCheck,
+  permissionScopesReadView,
   signOut,
+  type MyPermissionsResponse,
 } from "@/app/lib/account-client";
 
 function jsonResponse(payload: unknown, status = 200): Response {
@@ -144,6 +146,66 @@ describe("myPermissionsWithCapabilityCheck", () => {
     expect(fetchMock.mock.calls[3]?.[0]).toBe(
       "http://localhost:8080/me/permissions?cursor=cursor-1",
     );
+  });
+});
+
+describe("permissionScopesReadView", () => {
+  it("preserves page and read metadata while exposing sorted scopes", () => {
+    const response: MyPermissionsResponse = {
+      organizations: [
+        {
+          org_id: "org-zulu",
+          permissions: [],
+        },
+      ],
+      projects: [
+        {
+          project_id: "project-alpha",
+          permissions: [],
+        },
+      ],
+      page: {
+        limit: 50,
+        returned: 2,
+        request_cursor: null,
+        next_cursor: "cursor-2",
+      },
+      read_metadata: {
+        source: "permission-read-model",
+        generated_at: "2026-01-02T10:11:12Z",
+        staleness: "fresh",
+        source_checkpoint: {
+          max_permission_grant_id: "permission_grant:12",
+          max_permission_constraint_id: "permission_constraint:6",
+        },
+      },
+    };
+
+    const readView = permissionScopesReadView(response);
+
+    expect(readView.scopes).toEqual([
+      {
+        kind: "organization",
+        scope_id: "org-zulu",
+        permissions: [],
+      },
+      {
+        kind: "project",
+        scope_id: "project-alpha",
+        permissions: [],
+      },
+    ]);
+    expect(readView.page.limit).toBe(50);
+    expect(readView.page.next_cursor).toBe("cursor-2");
+    expect(readView.page).toBe(response.page);
+    expect(readView.read_metadata.source).toBe("permission-read-model");
+    expect(readView.read_metadata.generated_at).toBe("2026-01-02T10:11:12Z");
+    expect(readView.read_metadata.staleness).toBe("fresh");
+    expect(readView.read_metadata).toBe(response.read_metadata);
+    expect(readView.read_metadata.source_checkpoint).toEqual({
+      max_permission_grant_id: "permission_grant:12",
+      max_permission_constraint_id: "permission_constraint:6",
+    });
   });
 });
 

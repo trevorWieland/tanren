@@ -3,15 +3,16 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   AccountRequestError,
   myPermissionsWithCapabilityCheck,
-  permissionScopes,
+  permissionScopesReadView,
   type AccountFailure,
-  type MyPermissionsResponse,
+  type PermissionScopesReadView,
   type PermissionScopeView,
 } from "@/app/lib/account-client";
 
 export interface PermissionPageView {
   pageNumber: number;
-  response: MyPermissionsResponse;
+  page: PermissionScopesReadView["page"];
+  read_metadata: PermissionScopesReadView["read_metadata"];
   organizationScopes: Extract<PermissionScopeView, { kind: "organization" }>[];
   projectScopes: Extract<PermissionScopeView, { kind: "project" }>[];
 }
@@ -47,21 +48,21 @@ function unknownFailure(cause: unknown): AccountFailure {
 }
 
 function permissionPageViews(
-  pages: MyPermissionsResponse[],
+  pages: PermissionScopesReadView[],
 ): PermissionPageView[] {
-  return pages.map((response, index) => {
-    const scopes = permissionScopes(response);
+  return pages.map((pageReadView, index) => {
     return {
       pageNumber: index + 1,
-      response,
-      organizationScopes: scopes.filter(isOrganizationScope),
-      projectScopes: scopes.filter(isProjectScope),
+      page: pageReadView.page,
+      read_metadata: pageReadView.read_metadata,
+      organizationScopes: pageReadView.scopes.filter(isOrganizationScope),
+      projectScopes: pageReadView.scopes.filter(isProjectScope),
     };
   });
 }
 
 export function useMyPermissionsPages(): UseMyPermissionsPagesResult {
-  const [pages, setPages] = useState<MyPermissionsResponse[]>([]);
+  const [pages, setPages] = useState<PermissionScopesReadView[]>([]);
   const [failure, setFailure] = useState<AccountFailure | null>(null);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -70,8 +71,7 @@ export function useMyPermissionsPages(): UseMyPermissionsPagesResult {
   );
 
   const pageViews = useMemo(() => permissionPageViews(pages), [pages]);
-  const latestPage = pageViews.at(-1)?.response ?? null;
-  const nextCursor = latestPage?.page.next_cursor ?? null;
+  const nextCursor = pageViews.at(-1)?.page.next_cursor ?? null;
 
   useEffect(() => {
     let cancelled = false;
@@ -79,7 +79,7 @@ export function useMyPermissionsPages(): UseMyPermissionsPagesResult {
     myPermissionsWithCapabilityCheck()
       .then((permissionsResponse) => {
         if (!cancelled) {
-          setPages([permissionsResponse]);
+          setPages([permissionScopesReadView(permissionsResponse)]);
         }
       })
       .catch((cause: unknown) => {
@@ -111,7 +111,7 @@ export function useMyPermissionsPages(): UseMyPermissionsPagesResult {
     setLoadMoreFailure(null);
     myPermissionsWithCapabilityCheck({ cursor: nextCursor })
       .then((response) => {
-        setPages((current) => [...current, response]);
+        setPages((current) => [...current, permissionScopesReadView(response)]);
       })
       .catch((cause: unknown) => {
         if (cause instanceof AccountRequestError) {

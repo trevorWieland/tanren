@@ -108,6 +108,12 @@ export type PermissionScopeView =
       scope_id: string;
       permissions: MyPermissionEntry[];
     };
+
+export interface PermissionScopesReadView {
+  scopes: PermissionScopeView[];
+  page: MyPermissionsResponse["page"];
+  read_metadata: MyPermissionsResponse["read_metadata"];
+}
 export type {
   InterfaceError,
   MyAccountCapabilitiesResponse,
@@ -154,6 +160,16 @@ export function permissionScopes(
   return [...organizations, ...projects].sort((left, right) =>
     scopeLabel(left).localeCompare(scopeLabel(right)),
   );
+}
+
+export function permissionScopesReadView(
+  response: MyPermissionsResponse,
+): PermissionScopesReadView {
+  return {
+    scopes: permissionScopes(response),
+    page: response.page,
+    read_metadata: response.read_metadata,
+  };
 }
 
 /**
