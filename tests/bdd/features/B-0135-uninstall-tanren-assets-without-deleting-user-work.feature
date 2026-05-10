@@ -8,7 +8,7 @@ Feature: Uninstall Tanren assets without deleting user work
   Rule: Positive uninstall witnesses
 
     @positive @cli
-    Scenario: CLI uninstall preview and apply removes generated assets while preserving user-owned files
+    Scenario: CLI uninstall preview and confirmed apply removes generated assets while preserving user-owned files
       Given a repository with Tanren-managed assets and user-owned files
       And repository file "profiles/rust-cargo/global/dependency-management.md" contains "custom standards baseline for uninstall witness"
       And repository file "profiles/rust-cargo/global/dependency-management.md" baseline is recorded
@@ -39,7 +39,7 @@ Feature: Uninstall Tanren assets without deleting user work
       And the install output redacts absolute repository paths
 
     @falsification @cli
-    Scenario: CLI repo-local uninstall preview without a prior install reports a clear no-op
+    Scenario: CLI repo-local uninstall without a prior install reports a clear no-op and performs no writes
       Given a clean repository fixture
       When tanren-cli uninstall preview runs without confirmation
       Then the uninstall command succeeds
@@ -50,7 +50,7 @@ Feature: Uninstall Tanren assets without deleting user work
       And the install output redacts absolute repository paths
 
     @falsification @cli
-    Scenario: CLI uninstall confirm without a prior install does not exercise hosted account or project history deletion
+    Scenario: CLI confirmed uninstall without a prior install does not exercise hosted account or project history deletion
       Given a clean repository fixture
       When tanren-cli uninstall runs with confirmation
       Then the uninstall command succeeds
