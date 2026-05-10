@@ -37,6 +37,7 @@ impl ProjectStore for Store {
             owning_account_id: Set(new.owning_account_id.as_uuid()),
             created_at: Set(new.created_at),
             active_selected_at: Set(new.active_selected_at),
+            active_selection_guard: Set(new.active_selected_at.map(|_| true)),
         };
         let inserted = model.insert(&self.conn).await?;
         ProjectRecord::try_from(inserted)
@@ -80,6 +81,7 @@ impl ProjectStore for Store {
                             owning_account_id: Set(project.owning_account_id.as_uuid()),
                             created_at: Set(project.created_at),
                             active_selected_at: Set(None),
+                            active_selection_guard: Set(None),
                         }
                         .insert(txn)
                         .await
@@ -318,32 +320,32 @@ async fn update_active_project_for_account(
     selected_project_id: uuid::Uuid,
     selected_at: DateTime<Utc>,
 ) -> Result<(), sea_orm::DbErr> {
-    let previous_active_id = entity::projects::Entity::find()
-        .select_only()
-        .column(entity::projects::Column::Id)
+    entity::projects::Entity::update_many()
+        .col_expr(
+            entity::projects::Column::ActiveSelectedAt,
+            sea_orm::sea_query::Expr::value(None::<DateTime<Utc>>),
+        )
+        .col_expr(
+            entity::projects::Column::ActiveSelectionGuard,
+            sea_orm::sea_query::Expr::value(None::<bool>),
+        )
         .filter(entity::projects::Column::OwningAccountId.eq(owning_account_id))
-        .filter(entity::projects::Column::ActiveSelectedAt.is_not_null())
-        .filter(entity::projects::Column::Id.ne(selected_project_id))
-        .into_tuple::<uuid::Uuid>()
-        .one(txn)
+        .filter(
+            Condition::any()
+                .add(entity::projects::Column::ActiveSelectedAt.is_not_null())
+                .add(entity::projects::Column::ActiveSelectionGuard.is_not_null()),
+        )
+        .exec(txn)
         .await?;
-
-    if let Some(previous_active_id) = previous_active_id {
-        entity::projects::Entity::update_many()
-            .col_expr(
-                entity::projects::Column::ActiveSelectedAt,
-                sea_orm::sea_query::Expr::value(None::<DateTime<Utc>>),
-            )
-            .filter(entity::projects::Column::OwningAccountId.eq(owning_account_id))
-            .filter(entity::projects::Column::Id.eq(previous_active_id))
-            .exec(txn)
-            .await?;
-    }
 
     entity::projects::Entity::update_many()
         .col_expr(
             entity::projects::Column::ActiveSelectedAt,
             sea_orm::sea_query::Expr::value(Some(selected_at)),
+        )
+        .col_expr(
+            entity::projects::Column::ActiveSelectionGuard,
+            sea_orm::sea_query::Expr::value(Some(true)),
         )
         .filter(entity::projects::Column::OwningAccountId.eq(owning_account_id))
         .filter(entity::projects::Column::Id.eq(selected_project_id))

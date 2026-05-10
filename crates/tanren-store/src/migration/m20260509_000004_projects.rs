@@ -1,4 +1,13 @@
 //! R-0019 migration: add project and project-repository persistence tables.
+//!
+//! Active-project invariant strategy:
+//! - `MySQL` does not support partial unique indexes.
+//! - To enforce "at most one active project per account" on every backend,
+//!   this migration introduces a nullable guard column:
+//!   `active_selection_guard`.
+//! - Inactive rows store `NULL`; the active row stores `TRUE`.
+//! - A unique index on `(owning_account_id, active_selection_guard)` then
+//!   permits many inactive rows and exactly one active row per account.
 
 use sea_orm_migration::prelude::*;
 use sea_orm_migration::sea_orm::DatabaseBackend;
@@ -9,6 +18,9 @@ pub(super) struct Migration;
 const REPOSITORY_REF_MAX_LEN: u32 = 140;
 const PROVIDER_FAMILY_MAX_LEN: u32 = 48;
 const DESIGNATED_HOST_MAX_LEN: u32 = 253;
+const PROJECTS_LIST_INDEX: &str = "idx_projects_list_by_account";
+const PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX: &str =
+    "idx_project_repositories_owning_account_project";
 const PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX: &str = "idx_projects_single_active_per_account";
 
 impl std::fmt::Debug for Migration {
@@ -40,8 +52,16 @@ impl MigrationTrait for Migration {
         manager
             .drop_index(
                 Index::drop()
-                    .name("idx_projects_owning_account")
+                    .name(PROJECTS_LIST_INDEX)
                     .table(Projects::Table)
+                    .to_owned(),
+            )
+            .await?;
+        manager
+            .drop_index(
+                Index::drop()
+                    .name(PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX)
+                    .table(ProjectRepositories::Table)
                     .to_owned(),
             )
             .await?;
@@ -74,6 +94,7 @@ async fn create_projects_table(manager: &SchemaManager<'_>) -> Result<(), DbErr>
                         .not_null(),
                 )
                 .col(ColumnDef::new(Projects::ActiveSelectedAt).timestamp_with_time_zone())
+                .col(ColumnDef::new(Projects::ActiveSelectionGuard).boolean())
                 .foreign_key(
                     ForeignKey::create()
                         .name("fk_projects_owning_account")
@@ -149,15 +170,7 @@ async fn create_project_repositories_table(manager: &SchemaManager<'_>) -> Resul
 }
 
 async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    manager
-        .create_index(
-            Index::create()
-                .name("idx_projects_owning_account")
-                .table(Projects::Table)
-                .col(Projects::OwningAccountId)
-                .to_owned(),
-        )
-        .await?;
+    create_projects_list_index(manager).await?;
 
     manager
         .create_index(
@@ -172,37 +185,72 @@ async fn create_project_indexes(manager: &SchemaManager<'_>) -> Result<(), DbErr
         )
         .await?;
 
+    manager
+        .create_index(
+            Index::create()
+                .name(PROJECT_REPOSITORIES_PROJECT_LOOKUP_INDEX)
+                .table(ProjectRepositories::Table)
+                .col(ProjectRepositories::OwningAccountId)
+                .col(ProjectRepositories::ProjectId)
+                .to_owned(),
+        )
+        .await?;
+
     create_projects_single_active_index(manager).await
 }
 
-async fn create_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    let backend = manager.get_database_backend();
-    match backend {
-        DatabaseBackend::Sqlite | DatabaseBackend::Postgres => {
+async fn create_projects_list_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    match manager.get_database_backend() {
+        DatabaseBackend::Postgres => {
             manager
                 .get_connection()
                 .execute_unprepared(&format!(
-                    "CREATE UNIQUE INDEX IF NOT EXISTS {PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX} \
-                     ON projects (owning_account_id) WHERE active_selected_at IS NOT NULL"
+                    "CREATE INDEX IF NOT EXISTS {PROJECTS_LIST_INDEX} ON projects \
+                     (owning_account_id, active_selected_at DESC NULLS LAST, created_at DESC, id DESC)"
                 ))
                 .await?;
             Ok(())
         }
-        DatabaseBackend::MySql => Ok(()),
+        DatabaseBackend::Sqlite | DatabaseBackend::MySql => {
+            manager
+                .create_index(
+                    Index::create()
+                        .name(PROJECTS_LIST_INDEX)
+                        .table(Projects::Table)
+                        .col(Projects::OwningAccountId)
+                        .col((Projects::ActiveSelectedAt, IndexOrder::Desc))
+                        .col((Projects::CreatedAt, IndexOrder::Desc))
+                        .col((Projects::Id, IndexOrder::Desc))
+                        .to_owned(),
+                )
+                .await
+        }
     }
 }
 
+async fn create_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+    manager
+        .create_index(
+            Index::create()
+                .name(PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX)
+                .table(Projects::Table)
+                .col(Projects::OwningAccountId)
+                .col(Projects::ActiveSelectionGuard)
+                .unique()
+                .to_owned(),
+        )
+        .await
+}
+
 async fn drop_projects_single_active_index(manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-    let backend = manager.get_database_backend();
-    if matches!(backend, DatabaseBackend::Sqlite | DatabaseBackend::Postgres) {
-        manager
-            .get_connection()
-            .execute_unprepared(&format!(
-                "DROP INDEX IF EXISTS {PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX}"
-            ))
-            .await?;
-    }
-    Ok(())
+    manager
+        .drop_index(
+            Index::drop()
+                .name(PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX)
+                .table(Projects::Table)
+                .to_owned(),
+        )
+        .await
 }
 
 #[derive(DeriveIden)]
@@ -218,6 +266,7 @@ enum Projects {
     OwningAccountId,
     CreatedAt,
     ActiveSelectedAt,
+    ActiveSelectionGuard,
 }
 
 #[derive(DeriveIden)]

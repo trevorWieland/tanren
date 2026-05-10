@@ -379,7 +379,8 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         repository_ref: &RepositoryRef,
     ) -> Result<Option<ProjectRepositoryRecord>, StoreError>;
 
-    /// List project setup records for an account page.
+    /// List project setup records for an account page ordered by
+    /// `active_selected_at DESC NULLS LAST, created_at DESC, id DESC`.
     async fn list_projects_for_account(
         &self,
         owning_account_id: AccountId,
@@ -393,7 +394,8 @@ pub trait ProjectStore: Send + Sync + std::fmt::Debug {
         owning_account_id: AccountId,
     ) -> Result<Option<ProjectSetupRecord>, StoreError>;
 
-    /// Mark one visible project active for an account.
+    /// Mark one visible project active for an account, clearing any prior
+    /// active selection in the same account.
     ///
     /// Returns:
     /// - [`SetActiveProjectError::NotFound`] when `project_id` does not exist.
