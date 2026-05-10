@@ -18,10 +18,16 @@ pub(crate) enum InstallStepError {
     },
     #[error("failed to execute tanren-cli install via CLI harness adapter: {source}")]
     RunInstallCommand { source: HarnessError },
+    #[error("failed to execute tanren-cli upgrade via CLI harness adapter: {source}")]
+    RunUpgradeCommand { source: HarnessError },
     #[error("install command has not been executed yet")]
     InstallCommandNotExecuted,
+    #[error("snapshot label must not be empty")]
+    EmptySnapshotLabel,
     #[error("install command must run before no-write assertion")]
     MissingSnapshotBeforeRun,
+    #[error("snapshot label `{label}` has not been captured")]
+    MissingLabeledSnapshot { label: String },
     #[error("baseline must be recorded before assertion for `{path}`")]
     MissingBaseline { path: String },
     #[error(

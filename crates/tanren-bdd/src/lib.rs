@@ -62,6 +62,21 @@ impl TanrenWorld {
             .await
     }
 
+    pub(crate) async fn run_upgrade(&mut self, confirm: bool) -> InstallStepResult<()> {
+        self.require_account_ctx()?.run_upgrade(confirm).await
+    }
+
+    pub(crate) async fn seed_upgrade_fixture_from_install(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+        snapshot_label: &str,
+    ) -> InstallStepResult<()> {
+        self.require_account_ctx()?
+            .seed_upgrade_fixture_from_install(profile, integrations, snapshot_label)
+            .await
+    }
+
     fn require_account_ctx(&mut self) -> InstallStepResult<&mut AccountContext> {
         if let Some(error) = self.install_setup_error.take() {
             return Err(error);
@@ -196,6 +211,30 @@ impl AccountContext {
         install
             .run_install(self.harness.as_mut(), profile, integrations)
             .await
+    }
+
+    async fn run_upgrade(&mut self, confirm: bool) -> InstallStepResult<()> {
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install.run_upgrade(self.harness.as_mut(), confirm).await
+    }
+
+    async fn seed_upgrade_fixture_from_install(
+        &mut self,
+        profile: &str,
+        integrations: Option<&str>,
+        snapshot_label: &str,
+    ) -> InstallStepResult<()> {
+        let install = self
+            .install
+            .as_mut()
+            .ok_or(InstallStepError::InstallContextUnavailable)?;
+        install
+            .run_install(self.harness.as_mut(), profile, integrations)
+            .await?;
+        install.seed_upgrade_fixture_from_install(snapshot_label)
     }
 }
 

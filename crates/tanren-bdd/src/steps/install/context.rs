@@ -16,6 +16,7 @@ use super::{InstallStepError, InstallStepResult};
 pub(crate) struct InstallContext {
     pub(super) repository_root: PathBuf,
     pub(super) baselines: BTreeMap<RepositoryRelativePath, Vec<u8>>,
+    pub(super) labeled_snapshots: BTreeMap<String, RepositorySnapshot>,
     pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
 }
@@ -32,6 +33,7 @@ impl InstallContext {
         Ok(Self {
             repository_root,
             baselines: BTreeMap::new(),
+            labeled_snapshots: BTreeMap::new(),
             snapshot_before_last_run: None,
             last_run: None,
         })
@@ -62,6 +64,47 @@ impl InstallContext {
         self.snapshot_before_last_run = Some(before);
         self.last_run = Some(outcome);
         Ok(())
+    }
+
+    pub(crate) async fn run_upgrade(
+        &mut self,
+        harness: &mut dyn AccountHarness,
+        confirm: bool,
+    ) -> InstallStepResult<()> {
+        let before = RepositorySnapshot::capture(&self.repository_root)?;
+        let mut args = vec![
+            OsString::from("upgrade"),
+            OsString::from("--repo"),
+            self.repository_root.as_os_str().to_owned(),
+        ];
+        if confirm {
+            args.push(OsString::from("--confirm"));
+        }
+        let outcome = harness
+            .execute_cli_command(args)
+            .await
+            .map_err(|source| InstallStepError::RunUpgradeCommand { source })?;
+        self.snapshot_before_last_run = Some(before);
+        self.last_run = Some(outcome);
+        Ok(())
+    }
+
+    pub(crate) fn capture_labeled_snapshot(&mut self, label: &str) -> InstallStepResult<()> {
+        let label = label.trim().to_owned();
+        if label.is_empty() {
+            return Err(InstallStepError::EmptySnapshotLabel);
+        }
+        let snapshot = RepositorySnapshot::capture(&self.repository_root)?;
+        self.labeled_snapshots.insert(label, snapshot);
+        Ok(())
+    }
+
+    pub(crate) fn seed_upgrade_fixture_from_install(
+        &mut self,
+        snapshot_label: &str,
+    ) -> InstallStepResult<()> {
+        self.assert_success()?;
+        self.capture_labeled_snapshot(snapshot_label)
     }
 
     pub(super) fn require_last_run(&self) -> InstallStepResult<&InstallCommandOutcome> {

@@ -13,6 +13,15 @@ use super::{InstallStepError, InstallStepResult};
 static SCENARIO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
 impl InstallContext {
+    pub(crate) fn inject_legacy_standards_migration_concern(
+        &mut self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        const LEGACY_CONTENT: &str = "legacy standards asset requiring migration";
+        self.write_fixture_file(relative_path, LEGACY_CONTENT.to_owned())?;
+        self.inject_manifest_stale_generated_entry(relative_path)
+    }
+
     pub(crate) fn write_fixture_file(
         &mut self,
         relative_path: &RepositoryRelativePath,

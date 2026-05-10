@@ -78,6 +78,23 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_repository_matches_labeled_snapshot(
+        &self,
+        label: &str,
+    ) -> InstallStepResult<()> {
+        let expected = self.labeled_snapshots.get(label).ok_or_else(|| {
+            InstallStepError::MissingLabeledSnapshot {
+                label: label.to_owned(),
+            }
+        })?;
+        let actual =
+            crate::steps::install_snapshot::RepositorySnapshot::capture(&self.repository_root)?;
+        if &actual != expected {
+            return Err(InstallStepError::RepositorySnapshotMismatch);
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_stderr_contains(&self, expected: &str) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         if !run.stderr.contains(expected) {
@@ -100,6 +117,58 @@ impl InstallContext {
             });
         }
         Ok(())
+    }
+
+    pub(crate) fn assert_upgrade_preview_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=preview command=upgrade")?;
+        ensure_stdout_contains(run, "preview changed=[")?;
+        ensure_stdout_contains(run, "destructive=[")?;
+        ensure_stdout_contains(run, "preserved=[")?;
+        ensure_stdout_contains(run, "concerns=[")?;
+        Ok(())
+    }
+
+    pub(crate) fn assert_upgrade_confirmation_required_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=confirmation_required command=upgrade")?;
+        ensure_stdout_contains(run, "confirm=false applied=false")?;
+        Ok(())
+    }
+
+    pub(crate) fn assert_upgrade_apply_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=ok command=upgrade")?;
+        ensure_stdout_contains(run, "confirm=true applied=true")?;
+        ensure_stdout_contains(run, "applied created=[")?;
+        ensure_stdout_contains(run, "updated=[")?;
+        ensure_stdout_contains(run, "removed=[")?;
+        ensure_stdout_contains(run, "restored=[")?;
+        ensure_stdout_contains(run, "preserved=[")?;
+        Ok(())
+    }
+
+    pub(crate) fn assert_upgrade_noop_output(&self) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, "status=noop command=upgrade")?;
+        ensure_stdout_contains(run, "confirm=true applied=false")?;
+        Ok(())
+    }
+
+    pub(crate) fn assert_upgrade_preview_contains_concern(
+        &self,
+        concern: &str,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, concern)
+    }
+
+    pub(crate) fn assert_upgrade_preview_contains_path(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, relative_path.as_str())
     }
 
     pub(crate) fn assert_file_exists(

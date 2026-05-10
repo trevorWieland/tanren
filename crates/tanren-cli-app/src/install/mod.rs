@@ -12,6 +12,7 @@ mod error;
 mod manifest;
 mod path_guard;
 mod plan;
+mod upgrade;
 mod writer;
 mod writer_tx;
 
@@ -20,6 +21,7 @@ pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
 pub use plan::InstallPlan;
+pub use upgrade::UpgradeCommand;
 pub use writer::InstallReport;
 
 /// Calculate a hex SHA-256 digest for test fixture bytes.
@@ -151,5 +153,9 @@ pub fn apply_install(
     integration_selection: Option<&str>,
 ) -> Result<InstallReport, InstallError> {
     let plan = plan_install(repository, profile, integration_selection)?;
-    writer::apply_install_plan(&plan)
+    apply_validated_plan(&plan)
+}
+
+pub(super) fn apply_validated_plan(plan: &InstallPlan) -> Result<InstallReport, InstallError> {
+    writer::apply_install_plan(plan)
 }
