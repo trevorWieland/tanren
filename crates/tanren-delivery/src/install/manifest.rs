@@ -260,6 +260,11 @@ impl InstallManifest {
             entries,
         }
     }
+
+    /// Parse an install manifest from a TOML string.
+    pub fn parse_toml(toml: &str) -> Result<Self, toml::de::Error> {
+        toml::from_str(toml)
+    }
 }
 
 /// Convert projected assets into manifest rows.

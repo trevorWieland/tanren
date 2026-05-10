@@ -4,9 +4,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use crate::install::catalog::{
-    build_install_asset_catalog, build_trusted_generated_asset_registry,
-};
+use crate::install::catalog::{build_install_asset_catalog, trusted_generated_asset_registry};
 use crate::install::error::InstallError;
 use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallAssetProjection, InstallManifest,
@@ -200,7 +198,7 @@ pub(super) fn build_install_plan_from_state(
         .filter(|entry| entry.preservation == PreservationPolicy::ReplaceGenerated)
         .map(|entry| entry.path.as_str())
         .collect::<BTreeSet<_>>();
-    let trusted_generated_asset_registry = build_trusted_generated_asset_registry()?;
+    let trusted_generated_asset_registry = trusted_generated_asset_registry();
 
     let writes = build_write_plan(
         &repository_root,
@@ -211,7 +209,7 @@ pub(super) fn build_install_plan_from_state(
     let stale_removal_plan = build_removals(
         &repository_root,
         &desired_generated_paths,
-        &trusted_generated_asset_registry,
+        trusted_generated_asset_registry,
         &previous_entries_by_path,
         &manifest_path,
     )?;

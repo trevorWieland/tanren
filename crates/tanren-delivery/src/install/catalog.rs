@@ -1,6 +1,7 @@
 //! Static install catalog for command and standards assets.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeMap, BTreeSet};
+use std::sync::LazyLock;
 
 use crate::install::error::InstallError;
 use crate::install::manifest::{
@@ -279,6 +280,36 @@ const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
 // older manifests from earlier installer versions.
 const LEGACY_TRUSTED_GENERATED_DESTINATIONS: &[&str] = &[".codex/skills/retired-command.md"];
 
+static CACHED_FULL_CATALOGS: LazyLock<BTreeMap<InstallProfile, Vec<InstallAssetProjection>>> =
+    LazyLock::new(|| {
+        let mut map = BTreeMap::new();
+        {
+            let profile = InstallProfile::RustCargo;
+            let assets = build_install_asset_catalog(profile, &InstallIntegration::all())
+                .expect("static catalog construction is infallible");
+            map.insert(profile, assets);
+        }
+        map
+    });
+
+static CACHED_TRUSTED_GENERATED_REGISTRY: LazyLock<BTreeSet<RepoRelativePath>> =
+    LazyLock::new(|| {
+        let mut registry = BTreeSet::new();
+        for assets in CACHED_FULL_CATALOGS.values() {
+            for asset in assets {
+                if asset.preservation == PreservationPolicy::ReplaceGenerated {
+                    registry.insert(asset.destination_path.clone());
+                }
+            }
+        }
+        for path in LEGACY_TRUSTED_GENERATED_DESTINATIONS {
+            registry.insert(
+                RepoRelativePath::parse(path).expect("legacy trusted destination paths are valid"),
+            );
+        }
+        registry
+    });
+
 /// Build the static install asset catalog for a profile + integration selection.
 pub(super) fn build_install_asset_catalog(
     profile: InstallProfile,
@@ -318,21 +349,9 @@ pub(super) fn build_install_asset_catalog(
     Ok(assets)
 }
 
-/// Build a trusted registry of generated asset destinations across all profiles.
-pub(super) fn build_trusted_generated_asset_registry()
--> Result<BTreeSet<RepoRelativePath>, InstallError> {
-    let mut registry = BTreeSet::new();
-    for profile in [InstallProfile::RustCargo] {
-        for asset in build_install_asset_catalog(profile, &InstallIntegration::all())? {
-            if asset.preservation == PreservationPolicy::ReplaceGenerated {
-                registry.insert(asset.destination_path);
-            }
-        }
-    }
-    for path in LEGACY_TRUSTED_GENERATED_DESTINATIONS {
-        registry.insert(RepoRelativePath::parse(path)?);
-    }
-    Ok(registry)
+/// Return the process-cached trusted generated asset registry.
+pub(super) fn trusted_generated_asset_registry() -> &'static BTreeSet<RepoRelativePath> {
+    &CACHED_TRUSTED_GENERATED_REGISTRY
 }
 
 /// Profile destination roots for generated standards profile assets.
@@ -389,6 +408,16 @@ pub(super) fn is_current_generated_integration_destination(
     destination_roots
         .iter()
         .any(|root| matches_generated_command_layout(path.as_str(), root))
+}
+
+/// Return the destination paths for the full (all-integration) catalog for a profile.
+#[cfg(feature = "test-hooks")]
+pub(super) fn cached_catalog_destination_paths(
+    profile: InstallProfile,
+) -> &'static [InstallAssetProjection] {
+    CACHED_FULL_CATALOGS
+        .get(&profile)
+        .map_or(&[], Vec::as_slice)
 }
 
 fn install_asset(

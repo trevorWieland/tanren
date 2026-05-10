@@ -35,8 +35,34 @@ pub fn sha256_hex(bytes: &[u8]) -> manifest::Sha256Hex {
     manifest::sha256_hex(bytes)
 }
 
+/// Calculate a hex SHA-256 digest for a file using streaming reads.
+#[cfg(feature = "test-hooks")]
+pub fn sha256_hex_file(path: &Path) -> Result<manifest::Sha256Hex, std::io::Error> {
+    manifest::sha256_hex_file(path)
+}
+
+/// Install manifest with typed TOML parsing.
+#[cfg(feature = "test-hooks")]
+pub use manifest::InstallManifest;
+
+/// Re-export manifest entry for test-hooks.
+#[cfg(feature = "test-hooks")]
+pub use manifest::ManifestEntry;
+
+/// Cached catalog destination paths for fixture snapshot discovery.
+#[cfg(feature = "test-hooks")]
+pub fn cached_catalog_destination_paths(
+    profile: InstallProfile,
+) -> impl Iterator<Item = &'static str> {
+    catalog::cached_catalog_destination_paths(profile)
+        .iter()
+        .map(|asset| asset.destination_path.as_str())
+}
+
 /// Supported Tanren standards profiles for local repository bootstrap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, serde::Serialize, serde::Deserialize,
+)]
 #[serde(rename_all = "kebab-case")]
 pub enum InstallProfile {
     /// Install the Rust + Cargo standards profile.

@@ -4,11 +4,10 @@ use std::path::Path;
 
 use axum::http::StatusCode;
 use serde::Serialize;
-use tanren_delivery::install::sha256_hex;
+use tanren_delivery::install::{InstallManifest, InstallProfile, cached_catalog_destination_paths};
 
 const INSTALL_MANIFEST_PATH: &str = ".tanren/install-manifest.toml";
 const TANREN_METADATA_ROOT: &str = ".tanren";
-const STANDARDS_PROFILE_ROOT: &str = "profiles/rust-cargo";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 pub(super) struct RepositorySnapshot {
@@ -22,7 +21,7 @@ pub(super) fn capture_scoped_snapshot(
     workspace_root: &Path,
     explicit_paths: &BTreeSet<String>,
 ) -> Result<RepositorySnapshot, (StatusCode, String)> {
-    let mut exact_paths = load_catalog_generated_paths(workspace_root)?;
+    let mut exact_paths = load_catalog_generated_paths(workspace_root);
     exact_paths.extend(load_manifest_generated_paths(repository_root)?);
     exact_paths.extend(explicit_paths.iter().cloned());
     exact_paths.insert(INSTALL_MANIFEST_PATH.to_owned());
@@ -131,9 +130,9 @@ fn capture_tracked_path(
         return Ok(());
     }
 
-    let bytes = fs::read(&absolute)
-        .map_err(|source| io_error(&source, &absolute, "read repository fixture file"))?;
-    files.push((relative_path, sha256_hex(bytes.as_slice()).to_string()));
+    let hash = tanren_delivery::install::sha256_hex_file(&absolute)
+        .map_err(|source| io_error(&source, &absolute, "hash repository fixture file"))?;
+    files.push((relative_path, hash.to_string()));
     Ok(())
 }
 
@@ -141,108 +140,34 @@ fn load_manifest_generated_paths(
     repository_root: &Path,
 ) -> Result<BTreeSet<String>, (StatusCode, String)> {
     let manifest_path = repository_root.join(INSTALL_MANIFEST_PATH);
-    let manifest = match fs::read_to_string(&manifest_path) {
+    let raw = match fs::read_to_string(&manifest_path) {
         Ok(raw) => raw,
         Err(source) if source.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
         Err(source) => return Err(io_error(&source, &manifest_path, "read install manifest")),
     };
+    let manifest = InstallManifest::parse_toml(&raw).map_err(|source| {
+        (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            format!("failed to parse install manifest: {source}"),
+        )
+    })?;
     let mut paths = BTreeSet::new();
-    for line in manifest.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with("path = \"") || !trimmed.ends_with('"') {
-            continue;
-        }
-        let raw_path = trimmed
-            .trim_start_matches("path = \"")
-            .trim_end_matches('"');
-        if let Some(normalized) = normalize_relative_path(raw_path) {
+    for entry in &manifest.entries {
+        if let Some(normalized) = normalize_relative_path(entry.path.as_str()) {
             paths.insert(normalized);
         }
     }
     Ok(paths)
 }
 
-fn load_catalog_generated_paths(
-    workspace_root: &Path,
-) -> Result<BTreeSet<String>, (StatusCode, String)> {
+fn load_catalog_generated_paths(_workspace_root: &Path) -> BTreeSet<String> {
     let mut generated_paths = BTreeSet::new();
-
-    let commands_root = workspace_root.join("commands/project");
-    let mut command_entries = fs::read_dir(&commands_root)
-        .map_err(|source| io_error(&source, &commands_root, "read command catalog directory"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| io_error(&source, &commands_root, "read command catalog entry"))?;
-    command_entries.sort_by_key(fs::DirEntry::file_name);
-
-    let destination_roots = [".claude/commands", ".codex/skills", ".opencode/commands"];
-    for entry in command_entries {
-        let file_type = entry.file_type().map_err(|source| {
-            io_error(&source, &entry.path(), "inspect command catalog entry type")
-        })?;
-        if !file_type.is_file() {
-            continue;
-        }
-        let name = entry.file_name().to_string_lossy().into_owned();
-        if !Path::new(&name)
-            .extension()
-            .is_some_and(|ext| ext.eq_ignore_ascii_case("md"))
-        {
-            continue;
-        }
-        let stem = name.trim_end_matches(".md");
-        for root in destination_roots {
-            generated_paths.insert(format!("{root}/{stem}.md"));
+    for path in cached_catalog_destination_paths(InstallProfile::RustCargo) {
+        if let Some(normalized) = normalize_relative_path(path) {
+            generated_paths.insert(normalized);
         }
     }
-
-    let standards_root = workspace_root.join(STANDARDS_PROFILE_ROOT);
-    collect_files_recursive(workspace_root, &standards_root, &mut generated_paths)?;
-
-    Ok(generated_paths)
-}
-
-fn collect_files_recursive(
-    workspace_root: &Path,
-    directory: &Path,
-    out: &mut BTreeSet<String>,
-) -> Result<(), (StatusCode, String)> {
-    let mut entries = fs::read_dir(directory)
-        .map_err(|source| io_error(&source, directory, "read standards directory"))?
-        .collect::<Result<Vec<_>, _>>()
-        .map_err(|source| io_error(&source, directory, "read standards directory entry"))?;
-    entries.sort_by_key(fs::DirEntry::file_name);
-
-    for entry in entries {
-        let entry_path = entry.path();
-        let file_type = entry
-            .file_type()
-            .map_err(|source| io_error(&source, &entry_path, "inspect standards file type"))?;
-        if file_type.is_dir() {
-            collect_files_recursive(workspace_root, &entry_path, out)?;
-            continue;
-        }
-        if !file_type.is_file() {
-            continue;
-        }
-        let relative = entry_path
-            .strip_prefix(workspace_root)
-            .map_err(|_| {
-                (
-                    StatusCode::INTERNAL_SERVER_ERROR,
-                    format!(
-                        "standards file '{}' escaped workspace root",
-                        entry_path.display()
-                    ),
-                )
-            })?
-            .to_string_lossy()
-            .replace('\\', "/");
-        if let Some(normalized) = normalize_relative_path(relative.as_str()) {
-            out.insert(normalized);
-        }
-    }
-
-    Ok(())
+    generated_paths
 }
 
 fn normalize_relative_path(value: &str) -> Option<String> {
