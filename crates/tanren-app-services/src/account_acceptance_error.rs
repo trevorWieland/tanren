@@ -57,7 +57,11 @@ where
         }
         Ok(Some(row)) if row.expires_at <= now => Ok(AccountFailureReason::InvitationExpired),
         Ok(None) => Ok(AccountFailureReason::InvitationNotFound),
-        Ok(Some(_)) => Err(AppServiceError::Store(source)),
+        // Under SQLite contention, a follow-up read can race ahead of the
+        // winning transaction's commit and still observe the row as pending.
+        // The original failure is still a concurrent-consume conflict, so
+        // normalize it to the canonical invitation taxonomy.
+        Ok(Some(_)) => Ok(AccountFailureReason::InvitationAlreadyConsumed),
         Err(read_err) => {
             if is_sqlite_invitation_contention(&read_err) {
                 Ok(AccountFailureReason::InvitationAlreadyConsumed)

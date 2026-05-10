@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::http::HeaderValue;
@@ -113,6 +114,32 @@ fn session_envelope_fields(session: &SessionEnvelope) -> (chrono::DateTime<chron
     }
 }
 
+async fn post_json_with_transport_retries(
+    client: &Client,
+    url: &str,
+    body: &Value,
+) -> Result<reqwest::Response, reqwest::Error> {
+    const BACKOFF: [Duration; 5] = [
+        Duration::from_millis(20),
+        Duration::from_millis(40),
+        Duration::from_millis(80),
+        Duration::from_millis(160),
+        Duration::from_millis(320),
+    ];
+    let mut retries = 0usize;
+    loop {
+        match client.post(url).json(body).send().await {
+            Ok(response) => return Ok(response),
+            Err(_) if retries < BACKOFF.len() => {
+                let delay = BACKOFF[retries];
+                retries += 1;
+                tokio::time::sleep(delay).await;
+            }
+            Err(err) => return Err(err),
+        }
+    }
+}
+
 async fn recover_acceptance_from_sign_in(
     client: &Client,
     base_url: &str,
@@ -123,10 +150,8 @@ async fn recover_acceptance_from_sign_in(
         password: req.password.clone(),
     };
     let sign_in_url = format!("{base_url}/sessions");
-    let sign_in_response = client
-        .post(&sign_in_url)
-        .json(&sign_in_body(&sign_in_request))
-        .send()
+    let sign_in_body = sign_in_body(&sign_in_request);
+    let sign_in_response = post_json_with_transport_retries(client, &sign_in_url, &sign_in_body)
         .await
         .ok()?;
     if !sign_in_response.status().is_success() {
@@ -191,11 +216,7 @@ impl AccountHarness for ApiHarness {
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let body = sign_in_body(&req);
         let url = format!("{}/sessions", self.base_url);
-        let response = self
-            .client
-            .post(&url)
-            .json(&body)
-            .send()
+        let response = post_json_with_transport_retries(&self.client, &url, &body)
             .await
             .map_err(|e| HarnessError::Transport(format!("POST /sessions: {e}")))?;
         let status = response.status();
