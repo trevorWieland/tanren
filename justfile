@@ -872,13 +872,7 @@ ci:
 # Regenerate the web TypeScript API contract from the canonical Rust
 # OpenAPI source.
 web-contract-generate:
-    #!/usr/bin/env bash
-    set -euo pipefail
-    openapi_json="$(mktemp -t tanren-openapi.XXXXXX.json)"
-    trap 'rm -f "${openapi_json}"' EXIT
-    CARGO_INCREMENTAL=0 {{ cargo }} build -p tanren-api-app --bin tanren-api-openapi --locked --quiet
-    {{ cargo }} run -q -p tanren-api-app --bin tanren-api-openapi --locked > "${openapi_json}"
-    OPENAPI_INPUT="${openapi_json}" pnpm --filter @tanren/web run contract:generate
+    scripts/web-contract-generate.sh
 
 # Install pnpm workspace dependencies. Lockfile must be up to date.
 web-install:

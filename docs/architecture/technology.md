@@ -389,6 +389,13 @@ Contract types derive or generate:
 Generated TypeScript is consumed by the web UI and any bundled client helpers.
 The web UI must not define independent copies of API resources or error shapes.
 
+The committed first-party TypeScript projection is
+`apps/web/src/lib/generated/api-contract.ts`. The owning command is
+`just web-contract-generate`, which builds and runs
+`tanren-api-openapi` with `cargo --locked` before invoking
+`openapi-typescript`. Drift is enforced by
+`just check-web-contract-sync`.
+
 Contract generation failures are build failures.
 
 ## Validation And Proof
