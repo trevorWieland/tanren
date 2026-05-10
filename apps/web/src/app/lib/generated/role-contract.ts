@@ -28,9 +28,12 @@ export type PermissionScope =
   | { scope: "organization"; org_id: OrgId }
   | { scope: "project"; project_id: ProjectId };
 
-export type PrincipalRef =
-  | { principal: "account"; account_id: AccountId }
-  | { principal: "role"; role_id: RoleId };
+export type AccountPrincipalRef = {
+  principal: "account";
+  account_id: AccountId;
+};
+export type RolePrincipalRejectionRef = { principal: "role"; role_id: RoleId };
+export type PrincipalRef = AccountPrincipalRef | RolePrincipalRejectionRef;
 
 export interface ScopedRole {
   role_id: RoleId;
@@ -67,7 +70,7 @@ export interface DeleteRoleResponse {
 
 export interface ApplyRoleRequest {
   role: ScopedRole;
-  principal: PrincipalRef;
+  principal: AccountPrincipalRef;
   grant_scope: PermissionScope;
 }
 
@@ -90,7 +93,7 @@ export interface RoleReadModelRequest {
   role_scope: RoleScope;
   role_cursor: RoleTemplateCursorView | null;
   role_limit: number | null;
-  grant_principal: PrincipalRef;
+  grant_principal: AccountPrincipalRef;
   grant_scope: PermissionScope;
   grant_cursor: PermissionGrantCursorView | null;
   grant_limit: number | null;
@@ -102,7 +105,7 @@ export interface RoleReadModelFreshness {
 
 export interface RoleReadModelResponse {
   role_scope: RoleScope;
-  grant_principal: PrincipalRef;
+  grant_principal: AccountPrincipalRef;
   grant_scope: PermissionScope;
   role_templates: RoleTemplateView[];
   role_next_cursor: RoleTemplateCursorView | null;
@@ -112,13 +115,13 @@ export interface RoleReadModelResponse {
 }
 
 export interface PermissionCheckRequest {
-  principal: PrincipalRef;
+  principal: AccountPrincipalRef;
   permission: PermissionName;
   scope: PermissionScope;
 }
 
 export interface PermissionCheckResponse {
-  principal: PrincipalRef;
+  principal: AccountPrincipalRef;
   permission: PermissionName;
   scope: PermissionScope;
   allowed: boolean;
@@ -239,20 +242,11 @@ export function asPermissionGrantCursorId(
 }
 
 export function parseRoleScopeKind(raw: string): RoleScope["scope"] {
-  if (raw === "organization") {
-    return "organization";
-  }
-  if (raw === "project") {
-    return "project";
-  }
-  return "account";
+  return parseRoleScopeKindStrict(raw, "role scope kind");
 }
 
 export function parsePrincipalKind(raw: string): PrincipalRef["principal"] {
-  if (raw === "role") {
-    return "role";
-  }
-  return "account";
+  return parsePrincipalKindStrict(raw, "principal kind");
 }
 
 export function roleFailureSummaryForCode(code: RoleServerFailureCode): string {
@@ -329,7 +323,7 @@ export function parsePermissionCheckResponse(
 ): PermissionCheckResponse {
   const data = expectRecord(payload, "permission check response");
   return {
-    principal: parsePrincipalRef(
+    principal: parseAccountPrincipalRef(
       data["principal"],
       "permission check principal",
     ),
@@ -356,7 +350,7 @@ export function parseRoleReadModelResponse(
       data["role_scope"],
       "role read-model role_scope",
     ),
-    grant_principal: parsePrincipalRef(
+    grant_principal: parseAccountPrincipalRef(
       data["grant_principal"],
       "role read-model grant_principal",
     ),
@@ -471,17 +465,33 @@ function parsePrincipalRef(value: unknown, context: string): PrincipalRef {
     `${context}.principal`,
   );
   if (principal === "role") {
-    return {
-      principal,
-      role_id: parseRoleIdValue(data["role_id"], `${context}.role_id`),
-    };
+    return parseRolePrincipalRejectionRef(data, context);
   }
+  return parseAccountPrincipalRef(data, context);
+}
+
+function parseAccountPrincipalRef(
+  value: unknown,
+  context: string,
+): AccountPrincipalRef {
+  const data = expectRecord(value, context);
   return {
-    principal,
+    principal: "account",
     account_id: parseAccountIdValue(
       data["account_id"],
       `${context}.account_id`,
     ),
+  };
+}
+
+function parseRolePrincipalRejectionRef(
+  value: unknown,
+  context: string,
+): RolePrincipalRejectionRef {
+  const data = expectRecord(value, context);
+  return {
+    principal: "role",
+    role_id: parseRoleIdValue(data["role_id"], `${context}.role_id`),
   };
 }
 

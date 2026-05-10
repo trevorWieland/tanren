@@ -69,7 +69,10 @@ export function ScopeFields(props: {
   );
 }
 
-export function PrincipalFields(props: { prefix: string }): ReactNode {
+export function PrincipalFields(props: {
+  prefix: string;
+  allowRolePrincipal?: boolean;
+}): ReactNode {
   return (
     <fieldset className="grid gap-2">
       <legend className="text-xs uppercase text-[--color-fg-muted]">
@@ -83,7 +86,7 @@ export function PrincipalFields(props: { prefix: string }): ReactNode {
           name={`${props.prefix}kind`}
         >
           <option value="account">account</option>
-          <option value="role">role</option>
+          {props.allowRolePrincipal ? <option value="role">role</option> : null}
         </select>
       </label>
       <LabeledInput

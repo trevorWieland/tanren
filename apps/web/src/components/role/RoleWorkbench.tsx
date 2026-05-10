@@ -5,9 +5,9 @@ import type { FormEvent, ReactNode } from "react";
 
 import type {
   AccountId,
+  AccountPrincipalRef,
   PermissionCheckResponse,
   PermissionScope,
-  PrincipalRef,
   RoleAdminAction,
   RoleAdminCapabilities,
   RoleReadModelResponse,
@@ -17,18 +17,21 @@ import { asAccountId } from "@/app/lib/generated/role-contract";
 import {
   applyRole,
   checkPermission,
+  checkPermissionRolePrincipalRejection,
   createRole,
   deleteRole,
   editRole,
   fetchRoleCapabilities,
   formatRoleError,
+  readAccountPrincipalRef,
   readPermissionBundle,
   readPermissionNameField,
   readPermissionScope,
-  readPrincipalRef,
-  readRequiredField,
+  readPrincipalKindField,
   readRoleIdField,
+  readRoleNameField,
   readRoleModel,
+  readRolePrincipalRejectionRef,
   readRoleScope,
 } from "@/app/lib/role-client";
 
@@ -41,7 +44,7 @@ import {
 
 interface RoleReadContext {
   roleScope: RoleScope;
-  grantPrincipal: PrincipalRef;
+  grantPrincipal: AccountPrincipalRef;
   grantScope: PermissionScope;
 }
 
@@ -123,19 +126,19 @@ export function RoleWorkbench(): ReactNode {
       return;
     }
     const form = new FormData(event.currentTarget);
-    const roleScope = readRoleScope(form, "scope_");
-    const context = resolveContext(
-      readContext,
-      roleCapabilities,
-      roleScope,
-      readContext?.grantPrincipal,
-      permissionScopeFromRoleScope(roleScope),
-    );
     void runRoleAction("create role", async () => {
+      const roleScope = readRoleScope(form, "scope_");
+      const context = resolveContext(
+        readContext,
+        roleCapabilities,
+        roleScope,
+        readContext?.grantPrincipal,
+        permissionScopeFromRoleScope(roleScope),
+      );
       const response = await createRole(
         {
           scope: roleScope,
-          name: readRequiredField(form, "name"),
+          name: readRoleNameField(form, "name"),
           permissions: readPermissionBundle(form, "permissions"),
         },
         roleCsrfToken,
@@ -159,22 +162,22 @@ export function RoleWorkbench(): ReactNode {
       return;
     }
     const form = new FormData(event.currentTarget);
-    const roleScope = readRoleScope(form, "scope_");
-    const context = resolveContext(
-      readContext,
-      roleCapabilities,
-      roleScope,
-      readContext?.grantPrincipal,
-      permissionScopeFromRoleScope(roleScope),
-    );
     void runRoleAction("edit role", async () => {
+      const roleScope = readRoleScope(form, "scope_");
+      const context = resolveContext(
+        readContext,
+        roleCapabilities,
+        roleScope,
+        readContext?.grantPrincipal,
+        permissionScopeFromRoleScope(roleScope),
+      );
       const response = await editRole(
         {
           role: {
             role_id: readRoleIdField(form, "role_id"),
             scope: roleScope,
           },
-          name: readRequiredField(form, "name"),
+          name: readRoleNameField(form, "name"),
           permissions: readPermissionBundle(form, "permissions"),
         },
         roleCsrfToken,
@@ -198,15 +201,15 @@ export function RoleWorkbench(): ReactNode {
       return;
     }
     const form = new FormData(event.currentTarget);
-    const roleScope = readRoleScope(form, "scope_");
-    const context = resolveContext(
-      readContext,
-      roleCapabilities,
-      roleScope,
-      readContext?.grantPrincipal,
-      permissionScopeFromRoleScope(roleScope),
-    );
     void runRoleAction("delete role", async () => {
+      const roleScope = readRoleScope(form, "scope_");
+      const context = resolveContext(
+        readContext,
+        roleCapabilities,
+        roleScope,
+        readContext?.grantPrincipal,
+        permissionScopeFromRoleScope(roleScope),
+      );
       const response = await deleteRole(
         {
           role: {
@@ -234,17 +237,17 @@ export function RoleWorkbench(): ReactNode {
       return;
     }
     const form = new FormData(event.currentTarget);
-    const roleScope = readRoleScope(form, "role_scope_");
-    const principal = readPrincipalRef(form, "principal_");
-    const grantScope = readPermissionScope(form, "grant_scope_");
-    const context = resolveContext(
-      readContext,
-      roleCapabilities,
-      roleScope,
-      principal,
-      grantScope,
-    );
     void runRoleAction("apply role", async () => {
+      const roleScope = readRoleScope(form, "role_scope_");
+      const principal = readAccountPrincipalRef(form, "principal_");
+      const grantScope = readPermissionScope(form, "grant_scope_");
+      const context = resolveContext(
+        readContext,
+        roleCapabilities,
+        roleScope,
+        principal,
+        grantScope,
+      );
       const response = await applyRole(
         {
           role: {
@@ -271,21 +274,40 @@ export function RoleWorkbench(): ReactNode {
   const onCheckPermission = (event: FormEvent<HTMLFormElement>): void => {
     event.preventDefault();
     const form = new FormData(event.currentTarget);
-    const principal = readPrincipalRef(form, "principal_");
-    const scope = readPermissionScope(form, "scope_");
-    const context = resolveContext(
-      readContext,
-      roleCapabilities,
-      roleScopeFromPermissionScope(scope),
-      principal,
-      scope,
-    );
     void runRoleAction("check permission", async () => {
-      const response = await checkPermission({
-        principal,
-        permission: readPermissionNameField(form, "permission"),
-        scope,
-      });
+      const scope = readPermissionScope(form, "scope_");
+      const permission = readPermissionNameField(form, "permission");
+      const principalKind = readPrincipalKindField(form, "principal_");
+      let response: PermissionCheckResponse;
+      let context: RoleReadContext;
+      if (principalKind === "role") {
+        response = await checkPermissionRolePrincipalRejection({
+          principal: readRolePrincipalRejectionRef(form, "principal_"),
+          permission,
+          scope,
+        });
+        context = resolveContext(
+          readContext,
+          roleCapabilities,
+          roleScopeFromPermissionScope(scope),
+          readContext?.grantPrincipal,
+          scope,
+        );
+      } else {
+        const principal = readAccountPrincipalRef(form, "principal_");
+        response = await checkPermission({
+          principal,
+          permission,
+          scope,
+        });
+        context = resolveContext(
+          readContext,
+          roleCapabilities,
+          roleScopeFromPermissionScope(scope),
+          principal,
+          scope,
+        );
+      }
       setOperationSummary(buildPermissionSummary(response));
       await refreshReadModel(context);
     });
@@ -345,7 +367,7 @@ export function RoleWorkbench(): ReactNode {
 
         {hasRoleCapability(roleCapabilities, "check_permission") ? (
           <RoleCard title="Check permission" onSubmit={onCheckPermission}>
-            <PrincipalFields prefix="principal_" />
+            <PrincipalFields prefix="principal_" allowRolePrincipal />
             <LabeledInput
               name="permission"
               label="Permission"
@@ -468,7 +490,7 @@ function resolveContext(
   current: RoleReadContext | null,
   capabilities: RoleAdminCapabilities | null,
   roleScope: RoleScope,
-  grantPrincipal: PrincipalRef | undefined,
+  grantPrincipal: AccountPrincipalRef | undefined,
   grantScope: PermissionScope,
 ): RoleReadContext {
   if (grantPrincipal !== undefined) {
@@ -481,12 +503,20 @@ function resolveContext(
       grantScope,
     };
   }
-  const fallbackAccountId = capabilities?.actor.account_id ?? asAccountId("");
+  const fallbackAccountId = capabilities?.actor.account_id;
+  if (
+    fallbackAccountId === undefined ||
+    fallbackAccountId.trim().length === 0
+  ) {
+    throw new Error(
+      "role context is unavailable because the actor account id is missing",
+    );
+  }
   return {
     roleScope,
     grantPrincipal: {
       principal: "account",
-      account_id: fallbackAccountId,
+      account_id: asAccountId(fallbackAccountId),
     },
     grantScope,
   };
@@ -555,10 +585,7 @@ function formatPermissionScope(scope: PermissionScope): string {
   return `account:${scope.account_id}`;
 }
 
-function formatPrincipal(principal: PrincipalRef): string {
-  if (principal.principal === "role") {
-    return `role:${principal.role_id}`;
-  }
+function formatPrincipal(principal: AccountPrincipalRef): string {
   return `account:${principal.account_id}`;
 }
 

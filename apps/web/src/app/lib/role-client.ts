@@ -1,5 +1,6 @@
 import type {
   AccountId,
+  AccountPrincipalRef,
   ApplyRoleRequest,
   ApplyRoleResponse,
   CreateRoleRequest,
@@ -14,10 +15,10 @@ import type {
   PermissionCheckRequest,
   PermissionCheckResponse,
   RoleId,
+  RolePrincipalRejectionRef,
   RoleReadModelRequest,
   RoleReadModelResponse,
   PermissionScope,
-  PrincipalRef,
   RoleAdminCapabilities,
   RoleFailureBody,
   RoleScope,
@@ -40,7 +41,12 @@ import {
   parseRoleScopeKind,
 } from "./generated/role-contract";
 
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
+const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "";
+const ALLOWLISTED_LOOPBACK_API_HOSTS = new Set([
+  "127.0.0.1",
+  "localhost",
+  "::1",
+]);
 
 export class RoleRequestError extends Error {
   readonly failure: RoleFailureBody;
@@ -53,7 +59,15 @@ export class RoleRequestError extends Error {
 }
 
 export type ScopeKind = RoleScope["scope"];
-export type PrincipalKind = PrincipalRef["principal"];
+export type PrincipalKind =
+  | AccountPrincipalRef["principal"]
+  | RolePrincipalRejectionRef["principal"];
+
+export interface PermissionCheckRolePrincipalRejectionRequest {
+  principal: RolePrincipalRejectionRef;
+  permission: PermissionName;
+  scope: PermissionScope;
+}
 
 type RoleCommandRequest =
   | CreateRoleRequest
@@ -61,6 +75,7 @@ type RoleCommandRequest =
   | DeleteRoleRequest
   | ApplyRoleRequest
   | PermissionCheckRequest
+  | PermissionCheckRolePrincipalRejectionRequest
   | RoleReadModelRequest;
 
 type ResponseDecoder<TResponse> = (payload: unknown) => TResponse;
@@ -72,6 +87,75 @@ function toRoleTransportFailure(summary: string): RoleFailureBody {
   };
 }
 
+function toRoleValidationFailure(summary: string): RoleFailureBody {
+  return {
+    code: "validation_failed",
+    summary,
+  };
+}
+
+function toRoleValidationError(summary: string): RoleRequestError {
+  return new RoleRequestError(toRoleValidationFailure(summary));
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function normalizeAbsoluteApiBase(url: URL): string {
+  if (url.search.length > 0 || url.hash.length > 0) {
+    throw toRoleValidationError(
+      "NEXT_PUBLIC_API_URL must not include query params or fragments",
+    );
+  }
+  const pathname = url.pathname === "/" ? "" : trimTrailingSlash(url.pathname);
+  return `${url.origin}${pathname}`;
+}
+
+function isAllowlistedAbsoluteApiOrigin(url: URL): boolean {
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    return false;
+  }
+  if (
+    typeof window !== "undefined" &&
+    url.origin.toLowerCase() === window.location.origin.toLowerCase()
+  ) {
+    return true;
+  }
+  return ALLOWLISTED_LOOPBACK_API_HOSTS.has(url.hostname.toLowerCase());
+}
+
+function resolveApiBasePath(): string {
+  const trimmed = API_URL.trim();
+  if (trimmed.length === 0) {
+    return "";
+  }
+  if (trimmed.startsWith("/")) {
+    return trimTrailingSlash(trimmed);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(trimmed);
+  } catch {
+    throw toRoleValidationError(
+      "NEXT_PUBLIC_API_URL must be relative or an absolute HTTP(S) URL",
+    );
+  }
+
+  if (!isAllowlistedAbsoluteApiOrigin(parsed)) {
+    throw toRoleValidationError(
+      `NEXT_PUBLIC_API_URL origin is not allowlisted: ${parsed.origin}`,
+    );
+  }
+
+  return normalizeAbsoluteApiBase(parsed);
+}
+
+function resolveRoleApiPath(path: string): string {
+  return `${resolveApiBasePath()}${path}`;
+}
+
 async function postRoleJson<TResponse>(
   path: string,
   body: RoleCommandRequest,
@@ -80,7 +164,7 @@ async function postRoleJson<TResponse>(
 ): Promise<TResponse> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}${path}`, {
+    response = await fetch(resolveRoleApiPath(path), {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -133,7 +217,7 @@ export function formatRoleError(reason: unknown): string {
 export async function fetchRoleCapabilities(): Promise<RoleCapabilitySnapshot> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/roles/capabilities`, {
+    response = await fetch(resolveRoleApiPath("/roles/capabilities"), {
       method: "GET",
       credentials: "include",
     });
@@ -224,6 +308,16 @@ export function checkPermission(
   );
 }
 
+export function checkPermissionRolePrincipalRejection(
+  request: PermissionCheckRolePrincipalRejectionRequest,
+): Promise<PermissionCheckResponse> {
+  return postRoleJson(
+    "/permissions/check",
+    request,
+    parsePermissionCheckResponse,
+  );
+}
+
 export function readRoleModel(
   request: RoleReadModelRequest,
 ): Promise<RoleReadModelResponse> {
@@ -238,19 +332,32 @@ export function readRequiredField(form: FormData, name: string): string {
   return value.trim();
 }
 
+function readNonEmptyField(form: FormData, name: string): string {
+  const value = readRequiredField(form, name);
+  if (value.length === 0) {
+    throw toRoleValidationError(`missing required field: ${name}`);
+  }
+  return value;
+}
+
 export function readPermissionBundle(
   form: FormData,
   name: string,
 ): PermissionName[] {
-  return readRequiredField(form, name)
+  const parts = readNonEmptyField(form, name)
     .split(",")
-    .map((part) => asPermissionName(part.trim()))
-    .filter((part) => part.length > 0);
+    .map((part) => part.trim());
+  if (parts.some((part) => part.length === 0)) {
+    throw toRoleValidationError(
+      `field ${name} must contain non-empty permission names`,
+    );
+  }
+  return parts.map((part) => asPermissionName(part));
 }
 
 export function readRoleScope(form: FormData, prefix: string): RoleScope {
-  const kind = parseScopeKind(readRequiredField(form, `${prefix}kind`));
-  const id = readRequiredField(form, `${prefix}id`);
+  const kind = parseScopeKind(readNonEmptyField(form, `${prefix}kind`));
+  const id = readNonEmptyField(form, `${prefix}id`);
   if (kind === "organization") {
     return { scope: "organization", org_id: asOrgIdValue(id) };
   }
@@ -274,32 +381,78 @@ export function readPermissionScope(
   return { scope: "account", account_id: scope.account_id };
 }
 
-export function readPrincipalRef(form: FormData, prefix: string): PrincipalRef {
-  const kind = parseFormPrincipalKind(readRequiredField(form, `${prefix}kind`));
-  const id = readRequiredField(form, `${prefix}id`);
-  if (kind === "role") {
-    return { principal: "role", role_id: asRoleIdValue(id) };
+export function readPrincipalKindField(
+  form: FormData,
+  prefix: string,
+): PrincipalKind {
+  return parseFormPrincipalKind(readNonEmptyField(form, `${prefix}kind`));
+}
+
+export function readAccountPrincipalRef(
+  form: FormData,
+  prefix: string,
+): AccountPrincipalRef {
+  const kind = readPrincipalKindField(form, prefix);
+  if (kind !== "account") {
+    throw toRoleValidationError(
+      `field ${prefix}kind must be account for this request`,
+    );
   }
-  return { principal: "account", account_id: asAccountIdValue(id) };
+  return {
+    principal: "account",
+    account_id: asAccountIdValue(readNonEmptyField(form, `${prefix}id`)),
+  };
+}
+
+export function readRolePrincipalRejectionRef(
+  form: FormData,
+  prefix: string,
+): RolePrincipalRejectionRef {
+  const kind = readPrincipalKindField(form, prefix);
+  if (kind !== "role") {
+    throw toRoleValidationError(
+      `field ${prefix}kind must be role for rejection witness requests`,
+    );
+  }
+  return {
+    principal: "role",
+    role_id: asRoleIdValue(readNonEmptyField(form, `${prefix}id`)),
+  };
 }
 
 export function readRoleIdField(form: FormData, name: string): RoleId {
-  return asRoleIdValue(readRequiredField(form, name));
+  return asRoleIdValue(readNonEmptyField(form, name));
 }
 
 export function readPermissionNameField(
   form: FormData,
   name: string,
 ): PermissionName {
-  return asPermissionName(readRequiredField(form, name));
+  return asPermissionName(readNonEmptyField(form, name));
+}
+
+export function readRoleNameField(form: FormData, name: string): string {
+  return readNonEmptyField(form, name);
 }
 
 function parseScopeKind(value: string): ScopeKind {
-  return parseRoleScopeKind(value);
+  try {
+    return parseRoleScopeKind(value);
+  } catch {
+    throw toRoleValidationError(
+      `scope kind must be account, organization, or project: ${value}`,
+    );
+  }
 }
 
 function parseFormPrincipalKind(value: string): PrincipalKind {
-  return parsePrincipalKind(value);
+  try {
+    return parsePrincipalKind(value);
+  } catch {
+    throw toRoleValidationError(
+      `principal kind must be account or role: ${value}`,
+    );
+  }
 }
 
 function asRoleIdValue(value: string): RoleId {
