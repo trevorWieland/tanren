@@ -5,38 +5,31 @@ import type {
   AccountRequestFailureCode,
   AccountId,
   AccountView,
-  ListActiveAccountsRequest,
-  ListActiveAccountsResponse,
   OrgId,
   SessionEnvelope,
-  SignInRequest,
-  SignUpRequest,
   SignedInAccountView,
   SwitchActiveAccountRequest,
   SwitchActiveAccountResponse,
   WindowContextId,
 } from "@/app/lib/generated/account-contract";
 import {
-  parseAcceptInvitationRequest,
   parseAccountId as parseGeneratedAccountId,
-  parseAccountRequestFailureCode,
-  parseListActiveAccountsRequest,
   parseListActiveAccountsResponse,
-  parseSignInRequest,
-  parseSignUpRequest,
-  parseSwitchActiveAccountRequest,
   parseSwitchActiveAccountResponse,
   parseWebAcceptInvitationResponse,
   parseWebSignInResponse,
   parseWebSignUpResponse,
-  parseWindowContextId as parseGeneratedWindowContextId,
 } from "@/app/lib/generated/account-contract";
-
-const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
-const WINDOW_ID_HEADER = "x-tanren-window-id";
-const WINDOW_ID_STORAGE_KEY = "tanren.window_id";
-const WINDOW_ID_FAILURE_SUMMARY =
-  "Unable to initialize browser window context.";
+import { getJson, postEmpty, postJson } from "@/app/lib/account-http";
+import {
+  browserWindowContext,
+  type WindowContextStrategy,
+} from "@/app/lib/window-context";
+import {
+  getCachedWindowId as getCachedWindowIdImpl,
+  invalidateCachedWindowId as invalidateCachedWindowIdImpl,
+  parseWindowContextId as parseWindowContextIdImpl,
+} from "@/app/lib/window-context";
 
 /** Maximum number of signed-in accounts the server and validators accept. */
 export const ACTIVE_ACCOUNT_LIMIT = 16;
@@ -87,7 +80,8 @@ export interface AcceptInvitationResult {
   joined_org: OrgId;
 }
 
-export type ListActiveAccountsResult = ListActiveAccountsResponse;
+export type ListActiveAccountsResult =
+  import("@/app/lib/generated/account-contract").ListActiveAccountsResponse;
 export type SwitchActiveAccountInput = SwitchActiveAccountRequest;
 export type SwitchActiveAccountResult = SwitchActiveAccountResponse;
 
@@ -96,109 +90,7 @@ export interface AccountFailure {
   summary: string;
 }
 
-interface FailureBody {
-  code?: unknown;
-  summary?: unknown;
-}
-
-type JsonDecoder<T> = (payload: unknown) => T | null;
-
-type ResponseMode = "json" | "empty";
-
-type AccountOperation<TRequest, TResponse> = {
-  method: "GET" | "POST";
-  path: string | ((request: TRequest) => string);
-  parseRequest: JsonDecoder<TRequest>;
-  responseMode: ResponseMode;
-  parseResponse?: JsonDecoder<TResponse>;
-  encodeBody?: (request: TRequest) => unknown;
-  afterSuccess?: () => void;
-};
-
-const ACCOUNT_OPERATIONS: {
-  signUp: AccountOperation<SignUpRequest, SignUpResult>;
-  signIn: AccountOperation<SignInRequest, SignInResult>;
-  acceptInvitation: AccountOperation<
-    AcceptInvitationRequest,
-    AcceptInvitationResult
-  >;
-  listActiveAccounts: AccountOperation<
-    ListActiveAccountsRequest,
-    ListActiveAccountsResult
-  >;
-  switchActiveAccount: AccountOperation<
-    SwitchActiveAccountRequest,
-    SwitchActiveAccountResult
-  >;
-  signOut: AccountOperation<ListActiveAccountsRequest, void>;
-} = {
-  signUp: {
-    method: "POST",
-    path: "/accounts",
-    parseRequest: parseSignUpRequest,
-    responseMode: "json",
-    parseResponse: decodeSignUpResult,
-    afterSuccess: rotateWindowId,
-  },
-  signIn: {
-    method: "POST",
-    path: "/sessions",
-    parseRequest: parseSignInRequest,
-    responseMode: "json",
-    parseResponse: decodeSignInResult,
-    afterSuccess: rotateWindowId,
-  },
-  acceptInvitation: {
-    method: "POST",
-    path: (request) =>
-      `/invitations/${encodeURIComponent(request.invitation_token)}/accept`,
-    parseRequest: parseAcceptInvitationRequest,
-    responseMode: "json",
-    parseResponse: decodeAcceptInvitationResult,
-    encodeBody: (request) => ({
-      display_name: request.display_name,
-      email: request.email,
-      password: request.password,
-    }),
-    afterSuccess: rotateWindowId,
-  },
-  listActiveAccounts: {
-    method: "GET",
-    path: "/accounts/active",
-    parseRequest: parseListActiveAccountsRequest,
-    responseMode: "json",
-    parseResponse: parseListActiveAccountsResponse,
-  },
-  switchActiveAccount: {
-    method: "POST",
-    path: "/accounts/active/switch",
-    parseRequest: parseSwitchActiveAccountRequest,
-    responseMode: "json",
-    parseResponse: parseSwitchActiveAccountResponse,
-  },
-  signOut: {
-    method: "POST",
-    path: "/sessions/revoke",
-    parseRequest: parseListActiveAccountsRequest,
-    responseMode: "empty",
-    afterSuccess: clearWindowId,
-  },
-};
-
-function decodeFailureBody(payload: unknown): FailureBody | null {
-  if (
-    payload === null ||
-    typeof payload !== "object" ||
-    Array.isArray(payload)
-  ) {
-    return null;
-  }
-  const source = payload as Record<string, unknown>;
-  return {
-    code: source["code"],
-    summary: source["summary"],
-  };
-}
+// -- Session decoding (shared contract-consumption pattern) --
 
 function parseCookieSessionExpiry(value: string): Date | null {
   const parsed = new Date(value);
@@ -206,54 +98,6 @@ function parseCookieSessionExpiry(value: string): Date | null {
     return null;
   }
   return parsed;
-}
-
-function decodeSignUpResult(payload: unknown): SignUpResult | null {
-  const decoded = parseWebSignUpResponse(payload);
-  if (decoded === null) {
-    return null;
-  }
-  const session = decodeCookieSessionEnvelope(decoded.session);
-  if (session === null) {
-    return null;
-  }
-  return {
-    account: decoded.account,
-    session,
-  };
-}
-
-function decodeSignInResult(payload: unknown): SignInResult | null {
-  const decoded = parseWebSignInResponse(payload);
-  if (decoded === null) {
-    return null;
-  }
-  const session = decodeCookieSessionEnvelope(decoded.session);
-  if (session === null) {
-    return null;
-  }
-  return {
-    account: decoded.account,
-    session,
-  };
-}
-
-function decodeAcceptInvitationResult(
-  payload: unknown,
-): AcceptInvitationResult | null {
-  const decoded = parseWebAcceptInvitationResponse(payload);
-  if (decoded === null) {
-    return null;
-  }
-  const session = decodeCookieSessionEnvelope(decoded.session);
-  if (session === null) {
-    return null;
-  }
-  return {
-    account: decoded.account,
-    session,
-    joined_org: decoded.joined_org,
-  };
 }
 
 function decodeCookieSessionEnvelope(
@@ -272,180 +116,134 @@ function decodeCookieSessionEnvelope(
   };
 }
 
-/**
- * Map an `AccountFailure` to a localized message via paraglide. Falls back
- * to the API-supplied summary, then to a generic "Request failed" string,
- * so unknown failure codes still surface something meaningful.
- */
-export function describeFailure(failure: AccountFailure): string {
-  const key = `failure_${failure.code}`;
-  const lookup = m as unknown as Record<string, (() => string) | undefined>;
-  const fn = lookup[key];
-  if (typeof fn === "function") {
-    return fn();
-  }
-  if (failure.summary !== "") {
-    return failure.summary;
-  }
-  return m.failure_fallback();
-}
-
-export class AccountRequestError extends Error {
-  readonly failure: AccountFailure;
-
-  constructor(failure: AccountFailure) {
-    super(describeFailure(failure));
-    this.failure = failure;
-    this.name = "AccountRequestError";
-  }
-}
-
-async function requestJson<TRequest, TResponse>(
-  operation: AccountOperation<TRequest, TResponse>,
-  input: unknown,
-): Promise<TResponse> {
-  const request = operation.parseRequest(input);
-  if (request === null) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: "Invalid request body.",
-    });
-  }
-
-  const identityHeader = windowIdentityHeader();
-  let response: Response;
-  try {
-    const init: RequestInit = {
-      method: operation.method,
-      headers: {
-        ...(operation.method === "POST"
-          ? { "content-type": "application/json" }
-          : {}),
-        ...identityHeader,
-      },
-      // Cookie transport: send/receive HTTP-only session cookie on every
-      // request. Replaces localStorage token storage (M2).
-      credentials: "include",
-    };
-    if (operation.method === "POST") {
-      const body = operation.encodeBody?.(request) ?? request;
-      if (body !== undefined) {
-        init.body = JSON.stringify(body);
-      }
-    }
-    const path =
-      typeof operation.path === "function"
-        ? operation.path(request)
-        : operation.path;
-    response = await fetch(`${API_URL}${path}`, init);
-  } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
-  }
-
-  if (!response.ok) {
-    let parsed: FailureBody | null = null;
-    if (response.status !== 204) {
-      try {
-        parsed = decodeFailureBody(await response.json());
-      } catch {
-        parsed = null;
-      }
-    }
-    const code =
-      parseAccountRequestFailureCode(parsed?.code) ?? "internal_error";
-    const summary =
-      typeof parsed?.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    if (windowContextRejectedByServer(code, summary)) {
-      rotateWindowId();
-    }
-    throw new AccountRequestError({ code, summary });
-  }
-
-  if (operation.responseMode === "empty") {
-    operation.afterSuccess?.();
-    return undefined as TResponse;
-  }
-
-  let payload: unknown;
-  try {
-    payload = await response.json();
-  } catch {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: "Invalid response body.",
-    });
-  }
-
-  const decode = operation.parseResponse;
-  if (decode === undefined) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: "Invalid response decoder.",
-    });
-  }
-  const decoded = decode(payload);
+function decodeSignUpResult(payload: unknown): SignUpResult | null {
+  const decoded = parseWebSignUpResponse(payload);
   if (decoded === null) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: "Invalid response body.",
-    });
+    return null;
   }
-  operation.afterSuccess?.();
-  return decoded;
+  const session = decodeCookieSessionEnvelope(decoded.session);
+  if (session === null) {
+    return null;
+  }
+  return { account: decoded.account, session };
 }
+
+function decodeSignInResult(payload: unknown): SignInResult | null {
+  const decoded = parseWebSignInResponse(payload);
+  if (decoded === null) {
+    return null;
+  }
+  const session = decodeCookieSessionEnvelope(decoded.session);
+  if (session === null) {
+    return null;
+  }
+  return { account: decoded.account, session };
+}
+
+function decodeAcceptInvitationResult(
+  payload: unknown,
+): AcceptInvitationResult | null {
+  const decoded = parseWebAcceptInvitationResponse(payload);
+  if (decoded === null) {
+    return null;
+  }
+  const session = decodeCookieSessionEnvelope(decoded.session);
+  if (session === null) {
+    return null;
+  }
+  return { account: decoded.account, session, joined_org: decoded.joined_org };
+}
+
+// -- Auth-side-effect wrapper --
+
+/**
+ * Execute an operation that produces a result, then rotate the window
+ * context as an explicit authentication success side effect.
+ */
+async function withAuthRotate<TResult>(
+  operation: () => Promise<TResult>,
+  windowCtx: WindowContextStrategy,
+): Promise<TResult> {
+  const result = await operation();
+  windowCtx.rotate();
+  return result;
+}
+
+// -- Public API --
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return requestJson(ACCOUNT_OPERATIONS.signUp, input);
+  return withAuthRotate(
+    () =>
+      postJson("/accounts", input, decodeSignUpResult, browserWindowContext),
+    browserWindowContext,
+  );
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return requestJson(ACCOUNT_OPERATIONS.signIn, input);
+  return withAuthRotate(
+    () =>
+      postJson("/sessions", input, decodeSignInResult, browserWindowContext),
+    browserWindowContext,
+  );
 }
 
 export function acceptInvitation(
   token: string,
   input: Omit<AcceptInvitationInput, "invitation_token">,
 ): Promise<AcceptInvitationResult> {
-  return requestJson(ACCOUNT_OPERATIONS.acceptInvitation, {
+  const request = {
     display_name: input.display_name,
     email: input.email,
     invitation_token: token,
     password: input.password,
-  });
+  };
+  return withAuthRotate(
+    () =>
+      postJson(
+        (req: AcceptInvitationRequest) =>
+          `/invitations/${encodeURIComponent(req.invitation_token)}/accept`,
+        request,
+        decodeAcceptInvitationResult,
+        browserWindowContext,
+        (req) => ({
+          display_name: req.display_name,
+          email: req.email,
+          password: req.password,
+        }),
+      ),
+    browserWindowContext,
+  );
 }
 
 export function listActiveAccounts(): Promise<ListActiveAccountsResult> {
-  return requestJson(ACCOUNT_OPERATIONS.listActiveAccounts, {});
+  return getJson(
+    "/accounts/active",
+    parseListActiveAccountsResponse,
+    browserWindowContext,
+  );
 }
 
 export function switchActiveAccount(
   input: SwitchActiveAccountInput,
 ): Promise<SwitchActiveAccountResult> {
-  return requestJson(ACCOUNT_OPERATIONS.switchActiveAccount, input);
+  return postJson(
+    "/accounts/active/switch",
+    input,
+    parseSwitchActiveAccountResponse,
+    browserWindowContext,
+  );
 }
 
 /**
  * Sign-out clears the session row server-side and the cookie via
  * `Set-Cookie: tanren_session=; Max-Age=0`.
  */
-export function signOut(): Promise<void> {
-  return requestJson(ACCOUNT_OPERATIONS.signOut, {});
+export async function signOut(): Promise<void> {
+  await postEmpty("/sessions/revoke", {}, browserWindowContext);
+  browserWindowContext.clear();
 }
 
-/**
- * Bounded keyed lookup helpers for active-account responses.
- *
- * These helpers avoid unbounded `.find()` / `.filter()` scans by using
- * direct index access on the server-bounded response array (max
- * `ACTIVE_ACCOUNT_LIMIT` entries). The response validators in
- * `generated/account-contract.ts` already enforce `maxLength(16)`, so
- * callers never see a list exceeding the documented bound.
- */
+// -- Bounded keyed lookup helpers --
 
 /**
  * Extract the active account id from a signed-in account list using a
@@ -495,123 +293,43 @@ export function buildAccountLookup(
   return map;
 }
 
-/**
- * Cached window context for the current request lifecycle.
- *
- * The window id is stable within a page session (stored in
- * `sessionStorage`) and only rotates on explicit sign-out / sign-in
- * transitions. Within a single React render cycle, the id is resolved
- * once and reused so that concurrent `listActiveAccounts` and
- * `switchActiveAccount` calls share the same window scope.
- */
-let cachedWindowId: WindowContextId | null = null;
+// -- Re-exports from sub-modules --
 
-/**
- * Resolve the window context id, caching the result for the duration
- * of the page session. Returns `null` when window context is
- * unavailable (SSR, missing crypto, storage errors).
- */
-export function getCachedWindowId(): WindowContextId | null {
-  if (cachedWindowId !== null) {
-    return cachedWindowId;
-  }
-  const resolved = resolveWindowId();
-  if (resolved !== null) {
-    cachedWindowId = resolved;
-  }
-  return resolved;
-}
-
-/**
- * Invalidate the cached window context, forcing re-resolution on the
- * next call. Called after sign-out or after a server rejection that
- * indicates the current window id is stale.
- */
-export function invalidateCachedWindowId(): void {
-  cachedWindowId = null;
-}
-
-function resolveWindowId(): WindowContextId | null {
-  if (typeof window === "undefined") {
-    return null;
-  }
-  try {
-    const existingRaw = window.sessionStorage.getItem(WINDOW_ID_STORAGE_KEY);
-    if (existingRaw !== null) {
-      const existing = parseWindowContextId(existingRaw);
-      if (existing !== null) {
-        return existing;
-      }
-      clearWindowId();
-    }
-
-    if (typeof globalThis.crypto?.randomUUID !== "function") {
-      return null;
-    }
-    const created = parseWindowContextId(globalThis.crypto.randomUUID());
-    if (created === null) {
-      return null;
-    }
-    window.sessionStorage.setItem(WINDOW_ID_STORAGE_KEY, created);
-    return created;
-  } catch {
-    return null;
-  }
-}
+export const getCachedWindowId = getCachedWindowIdImpl;
+export const invalidateCachedWindowId = invalidateCachedWindowIdImpl;
 
 export function parseAccountId(value: string): AccountId | null {
   return parseGeneratedAccountId(value);
 }
 
 export function parseWindowContextId(payload: unknown): WindowContextId | null {
-  return parseGeneratedWindowContextId(payload);
+  return parseWindowContextIdImpl(payload);
 }
 
-function windowIdentityHeader(): Record<string, string> {
-  const windowId = getWindowId();
-  if (windowId === null) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: WINDOW_ID_FAILURE_SUMMARY,
-    });
+/**
+ * Map an `AccountFailure` to a localized message via paraglide. Falls back
+ * to the API-supplied summary, then to a generic "Request failed" string,
+ * so unknown failure codes still surface something meaningful.
+ */
+export function describeFailure(failure: AccountFailure): string {
+  const key = `failure_${failure.code}`;
+  const lookup = m as unknown as Record<string, (() => string) | undefined>;
+  const fn = lookup[key];
+  if (typeof fn === "function") {
+    return fn();
   }
-  return { [WINDOW_ID_HEADER]: windowId };
-}
-
-function getWindowId(): WindowContextId | null {
-  return getCachedWindowId();
-}
-
-function clearWindowId(): void {
-  invalidateCachedWindowId();
-  if (typeof window === "undefined") {
-    return;
+  if (failure.summary !== "") {
+    return failure.summary;
   }
-  try {
-    window.sessionStorage.removeItem(WINDOW_ID_STORAGE_KEY);
-  } catch {
-    // Ignore storage access errors; callers already surface failures.
-  }
+  return m.failure_fallback();
 }
 
-function rotateWindowId(): void {
-  clearWindowId();
-  // Best-effort replacement so the next request can proceed without
-  // waiting for a second retry path. Invalidating the cache forces
-  // re-resolution on the next call.
-  invalidateCachedWindowId();
-  void resolveWindowId();
-}
+export class AccountRequestError extends Error {
+  readonly failure: AccountFailure;
 
-function windowContextRejectedByServer(
-  code: AccountRequestFailureCode,
-  summary: string,
-): boolean {
-  if (code !== "validation_failed") {
-    return false;
+  constructor(failure: AccountFailure) {
+    super(describeFailure(failure));
+    this.failure = failure;
+    this.name = "AccountRequestError";
   }
-  const normalized = summary.toLowerCase();
-  return (
-    normalized.includes("window id") || normalized.includes(WINDOW_ID_HEADER)
-  );
 }
