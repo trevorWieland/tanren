@@ -273,7 +273,9 @@ impl InstallContext {
         Ok(())
     }
 
-    fn load_project_methodology_config(&self) -> InstallStepResult<ProjectMethodologyConfig> {
+    pub(crate) fn load_project_methodology_config(
+        &self,
+    ) -> InstallStepResult<ProjectMethodologyConfig> {
         let config_path = self
             .repository_root
             .join(PROJECT_METHODOLOGY_CONFIG_REPO_PATH);

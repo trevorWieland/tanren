@@ -77,6 +77,7 @@ impl InstallContext {
     pub(crate) fn assert_standards_inspect_report_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
         let report = parse_stdout_json_report(run)?;
+        let project_methodology_config = self.load_project_methodology_config()?;
         if report.status != StandardsInspectReportStatus::Ok {
             return Err(InstallStepError::UnexpectedStandardsInspectStatus {
                 actual: format!("{:?}", report.status),
@@ -87,9 +88,10 @@ impl InstallContext {
                 actual: format!("{:?}", report.command),
             });
         }
-        if report.profile != "rust-cargo" {
+        let expected_profile = project_methodology_config.profile.as_str();
+        if report.profile != expected_profile {
             return Err(InstallStepError::UnexpectedStandardsInspectProfile {
-                expected: "rust-cargo".to_owned(),
+                expected: expected_profile.to_owned(),
                 actual: report.profile,
             });
         }
@@ -99,13 +101,36 @@ impl InstallContext {
         if report.standards_root.as_str().trim().is_empty() {
             return Err(InstallStepError::UnexpectedStandardsInspectStandardsRootEmpty);
         }
+        if report.standards_root.as_str() != project_methodology_config.standards_root.as_str() {
+            return Err(InstallStepError::UnexpectedStandardsInspectStandardsRoot {
+                expected: project_methodology_config
+                    .standards_root
+                    .as_str()
+                    .to_owned(),
+                actual: report.standards_root.as_str().to_owned(),
+            });
+        }
         if report.standards_count == 0 {
             return Err(InstallStepError::UnexpectedStandardsInspectCountZero);
         }
         if report.first_standard_name.trim().is_empty() {
             return Err(InstallStepError::UnexpectedStandardsInspectFirstStandardNameEmpty);
         }
-        RepositoryRelativePath::parse(report.first_standard_path.clone())?;
+        let first_standard_path = report.first_standard_path.clone();
+        RepositoryRelativePath::parse(first_standard_path.clone())?;
+        let configured_standards_root_prefix =
+            format!("{}/", project_methodology_config.standards_root.as_str());
+        if !first_standard_path.starts_with(&configured_standards_root_prefix) {
+            return Err(
+                InstallStepError::UnexpectedStandardsInspectFirstStandardPathOutsideStandardsRoot {
+                    path: first_standard_path,
+                    standards_root: project_methodology_config
+                        .standards_root
+                        .as_str()
+                        .to_owned(),
+                },
+            );
+        }
         assert_effective_configuration_metadata(
             &report.effective_configuration.profile,
             EffectiveConfigurationSettingFamily::StandardsProfile,
@@ -119,9 +144,11 @@ impl InstallContext {
 
     pub(crate) fn assert_standards_missing_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
+        let project_methodology_config = self.load_project_methodology_config()?;
         for fragment in [
             "error: standards_missing -",
             "configured standards root is missing:",
+            project_methodology_config.standards_root.as_str(),
         ] {
             if !run.stderr.contains(fragment) {
                 return Err(InstallStepError::StderrMissingExpected {
@@ -135,10 +162,12 @@ impl InstallContext {
 
     pub(crate) fn assert_standards_parse_failure_output(&self) -> InstallStepResult<()> {
         let run = self.require_last_run()?;
+        let project_methodology_config = self.load_project_methodology_config()?;
         for fragment in [
             "error: standards_parse_failed -",
             "failed to parse standards frontmatter in",
             "missing opening frontmatter delimiter",
+            project_methodology_config.standards_root.as_str(),
         ] {
             if !run.stderr.contains(fragment) {
                 return Err(InstallStepError::StderrMissingExpected {

@@ -11,7 +11,12 @@ adopting repository.
 ## Install Contract Reference
 
 Use `tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]`
-to materialize command assets in a target repository.
+to materialize controlled generated command/standards projections in a selected
+checkout or worktree.
+
+`--repo` selects which checkout/worktree path receives generated-asset rendering
+or preview. Repository onboarding/remediation is source-control delivery work
+(managed branch/PR flow), not ad-hoc local checkout mutation.
 
 Lifecycle and ownership rules are canonical in
 [`docs/architecture/delivery.md`](../docs/architecture/delivery.md). This

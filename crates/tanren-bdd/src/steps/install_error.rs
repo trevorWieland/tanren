@@ -74,6 +74,8 @@ pub(crate) enum InstallStepError {
     UnexpectedStandardsInspectCommand { actual: String },
     #[error("unexpected standards inspect profile; expected `{expected}`, got `{actual}`")]
     UnexpectedStandardsInspectProfile { expected: String, actual: String },
+    #[error("unexpected standards inspect standards_root; expected `{expected}`, got `{actual}`")]
+    UnexpectedStandardsInspectStandardsRoot { expected: String, actual: String },
     #[error("standards inspect report returned an empty repository field")]
     UnexpectedStandardsInspectRepositoryEmpty,
     #[error("standards inspect report returned an empty standards_root")]
@@ -82,6 +84,13 @@ pub(crate) enum InstallStepError {
     UnexpectedStandardsInspectCountZero,
     #[error("standards inspect report returned an empty first_standard_name")]
     UnexpectedStandardsInspectFirstStandardNameEmpty,
+    #[error(
+        "standards inspect report first_standard_path `{path}` is outside configured standards_root `{standards_root}`"
+    )]
+    UnexpectedStandardsInspectFirstStandardPathOutsideStandardsRoot {
+        path: String,
+        standards_root: String,
+    },
     #[error(
         "unexpected effective-configuration setting_family; expected `{expected:?}`, got `{actual:?}`"
     )]

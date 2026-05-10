@@ -6,6 +6,7 @@ use crate::TanrenWorld;
 use crate::steps::install::InstallStepResult;
 
 #[then(expr = "rust-cargo profile standards files are installed")]
+#[then(expr = "rust-cargo profile standards projection files are installed")]
 fn then_rust_cargo_standards_installed(world: &mut TanrenWorld) -> InstallStepResult<()> {
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_rust_cargo_standards_installed()
