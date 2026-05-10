@@ -21,6 +21,11 @@ type OperationJsonRequest<Op extends keyof operations> =
 export type UserSettingKey = components["schemas"]["UserSettingKey"];
 export type UserCredentialKind = components["schemas"]["UserCredentialKind"];
 export type UserSettingValue = components["schemas"]["UserSettingValue"];
+export const USER_CREDENTIAL_KIND_VALUES = [
+  "provider_api_token",
+  "harness_api_token",
+] as const satisfies readonly UserCredentialKind[];
+
 declare const SECRET_INPUT_BRAND: unique symbol;
 declare const USER_CREDENTIAL_ITEM_ID_BRAND: unique symbol;
 export type SecretInput = {

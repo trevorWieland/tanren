@@ -1,7 +1,19 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
-import { CredentialSecretForm } from "@/app/configuration/account/CredentialSecretForm";
+import {
+  AddCredentialForm,
+  RemoveCredentialForm,
+  UpdateCredentialForm,
+} from "@/app/configuration/account/CredentialOperationForms";
+import {
+  CredentialPanelTabs,
+  type CredentialPanelName,
+  type CredentialPanelTabDescriptor,
+} from "@/app/configuration/account/CredentialPanelTabs";
+import { USER_CREDENTIAL_KIND_DESCRIPTORS } from "@/app/configuration/account/credentialKinds";
+import { credentialMetadataCandidates } from "@/app/configuration/account/credentialMetadata";
+import { hasNonEmptyTrimmedString } from "@/app/configuration/account/stringGuards";
 import type {
   CredentialListPageInput,
   CreateUserCredentialInput,
@@ -12,10 +24,11 @@ import type {
   UserCredentialKind,
   UserCredentialView,
 } from "@/app/lib/api-contracts";
-import { userCredentialItemId } from "@/app/lib/api-contracts";
+import {
+  USER_CREDENTIAL_KIND_VALUES,
+  userCredentialItemId,
+} from "@/app/lib/api-contracts";
 import * as m from "@/i18n/paraglide/messages";
-
-type CredentialPanel = "list" | "add" | "update" | "remove";
 
 interface CredentialsPanelProps {
   accessError: string | null;
@@ -36,6 +49,8 @@ interface CredentialsPanelProps {
 }
 
 const DEFAULT_PAGE_SIZE = 20;
+const DEFAULT_CREDENTIAL_KIND: UserCredentialKind =
+  USER_CREDENTIAL_KIND_VALUES[0];
 
 function renderCredentialRowLabel(
   credential: UserCredentialView,
@@ -58,30 +73,49 @@ export function CredentialsPanel({
   onUpdate,
   readModel,
 }: CredentialsPanelProps): ReactNode {
-  const [panel, setPanel] = useState<CredentialPanel>("list");
-  const [credentialKind, setCredentialKind] =
-    useState<UserCredentialKind>("provider_api_token");
+  const [panel, setPanel] = useState<CredentialPanelName>("list");
+  const [credentialKind, setCredentialKind] = useState<UserCredentialKind>(
+    DEFAULT_CREDENTIAL_KIND,
+  );
   const [selectedCredentialId, setSelectedCredentialId] =
     useState<UserCredentialItemId | null>(null);
   const [pageSize, setPageSize] = useState(DEFAULT_PAGE_SIZE);
   const [pageCursors, setPageCursors] = useState<Array<string | null>>([null]);
 
   const rows = readModel?.items ?? [];
-  const nextCursor =
-    typeof readModel?.next_cursor === "string" &&
-    readModel.next_cursor.trim() !== ""
-      ? readModel.next_cursor
-      : null;
+  const nextCursor = hasNonEmptyTrimmedString(readModel?.next_cursor)
+    ? readModel.next_cursor
+    : null;
   const hasPreviousPage = pageCursors.length > 1;
-  const metadata = [
-    { label: "rows", value: String(rows.length) },
-    { label: "freshness", value: readModel?.freshness },
-    { label: "as_of", value: readModel?.as_of },
-    { label: "generated_at", value: readModel?.generated_at },
-  ].filter(
-    (item): item is { label: string; value: string } =>
-      typeof item.value === "string" && item.value.trim() !== "",
+  const metadata = credentialMetadataCandidates(readModel, rows.length).flatMap(
+    (item) =>
+      hasNonEmptyTrimmedString(item.value)
+        ? [{ ...item, value: item.value }]
+        : [],
   );
+
+  const panelTabs: readonly CredentialPanelTabDescriptor[] = [
+    {
+      enabled: canReadCredentials,
+      name: "list",
+      label: m.config_credentials_panel_list(),
+    },
+    {
+      enabled: canCreateCredentials,
+      name: "add",
+      label: m.config_credentials_panel_add(),
+    },
+    {
+      enabled: canUpdateCredentials,
+      name: "update",
+      label: m.config_credentials_panel_update(),
+    },
+    {
+      enabled: canDeleteCredentials,
+      name: "remove",
+      label: m.config_credentials_panel_remove(),
+    },
+  ];
 
   const selectableRows = rows.map((credential, index) => ({
     itemId: userCredentialItemId(credential.id),
@@ -173,44 +207,11 @@ export function CredentialsPanel({
         <p className="mb-3 text-sm text-[--color-fg-muted]">{accessError}</p>
       ) : null}
 
-      <div className="mb-3 flex flex-wrap gap-2">
-        {[
-          {
-            enabled: canReadCredentials,
-            name: "list" as const,
-            label: m.config_credentials_panel_list(),
-          },
-          {
-            enabled: canCreateCredentials,
-            name: "add" as const,
-            label: m.config_credentials_panel_add(),
-          },
-          {
-            enabled: canUpdateCredentials,
-            name: "update" as const,
-            label: m.config_credentials_panel_update(),
-          },
-          {
-            enabled: canDeleteCredentials,
-            name: "remove" as const,
-            label: m.config_credentials_panel_remove(),
-          },
-        ].map((tab) => {
-          if (!tab.enabled) {
-            return null;
-          }
-          return (
-            <button
-              key={tab.name}
-              type="button"
-              onClick={() => setPanel(tab.name)}
-              className={`rounded-md px-3 py-1.5 text-sm ${panel === tab.name ? "bg-[--color-accent] text-[--color-accent-fg]" : "border border-[--color-border]"}`}
-            >
-              {tab.label}
-            </button>
-          );
-        })}
-      </div>
+      <CredentialPanelTabs
+        activePanel={panel}
+        onSelect={setPanel}
+        tabs={panelTabs}
+      />
 
       {panel === "list" ? (
         canReadCredentials ? (
@@ -266,30 +267,20 @@ export function CredentialsPanel({
         )
       ) : null}
 
-      {panel === "add" && canCreateCredentials ? (
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          <select
-            value={credentialKind}
-            onChange={(event) =>
-              setCredentialKind(event.target.value as UserCredentialKind)
-            }
-            className="rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-2 py-1.5 text-sm"
-          >
-            <option value="provider_api_token">
-              {m.config_credential_kind_provider_api_token()}
-            </option>
-            <option value="harness_api_token">
-              {m.config_credential_kind_harness_api_token()}
-            </option>
-          </select>
-          <CredentialSecretForm
+      {panel === "add" ? (
+        canCreateCredentials ? (
+          <AddCredentialForm
             busy={busy}
-            className="flex min-w-48 flex-1 flex-wrap items-center gap-2"
-            placeholder={m.config_credentials_placeholder_secret()}
-            submitLabel={m.config_credentials_add_button()}
+            credentialKind={credentialKind}
+            kindDescriptors={USER_CREDENTIAL_KIND_DESCRIPTORS}
+            onCredentialKindChange={setCredentialKind}
             onSubmit={submitAdd}
           />
-        </div>
+        ) : (
+          <div className="mb-3">
+            {unavailable(m.config_credentials_capability_required_create())}
+          </div>
+        )
       ) : null}
 
       {panel === "update" ? (
@@ -301,34 +292,13 @@ export function CredentialsPanel({
               )}
             </div>
           ) : (
-            <div className="mb-3 flex flex-wrap items-center gap-2">
-              <select
-                value={selectedCredentialId ?? ""}
-                onChange={(event) => {
-                  const selected = selectableRows.find(
-                    (row) => row.itemId === event.target.value,
-                  );
-                  setSelectedCredentialId(selected?.itemId ?? null);
-                }}
-                className="min-w-72 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
-              >
-                <option value="">
-                  {m.config_credentials_select_row_placeholder()}
-                </option>
-                {selectableRows.map((row) => (
-                  <option key={row.itemId} value={row.itemId}>
-                    {row.label}
-                  </option>
-                ))}
-              </select>
-              <CredentialSecretForm
-                busy={busy || selectedCredentialId === null}
-                className="flex min-w-48 flex-1 flex-wrap items-center gap-2"
-                placeholder={m.config_credentials_placeholder_new_secret()}
-                submitLabel={m.config_credentials_update_button()}
-                onSubmit={submitUpdate}
-              />
-            </div>
+            <UpdateCredentialForm
+              busy={busy}
+              selectedCredentialId={selectedCredentialId}
+              selectableRows={selectableRows}
+              onSelectCredential={setSelectedCredentialId}
+              onSubmit={submitUpdate}
+            />
           )
         ) : (
           <div className="mb-3">
@@ -346,35 +316,13 @@ export function CredentialsPanel({
               )}
             </div>
           ) : (
-            <div className="mb-4 flex flex-wrap items-center gap-2">
-              <select
-                value={selectedCredentialId ?? ""}
-                onChange={(event) => {
-                  const selected = selectableRows.find(
-                    (row) => row.itemId === event.target.value,
-                  );
-                  setSelectedCredentialId(selected?.itemId ?? null);
-                }}
-                className="min-w-72 flex-1 rounded-md border border-[--color-border] bg-[--color-bg-canvas] px-3 py-1.5 text-sm"
-              >
-                <option value="">
-                  {m.config_credentials_select_row_placeholder()}
-                </option>
-                {selectableRows.map((row) => (
-                  <option key={row.itemId} value={row.itemId}>
-                    {row.label}
-                  </option>
-                ))}
-              </select>
-              <button
-                type="button"
-                onClick={() => void submitRemove()}
-                disabled={busy || selectedCredentialId === null}
-                className="rounded-md border border-[--color-border] px-3 py-1.5 text-sm disabled:opacity-60"
-              >
-                {m.config_credentials_remove_button()}
-              </button>
-            </div>
+            <RemoveCredentialForm
+              busy={busy}
+              selectedCredentialId={selectedCredentialId}
+              selectableRows={selectableRows}
+              onSelectCredential={setSelectedCredentialId}
+              onSubmit={submitRemove}
+            />
           )
         ) : (
           <div className="mb-4">
@@ -387,7 +335,7 @@ export function CredentialsPanel({
         <>
           <div className="mb-3 rounded-md border border-[--color-border] bg-[--color-bg-canvas] p-3 text-xs">
             {metadata.map((item) => (
-              <p key={item.label} className="m-0">
+              <p key={item.key} className="m-0">
                 {item.label}={item.value}
               </p>
             ))}
