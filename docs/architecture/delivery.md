@@ -345,12 +345,18 @@ Harness assets are Tanren-owned controlled projections. Reinstalling or
 regenerating them replaces stale Tanren-owned content while preserving
 unrelated user-owned files according to the declared merge policy.
 
-## Current Local Install Command Surface (R-0023)
+## Current Local Install Command Surface (R-0023, R-0024)
 
 The implemented repository-local install command is:
 
 ```text
 tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>]
+```
+
+Read-only drift check for the same install slice:
+
+```text
+tanren-cli install --profile <PROFILE> [--repo <PATH>] [--integrations <CSV>] --check
 ```
 
 Current behavior:
@@ -359,6 +365,8 @@ Current behavior:
 - `--repo` defaults to the current working directory (`.`).
 - `--integrations` supports `claude`, `codex`, and `open-code`; omitting the
   flag installs all supported integrations.
+- `--check` runs a repository-local read-only drift check and does not write
+  files.
 - Selected integration command assets are written to `.claude/commands/`,
   `.codex/skills/`, and `.opencode/commands/`.
 - Install state is recorded in `.tanren/install-manifest.toml`.
@@ -368,6 +376,12 @@ Current behavior:
 - Reinstall cleanup removes stale Tanren-generated command assets that were
   tracked in the prior install manifest but are no longer selected by the
   active integration set.
+- Read-only drift check reports deterministic `install-check` output with
+  `modified`, `missing`, `stale`, and `accepted` path groups.
+- For this install slice, generated asset drift (`modified`, `missing`,
+  `stale`) is drift. Missing preserved standards files are drift. Edited
+  preserved standards files are reported as `accepted` and do not count as
+  drift.
 - Install preview for this command surface is defined in
   [Install Preview](#install-preview). Preview describes the same manifest
   ownership and stale-generated cleanup decisions before apply; R-0023 does
@@ -379,6 +393,10 @@ state; it does not run upgrade or uninstall flows. Upgrade behavior is owned by
 [Upgrades And Migrations](#upgrades-and-migrations). Stack removal is owned by
 [Stack Uninstall](#stack-uninstall). Repository asset removal is owned by
 [Repo Uninstall](#repo-uninstall).
+
+The read-only `--check` flow is distinct from install apply, upgrade, and
+uninstall. It validates repository-local install conformance and returns drift
+status without mutating repository files.
 
 ## Standards Profiles
 
@@ -395,6 +413,10 @@ Standards editing must be easy, but it still flows through Tanren:
 - imports validate source files and emit typed events;
 - generated standards projections are regenerated from accepted state;
 - manual edits to generated standards files are drift.
+
+For the repository-local `tanren-cli install --check` slice, files declared
+with `preserve-user-edits` install policy are reported as `accepted` when
+edited and as `missing` drift when absent.
 
 This keeps standards machine-readable, auditable, and available to runtime
 gates and harnesses without making repo-local files the source of truth.
