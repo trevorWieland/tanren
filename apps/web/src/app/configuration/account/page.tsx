@@ -49,12 +49,14 @@ export default function ConfigurationAccountPage(): ReactNode {
       <SettingsPanel
         accessError={settingsModel.accessError ?? sharedAccessError}
         busy={busy}
+        canDeleteSettings={accessModel.canDeleteSettings}
+        canReadSettings={accessModel.canReadSettings}
+        canWriteSettings={accessModel.canWriteSettings}
         capabilitiesLoading={accessModel.capabilitiesLoading}
         onList={settingsModel.listSettings}
         onRemove={settingsModel.removeUserSetting}
         onSet={settingsModel.setUserSetting}
         readModel={settingsModel.readModel}
-        settingsAllowedActions={accessModel.settingActions}
       />
 
       <CredentialsPanel

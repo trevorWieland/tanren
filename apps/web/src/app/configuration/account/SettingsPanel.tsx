@@ -6,25 +6,23 @@ import {
   userSettingDescriptorForKey,
 } from "@/app/configuration/account/settingDescriptors";
 import type {
-  ConfigurationCapabilities,
   ListUserSettingsResult,
   UserSettingKey,
   UpsertUserSettingInput,
 } from "@/app/lib/api-contracts";
 import * as m from "@/i18n/paraglide/messages";
 
-type SettingCapabilityAction =
-  ConfigurationCapabilities["settings"]["allowed_actions"][number];
-
 interface SettingsPanelProps {
   accessError: string | null;
   busy: boolean;
+  canDeleteSettings: boolean;
+  canReadSettings: boolean;
+  canWriteSettings: boolean;
   capabilitiesLoading: boolean;
   onList: () => Promise<void>;
   onRemove: (key: UserSettingKey) => Promise<void>;
   onSet: (input: UpsertUserSettingInput) => Promise<void>;
   readModel: ListUserSettingsResult | null;
-  settingsAllowedActions: readonly SettingCapabilityAction[];
 }
 
 function renderSettingValue(value: UpsertUserSettingInput["value"]): string {
@@ -34,12 +32,14 @@ function renderSettingValue(value: UpsertUserSettingInput["value"]): string {
 export function SettingsPanel({
   accessError,
   busy,
+  canDeleteSettings,
+  canReadSettings,
+  canWriteSettings,
   capabilitiesLoading,
   onList,
   onRemove,
   onSet,
   readModel,
-  settingsAllowedActions,
 }: SettingsPanelProps): ReactNode {
   const [settingKey, setSettingKey] = useState<UserSettingKey>(
     USER_SETTING_DESCRIPTORS[0]?.key ?? "theme",
@@ -50,10 +50,6 @@ export function SettingsPanel({
   );
 
   const rows = readModel?.items ?? [];
-  const allowedActions = new Set(settingsAllowedActions);
-  const canReadSettings = allowedActions.has("read");
-  const canWriteSettings = allowedActions.has("create_or_update");
-  const canDeleteSettings = allowedActions.has("delete");
   const metadata = [
     { label: "next_cursor", value: readModel?.next_cursor },
     { label: "freshness", value: readModel?.freshness },

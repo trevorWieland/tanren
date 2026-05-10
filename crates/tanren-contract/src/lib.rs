@@ -24,12 +24,13 @@ pub use configuration::{
     USER_SETTING_DESCRIPTORS, UpdateUserCredentialRequest, UpdateUserCredentialResponse,
     UpsertUserSettingRequest, UpsertUserSettingResponse, UserConfigurationFailureReason,
     UserCredentialId, UserCredentialKind, UserCredentialKindDescriptor, UserCredentialStatus,
-    UserCredentialView, UserSettingDescriptor, UserSettingKey, UserSettingValue, UserSettingView,
-    parse_optional_page_after, parse_optional_page_limit, parse_theme_preference,
-    parse_user_credential_kind, parse_user_setting_key, theme_preference_name,
-    user_credential_kind_name, user_credential_kind_wire_name, user_credential_status_name,
-    user_credentials_page_request, user_setting_key_name, user_setting_key_wire_name,
-    user_settings_page_request,
+    UserCredentialView, UserCredentialsPageCursorKind, UserCredentialsPageCursorPayload,
+    UserSettingDescriptor, UserSettingKey, UserSettingValue, UserSettingView,
+    UserSettingsPageCursorKind, UserSettingsPageCursorPayload, parse_optional_page_after,
+    parse_optional_page_limit, parse_theme_preference, parse_user_credential_kind,
+    parse_user_setting_key, theme_preference_name, user_credential_kind_name,
+    user_credential_kind_wire_name, user_credential_status_name, user_credentials_page_request,
+    user_setting_key_name, user_setting_key_wire_name, user_settings_page_request,
 };
 
 use serde::{Deserialize, Serialize};

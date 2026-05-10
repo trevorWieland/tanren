@@ -1,7 +1,8 @@
 use base64::Engine;
-use chrono::Utc;
-use tanren_configuration_secrets::{UserCredentialId, UserSettingKey, parse_user_setting_key};
-use tanren_contract::{ListUserCredentialsRequest, ListUserSettingsRequest};
+use tanren_contract::{
+    ListUserCredentialsRequest, ListUserSettingsRequest, UserCredentialsPageCursorKind,
+    UserCredentialsPageCursorPayload, UserSettingsPageCursorKind, UserSettingsPageCursorPayload,
+};
 use tanren_store::{
     UserConfigurationListPageRequest, UserCredentialListCursor, UserSettingListCursor,
 };
@@ -34,15 +35,19 @@ pub(super) fn parse_credentials_page_request(
 }
 
 pub(super) fn encode_settings_cursor(cursor: UserSettingListCursor) -> String {
-    encode_cursor_payload(&format!(
-        "{}|{}",
-        cursor.updated_at.to_rfc3339(),
-        setting_key_name(cursor.key)
-    ))
+    encode_cursor_payload(&UserSettingsPageCursorPayload {
+        kind: UserSettingsPageCursorKind::Settings,
+        updated_at: cursor.updated_at,
+        key: cursor.key,
+    })
 }
 
 pub(super) fn encode_credentials_cursor(cursor: &UserCredentialListCursor) -> String {
-    encode_cursor_payload(&format!("{}|{}", cursor.updated_at.to_rfc3339(), cursor.id))
+    encode_cursor_payload(&UserCredentialsPageCursorPayload {
+        kind: UserCredentialsPageCursorKind::Credentials,
+        updated_at: cursor.updated_at,
+        id: cursor.id,
+    })
 }
 
 fn parse_limit(limit: Option<u16>) -> Result<u16, AppServiceError> {
@@ -56,54 +61,41 @@ fn parse_limit(limit: Option<u16>) -> Result<u16, AppServiceError> {
 }
 
 fn decode_settings_cursor(raw: &str) -> Result<UserSettingListCursor, AppServiceError> {
-    let payload = decode_cursor_payload(raw)?;
-    let mut parts = payload.splitn(2, '|');
-    let updated_at_raw = parts.next().ok_or_else(malformed_after_cursor)?;
-    let key_raw = parts.next().ok_or_else(malformed_after_cursor)?;
-    let parsed = chrono::DateTime::parse_from_rfc3339(updated_at_raw)
-        .map_err(|_| malformed_after_cursor())?;
-    let key = parse_user_setting_key(key_raw).map_err(|_| malformed_after_cursor())?;
+    let payload: UserSettingsPageCursorPayload = decode_cursor_payload(raw)?;
     Ok(UserSettingListCursor {
-        updated_at: parsed.with_timezone(&Utc),
-        key,
+        updated_at: payload.updated_at,
+        key: payload.key,
     })
 }
 
 fn decode_credentials_cursor(raw: &str) -> Result<UserCredentialListCursor, AppServiceError> {
-    let payload = decode_cursor_payload(raw)?;
-    let mut parts = payload.splitn(2, '|');
-    let updated_at_raw = parts.next().ok_or_else(malformed_after_cursor)?;
-    let id_raw = parts.next().ok_or_else(malformed_after_cursor)?;
-    let parsed = chrono::DateTime::parse_from_rfc3339(updated_at_raw)
-        .map_err(|_| malformed_after_cursor())?;
-    let id = UserCredentialId::parse(id_raw).map_err(|_| malformed_after_cursor())?;
+    let payload: UserCredentialsPageCursorPayload = decode_cursor_payload(raw)?;
     Ok(UserCredentialListCursor {
-        updated_at: parsed.with_timezone(&Utc),
-        id,
+        updated_at: payload.updated_at,
+        id: payload.id,
     })
 }
 
-fn encode_cursor_payload(payload: &str) -> String {
-    base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(payload)
+fn encode_cursor_payload(payload: &impl serde::Serialize) -> String {
+    match serde_json::to_vec(payload) {
+        Ok(bytes) => base64::engine::general_purpose::URL_SAFE_NO_PAD.encode(bytes),
+        Err(_) => String::new(),
+    }
 }
 
-fn decode_cursor_payload(raw: &str) -> Result<String, AppServiceError> {
+fn decode_cursor_payload<T>(raw: &str) -> Result<T, AppServiceError>
+where
+    T: serde::de::DeserializeOwned,
+{
     if raw.trim().is_empty() {
         return Err(malformed_after_cursor());
     }
     let bytes = base64::engine::general_purpose::URL_SAFE_NO_PAD
         .decode(raw)
         .map_err(|_| malformed_after_cursor())?;
-    String::from_utf8(bytes).map_err(|_| malformed_after_cursor())
+    serde_json::from_slice::<T>(&bytes).map_err(|_| malformed_after_cursor())
 }
 
 fn malformed_after_cursor() -> AppServiceError {
     AppServiceError::InvalidInput("after cursor is malformed".to_owned())
-}
-
-fn setting_key_name(key: UserSettingKey) -> &'static str {
-    match key {
-        UserSettingKey::Theme => "theme",
-        UserSettingKey::Editor => "editor",
-    }
 }

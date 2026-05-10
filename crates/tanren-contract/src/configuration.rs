@@ -66,6 +66,26 @@ pub struct ListUserSettingsRequest {
     pub after: Option<String>,
 }
 
+/// Typed payload encoded inside a user-settings list cursor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserSettingsPageCursorPayload {
+    /// Cursor kind discriminator.
+    pub kind: UserSettingsPageCursorKind,
+    /// Last item update timestamp from the current page.
+    pub updated_at: DateTime<Utc>,
+    /// Last item setting key from the current page.
+    pub key: UserSettingKey,
+}
+
+/// Discriminator for user-settings list cursor payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserSettingsPageCursorKind {
+    /// Cursor payload for settings pagination.
+    Settings,
+}
+
 /// Remove response for a user-tier setting.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct RemoveUserSettingResponse {
@@ -157,6 +177,26 @@ pub struct ListUserCredentialsRequest {
     pub limit: Option<u16>,
     /// Opaque pagination cursor from a previous response.
     pub after: Option<String>,
+}
+
+/// Typed payload encoded inside a user-credentials list cursor.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct UserCredentialsPageCursorPayload {
+    /// Cursor kind discriminator.
+    pub kind: UserCredentialsPageCursorKind,
+    /// Last item update timestamp from the current page.
+    pub updated_at: DateTime<Utc>,
+    /// Last item id from the current page.
+    pub id: UserCredentialId,
+}
+
+/// Discriminator for user-credentials list cursor payloads.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum UserCredentialsPageCursorKind {
+    /// Cursor payload for credential pagination.
+    Credentials,
 }
 
 /// Remove response for a user-owned credential.

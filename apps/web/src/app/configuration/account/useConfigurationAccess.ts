@@ -29,13 +29,14 @@ export interface ConfigurationAccessModel {
   capabilitiesLoading: boolean;
   canCreateCredentials: boolean;
   canDeleteCredentials: boolean;
+  canDeleteSettings: boolean;
   canReadCredentials: boolean;
+  canReadSettings: boolean;
+  canWriteSettings: boolean;
   canUpdateCredentials: boolean;
-  credentialActions: readonly CredentialCapabilityAction[];
   discoveredCredentialsReadModel: ListUserCredentialsResult | null;
   discoveredSettingsReadModel: ListUserSettingsResult | null;
   settingsAccessError: string | null;
-  settingActions: readonly SettingCapabilityAction[];
   userCredentialsAccessError: string | null;
 }
 
@@ -108,6 +109,10 @@ export function useConfigurationAccess(): ConfigurationAccessModel {
     () => capabilities?.user_items.allowed_actions ?? EMPTY_CREDENTIAL_ACTIONS,
     [capabilities],
   );
+  const settingActionSet = useMemo(
+    () => new Set<SettingCapabilityAction>(settingActions),
+    [settingActions],
+  );
   const credentialActionSet = useMemo(
     () => new Set<CredentialCapabilityAction>(credentialActions),
     [credentialActions],
@@ -119,13 +124,14 @@ export function useConfigurationAccess(): ConfigurationAccessModel {
     capabilitiesLoading: capabilities === null,
     canCreateCredentials: credentialActionSet.has("create"),
     canDeleteCredentials: credentialActionSet.has("delete"),
+    canDeleteSettings: settingActionSet.has("delete"),
     canReadCredentials: credentialActionSet.has("read"),
+    canReadSettings: settingActionSet.has("read"),
+    canWriteSettings: settingActionSet.has("create_or_update"),
     canUpdateCredentials: credentialActionSet.has("update"),
-    credentialActions,
     discoveredCredentialsReadModel,
     discoveredSettingsReadModel,
     settingsAccessError,
-    settingActions,
     userCredentialsAccessError,
   };
 }
