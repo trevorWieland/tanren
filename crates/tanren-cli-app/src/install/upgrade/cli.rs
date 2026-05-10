@@ -6,8 +6,9 @@ use std::path::{Path, PathBuf};
 use clap::Args;
 
 use super::UpgradePreview;
-use super::report::{UpgradePreviewReport, format_concern_list, format_path_list};
+use super::report::UpgradePreviewReport;
 use crate::install::error::UpgradeCommandError;
+use crate::install::manifest::RepoRelativePath;
 use crate::install::upgrade::{apply_upgrade, preview_upgrade};
 
 /// `tanren-cli upgrade` arguments.
@@ -26,7 +27,7 @@ impl UpgradeCommand {
     pub fn run(&self) -> Result<(), UpgradeCommandError> {
         let preview = preview_upgrade(&self.repo).map_err(UpgradeCommandError::from)?;
         let preview_report = preview.report();
-        self.write_preview_report(&preview_report)?;
+        self.write_preview_report(preview_report)?;
 
         if !self.confirm {
             return self.write_confirmation_required(&preview);
@@ -45,25 +46,26 @@ impl UpgradeCommand {
         preview: &UpgradePreviewReport,
     ) -> Result<(), UpgradeCommandError> {
         let repository = display_repository_argument(&self.repo);
+        let render = preview.render();
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
         writeln!(
             handle,
             "status=preview command=upgrade repo={} changed={} destructive={} preserved={} concerns={}",
             repository,
-            preview.changed_paths().len(),
-            preview.destructive_actions().len(),
-            preview.preserved_paths().len(),
-            preview.compatibility_concerns().len(),
+            render.changed_count(),
+            render.destructive_count(),
+            render.preserved_count(),
+            render.concern_count(),
         )
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
         writeln!(
             handle,
             "preview changed=[{}] destructive=[{}] preserved=[{}] concerns=[{}]",
-            format_path_list(preview.changed_paths()),
-            format_path_list(preview.destructive_actions()),
-            format_path_list(preview.preserved_paths()),
-            format_concern_list(preview.compatibility_concerns()),
+            render.changed_paths_csv(),
+            render.destructive_paths_csv(),
+            render.preserved_paths_csv(),
+            render.concern_codes_csv(),
         )
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })?;
         Ok(())
@@ -137,4 +139,12 @@ fn display_repository_argument(path: &Path) -> String {
     } else {
         path.display().to_string()
     }
+}
+
+fn format_path_list(paths: &[RepoRelativePath]) -> String {
+    paths
+        .iter()
+        .map(RepoRelativePath::as_str)
+        .collect::<Vec<_>>()
+        .join(",")
 }

@@ -24,6 +24,69 @@ impl UpgradeCompatibilityConcern {
     }
 }
 
+/// Typed view of preview report sections for CLI rendering.
+#[derive(Debug, Clone, Copy)]
+pub(super) struct UpgradePreviewRender<'a> {
+    changed_paths: &'a [RepoRelativePath],
+    destructive_actions: &'a [RepoRelativePath],
+    preserved_paths: &'a [RepoRelativePath],
+    compatibility_concerns: &'a [UpgradeCompatibilityConcern],
+}
+
+impl UpgradePreviewRender<'_> {
+    /// Changed path count.
+    #[must_use]
+    pub(super) fn changed_count(&self) -> usize {
+        self.changed_paths.len()
+    }
+
+    /// Destructive action count.
+    #[must_use]
+    pub(super) fn destructive_count(&self) -> usize {
+        self.destructive_actions.len()
+    }
+
+    /// Preserved path count.
+    #[must_use]
+    pub(super) fn preserved_count(&self) -> usize {
+        self.preserved_paths.len()
+    }
+
+    /// Compatibility concern count.
+    #[must_use]
+    pub(super) fn concern_count(&self) -> usize {
+        self.compatibility_concerns.len()
+    }
+
+    /// Comma-joined changed path list for stable CLI output.
+    #[must_use]
+    pub(super) fn changed_paths_csv(&self) -> String {
+        format_path_list(self.changed_paths)
+    }
+
+    /// Comma-joined destructive path list for stable CLI output.
+    #[must_use]
+    pub(super) fn destructive_paths_csv(&self) -> String {
+        format_path_list(self.destructive_actions)
+    }
+
+    /// Comma-joined preserved path list for stable CLI output.
+    #[must_use]
+    pub(super) fn preserved_paths_csv(&self) -> String {
+        format_path_list(self.preserved_paths)
+    }
+
+    /// Comma-joined concern code list for stable CLI output.
+    #[must_use]
+    pub(super) fn concern_codes_csv(&self) -> String {
+        self.compatibility_concerns
+            .iter()
+            .map(|concern| concern.as_code())
+            .collect::<Vec<_>>()
+            .join(",")
+    }
+}
+
 /// Renderable upgrade preview details.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct UpgradePreviewReport {
@@ -114,24 +177,25 @@ impl UpgradePreviewReport {
     pub(super) fn compatibility_concerns(&self) -> &[UpgradeCompatibilityConcern] {
         &self.compatibility_concerns
     }
+
+    /// Render-focused typed view consumed by CLI formatting.
+    #[must_use]
+    pub(super) fn render(&self) -> UpgradePreviewRender<'_> {
+        UpgradePreviewRender {
+            changed_paths: self.changed_paths(),
+            destructive_actions: self.destructive_actions(),
+            preserved_paths: self.preserved_paths(),
+            compatibility_concerns: self.compatibility_concerns(),
+        }
+    }
 }
 
 /// Join sorted repository-relative paths for stable CLI output.
 #[must_use]
-pub(super) fn format_path_list(paths: &[RepoRelativePath]) -> String {
+fn format_path_list(paths: &[RepoRelativePath]) -> String {
     paths
         .iter()
         .map(RepoRelativePath::as_str)
-        .collect::<Vec<_>>()
-        .join(",")
-}
-
-/// Join sorted compatibility concern codes for stable CLI output.
-#[must_use]
-pub(super) fn format_concern_list(concerns: &[UpgradeCompatibilityConcern]) -> String {
-    concerns
-        .iter()
-        .map(|concern| concern.as_code())
         .collect::<Vec<_>>()
         .join(",")
 }

@@ -19,7 +19,6 @@ use crate::install::manifest_entry_contract::{
 use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallIntegration, InstallProfile};
 
-/// Planned file-write action category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum PlannedWriteKind {
     Created,
@@ -27,7 +26,6 @@ pub enum PlannedWriteKind {
     Restored,
 }
 
-/// One planned write for a generated install asset.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedWrite {
     path: RepoRelativePath,
@@ -37,13 +35,11 @@ pub struct PlannedWrite {
 }
 
 impl PlannedWrite {
-    /// Repo-relative output path for the write.
     #[must_use]
     pub fn path(&self) -> &RepoRelativePath {
         &self.path
     }
 
-    /// Planned write category.
     #[must_use]
     pub const fn kind(&self) -> PlannedWriteKind {
         self.kind
@@ -62,7 +58,6 @@ impl PlannedWrite {
     }
 }
 
-/// One planned generated-file removal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PlannedRemoval {
     path: RepoRelativePath,
@@ -70,7 +65,6 @@ pub struct PlannedRemoval {
 }
 
 impl PlannedRemoval {
-    /// Repo-relative path for the removal.
     #[must_use]
     pub fn path(&self) -> &RepoRelativePath {
         &self.path
@@ -83,7 +77,6 @@ impl PlannedRemoval {
     }
 }
 
-/// Install plan produced after validating inputs and current repository state.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct InstallPlan {
     repository_root: PathBuf,
@@ -95,57 +88,101 @@ pub struct InstallPlan {
     manifest: InstallManifest,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct RepositoryInstallState {
+    repository_root: PathBuf,
+    manifest_path: RepoRelativePath,
+    manifest_absolute_path: PathBuf,
+    previous_manifest: Option<InstallManifest>,
+}
+
+impl RepositoryInstallState {
+    #[must_use]
+    pub(super) fn manifest_path(&self) -> &RepoRelativePath {
+        &self.manifest_path
+    }
+
+    #[must_use]
+    pub(super) fn previous_manifest(&self) -> Option<&InstallManifest> {
+        self.previous_manifest.as_ref()
+    }
+}
+
 impl InstallPlan {
-    /// Canonical repository root validated during planning.
     #[must_use]
     pub(crate) fn repository_root(&self) -> &Path {
         &self.repository_root
     }
 
-    /// Planned generated-file writes.
     #[must_use]
     pub fn writes(&self) -> &[PlannedWrite] {
         &self.writes
     }
 
-    /// Planned generated-file removals.
     #[must_use]
     pub fn removals(&self) -> &[PlannedRemoval] {
         &self.removals
     }
 
-    /// Paths explicitly preserved due to user drift policy.
     #[must_use]
     pub fn preserved(&self) -> &[RepoRelativePath] {
         &self.preserved
     }
 
-    /// Repo-relative manifest path.
     #[must_use]
     pub fn manifest_path(&self) -> &RepoRelativePath {
         &self.manifest_path
     }
 
-    /// Absolute manifest path validated during planning.
     #[must_use]
     pub(crate) fn manifest_absolute_path(&self) -> &Path {
         &self.manifest_absolute_path
     }
 
-    /// Materialized manifest payload.
     #[must_use]
     pub fn manifest(&self) -> &InstallManifest {
         &self.manifest
     }
 }
 
-/// Validate install inputs and repository state, then build the apply plan.
 pub(super) fn build_install_plan(
     repository: &Path,
     profile: InstallProfile,
     integrations: &BTreeSet<InstallIntegration>,
 ) -> Result<InstallPlan, InstallError> {
+    let state = load_repository_install_state(repository)?;
+    build_install_plan_from_state(state, profile, integrations)
+}
+
+pub(super) fn load_repository_install_state(
+    repository: &Path,
+) -> Result<RepositoryInstallState, InstallError> {
     let repository_root = validate_repository_root(repository)?;
+    let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
+    let manifest_absolute_path = resolve_repo_path(&repository_root, &manifest_path)?;
+    let previous_manifest = load_previous_manifest(&manifest_path, &manifest_absolute_path)?;
+    validate_manifest_version(previous_manifest.as_ref())?;
+
+    Ok(RepositoryInstallState {
+        repository_root,
+        manifest_path,
+        manifest_absolute_path,
+        previous_manifest,
+    })
+}
+
+pub(super) fn build_install_plan_from_state(
+    state: RepositoryInstallState,
+    profile: InstallProfile,
+    integrations: &BTreeSet<InstallIntegration>,
+) -> Result<InstallPlan, InstallError> {
+    let RepositoryInstallState {
+        repository_root,
+        manifest_path,
+        manifest_absolute_path,
+        previous_manifest,
+    } = state;
+
     let mut assets = build_install_asset_catalog(profile, integrations)?;
     assets.sort_by(|left, right| {
         left.destination_path
@@ -156,13 +193,8 @@ pub(super) fn build_install_plan(
     let mut manifest_entries = build_manifest_entries(&assets);
     manifest_entries.sort_by(|left, right| left.path.as_str().cmp(right.path.as_str()));
 
-    let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
-    let manifest_absolute_path = resolve_repo_path(&repository_root, &manifest_path)?;
-    let previous_manifest = load_previous_manifest(&manifest_absolute_path)?;
-    validate_manifest_version(&manifest_absolute_path, previous_manifest.as_ref())?;
-
     let previous_entries_by_path =
-        build_previous_entry_map(&manifest_absolute_path, previous_manifest.as_ref())?;
+        build_previous_entry_map(&manifest_path, previous_manifest.as_ref())?;
     let desired_generated_paths = manifest_entries
         .iter()
         .filter(|entry| entry.preservation == PreservationPolicy::ReplaceGenerated)
@@ -181,9 +213,9 @@ pub(super) fn build_install_plan(
         &desired_generated_paths,
         &trusted_generated_asset_registry,
         &previous_entries_by_path,
-        &manifest_absolute_path,
+        &manifest_path,
     )?;
-    let mut preserved = collect_preserved_paths(&writes);
+    let (writes, mut preserved) = split_planned_asset_actions(writes);
     preserved.extend(stale_removal_plan.preserved_paths);
     preserved.sort();
     preserved.dedup();
@@ -196,10 +228,7 @@ pub(super) fn build_install_plan(
 
     Ok(InstallPlan {
         repository_root,
-        writes: writes
-            .into_iter()
-            .filter_map(PlannedAssetAction::into_write)
-            .collect(),
+        writes,
         removals: stale_removal_plan.removals,
         preserved,
         manifest_path,
@@ -213,15 +242,6 @@ enum PlannedAssetAction {
     Write(PlannedWrite),
     Preserve(RepoRelativePath),
     Unchanged,
-}
-
-impl PlannedAssetAction {
-    fn into_write(self) -> Option<PlannedWrite> {
-        match self {
-            Self::Write(write) => Some(write),
-            Self::Preserve(_) | Self::Unchanged => None,
-        }
-    }
 }
 
 fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
@@ -242,6 +262,7 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
 }
 
 fn load_previous_manifest(
+    manifest_path: &RepoRelativePath,
     manifest_absolute_path: &Path,
 ) -> Result<Option<InstallManifest>, InstallError> {
     if !manifest_absolute_path.exists() {
@@ -250,22 +271,19 @@ fn load_previous_manifest(
 
     let raw_manifest =
         fs::read_to_string(manifest_absolute_path).map_err(|err| InstallError::ReadFailure {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            path: manifest_path.as_str().to_owned(),
             message: err.to_string(),
         })?;
 
     toml::from_str(&raw_manifest)
         .map(Some)
         .map_err(|err| InstallError::InvalidInstallManifest {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            path: manifest_path.as_str().to_owned(),
             message: err.to_string(),
         })
 }
 
-fn validate_manifest_version(
-    _manifest_absolute_path: &Path,
-    manifest: Option<&InstallManifest>,
-) -> Result<(), InstallError> {
+fn validate_manifest_version(manifest: Option<&InstallManifest>) -> Result<(), InstallError> {
     if let Some(previous_manifest) = manifest
         && previous_manifest.manifest_version != INSTALL_MANIFEST_VERSION
     {
@@ -281,7 +299,7 @@ fn validate_manifest_version(
 }
 
 fn build_previous_entry_map<'a>(
-    _manifest_absolute_path: &Path,
+    manifest_path: &RepoRelativePath,
     manifest: Option<&'a InstallManifest>,
 ) -> Result<BTreeMap<&'a str, ValidatedManifestEntry<'a>>, InstallError> {
     let Some(previous_manifest) = manifest else {
@@ -293,7 +311,7 @@ fn build_previous_entry_map<'a>(
         let kind = validate_manifest_entry_contract(
             entry,
             previous_manifest.profile,
-            INSTALL_MANIFEST_REPO_PATH,
+            manifest_path.as_str(),
         )?;
         let path = entry.path.as_str();
         if entries
@@ -301,7 +319,7 @@ fn build_previous_entry_map<'a>(
             .is_some()
         {
             return Err(InstallError::InvalidInstallManifest {
-                path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+                path: manifest_path.as_str().to_owned(),
                 message: format!("duplicate manifest entry for '{path}'"),
             });
         }
@@ -373,14 +391,19 @@ fn plan_asset_write(
     }))
 }
 
-fn collect_preserved_paths(actions: &[PlannedAssetAction]) -> Vec<RepoRelativePath> {
+fn split_planned_asset_actions(
+    actions: Vec<PlannedAssetAction>,
+) -> (Vec<PlannedWrite>, Vec<RepoRelativePath>) {
+    let mut writes = Vec::new();
     let mut preserved = Vec::new();
     for action in actions {
-        if let PlannedAssetAction::Preserve(path) = action {
-            preserved.push(path.clone());
+        match action {
+            PlannedAssetAction::Write(write) => writes.push(write),
+            PlannedAssetAction::Preserve(path) => preserved.push(path),
+            PlannedAssetAction::Unchanged => {}
         }
     }
-    preserved
+    (writes, preserved)
 }
 
 #[derive(Debug, Clone)]
@@ -394,7 +417,7 @@ fn build_removals(
     desired_generated_paths: &BTreeSet<&str>,
     trusted_generated_asset_registry: &BTreeSet<RepoRelativePath>,
     previous_entries_by_path: &BTreeMap<&str, ValidatedManifestEntry<'_>>,
-    manifest_absolute_path: &Path,
+    manifest_path: &RepoRelativePath,
 ) -> Result<StaleRemovalPlan, InstallError> {
     if previous_entries_by_path.is_empty() {
         return Ok(StaleRemovalPlan {
@@ -438,7 +461,7 @@ fn build_removals(
     removals.sort_by(|left, right| left.path.as_str().cmp(right.path.as_str()));
     preserved_paths.sort();
     preserved_paths.dedup();
-    ensure_removals_unique(&removals, manifest_absolute_path)?;
+    ensure_removals_unique(&removals, manifest_path)?;
     Ok(StaleRemovalPlan {
         removals,
         preserved_paths,
@@ -454,13 +477,13 @@ fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, Insta
 
 fn ensure_removals_unique(
     removals: &[PlannedRemoval],
-    _manifest_absolute_path: &Path,
+    manifest_path: &RepoRelativePath,
 ) -> Result<(), InstallError> {
     let mut seen = BTreeSet::new();
     for removal in removals {
         if !seen.insert(removal.path.as_str()) {
             return Err(InstallError::InvalidInstallManifest {
-                path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+                path: manifest_path.as_str().to_owned(),
                 message: format!("duplicate stale removal path '{}'", removal.path.as_str()),
             });
         }
