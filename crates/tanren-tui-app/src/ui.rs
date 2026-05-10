@@ -175,7 +175,7 @@ pub(crate) fn sign_up_outcome(response: &SignUpResponse) -> OutcomeView {
         title: "Account created",
         lines: vec![
             format!("account_id: {}", bearer.account.id),
-            format!("session token: {}", bearer.session.token.expose_secret()),
+            "session: stored for this run".to_owned(),
         ],
     }
 }
@@ -186,7 +186,7 @@ pub(crate) fn sign_in_outcome(response: &SignInResponse) -> OutcomeView {
         title: "Signed in",
         lines: vec![
             format!("account_id: {}", bearer.account.id),
-            format!("session token: {}", bearer.session.token.expose_secret()),
+            "session: stored for this run".to_owned(),
         ],
     }
 }
@@ -198,7 +198,7 @@ pub(crate) fn accept_invitation_outcome(response: &AcceptInvitationResponse) -> 
         lines: vec![
             format!("account_id: {}", bearer.account.id),
             format!("joined org: {}", bearer.joined_org),
-            format!("session token: {}", bearer.session.token.expose_secret()),
+            "session: stored for this run".to_owned(),
         ],
     }
 }
