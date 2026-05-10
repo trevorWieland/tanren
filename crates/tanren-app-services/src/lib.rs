@@ -6,6 +6,7 @@
 //! they do not import domain, store, or runtime crates directly.
 
 pub mod account;
+mod account_acceptance_error;
 pub mod deployment_posture;
 pub mod events;
 

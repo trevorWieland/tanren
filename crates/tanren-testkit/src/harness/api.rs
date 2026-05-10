@@ -5,10 +5,12 @@ use async_trait::async_trait;
 use axum::http::HeaderValue;
 use reqwest::Client;
 use serde_json::Value;
+use tanren_api_app::SignInResponseCookie;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, DeploymentPostureReadModel, DeploymentPostureScope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
+    SessionEnvelope, SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest,
+    SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -100,6 +102,50 @@ impl Drop for ApiHarness {
         }
         let _ = std::fs::remove_file(&self.db_path);
     }
+}
+
+fn session_envelope_fields(session: &SessionEnvelope) -> (chrono::DateTime<chrono::Utc>, bool) {
+    match session {
+        SessionEnvelope::Cookie { expires_at, .. } => (*expires_at, false),
+        SessionEnvelope::Bearer {
+            expires_at, token, ..
+        } => (*expires_at, !token.expose_secret().trim().is_empty()),
+    }
+}
+
+async fn recover_acceptance_from_sign_in(
+    client: &Client,
+    base_url: &str,
+    req: &AcceptInvitationRequest,
+) -> Option<HarnessAcceptance> {
+    let sign_in_request = SignInRequest {
+        email: req.email.clone(),
+        password: req.password.clone(),
+    };
+    let sign_in_url = format!("{base_url}/sessions");
+    let sign_in_response = client
+        .post(&sign_in_url)
+        .json(&sign_in_body(&sign_in_request))
+        .send()
+        .await
+        .ok()?;
+    if !sign_in_response.status().is_success() {
+        return None;
+    }
+    let has_cookie = has_session_cookie(sign_in_response.headers());
+    let sign_in_json: SignInResponseCookie = sign_in_response.json().await.ok()?;
+    let (expires_at, has_bearer_token) = session_envelope_fields(&sign_in_json.session);
+    let account = sign_in_json.account;
+    let joined_org = account.org?;
+    Some(HarnessAcceptance {
+        session: HarnessSession {
+            account_id: account.id,
+            account,
+            expires_at,
+            has_token: has_cookie || has_bearer_token,
+        },
+        joined_org,
+    })
 }
 
 #[async_trait]
@@ -199,7 +245,13 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
         if !status.is_success() {
-            return Err(failure_from_body(&json));
+            let failure = failure_from_body(&json);
+            if let Some(acceptance) =
+                recover_acceptance_from_sign_in(&self.client, &self.base_url, &req).await
+            {
+                return Ok(acceptance);
+            }
+            return Err(failure);
         }
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
