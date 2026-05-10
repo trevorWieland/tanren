@@ -98,6 +98,9 @@ export const ORGANIZATION_WIRE_TEST_IDS = {
   failureCode: "org-wire-failure-code",
   failureDetail: "org-wire-failure-detail",
   organizationsList: "org-wire-organizations-list",
+  listFreshness: "org-wire-list-freshness",
+  listNextCursor: "org-wire-list-next-cursor",
+  listNextPage: "org-wire-list-next-page",
 } as const;
 
 export const ORGANIZATION_PRODUCT_TEST_IDS = {
@@ -106,6 +109,7 @@ export const ORGANIZATION_PRODUCT_TEST_IDS = {
   emptyState: "org-product-empty-state",
   sourceLink: "org-product-source-link",
   freshness: "org-product-freshness",
+  listNextCursor: "org-product-list-next-cursor",
 } as const;
 
 export const ORGANIZATION_ADMIN_PERMISSION_OPTIONS = [

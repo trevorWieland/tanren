@@ -55,6 +55,7 @@ export default function OrganizationsRoute(): ReactNode {
   const [sourceLink, setSourceLink] = useState<OrganizationSourceLink | null>(
     null,
   );
+  const [nextCursor, setNextCursor] = useState<string | null>(null);
 
   const fetchOrganizations = useCallback(async (): Promise<void> => {
     const response = await listOrganizationsApi();
@@ -82,6 +83,7 @@ export default function OrganizationsRoute(): ReactNode {
     );
     setFreshness(response.body.freshness);
     setSourceLink(response.body.source_link);
+    setNextCursor(response.body.next_cursor ?? null);
   }, []);
 
   useEffect(() => {
@@ -203,6 +205,15 @@ export default function OrganizationsRoute(): ReactNode {
           checkpoint={freshness.checkpoint ?? "<none>"}
         </p>
       ) : null}
+
+      {nextCursor !== null ? (
+        <p
+          className="text-xs text-[--color-fg-muted]"
+          data-testid={ORGANIZATION_PRODUCT_TEST_IDS.listNextCursor}
+        >
+          next_cursor: {nextCursor}
+        </p>
+      ) : null}
     </main>
   );
 }
@@ -220,6 +231,9 @@ export function OrganizationHarnessRoute(): ReactNode {
   const [listFreshness, setListFreshness] = useState<ReadModelFreshness | null>(
     null,
   );
+  const [listNextCursor, setListNextCursor] = useState<string | null>(null);
+  const [listSourceLink, setListSourceLink] =
+    useState<OrganizationSourceLink | null>(null);
   const [organizationsByName, setOrganizationsByName] = useState<
     Record<string, OrganizationRecord>
   >({});
@@ -314,6 +328,8 @@ export function OrganizationHarnessRoute(): ReactNode {
     }
 
     setListFreshness(null);
+    setListNextCursor(null);
+    setListSourceLink(null);
     succeedOperation();
   }
 
@@ -345,6 +361,44 @@ export function OrganizationHarnessRoute(): ReactNode {
 
     setOrganizationsByName((previous) => ({ ...previous, ...mapped }));
     setListFreshness(response.body.freshness);
+    setListNextCursor(response.body.next_cursor ?? null);
+    setListSourceLink(response.body.source_link);
+    succeedOperation();
+  }
+
+  async function listOrganizationsNextPage(): Promise<void> {
+    if (!listNextCursor) {
+      return;
+    }
+    beginOperation();
+    const response = await listOrganizationsApi({ cursor: listNextCursor });
+
+    if (!response.ok) {
+      failOperation(response);
+      return;
+    }
+
+    const mapped: Record<string, OrganizationRecord> = {};
+    for (const org of response.body.organizations) {
+      const normalized = normalizeOrganizationName(org.name);
+      mapped[normalized] = {
+        id: org.id,
+        name: org.name,
+        grantedPermissions: org.capabilities
+          .filter((cap) => cap.allowed)
+          .map((cap) => cap.permission),
+        capabilities: org.capabilities,
+        initialProjectCount: null,
+        proofLink: null,
+        sourceLink: null,
+        sourceEvent: null,
+      };
+    }
+
+    setOrganizationsByName((previous) => ({ ...previous, ...mapped }));
+    setListFreshness(response.body.freshness);
+    setListNextCursor(response.body.next_cursor ?? null);
+    setListSourceLink(response.body.source_link);
     succeedOperation();
   }
 
@@ -555,11 +609,42 @@ export function OrganizationHarnessRoute(): ReactNode {
           ))}
         </ul>
         {listFreshness ? (
-          <p className="mt-3 text-xs text-[--color-fg-muted]">
+          <p
+            className="mt-3 text-xs text-[--color-fg-muted]"
+            data-testid={ORGANIZATION_WIRE_TEST_IDS.listFreshness}
+          >
             freshness: projection={listFreshness.projection} generated_at=
             {listFreshness.generated_at} cursor=
             {listFreshness.cursor ?? "<none>"} checkpoint=
             {listFreshness.checkpoint ?? "<none>"}
+          </p>
+        ) : null}
+        {listNextCursor !== null ? (
+          <p
+            className="mt-1 text-xs text-[--color-fg-muted]"
+            data-testid={ORGANIZATION_WIRE_TEST_IDS.listNextCursor}
+          >
+            next_cursor: {listNextCursor}
+          </p>
+        ) : null}
+        {listNextCursor !== null ? (
+          <button
+            className="mt-1 rounded border border-[--color-border] px-3 py-2 text-xs"
+            data-testid={ORGANIZATION_WIRE_TEST_IDS.listNextPage}
+            onClick={() => {
+              void listOrganizationsNextPage();
+            }}
+            type="button"
+          >
+            Next page
+          </button>
+        ) : null}
+        {listSourceLink ? (
+          <p
+            className="mt-1 text-xs text-[--color-fg-muted]"
+            data-testid={ORGANIZATION_PRODUCT_TEST_IDS.sourceLink}
+          >
+            source: {listSourceLink.event_family}/{listSourceLink.event_kind}
           </p>
         ) : null}
       </section>

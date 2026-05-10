@@ -596,3 +596,46 @@ Then(
       .waitFor({ state: "visible", timeout: 30_000 });
   },
 );
+
+Then(
+  "the organization list includes observation-aligned provenance",
+  async ({ page, world }) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const listed = orgState(typedWorld).lastListResponse;
+    if (!listed) {
+      throw new Error("organization list response must be captured first");
+    }
+
+    const freshness = listed.freshness;
+    if (!freshness.projection) {
+      throw new Error("freshness projection must identify the read model");
+    }
+    if (freshness.value_kind !== "measured") {
+      throw new Error(
+        `organization list should carry measured value kind, got ${freshness.value_kind}`,
+      );
+    }
+    if (freshness.completeness !== "complete") {
+      throw new Error(
+        `organization list should carry complete completeness, got ${freshness.completeness}`,
+      );
+    }
+    if (freshness.freshness_state !== "fresh") {
+      throw new Error(
+        `organization list should carry fresh freshness state, got ${freshness.freshness_state}`,
+      );
+    }
+    if (freshness.visibility !== "visible") {
+      throw new Error(
+        `organization list should carry visible state, got ${freshness.visibility}`,
+      );
+    }
+    if (!freshness.source) {
+      throw new Error("freshness source must identify the source subsystem");
+    }
+
+    await page
+      .getByTestId(ORGANIZATION_WIRE_TEST_IDS.listFreshness)
+      .waitFor({ state: "visible", timeout: 30_000 });
+  },
+);
