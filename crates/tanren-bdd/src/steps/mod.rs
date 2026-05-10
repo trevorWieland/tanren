@@ -6,3 +6,5 @@
 pub mod account;
 pub mod permissions;
 pub mod permissions_capability;
+pub mod permissions_pagination;
+pub mod permissions_support;

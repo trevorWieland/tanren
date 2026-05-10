@@ -18,6 +18,32 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions page limit defaults to 100
+      And the permissions view does not create permission request or grant events
+
+    @positive @api
+    Scenario: API paginates my permissions with stable cursor continuation
+      Given alice has signed up with email "alice-perms-api-pagination@example.com" and password "p4ssw0rd"
+      And alice has enough organization permissions to require pagination
+      When alice views their own permissions with limit 2
+      And alice continues their own permissions from the returned cursor with limit 2
+      Then the first two permission pages each return 2 entries
+      And the second page uses the first page cursor and has no duplicate entries
+      And the permissions view does not create permission request or grant events
+
+    @positive @api
+    Scenario: API clamps explicit my-permissions page limits
+      Given alice has signed up with email "alice-perms-api-clamp@example.com" and password "p4ssw0rd"
+      And alice has enough organization permissions to require pagination
+      When alice views their own permissions with limit 999
+      Then the permissions page limit is clamped to 200
+      And the permissions view does not create permission request or grant events
+
+    @falsification @api
+    Scenario: API rejects malformed my-permissions cursors
+      Given alice has signed up with email "alice-perms-api-bad-cursor@example.com" and password "p4ssw0rd"
+      When alice views their own permissions with malformed cursor "not-json"
+      Then the request fails with code "validation_failed"
       And the permissions view does not create permission request or grant events
 
     @falsification @api
@@ -58,6 +84,32 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions page limit defaults to 100
+      And the permissions view does not create permission request or grant events
+
+    @positive @mcp
+    Scenario: MCP paginates my permissions with stable cursor continuation
+      Given alice has signed up with email "alice-perms-mcp-pagination@example.com" and password "p4ssw0rd"
+      And alice has enough organization permissions to require pagination
+      When alice views their own permissions with limit 2
+      And alice continues their own permissions from the returned cursor with limit 2
+      Then the first two permission pages each return 2 entries
+      And the second page uses the first page cursor and has no duplicate entries
+      And the permissions view does not create permission request or grant events
+
+    @positive @mcp
+    Scenario: MCP clamps explicit my-permissions page limits
+      Given alice has signed up with email "alice-perms-mcp-clamp@example.com" and password "p4ssw0rd"
+      And alice has enough organization permissions to require pagination
+      When alice views their own permissions with limit 999
+      Then the permissions page limit is clamped to 200
+      And the permissions view does not create permission request or grant events
+
+    @falsification @mcp
+    Scenario: MCP rejects malformed my-permissions cursors
+      Given alice has signed up with email "alice-perms-mcp-bad-cursor@example.com" and password "p4ssw0rd"
+      When alice views their own permissions with malformed cursor "not-json"
+      Then the request fails with code "validation_failed"
       And the permissions view does not create permission request or grant events
 
     @falsification @mcp
@@ -85,6 +137,7 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions page limit defaults to 100
       And the permissions view does not create permission request or grant events
 
     @falsification @cli
@@ -112,6 +165,7 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions page limit defaults to 100
       And on a phone viewport the web permissions page shows the role-template source, source proof references, and constraint reason
       And the permissions view does not create permission request or grant events
 
@@ -154,6 +208,7 @@ Feature: See my own permissions
       And alice sees the direct organization permission entry
       And alice sees the role-template project permission entry
       And alice sees constrained permission reason "Organization policy requires approval ticket." from source "organization_policy"
+      And the permissions page limit defaults to 100
       And the permissions view does not create permission request or grant events
 
     @falsification @tui

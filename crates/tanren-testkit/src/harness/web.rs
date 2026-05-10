@@ -26,7 +26,7 @@ use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind,
+    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessMyPermissionsQuery,
     HarnessPermissionGrantFixture, HarnessPermissionsCapabilityView, HarnessPermissionsView,
     HarnessResult, HarnessSession,
 };
@@ -79,8 +79,22 @@ impl AccountHarness for WebHarness {
         session_account_id: tanren_identity_policy::AccountId,
         requested_account_id: Option<tanren_identity_policy::AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView> {
         self.inner
-            .my_permissions(session_account_id, requested_account_id)
+            .my_permissions_query(session_account_id, requested_account_id, query)
             .await
     }
 

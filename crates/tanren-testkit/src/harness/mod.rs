@@ -11,12 +11,9 @@
 //! `xtask check-bdd-wire-coverage` guard rejects any step body that
 //! references `Handlers::sign_up`/`sign_in`/`accept_invitation`
 //! directly, so adding a new step that bypasses this seam fails CI.
-//!
 //! See `docs/architecture/subsystems/behavior-proof.md` §
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
-//!
-//! ## Status of each harness (PR 9)
 //!
 //! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
 //!   on an ephemeral port, drives via `reqwest::Client` with
@@ -36,19 +33,17 @@
 //! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
 //!   parallel Node-side Playwright harness for the same `@web` Gherkin
 //!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
+//!   independently against the same scenario file. See `harness::web`.
 //! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
 //!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
+mod api_ready;
 mod cli;
 mod in_process;
 mod mcp;
 mod tui;
 mod web;
-
 use std::collections::{HashMap, HashSet};
 use std::time::Duration;
 
@@ -247,6 +242,13 @@ pub struct HarnessPermissionsCapabilityView {
     pub rendered: String,
 }
 
+/// Optional pagination hints for self-permission introspection.
+#[derive(Debug, Clone, Default)]
+pub struct HarnessMyPermissionsQuery {
+    pub limit: Option<u16>,
+    pub cursor: Option<String>,
+}
+
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -278,6 +280,14 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         &mut self,
         session_account_id: AccountId,
         requested_account_id: Option<AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView>;
+
+    /// Read effective permissions with optional pagination hints.
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+        query: HarnessMyPermissionsQuery,
     ) -> HarnessResult<HarnessPermissionsView>;
 
     /// Discover whether the actor may open the self-permissions view.

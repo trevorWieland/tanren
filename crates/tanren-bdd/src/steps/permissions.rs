@@ -1,14 +1,10 @@
 //! Permission-introspection steps for B-0039 across all harnessed interfaces.
 
-use std::collections::HashSet;
-
 use cucumber::{given, then, when};
-use secrecy::ExposeSecret;
-use secrecy::SecretString;
 use tanren_contract::MyPermissionEntry;
 use tanren_identity_policy::{
-    Email, OrgId, PermissionGrantSource, PermissionName, PolicyConstraintReason,
-    PolicyConstraintSource, ProjectId, RoleTemplateName,
+    OrgId, PermissionGrantSource, PermissionName, PolicyConstraintReason, PolicyConstraintSource,
+    ProjectId, RoleTemplateName,
 };
 use tanren_testkit::{
     HarnessOutcome, HarnessPermissionConstraintFixture, HarnessPermissionGrantFixture,
@@ -16,6 +12,9 @@ use tanren_testkit::{
 };
 
 use crate::TanrenWorld;
+use crate::steps::permissions_support::{
+    actor_account_id, ensure_actor_signed_in, snapshot_event_ids,
+};
 
 const ORG_PERMISSION: &str = "org.members.view";
 const PROJECT_ROLE_PERMISSION: &str = "project.changes.review";
@@ -80,6 +79,7 @@ async fn when_view_own_permissions(world: &mut TanrenWorld, actor: String) {
     match ctx.harness.my_permissions(session_account_id, None).await {
         Ok(view) => {
             ctx.last_permissions_capability = None;
+            ctx.permissions_page_history = vec![view.clone()];
             ctx.last_permissions = Some(view);
             ctx.last_permissions_failure_code = None;
             ctx.last_outcome = Some(HarnessOutcome::Other("permissions_loaded".to_owned()));
@@ -87,6 +87,7 @@ async fn when_view_own_permissions(world: &mut TanrenWorld, actor: String) {
         Err(err) => {
             let code = err.code();
             ctx.last_permissions_capability = None;
+            ctx.permissions_page_history.clear();
             ctx.last_permissions = None;
             ctx.last_permissions_failure_code = Some(code.clone());
             ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));
@@ -107,6 +108,7 @@ async fn when_unauthenticated_view_own_permissions(world: &mut TanrenWorld) {
     {
         Ok(view) => {
             ctx.last_permissions_capability = None;
+            ctx.permissions_page_history = vec![view.clone()];
             ctx.last_permissions = Some(view);
             ctx.last_permissions_failure_code = None;
             ctx.last_outcome = Some(HarnessOutcome::Other(
@@ -116,6 +118,7 @@ async fn when_unauthenticated_view_own_permissions(world: &mut TanrenWorld) {
         Err(err) => {
             let code = err.code();
             ctx.last_permissions_capability = None;
+            ctx.permissions_page_history.clear();
             ctx.last_permissions = None;
             ctx.last_permissions_failure_code = Some(code.clone());
             ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));
@@ -141,6 +144,7 @@ async fn when_view_other_permissions(world: &mut TanrenWorld, actor: String, tar
     {
         Ok(view) => {
             ctx.last_permissions_capability = None;
+            ctx.permissions_page_history = vec![view.clone()];
             ctx.last_permissions = Some(view);
             ctx.last_permissions_failure_code = None;
             ctx.last_outcome = Some(HarnessOutcome::Other(
@@ -150,6 +154,7 @@ async fn when_view_other_permissions(world: &mut TanrenWorld, actor: String, tar
         Err(err) => {
             let code = err.code();
             ctx.last_permissions_capability = None;
+            ctx.permissions_page_history.clear();
             ctx.last_permissions = None;
             ctx.last_permissions_failure_code = Some(code.clone());
             ctx.last_outcome = Some(HarnessOutcome::FailureCode(code));
@@ -388,75 +393,6 @@ async fn then_no_permission_events(world: &mut TanrenWorld) {
         .expect("recent_events should succeed under BDD");
     assert_no_permission_request_or_grant_events(&before, &after)
         .expect("permissions view should remain read-only");
-}
-
-async fn ensure_actor_signed_in(
-    world: &mut TanrenWorld,
-    actor: &str,
-) -> tanren_identity_policy::AccountId {
-    let (email_raw, password_raw) = {
-        let ctx = world.ensure_account_ctx().await;
-        let entry = ctx
-            .actors
-            .get(actor)
-            .expect("actor must be registered first");
-        (
-            entry
-                .identifier
-                .clone()
-                .expect("actor identifier should be recorded"),
-            entry
-                .password
-                .as_ref()
-                .map(|secret| secret.expose_secret().to_owned())
-                .expect("actor password should be recorded"),
-        )
-    };
-    let ctx = world.ensure_account_ctx().await;
-    let email = Email::parse(&email_raw).expect("scenario email must parse");
-    let response = ctx
-        .harness
-        .sign_in(tanren_contract::SignInRequest {
-            email,
-            password: SecretString::from(password_raw),
-        })
-        .await
-        .expect("sign-in before permissions query must succeed");
-    let entry = ctx
-        .actors
-        .get_mut(actor)
-        .expect("actor state should still be present");
-    entry.sign_in = Some(response.clone());
-    response.account_id
-}
-
-fn actor_account_id(ctx: &crate::AccountContext, actor: &str) -> tanren_identity_policy::AccountId {
-    let entry = ctx
-        .actors
-        .get(actor)
-        .expect("actor must have prior sign-up/sign-in");
-    entry
-        .sign_in
-        .as_ref()
-        .map(|session| session.account_id)
-        .or_else(|| entry.sign_up.as_ref().map(|session| session.account_id))
-        .or_else(|| {
-            entry
-                .accept_invitation
-                .as_ref()
-                .map(|acceptance| acceptance.session.account_id)
-        })
-        .expect("actor must have a session/account id")
-}
-
-async fn snapshot_event_ids(ctx: &mut crate::AccountContext) -> HashSet<String> {
-    ctx.harness
-        .recent_events(200)
-        .await
-        .expect("recent_events should succeed")
-        .into_iter()
-        .map(|event| event.id.to_string())
-        .collect()
 }
 
 fn require_entry_with_source<'a, T>(

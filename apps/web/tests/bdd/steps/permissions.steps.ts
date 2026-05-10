@@ -201,6 +201,33 @@ Then(
 );
 
 Then(
+  "the permissions page limit defaults to {int}",
+  async ({ page }, expectedLimit: number) => {
+    const cookieHeader = await page
+      .context()
+      .cookies()
+      .then((cookies) => cookies.map((c) => `${c.name}=${c.value}`).join("; "));
+    const response = await page.request.get(`${API_URL}/me/permissions`, {
+      headers: { cookie: cookieHeader },
+    });
+    if (!response.ok()) {
+      throw new Error(
+        `expected /me/permissions to succeed, got ${response.status()}`,
+      );
+    }
+    const body = (await response.json()) as {
+      page?: { limit?: number };
+    };
+    const observed = body.page?.limit;
+    if (observed !== expectedLimit) {
+      throw new Error(
+        `expected default page limit ${expectedLimit}, got ${String(observed)}`,
+      );
+    }
+  },
+);
+
+Then(
   "on a phone viewport the web permissions page shows the role-template source, source proof references, and constraint reason",
   async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });

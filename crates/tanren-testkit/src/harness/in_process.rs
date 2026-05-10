@@ -22,8 +22,8 @@ use tanren_store::{
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsCapabilityView,
-    HarnessPermissionsView, HarnessResult, HarnessSession,
+    HarnessMyPermissionsQuery, HarnessPermissionGrantFixture, HarnessPermissionScope,
+    HarnessPermissionsCapabilityView, HarnessPermissionsView, HarnessResult, HarnessSession,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -148,6 +148,20 @@ impl AccountHarness for InProcessHarness {
         session_account_id: AccountId,
         requested_account_id: Option<AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView> {
         if !self.authenticated_accounts.contains(&session_account_id) {
             return Err(HarnessError::FailureCode {
                 code: "auth_required".to_owned(),
@@ -160,7 +174,14 @@ impl AccountHarness for InProcessHarness {
         );
         match self
             .handlers
-            .my_permissions(&self.store, context, MyPermissionsRequest::default())
+            .my_permissions(
+                &self.store,
+                context,
+                MyPermissionsRequest {
+                    limit: query.limit,
+                    cursor: query.cursor,
+                },
+            )
             .await
         {
             Ok(response) => Ok(HarnessPermissionsView {

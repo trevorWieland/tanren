@@ -24,8 +24,8 @@ use self::cli_output_parse::{parse_joined_org, parse_permissions_output, parse_s
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsView, HarnessResult,
-    HarnessSession,
+    HarnessMyPermissionsQuery, HarnessPermissionGrantFixture, HarnessPermissionScope,
+    HarnessPermissionsView, HarnessResult, HarnessSession,
 };
 
 pub struct CliHarness {
@@ -201,6 +201,27 @@ impl AccountHarness for CliHarness {
         _session_account_id: AccountId,
         requested_account_id: Option<AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            _session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
+        _session_account_id: AccountId,
+        requested_account_id: Option<AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        if query.limit.is_some() || query.cursor.is_some() {
+            return Err(HarnessError::FailureCode {
+                code: "unsupported_action".to_owned(),
+                summary: "CLI harness does not yet support explicit --limit/--cursor query hints"
+                    .to_owned(),
+            });
+        }
         let mut args = vec![
             "account".to_owned(),
             "my-permissions".to_owned(),

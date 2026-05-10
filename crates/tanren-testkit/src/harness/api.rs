@@ -21,8 +21,9 @@ use tokio::task::JoinHandle;
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessPermissionGrantFixture, HarnessPermissionScope, HarnessPermissionsCapabilityView,
-    HarnessPermissionsView, HarnessResult, HarnessSession,
+    HarnessMyPermissionsQuery, HarnessPermissionGrantFixture, HarnessPermissionScope,
+    HarnessPermissionsCapabilityView, HarnessPermissionsView, HarnessResult, HarnessSession,
+    api_ready::wait_until_ready,
 };
 
 pub struct ApiHarness {
@@ -83,6 +84,8 @@ impl ApiHarness {
             .timeout(super::HARNESS_DEFAULT_TIMEOUT)
             .build()
             .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
+
+        wait_until_ready(&client, &base_url).await?;
 
         Ok(Self {
             base_url,
@@ -183,8 +186,22 @@ impl AccountHarness for ApiHarness {
 
     async fn my_permissions(
         &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+    ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
         _session_account_id: tanren_identity_policy::AccountId,
         requested_account_id: Option<tanren_identity_policy::AccountId>,
+        query: HarnessMyPermissionsQuery,
     ) -> HarnessResult<HarnessPermissionsView> {
         let url = match requested_account_id {
             None => format!("{}/me/permissions", self.base_url),
@@ -192,9 +209,20 @@ impl AccountHarness for ApiHarness {
                 format!("{}/accounts/{target_account_id}/permissions", self.base_url)
             }
         };
+        let mut parsed_url = reqwest::Url::parse(&url)
+            .map_err(|e| HarnessError::Transport(format!("parse permissions URL: {e}")))?;
+        {
+            let mut pairs = parsed_url.query_pairs_mut();
+            if let Some(limit) = query.limit {
+                pairs.append_pair("limit", &limit.to_string());
+            }
+            if let Some(cursor) = query.cursor {
+                pairs.append_pair("cursor", &cursor);
+            }
+        }
         let response = self
             .client
-            .get(&url)
+            .get(parsed_url)
             .send()
             .await
             .map_err(|e| HarnessError::Transport(format!("GET permissions: {e}")))?;

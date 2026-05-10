@@ -15,10 +15,10 @@ pub mod harness;
 
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
-    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome,
-    HarnessPermissionConstraintFixture, HarnessPermissionGrantFixture, HarnessPermissionScope,
-    HarnessPermissionsCapabilityView, HarnessPermissionsView, HarnessResult, HarnessSession,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessMyPermissionsQuery,
+    HarnessOutcome, HarnessPermissionConstraintFixture, HarnessPermissionGrantFixture,
+    HarnessPermissionScope, HarnessPermissionsCapabilityView, HarnessPermissionsView,
+    HarnessResult, HarnessSession, InProcessHarness, McpHarness, TuiHarness, WebHarness,
     assert_no_permission_request_or_grant_events, event_kinds, record_failure,
 };
 

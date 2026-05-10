@@ -69,6 +69,8 @@ pub struct AccountContext {
     pub last_outcome: Option<HarnessOutcome>,
     /// The most recent self-permissions query result.
     pub last_permissions: Option<HarnessPermissionsView>,
+    /// Ordered self-permissions query responses for pagination assertions.
+    pub permissions_page_history: Vec<HarnessPermissionsView>,
     /// The most recent self-permissions capability response.
     pub last_permissions_capability: Option<HarnessPermissionsCapabilityView>,
     /// The most recent self-permissions query failure code.
@@ -132,6 +134,7 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             last_permissions: None,
+            permissions_page_history: Vec::new(),
             last_permissions_capability: None,
             last_permissions_failure_code: None,
             event_ids_before_permissions_query: None,

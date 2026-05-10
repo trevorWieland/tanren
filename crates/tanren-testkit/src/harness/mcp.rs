@@ -26,7 +26,8 @@ use tokio::task::JoinHandle;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind,
-    HarnessPermissionGrantFixture, HarnessPermissionsView, HarnessResult, HarnessSession,
+    HarnessMyPermissionsQuery, HarnessPermissionGrantFixture, HarnessPermissionsView,
+    HarnessResult, HarnessSession,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -206,6 +207,20 @@ impl AccountHarness for McpHarness {
         session_account_id: tanren_identity_policy::AccountId,
         requested_account_id: Option<tanren_identity_policy::AccountId>,
     ) -> HarnessResult<HarnessPermissionsView> {
+        self.my_permissions_query(
+            session_account_id,
+            requested_account_id,
+            HarnessMyPermissionsQuery::default(),
+        )
+        .await
+    }
+
+    async fn my_permissions_query(
+        &mut self,
+        session_account_id: tanren_identity_policy::AccountId,
+        requested_account_id: Option<tanren_identity_policy::AccountId>,
+        query: HarnessMyPermissionsQuery,
+    ) -> HarnessResult<HarnessPermissionsView> {
         let session_token = self
             .session_tokens
             .get(&session_account_id)
@@ -213,6 +228,8 @@ impl AccountHarness for McpHarness {
         let body = serde_json::json!({
             "session_token": session_token,
             "target_account_id": requested_account_id,
+            "limit": query.limit,
+            "cursor": query.cursor,
         });
         let payload = self.call_tool("account.my_permissions", body).await?;
         let response: MyPermissionsResponse = serde_json::from_value(payload.clone())
