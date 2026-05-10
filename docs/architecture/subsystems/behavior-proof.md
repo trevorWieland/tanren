@@ -332,10 +332,16 @@ cross-interface session-scope behavior. It demonstrates:
 
 - per-interface positive switching (`@web`, `@api`, `@mcp`, `@cli`, `@tui`);
 - per-interface positive two-window independence checks;
+- concurrent two-window switching checks on surfaces that expose real
+  concurrent transport semantics;
 - per-interface falsification for unsigned-target rejection
   (`target_account_not_signed_in`);
+- invalid-window-context falsification on window-validated surfaces
+  (`validation_failed`);
 - per-interface falsification that a switch in one window does not leak into
-  another window.
+  another window;
+- event-envelope payload assertions for `active_account_switched` and
+  `active_account_switch_rejected`, not only event-kind presence.
 
 The feature intentionally avoids skipped or ignored scenarios; all witnesses
 remain executable under the closed tag allowlist in this document.

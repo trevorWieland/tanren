@@ -1,7 +1,8 @@
 /* eslint-disable */
-// playwright-bdd step definitions for the `@web` slice of B-0043.
+// playwright-bdd step definitions for the `@web` slices of B-0043 and B-0046.
 //
-// The Gherkin in `tests/bdd/features/B-0043-create-account.feature` is
+// The Gherkin in `tests/bdd/features/B-0043-create-account.feature` and
+// `tests/bdd/features/B-0046-switch-active-account.feature` is
 // the single source of truth for both the Rust `tanren-bdd` runner and
 // this Node `playwright-bdd` runner — the `apps/web/tests/bdd/features`
 // path is a symlink into the canonical directory.

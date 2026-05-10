@@ -9,3 +9,4 @@ pub mod account;
 pub mod active_account;
 pub mod active_account_invalid_sessions;
 pub mod active_account_windows;
+pub(crate) mod event_assertions;

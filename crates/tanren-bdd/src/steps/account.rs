@@ -13,6 +13,7 @@ use std::time::Duration;
 use chrono::{Duration as ChronoDuration, Utc};
 use cucumber::{given, then, when};
 use secrecy::SecretString;
+use serde_json::Value;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tanren_testkit::{
@@ -381,11 +382,19 @@ async fn then_event_recorded(world: &mut TanrenWorld, kind: String) {
             .filter_map(|e| {
                 e.payload
                     .get("kind")
-                    .and_then(serde_json::Value::as_str)
+                    .and_then(Value::as_str)
                     .map(str::to_owned)
             })
             .collect();
-        if kinds.iter().any(|k| k == &kind) {
+        if let Some(event) = recent
+            .iter()
+            .find(|event| event.payload.get("kind").and_then(Value::as_str) == Some(kind.as_str()))
+        {
+            super::event_assertions::assert_account_event_payload(
+                &ctx.actors,
+                &kind,
+                &event.payload,
+            );
             return;
         }
         attempts += 1;

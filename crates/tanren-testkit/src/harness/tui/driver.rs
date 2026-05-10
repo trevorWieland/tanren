@@ -2,6 +2,7 @@ use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
+use expectrl::process::Healthcheck;
 use expectrl::{Any, Captures, Eof, Session};
 use portable_pty::native_pty_system;
 use tanren_identity_policy::AccountId;
@@ -154,7 +155,22 @@ fn spawn_session(
 
     let mut session = Session::spawn(cmd)
         .map_err(|e| HarnessError::Transport(format!("spawn tanren-tui in pty: {e}")))?;
-    session.set_expect_timeout(Some(Duration::from_secs(60)));
+    // Fail fast: give the TUI binary a moment to start, then verify
+    // it is still alive. If the binary exits immediately (e.g. raw-mode
+    // setup failure due to missing /dev/tty), the PTY session will
+    // report it as not-alive within milliseconds instead of hanging for
+    // a 60-second expect timeout.
+    std::thread::sleep(Duration::from_millis(250));
+    if !session
+        .get_process_mut()
+        .is_alive()
+        .map_err(|e| HarnessError::Transport(format!("check tanren-tui liveness: {e}")))?
+    {
+        return Err(HarnessError::Transport(
+            "tanren-tui exited immediately — PTY or terminal setup unavailable".to_owned(),
+        ));
+    }
+    session.set_expect_timeout(Some(Duration::from_secs(10)));
     Ok(session)
 }
 
