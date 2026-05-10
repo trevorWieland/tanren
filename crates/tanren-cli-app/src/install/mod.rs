@@ -16,7 +16,7 @@ mod uninstall_plan;
 mod writer;
 mod writer_tx;
 
-pub use cli::InstallCommand;
+pub use cli::{InstallCommand, UninstallCommand};
 pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
@@ -25,7 +25,7 @@ pub use uninstall_plan::{
     UninstallPreserveReason, UninstallPreservedPath, UninstallPreview, UninstallWarning,
     UninstallWarningKind,
 };
-pub use writer::InstallReport;
+pub use writer::{InstallReport, UninstallApplyReport};
 
 /// Calculate a hex SHA-256 digest for test fixture bytes.
 #[must_use]
@@ -162,4 +162,12 @@ pub fn apply_install(
 /// Build a manifest-driven uninstall preview without mutating repository files.
 pub fn plan_uninstall(repository: &Path) -> Result<UninstallPreview, InstallError> {
     uninstall_plan::build_uninstall_preview(repository)
+}
+
+/// Apply a previously planned uninstall preview to the repository.
+pub fn apply_uninstall(
+    repository: &Path,
+    preview: &UninstallPreview,
+) -> Result<UninstallApplyReport, InstallError> {
+    writer::apply_uninstall_preview(repository, preview)
 }

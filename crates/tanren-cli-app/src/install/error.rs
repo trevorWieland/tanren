@@ -60,8 +60,14 @@ pub enum InstallCommandError {
         #[source]
         source: InstallError,
     },
+    /// Uninstall planning or application failed.
+    #[error("error: uninstall_failed — {source}")]
+    UninstallFailed {
+        #[source]
+        source: InstallError,
+    },
     /// Emitting success output to stdout failed.
-    #[error("error: install_failed — write install report to stdout: {source}")]
+    #[error("error: command_failed — write command report to stdout: {source}")]
     StdoutWriteFailure {
         #[source]
         source: std::io::Error,
@@ -70,6 +76,12 @@ pub enum InstallCommandError {
 
 impl From<InstallError> for InstallCommandError {
     fn from(source: InstallError) -> Self {
+        Self::from_install_error(source)
+    }
+}
+
+impl InstallCommandError {
+    fn from_install_error(source: InstallError) -> Self {
         match source {
             InstallError::UnsupportedProfile { .. }
             | InstallError::UnsupportedIntegration { .. }
@@ -79,6 +91,16 @@ impl From<InstallError> for InstallCommandError {
             | InstallError::UnsafeRepositoryPath { .. }
             | InstallError::RepositoryPathNotDirectory { .. } => Self::ValidationFailed { source },
             _ => Self::InstallFailed { source },
+        }
+    }
+
+    pub(super) fn from_uninstall_error(source: InstallError) -> Self {
+        match source {
+            InstallError::InvalidRepositoryPath { .. }
+            | InstallError::InvalidInstallManifest { .. }
+            | InstallError::UnsafeRepositoryPath { .. }
+            | InstallError::RepositoryPathNotDirectory { .. } => Self::ValidationFailed { source },
+            _ => Self::UninstallFailed { source },
         }
     }
 }
