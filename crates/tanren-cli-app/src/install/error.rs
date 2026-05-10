@@ -60,6 +60,9 @@ pub enum InstallCommandError {
         #[source]
         source: InstallError,
     },
+    /// Read-only drift check found repository differences.
+    #[error("error: drift_detected — tanren install assets differ from the selected profile")]
+    DriftDetected,
     /// Emitting success output to stdout failed.
     #[error("error: install_failed — write install report to stdout: {source}")]
     StdoutWriteFailure {
