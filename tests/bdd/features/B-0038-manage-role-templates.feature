@@ -34,6 +34,18 @@ Feature: Manage roles as permission templates
       Then the active role template no longer exists
       And account principal alice retains direct grants "project.read,project.comment"
       And account principal bob retains direct grants "project.read,project.comment,project.merge"
+      When the operator checks permission "project.read" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.read"
+      When the operator checks permission "project.comment" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.comment"
+      When the operator checks permission "project.read" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.read"
+      When the operator checks permission "project.merge" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.merge"
 
     @falsification @api
     Scenario: API permission checks accept account principals and reject role principals
@@ -81,6 +93,18 @@ Feature: Manage roles as permission templates
       Then the active role template no longer exists
       And account principal alice retains direct grants "project.read,project.comment"
       And account principal bob retains direct grants "project.read,project.comment,project.merge"
+      When the operator checks permission "project.read" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.read"
+      When the operator checks permission "project.comment" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.comment"
+      When the operator checks permission "project.read" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.read"
+      When the operator checks permission "project.merge" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.merge"
 
     @falsification @web
     Scenario: Web permission checks accept account principals and reject role principals
@@ -128,6 +152,18 @@ Feature: Manage roles as permission templates
       Then the active role template no longer exists
       And account principal alice retains direct grants "project.read,project.comment"
       And account principal bob retains direct grants "project.read,project.comment,project.merge"
+      When the operator checks permission "project.read" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.read"
+      When the operator checks permission "project.comment" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.comment"
+      When the operator checks permission "project.read" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.read"
+      When the operator checks permission "project.merge" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.merge"
 
     @falsification @mcp
     Scenario: MCP permission checks accept account principals and reject role principals
@@ -175,6 +211,18 @@ Feature: Manage roles as permission templates
       Then the active role template no longer exists
       And account principal alice retains direct grants "project.read,project.comment"
       And account principal bob retains direct grants "project.read,project.comment,project.merge"
+      When the operator checks permission "project.read" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.read"
+      When the operator checks permission "project.comment" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.comment"
+      When the operator checks permission "project.read" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.read"
+      When the operator checks permission "project.merge" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.merge"
 
     @falsification @cli
     Scenario: CLI permission checks accept account principals and reject role principals
@@ -222,6 +270,18 @@ Feature: Manage roles as permission templates
       Then the active role template no longer exists
       And account principal alice retains direct grants "project.read,project.comment"
       And account principal bob retains direct grants "project.read,project.comment,project.merge"
+      When the operator checks permission "project.read" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.read"
+      When the operator checks permission "project.comment" for account principal alice
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal alice and permission "project.comment"
+      When the operator checks permission "project.read" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.read"
+      When the operator checks permission "project.merge" for account principal bob
+      Then the permission check result is allowed
+      And the permission check matches direct grant ids for account principal bob and permission "project.merge"
 
     @falsification @tui
     Scenario: TUI permission checks accept account principals and reject role principals

@@ -1,0 +1,2 @@
+    Finished `dev` profile [unoptimized + debuginfo] target(s) in 0.32s
+     Running `/home/dev/cargo-target/debug/tanren-bdd-runner --tags '@B-0038 and @tui and @falsification'`
