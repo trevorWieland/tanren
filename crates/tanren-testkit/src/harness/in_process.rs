@@ -8,6 +8,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use sea_orm::ConnectionTrait;
 use tanren_app_services::project::{
     ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
     ListVisibleProjectsQuery,
@@ -305,17 +306,32 @@ impl ProjectHarness for InProcessHarness {
     ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
         Ok(self.fixture_source_control.call_counters())
     }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.store
+            .connection()
+            .execute_unprepared("DROP TABLE IF EXISTS projects")
+            .await
+            .map_err(|e| HarnessError::Transport(format!("drop projects table: {e}")))?;
+        Ok(())
+    }
 }
 
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
-        AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
-        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.code().to_owned()),
+        AppServiceError::Account(reason) => {
+            HarnessError::Account(reason, reason.summary().to_owned())
+        }
+        AppServiceError::Project(reason) => {
+            HarnessError::Project(reason, reason.summary().to_owned())
+        }
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
-        AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
-        _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+        _ => HarnessError::Transport(
+            "internal_error: Tanren encountered an internal error while processing the request."
+                .to_owned(),
+        ),
     }
 }

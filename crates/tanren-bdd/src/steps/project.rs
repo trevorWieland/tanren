@@ -8,7 +8,7 @@ use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{
     ActiveProjectRequest, ConnectProjectRepositoryRequest, ListVisibleProjectsRequest,
-    ProjectPageRequest, SignUpRequest,
+    ProjectFailureReason, ProjectPageRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, Email, RepositoryRef};
 
@@ -51,6 +51,7 @@ async fn given_project_account(world: &mut TanrenWorld, actor: String) {
             .expect("default repository access grant should configure");
     }
     ctx.last_failure_code = None;
+    ctx.last_failure_summary = None;
 }
 
 #[given(expr = "repository fixture {string} has fingerprint {string} and {int} prior commits")]
@@ -131,6 +132,8 @@ async fn when_connect_existing_for_other_account(
         entry.last_created_repository = None;
         entry.last_designated_host = None;
         ctx.last_failure_code = Some("validation_failed".to_owned());
+        ctx.last_failure_summary =
+            Some(ProjectFailureReason::ValidationFailed.summary().to_owned());
         return;
     };
     let ctx = world.ensure_project_ctx().await;
@@ -159,12 +162,14 @@ async fn when_connect_existing_for_other_account(
             entry.last_created_repository = None;
             entry.last_designated_host = None;
             ctx.last_failure_code = None;
+            ctx.last_failure_summary = None;
         }
         Err(err) => {
             entry.last_connected_repository = None;
             entry.last_created_repository = None;
             entry.last_designated_host = None;
             ctx.last_failure_code = Some(err.code());
+            ctx.last_failure_summary = err.summary().map(str::to_owned);
         }
     }
 }
@@ -192,6 +197,17 @@ async fn then_project_failure(world: &mut TanrenWorld, code: String) {
         Some(code.as_str()),
         "expected project failure code {code}, got {:?}",
         ctx.last_failure_code
+    );
+}
+
+#[then(expr = "the project failure summary is {string}")]
+async fn then_project_failure_summary(world: &mut TanrenWorld, summary: String) {
+    let ctx = world.ensure_project_ctx().await;
+    assert_eq!(
+        ctx.last_failure_summary.as_deref(),
+        Some(summary.as_str()),
+        "expected project failure summary {summary:?}, got {:?}",
+        ctx.last_failure_summary
     );
 }
 
@@ -375,7 +391,20 @@ async fn connect_existing_impl(
     repository: String,
     without_account: bool,
 ) {
-    let parsed_repository = RepositoryRef::parse(&repository).expect("repository must parse");
+    let Ok(parsed_repository) = RepositoryRef::parse(&repository) else {
+        let ctx = world.ensure_project_ctx().await;
+        let entry = ctx
+            .actors
+            .entry(actor)
+            .or_insert_with(ProjectActorState::default);
+        entry.last_connected_repository = None;
+        entry.last_created_repository = None;
+        entry.last_designated_host = None;
+        ctx.last_failure_code = Some(ProjectFailureReason::ValidationFailed.code().to_owned());
+        ctx.last_failure_summary =
+            Some(ProjectFailureReason::ValidationFailed.summary().to_owned());
+        return;
+    };
     let ctx = world.ensure_project_ctx().await;
     assert!(
         ctx.repositories.contains_key(parsed_repository.as_str()),
@@ -408,12 +437,14 @@ async fn connect_existing_impl(
             entry.last_created_repository = None;
             entry.last_designated_host = None;
             ctx.last_failure_code = None;
+            ctx.last_failure_summary = None;
         }
         Err(err) => {
             entry.last_connected_repository = None;
             entry.last_created_repository = None;
             entry.last_designated_host = None;
             ctx.last_failure_code = Some(err.code());
+            ctx.last_failure_summary = err.summary().map(str::to_owned);
         }
     }
 }

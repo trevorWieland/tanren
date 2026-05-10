@@ -1,7 +1,9 @@
 //! Create-new-project step definitions for B-0026.
 
 use cucumber::{given, then, when};
-use tanren_contract::{CreateProjectRequest, ListVisibleProjectsRequest, ProjectPageRequest};
+use tanren_contract::{
+    CreateProjectRequest, ListVisibleProjectsRequest, ProjectFailureReason, ProjectPageRequest,
+};
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 
 use crate::{HostFixtureState, ProjectActorState, TanrenWorld};
@@ -14,6 +16,15 @@ async fn given_host_accessible(world: &mut TanrenWorld, host: String, actor: Str
 #[given(expr = "designated fixture host {string} is not accessible to {word}")]
 async fn given_host_inaccessible(world: &mut TanrenWorld, host: String, actor: String) {
     upsert_host_fixture(world, host, actor, false).await;
+}
+
+#[given(expr = "the project store fails project registration")]
+async fn given_project_store_fails_registration(world: &mut TanrenWorld) {
+    let ctx = world.ensure_project_ctx().await;
+    ctx.harness
+        .break_project_store_for_testing()
+        .await
+        .expect("project-store fault injection should be available");
 }
 
 #[when(
@@ -159,8 +170,32 @@ async fn create_new_project_impl(
     designated_host: String,
     without_account: bool,
 ) {
-    let parsed_repository = RepositoryRef::parse(&repository).expect("repository must parse");
-    let parsed_host = DesignatedHost::parse(&designated_host).expect("designated host must parse");
+    let Ok(parsed_repository) = RepositoryRef::parse(&repository) else {
+        let ctx = world.ensure_project_ctx().await;
+        let entry = ctx
+            .actors
+            .entry(actor)
+            .or_insert_with(ProjectActorState::default);
+        entry.last_connected_repository = None;
+        entry.last_created_repository = None;
+        ctx.last_failure_code = Some(ProjectFailureReason::ValidationFailed.code().to_owned());
+        ctx.last_failure_summary =
+            Some(ProjectFailureReason::ValidationFailed.summary().to_owned());
+        return;
+    };
+    let Ok(parsed_host) = DesignatedHost::parse(&designated_host) else {
+        let ctx = world.ensure_project_ctx().await;
+        let entry = ctx
+            .actors
+            .entry(actor)
+            .or_insert_with(ProjectActorState::default);
+        entry.last_connected_repository = None;
+        entry.last_created_repository = None;
+        ctx.last_failure_code = Some(ProjectFailureReason::ValidationFailed.code().to_owned());
+        ctx.last_failure_summary =
+            Some(ProjectFailureReason::ValidationFailed.summary().to_owned());
+        return;
+    };
     let ctx = world.ensure_project_ctx().await;
     let host_key = normalized_host(parsed_host.as_str());
     assert!(
@@ -194,11 +229,13 @@ async fn create_new_project_impl(
             entry.last_connected_repository = None;
             entry.last_created_repository = Some(response.project.repository.repository.clone());
             ctx.last_failure_code = None;
+            ctx.last_failure_summary = None;
         }
         Err(err) => {
             entry.last_connected_repository = None;
             entry.last_created_repository = None;
             ctx.last_failure_code = Some(err.code());
+            ctx.last_failure_summary = err.summary().map(str::to_owned);
         }
     }
 }

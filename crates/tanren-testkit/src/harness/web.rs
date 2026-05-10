@@ -64,7 +64,7 @@ impl WebHarness {
         self.session_account_id.ok_or_else(|| {
             HarnessError::Project(
                 ProjectFailureReason::AuthRequired,
-                ProjectFailureReason::AuthRequired.code().to_owned(),
+                ProjectFailureReason::AuthRequired.summary().to_owned(),
             )
         })
     }
@@ -76,7 +76,7 @@ impl WebHarness {
         if owning_account_id != session_account_id {
             return Err(HarnessError::Project(
                 ProjectFailureReason::NoAccess,
-                ProjectFailureReason::NoAccess.code().to_owned(),
+                ProjectFailureReason::NoAccess.summary().to_owned(),
             ));
         }
         Ok(())
@@ -125,14 +125,27 @@ impl ProjectHarness for WebHarness {
         &mut self,
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.connect_project_repository_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        Self::guard_legacy_scope(req.owning_account_id, actor_account_id)?;
         let session_account_id = self.session_account_id()?;
-        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        Self::guard_legacy_scope(actor_account_id, session_account_id)?;
         self.inner
-            .connect_project_repository(ConnectProjectRepositoryRequest {
-                owning_account_id: session_account_id,
-                repository: req.repository,
-                select_as_active: req.select_as_active,
-            })
+            .connect_project_repository_as_actor(
+                session_account_id,
+                ConnectProjectRepositoryRequest {
+                    owning_account_id: actor_account_id,
+                    repository: req.repository,
+                    select_as_active: req.select_as_active,
+                },
+            )
             .await
     }
 
@@ -140,13 +153,26 @@ impl ProjectHarness for WebHarness {
         &mut self,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
+        self.list_visible_projects_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn list_visible_projects_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        Self::guard_legacy_scope(req.owning_account_id, actor_account_id)?;
         let session_account_id = self.session_account_id()?;
-        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        Self::guard_legacy_scope(actor_account_id, session_account_id)?;
         self.inner
-            .list_visible_projects(ListVisibleProjectsRequest {
-                owning_account_id: session_account_id,
-                page: ProjectPageRequest::default(),
-            })
+            .list_visible_projects_as_actor(
+                session_account_id,
+                ListVisibleProjectsRequest {
+                    owning_account_id: actor_account_id,
+                    page: ProjectPageRequest::default(),
+                },
+            )
             .await
     }
 
@@ -154,15 +180,28 @@ impl ProjectHarness for WebHarness {
         &mut self,
         req: CreateProjectRequest,
     ) -> HarnessResult<CreateProjectResponse> {
+        self.create_project_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn create_project_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        Self::guard_legacy_scope(req.owning_account_id, actor_account_id)?;
         let session_account_id = self.session_account_id()?;
-        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        Self::guard_legacy_scope(actor_account_id, session_account_id)?;
         self.inner
-            .create_project(CreateProjectRequest {
-                owning_account_id: session_account_id,
-                repository: req.repository,
-                designated_host: req.designated_host,
-                select_as_active: req.select_as_active,
-            })
+            .create_project_as_actor(
+                session_account_id,
+                CreateProjectRequest {
+                    owning_account_id: actor_account_id,
+                    repository: req.repository,
+                    designated_host: req.designated_host,
+                    select_as_active: req.select_as_active,
+                },
+            )
             .await
     }
 
@@ -170,12 +209,25 @@ impl ProjectHarness for WebHarness {
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView> {
+        self.active_project_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn active_project_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        Self::guard_legacy_scope(req.owning_account_id, actor_account_id)?;
         let session_account_id = self.session_account_id()?;
-        Self::guard_legacy_scope(req.owning_account_id, session_account_id)?;
+        Self::guard_legacy_scope(actor_account_id, session_account_id)?;
         self.inner
-            .active_project(ActiveProjectRequest {
-                owning_account_id: session_account_id,
-            })
+            .active_project_as_actor(
+                session_account_id,
+                ActiveProjectRequest {
+                    owning_account_id: actor_account_id,
+                },
+            )
             .await
     }
 
@@ -215,5 +267,9 @@ impl ProjectHarness for WebHarness {
         &mut self,
     ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
         self.inner.source_control_call_counters().await
+    }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.inner.break_project_store_for_testing().await
     }
 }

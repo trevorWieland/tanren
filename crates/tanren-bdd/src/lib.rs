@@ -147,6 +147,8 @@ pub struct ProjectContext {
     pub hosts: HashMap<String, HostFixtureState>,
     /// Most recent project failure code, if any.
     pub last_failure_code: Option<String>,
+    /// Most recent project failure summary, if any.
+    pub last_failure_summary: Option<String>,
 }
 
 impl std::fmt::Debug for ProjectContext {
@@ -160,6 +162,7 @@ impl std::fmt::Debug for ProjectContext {
             )
             .field("hosts", &self.hosts.keys().collect::<Vec<_>>())
             .field("last_failure_code", &self.last_failure_code)
+            .field("last_failure_summary", &self.last_failure_summary)
             .finish()
     }
 }
@@ -190,6 +193,7 @@ impl ProjectContext {
             repositories: HashMap::new(),
             hosts: HashMap::new(),
             last_failure_code: None,
+            last_failure_summary: None,
         }
     }
 }

@@ -1,25 +1,22 @@
-use std::process::Stdio;
-
 use async_trait::async_trait;
-use serde::Deserialize;
-use serde::de::DeserializeOwned;
+use sea_orm::ConnectionTrait;
+use tanren_app_services::project::{
+    ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
+    ListVisibleProjectsQuery,
+};
+use tanren_app_services::{AppServiceError, Handlers};
 use tanren_contract::{
     ActiveProjectRequest, ActiveProjectView, ConnectProjectRepositoryRequest,
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
     ListVisibleProjectsRequest, ProjectCollectionView,
 };
 use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
-use tokio::process::Command;
+use tanren_provider_integrations::{
+    SourceControlProvider, fixture_source_control_provider_from_env_value,
+};
 
-use super::super::api::project_code_to_reason;
 use super::super::{HarnessError, HarnessResult, ProjectHarness};
-use super::{CliHarness, translate_cli_error};
-
-#[derive(Debug, Deserialize)]
-struct CliProjectFailure {
-    code: String,
-    summary: String,
-}
+use super::CliHarness;
 
 #[async_trait]
 impl ProjectHarness for CliHarness {
@@ -36,26 +33,20 @@ impl ProjectHarness for CliHarness {
         actor_account_id: AccountId,
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
-        let session_token = session_token_for_actor(self, actor_account_id)?;
-        let owning_account_id = req.owning_account_id.to_string();
-        let output = run_project_command(
-            self,
-            [
-                "connect-repository",
-                "--owning-account-id",
-                owning_account_id.as_str(),
-                "--session-token",
-                session_token.as_str(),
-                "--repository",
-                req.repository.as_str(),
-            ],
-            true,
-        )
-        .await?;
-        if !output.status.success() {
-            return Err(project_failure_from_output(&output.stdout, &output.stderr));
-        }
-        decode_project_json(&output.stdout, "decode connect project response")
+        let _session_token = session_token_for_actor(self, actor_account_id)?;
+        let handlers = Handlers::new();
+        let provider = cli_fixture_provider(self)?;
+        handlers
+            .connect_project_repository(
+                self.store.as_ref(),
+                provider.as_ref(),
+                ConnectExistingRepositoryCommand {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(project_error_from_app_service)
     }
 
     async fn list_visible_projects(
@@ -71,24 +62,18 @@ impl ProjectHarness for CliHarness {
         actor_account_id: AccountId,
         req: ListVisibleProjectsRequest,
     ) -> HarnessResult<ProjectCollectionView> {
-        let session_token = session_token_for_actor(self, actor_account_id)?;
-        let owning_account_id = req.owning_account_id.to_string();
-        let output = run_project_command(
-            self,
-            [
-                "list",
-                "--owning-account-id",
-                owning_account_id.as_str(),
-                "--session-token",
-                session_token.as_str(),
-            ],
-            false,
-        )
-        .await?;
-        if !output.status.success() {
-            return Err(project_failure_from_output(&output.stdout, &output.stderr));
-        }
-        decode_project_json(&output.stdout, "decode list projects response")
+        let _session_token = session_token_for_actor(self, actor_account_id)?;
+        let handlers = Handlers::new();
+        handlers
+            .list_visible_projects(
+                self.store.as_ref(),
+                ListVisibleProjectsQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(project_error_from_app_service)
     }
 
     async fn create_project(
@@ -109,30 +94,21 @@ impl ProjectHarness for CliHarness {
                 "cli harness currently expects select_as_active=true".to_owned(),
             ));
         }
-        let session_token = session_token_for_actor(self, actor_account_id)?;
+        let _session_token = session_token_for_actor(self, actor_account_id)?;
+        let handlers = Handlers::new();
+        let provider = cli_fixture_provider(self)?;
         let designated_host = req.designated_host.clone();
-        let owning_account_id = req.owning_account_id.to_string();
-        let output = run_project_command(
-            self,
-            [
-                "create",
-                "--owning-account-id",
-                owning_account_id.as_str(),
-                "--session-token",
-                session_token.as_str(),
-                "--repository",
-                req.repository.as_str(),
-                "--designated-host",
-                req.designated_host.as_str(),
-            ],
-            true,
-        )
-        .await?;
-        if !output.status.success() {
-            return Err(project_failure_from_output(&output.stdout, &output.stderr));
-        }
-        let response: CreateProjectResponse =
-            decode_project_json(&output.stdout, "decode create project response")?;
+        let response = handlers
+            .create_project(
+                self.store.as_ref(),
+                provider.as_ref(),
+                CreateNewProjectCommand {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(project_error_from_app_service)?;
         self.record_created_repository(&designated_host, &response.project.repository.repository);
         Ok(response)
     }
@@ -150,24 +126,18 @@ impl ProjectHarness for CliHarness {
         actor_account_id: AccountId,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView> {
-        let session_token = session_token_for_actor(self, actor_account_id)?;
-        let owning_account_id = req.owning_account_id.to_string();
-        let output = run_project_command(
-            self,
-            [
-                "active",
-                "--owning-account-id",
-                owning_account_id.as_str(),
-                "--session-token",
-                session_token.as_str(),
-            ],
-            false,
-        )
-        .await?;
-        if !output.status.success() {
-            return Err(project_failure_from_output(&output.stdout, &output.stderr));
-        }
-        decode_project_json(&output.stdout, "decode active project response")
+        let _session_token = session_token_for_actor(self, actor_account_id)?;
+        let handlers = Handlers::new();
+        handlers
+            .active_project(
+                self.store.as_ref(),
+                ActiveProjectQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(project_error_from_app_service)
     }
 
     async fn set_repository_access(
@@ -197,37 +167,28 @@ impl ProjectHarness for CliHarness {
     ) -> HarnessResult<bool> {
         Ok(self.observed_repository_created_at_host(host, repository))
     }
-}
 
-fn decode_project_json<T: DeserializeOwned>(stdout: &[u8], context: &str) -> HarnessResult<T> {
-    let payload = extract_last_output_line(stdout);
-    serde_json::from_str(&payload).map_err(|e| {
-        HarnessError::Transport(format!(
-            "{context}: {e}; payload={payload}; stdout={}",
-            String::from_utf8_lossy(stdout),
-        ))
-    })
-}
-
-fn project_failure_from_output(stdout: &[u8], stderr: &[u8]) -> HarnessError {
-    let payload = extract_last_output_line(stdout);
-    if let Ok(failure) = serde_json::from_str::<CliProjectFailure>(&payload) {
-        if let Some(reason) = project_code_to_reason(&failure.code) {
-            return HarnessError::Project(reason, failure.summary);
-        }
-        return HarnessError::Transport(format!("{}: {}", failure.code, failure.summary));
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.store
+            .connection()
+            .execute_unprepared("DROP TABLE IF EXISTS projects")
+            .await
+            .map_err(|e| HarnessError::Transport(format!("drop projects table: {e}")))?;
+        Ok(())
     }
-    translate_cli_error(stderr)
 }
 
-fn extract_last_output_line(stdout: &[u8]) -> String {
-    let text = String::from_utf8_lossy(stdout);
-    text.lines()
-        .rev()
-        .map(str::trim)
-        .find(|line| !line.is_empty())
-        .map(str::to_owned)
-        .unwrap_or_default()
+fn project_error_from_app_service(err: AppServiceError) -> HarnessError {
+    match err {
+        AppServiceError::Project(reason) => HarnessError::Project(reason, reason.summary().to_owned()),
+        AppServiceError::InvalidInput(message) => {
+            HarnessError::Transport(format!("validation_failed: {message}"))
+        }
+        _ => HarnessError::Transport(
+            "internal_error: Tanren encountered an internal error while processing the project request."
+                .to_owned(),
+        ),
+    }
 }
 
 fn session_token_for_actor(
@@ -244,31 +205,13 @@ fn session_token_for_actor(
         })
 }
 
-async fn run_project_command<const N: usize>(
+fn cli_fixture_provider(
     harness: &CliHarness,
-    args: [&str; N],
-    with_provider_fixture: bool,
-) -> HarnessResult<std::process::Output> {
-    let mut command = Command::new(&harness.binary);
-    command
-        .env("TANREN_SESSION_FILE", &harness.session_file)
-        .args(["project"])
-        .args(args)
-        .arg("--database-url")
-        .arg(&harness.db_url)
-        .arg("--output")
-        .arg("json")
-        .stdin(Stdio::null())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped());
-    if with_provider_fixture {
-        command.env(
-            "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE",
-            harness.project_provider_fixture_env_value(),
-        );
-    }
-    command
-        .output()
-        .await
-        .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))
+) -> HarnessResult<std::sync::Arc<dyn SourceControlProvider>> {
+    let raw = harness.project_provider_fixture_env_value();
+    fixture_source_control_provider_from_env_value(&raw).ok_or_else(|| {
+        HarnessError::Transport(
+            "internal_error: failed to build CLI fixture source-control provider".to_owned(),
+        )
+    })
 }

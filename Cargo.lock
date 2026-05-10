@@ -4461,6 +4461,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rmcp",
+ "sea-orm",
  "secrecy",
  "serde",
  "serde_json",

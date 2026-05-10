@@ -13,6 +13,7 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ClientInfo, Content, Ra
 use rmcp::service::RunningService;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use sea_orm::ConnectionTrait;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
@@ -392,6 +393,15 @@ impl ProjectHarness for McpHarness {
         &mut self,
     ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
         Ok(self.fixture_source_control.call_counters())
+    }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.store
+            .connection()
+            .execute_unprepared("DROP TABLE IF EXISTS projects")
+            .await
+            .map_err(|e| HarnessError::Transport(format!("drop projects table: {e}")))?;
+        Ok(())
     }
 }
 

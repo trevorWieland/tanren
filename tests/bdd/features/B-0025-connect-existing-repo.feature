@@ -44,6 +44,7 @@ Feature: Connect Tanren to an existing repository
       And repository fixture "ApiTeam/Private" is not accessible to alice
       When alice connects existing repository "ApiTeam/Private" as an active project
       Then the project request fails with code "no_access"
+      And the project failure summary is "The requested account, host, or repository is not accessible."
 
     @falsification @api
     Scenario: API rejects duplicate repository connection and keeps one record
@@ -54,8 +55,20 @@ Feature: Connect Tanren to an existing repository
       Then the connection succeeds
       When alice connects existing repository "ApiTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
+      And the project failure summary is "A project for the supplied repository already exists in this account."
       And source-control provider connect checks were called 1 times
       And alice has exactly 1 connected project records
+
+    @falsification @api
+    Scenario: API rejects cross-account repository connection requests
+      Given alice has a project account
+      And bob has a project account
+      And repository fixture "ApiTeam/CrossAccount" has fingerprint "repo-fp::apiteam/crossaccount" and 4 prior commits
+      And repository fixture "ApiTeam/CrossAccount" is accessible to alice
+      When alice uses their credential to connect existing repository "ApiTeam/CrossAccount" for bob as an active project
+      Then the project request fails with code "no_access"
+      And the project failure summary is "The requested account, host, or repository is not accessible."
+      And bob has exactly 0 connected project records
 
     @falsification @api
     Scenario: API does not import prior commits as Tanren activity
@@ -102,6 +115,7 @@ Feature: Connect Tanren to an existing repository
       And repository fixture "WebTeam/Private" is not accessible to alice
       When alice connects existing repository "WebTeam/Private" as an active project
       Then the project request fails with code "no_access"
+      And the project failure summary is "The requested account, host, or repository is not accessible."
 
     @falsification @web
     Scenario: Web rejects duplicate repository connection and keeps one record
@@ -112,8 +126,20 @@ Feature: Connect Tanren to an existing repository
       Then the connection succeeds
       When alice connects existing repository "WebTeam/Single" as an active project
       Then the project request fails with code "duplicate_repository"
+      And the project failure summary is "A project for the supplied repository already exists in this account."
       And source-control provider connect checks were called 1 times
       And alice has exactly 1 connected project records
+
+    @falsification @web
+    Scenario: Web rejects cross-account repository connection requests
+      Given alice has a project account
+      And bob has a project account
+      And repository fixture "WebTeam/CrossAccount" has fingerprint "repo-fp::webteam/crossaccount" and 4 prior commits
+      And repository fixture "WebTeam/CrossAccount" is accessible to alice
+      When alice uses their credential to connect existing repository "WebTeam/CrossAccount" for bob as an active project
+      Then the project request fails with code "no_access"
+      And the project failure summary is "The requested account, host, or repository is not accessible."
+      And bob has exactly 0 connected project records
 
     @falsification @web
     Scenario: Web does not import prior commits as Tanren activity

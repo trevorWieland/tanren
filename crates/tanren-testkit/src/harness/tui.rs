@@ -189,4 +189,8 @@ impl ProjectHarness for TuiHarness {
     ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
         self.inner.source_control_call_counters().await
     }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.inner.break_project_store_for_testing().await
+    }
 }

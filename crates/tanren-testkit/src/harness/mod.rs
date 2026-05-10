@@ -1,46 +1,8 @@
-//! Per-interface BDD wire-harness wiring (R-0001 sub-9).
+//! Per-interface BDD harness seam.
 //!
-//! Every account-flow BDD scenario tagged with one of the closed
-//! interface tags (`@api`, `@cli`, `@mcp`, `@tui`, `@web`) routes
-//! through the matching [`AccountHarness`] implementation rather than
-//! calling `tanren_app_services::Handlers::*` directly. The harness is
-//! the wire-level seam — `@api` drives a real axum server via
-//! reqwest with a cookie jar, `@cli` shells out to the `tanren-cli`
-//! binary, `@mcp` drives the rmcp server through the rmcp client, and
-//! `@tui` drives the `tanren-tui` binary in a pseudo-terminal. The
-//! `xtask check-bdd-wire-coverage` guard rejects any step body that
-//! references `Handlers::sign_up`/`sign_in`/`accept_invitation`
-//! directly, so adding a new step that bypasses this seam fails CI.
-//!
-//! See `docs/architecture/subsystems/behavior-proof.md` §
-//! "Per-interface BDD wire-harness wiring (R-0001)" and
-//! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
-//!
-//! ## Status of each harness (PR 9)
-//!
-//! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
-//!   on an ephemeral port, drives via `reqwest::Client` with
-//!   `cookie_store(true)`. The "session token received" check passes
-//!   when the cookie jar contains a `tanren_session` cookie OR the
-//!   response body returned a bearer token.
-//! - `@cli` — full impl. Spawns the `tanren-cli` binary via
-//!   `tokio::process::Command` against a shared `SQLite` file. Parses
-//!   the `account_id=... session=...` stdout shape.
-//! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
-//!   on an ephemeral port and drives the three account-flow tools via
-//!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
-//!   parallel Node-side Playwright harness for the same `@web` Gherkin
-//!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
-//! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
-//!   dispatch on an ephemeral `SQLite` store).
+//! Scenario interface tags (`@api`, `@cli`, `@mcp`, `@tui`, `@web`) select
+//! the transport implementation used by step definitions so BDD proofs run on
+//! the surface under test instead of calling handlers directly.
 
 mod api;
 mod cli;
@@ -174,7 +136,20 @@ impl HarnessError {
         match self {
             Self::Account(reason, _) => reason.code().to_owned(),
             Self::Project(reason, _) => reason.code().to_owned(),
-            Self::Transport(_) => "transport_error".to_owned(),
+            Self::Transport(message) => transport_failure_parts(message)
+                .map_or_else(|| "transport_error".to_owned(), |(code, _)| code.to_owned()),
+        }
+    }
+
+    /// Project the failure summary when this error maps to a redacted
+    /// wire failure shape.
+    #[must_use]
+    pub fn summary(&self) -> Option<&str> {
+        match self {
+            Self::Account(_, summary) | Self::Project(_, summary) => Some(summary.as_str()),
+            Self::Transport(message) => {
+                transport_failure_parts(message).map(|(_, summary)| summary)
+            }
         }
     }
 }
@@ -360,6 +335,17 @@ pub trait ProjectHarness: AccountHarness {
             "source-control call counters are not available for this harness".to_owned(),
         ))
     }
+
+    /// Force a store-level failure path for project setup requests.
+    ///
+    /// Used by BDD falsification scenarios to assert redacted internal
+    /// `{code, summary}` bodies and compensation behavior after a failed
+    /// create attempt.
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "project-store fault injection is not available for this harness".to_owned(),
+        ))
+    }
 }
 
 /// Default short-window timeout used by the wire harnesses.
@@ -434,6 +420,19 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
         HarnessError::Project(_, message) => HarnessOutcome::Other(message),
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
+}
+
+fn transport_failure_parts(message: &str) -> Option<(&str, &str)> {
+    let (raw_code, raw_summary) = message.split_once(':')?;
+    let code = raw_code.trim();
+    if code.is_empty()
+        || !code
+            .chars()
+            .all(|ch| ch.is_ascii_lowercase() || ch.is_ascii_digit() || ch == '_')
+    {
+        return None;
+    }
+    Some((code, raw_summary.trim()))
 }
 
 /// Filter `recent_events` rows by their `payload.kind` field — the
