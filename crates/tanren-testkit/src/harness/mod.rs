@@ -51,7 +51,6 @@ mod web;
 use std::collections::HashMap;
 use std::time::Duration;
 
-use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;

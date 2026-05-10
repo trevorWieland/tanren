@@ -17,7 +17,10 @@ async fn when_switch_in_window(
     surface: String,
 ) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -67,7 +70,10 @@ async fn when_switch_in_windows_concurrently(
     surface: String,
 ) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -130,7 +136,10 @@ async fn then_windows_differ(
     surface: String,
 ) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -217,7 +226,10 @@ async fn then_no_window_leak(
     surface: String,
 ) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,

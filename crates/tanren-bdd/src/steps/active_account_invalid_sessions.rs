@@ -13,7 +13,10 @@ async fn given_record_active_account_baseline(
     surface: String,
 ) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -58,7 +61,10 @@ async fn when_invalidate_caller_session(
     surface: String,
 ) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -91,7 +97,10 @@ async fn when_invalidate_caller_session(
 #[then(expr = "{word} sees no active-account mutation after the rejected switch via the {word}")]
 async fn then_no_active_account_mutation(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,

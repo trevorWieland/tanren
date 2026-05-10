@@ -18,8 +18,8 @@ use std::path::PathBuf;
 use tanren_contract::SignedInAccountView;
 
 use tanren_testkit::{
-    AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessError, HarnessKind,
+    HarnessOutcome, InProcessHarness, McpHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -31,29 +31,62 @@ pub struct TanrenWorld {
     pub account: Option<AccountContext>,
 }
 
+/// Typed BDD world startup failures.
+#[derive(Debug, thiserror::Error)]
+pub enum BddHarnessSetupError {
+    /// Harness construction failed for the selected interface tag.
+    #[error("failed to initialize {kind:?} harness: {source}")]
+    HarnessInit {
+        /// Interface harness selected from scenario tags.
+        kind: HarnessKind,
+        /// Root harness startup failure.
+        #[source]
+        source: HarnessError,
+    },
+    /// Internal invariant: an initialized context must be present.
+    #[error("account context should be initialized")]
+    AccountContextUnavailable,
+}
+
 impl TanrenWorld {
     /// Construct (or return) the lazy account context.
-    pub async fn ensure_account_ctx(&mut self) -> &mut AccountContext {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BddHarnessSetupError`] when the selected harness cannot
+    /// initialize.
+    pub async fn ensure_account_ctx(
+        &mut self,
+    ) -> Result<&mut AccountContext, BddHarnessSetupError> {
         if self.account.is_none() {
-            self.account = Some(AccountContext::new_in_process().await);
+            self.account = Some(AccountContext::new_in_process().await?);
         }
         self.account
             .as_mut()
-            .expect("account context just initialized")
+            .ok_or(BddHarnessSetupError::AccountContextUnavailable)
     }
 
     /// Refresh the account context with the harness chosen for the
     /// supplied scenario tags. Cucumber-rs does not give step bodies
     /// access to the active scenario's tags, so the BDD bin invokes
     /// this from a `Before` hook.
-    pub async fn install_harness_for_tags<I, S>(&mut self, tags: I)
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BddHarnessSetupError`] when the selected harness cannot
+    /// initialize.
+    pub async fn install_harness_for_tags<I, S>(
+        &mut self,
+        tags: I,
+    ) -> Result<(), BddHarnessSetupError>
     where
         I: IntoIterator<Item = S>,
         S: AsRef<str>,
     {
         let kind = HarnessKind::from_tags(tags);
-        let ctx = AccountContext::new_for(kind).await;
+        let ctx = AccountContext::new_for(kind).await?;
         self.account = Some(ctx);
+        Ok(())
     }
 }
 
@@ -97,36 +130,66 @@ impl std::fmt::Debug for AccountContext {
 impl AccountContext {
     /// Build a context with the in-process harness — used for
     /// untagged scenarios.
-    pub async fn new_in_process() -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BddHarnessSetupError`] when harness initialization
+    /// fails.
+    pub async fn new_in_process() -> Result<Self, BddHarnessSetupError> {
         Self::new_for(HarnessKind::InProcess).await
     }
 
     /// Build a context with the harness matching the supplied tag
     /// kind. Harness startup failures are fatal so interface-tagged
     /// scenarios cannot silently pass against the wrong surface.
-    pub async fn new_for(kind: HarnessKind) -> Self {
+    ///
+    /// # Errors
+    ///
+    /// Returns [`BddHarnessSetupError`] when the selected harness
+    /// cannot initialize.
+    pub async fn new_for(kind: HarnessKind) -> Result<Self, BddHarnessSetupError> {
         let harness: Box<dyn AccountHarness> = match kind {
             HarnessKind::InProcess => Box::new(
                 InProcessHarness::new(kind)
                     .await
-                    .expect("ephemeral SQLite must connect for BDD"),
+                    .map_err(|source| BddHarnessSetupError::HarnessInit { kind, source })?,
             ),
-            HarnessKind::Api => Box::new(ApiHarness::spawn().await.expect("ApiHarness::spawn")),
-            HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
-            HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
-            HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
+            HarnessKind::Api => Box::new(
+                ApiHarness::spawn()
+                    .await
+                    .map_err(|source| BddHarnessSetupError::HarnessInit { kind, source })?,
+            ),
+            HarnessKind::Cli => Box::new(
+                CliHarness::spawn()
+                    .await
+                    .map_err(|source| BddHarnessSetupError::HarnessInit { kind, source })?,
+            ),
+            HarnessKind::Mcp => Box::new(
+                McpHarness::spawn()
+                    .await
+                    .map_err(|source| BddHarnessSetupError::HarnessInit { kind, source })?,
+            ),
+            HarnessKind::Tui => Box::new(
+                TuiHarness::spawn()
+                    .await
+                    .map_err(|source| BddHarnessSetupError::HarnessInit { kind, source })?,
+            ),
             // PR 11 ships the real-browser proof on the Node side via
             // `playwright-bdd`; the Rust path keeps in-process fallback
             // for fast feedback. See `tanren_testkit::harness::web`.
-            HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
+            HarnessKind::Web => Box::new(
+                WebHarness::spawn()
+                    .await
+                    .map_err(|source| BddHarnessSetupError::HarnessInit { kind, source })?,
+            ),
         };
-        Self {
+        Ok(Self {
             harness,
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
             window_accounts: HashMap::new(),
-        }
+        })
     }
 }
 
@@ -151,7 +214,10 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
             Box::pin(async move {
-                world.install_harness_for_tags(tags).await;
+                world
+                    .install_harness_for_tags(tags)
+                    .await
+                    .expect("failed to install scenario harness");
             })
         })
         .fail_on_skipped()

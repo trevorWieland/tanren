@@ -3,6 +3,7 @@ use std::process::Command;
 use std::time::Duration;
 
 use expectrl::{Any, Captures, Eof, Session};
+use portable_pty::native_pty_system;
 use tanren_identity_policy::AccountId;
 
 use crate::harness::{HarnessError, HarnessResult};
@@ -139,6 +140,10 @@ fn spawn_session(
     window_id: &str,
     override_target: Option<AccountId>,
 ) -> HarnessResult<Session> {
+    // Ensure the platform PTY backend is available before spawning.
+    let pty_system = native_pty_system();
+    drop(pty_system);
+
     let mut cmd = Command::new(binary);
     cmd.env("DATABASE_URL", db_url)
         .env("TANREN_SESSION_FILE", session_file)

@@ -18,14 +18,14 @@ default = ["test-hooks"]
 # guard never trips on an inadvertently public test seam. Consumers
 # (currently only `tanren-bdd`) inherit the gate via
 # `default-features` or by enabling `test-hooks` explicitly.
-test-hooks = []
+test-hooks = ["dep:expectrl", "dep:portable-pty"]
 
 [dependencies]
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 axum = { workspace = true }
 chrono = { workspace = true }
-expectrl = { workspace = true }
+expectrl = { workspace = true, optional = true }
+portable-pty = { workspace = true, optional = true }
 regex = { workspace = true }
 reqwest = { workspace = true, features = ["cookies"] }
 rmcp = { workspace = true, features = [

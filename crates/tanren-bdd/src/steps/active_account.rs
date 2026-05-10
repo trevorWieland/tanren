@@ -13,7 +13,10 @@ use crate::TanrenWorld;
 #[given(expr = "{word} holds two signed-in accounts via the {word}")]
 async fn given_two_signed_in_accounts(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -83,7 +86,10 @@ async fn given_two_signed_in_accounts(world: &mut TanrenWorld, actor: String, su
 #[given(expr = "{word} holds one signed-in account via the {word}")]
 async fn given_one_signed_in_account(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -117,7 +123,10 @@ async fn given_one_signed_in_account(world: &mut TanrenWorld, actor: String, sur
 #[when(expr = "{word} switches the active account to the second account via the {word}")]
 async fn when_switch_to_second(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -147,7 +156,10 @@ async fn when_switch_to_second(world: &mut TanrenWorld, actor: String, surface: 
 #[when(expr = "{word} switches the active account back to the first account via the {word}")]
 async fn when_switch_back_to_first(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -177,7 +189,10 @@ async fn when_switch_back_to_first(world: &mut TanrenWorld, actor: String, surfa
 #[when(expr = "{word} switches the active account to an unsigned account via the {word}")]
 async fn when_switch_to_unsigned(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -202,7 +217,10 @@ async fn when_switch_to_unsigned(world: &mut TanrenWorld, actor: String, surface
 #[then(expr = "{word} sees the second account as active via the {word}")]
 async fn then_second_account_active(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -249,7 +267,10 @@ async fn then_second_account_active(world: &mut TanrenWorld, actor: String, surf
 #[then(expr = "{word} sees project availability scoped to the selected account via the {word}")]
 async fn then_org_visibility_changes(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,
@@ -303,7 +324,10 @@ async fn then_org_visibility_changes(world: &mut TanrenWorld, actor: String, sur
 #[then(expr = "{word} sees the first account as active without re-authentication via the {word}")]
 async fn then_first_active_without_reauth(world: &mut TanrenWorld, actor: String, surface: String) {
     let expected_kind = parse_surface_kind(&surface);
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     assert_eq!(
         ctx.harness.kind(),
         expected_kind,

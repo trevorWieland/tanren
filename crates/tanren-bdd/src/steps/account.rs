@@ -23,12 +23,18 @@ use crate::TanrenWorld;
 
 #[given(expr = "a clean Tanren environment")]
 async fn clean_env(world: &mut TanrenWorld) {
-    let _ = world.ensure_account_ctx().await;
+    let _ = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
 }
 
 #[given(expr = "a pending invitation token {string}")]
 async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
     let now = Utc::now();
     let fixture = HarnessInvitation {
@@ -45,7 +51,10 @@ async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
 
 #[given(expr = "an expired invitation token {string}")]
 async fn given_expired_invitation(world: &mut TanrenWorld, token: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
     let now = Utc::now();
     let fixture = HarnessInvitation {
@@ -78,7 +87,10 @@ async fn when_sign_up(world: &mut TanrenWorld, actor: String, email: String, pas
 
 #[when(expr = "{word} signs in with email {string} and password {string}")]
 async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, password: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let parsed_email = Email::parse(&email).expect("scenario emails must parse");
     let result = ctx
         .harness
@@ -104,7 +116,10 @@ async fn when_sign_in(world: &mut TanrenWorld, actor: String, email: String, pas
 async fn when_sign_in_same(world: &mut TanrenWorld, actor: String) {
     use secrecy::ExposeSecret;
     let (email, password) = {
-        let ctx = world.ensure_account_ctx().await;
+        let ctx = world
+            .ensure_account_ctx()
+            .await
+            .expect("account context must initialize");
         let entry = ctx
             .actors
             .get(&actor)
@@ -131,7 +146,10 @@ async fn when_accept_invitation(
     token: String,
     password: String,
 ) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let display_name = format!("{actor} via {token}");
     let invitation_token =
         InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
@@ -161,7 +179,10 @@ async fn when_accept_invitation(
 
 #[when(expr = "{int} actors concurrently accept invitation {string}")]
 async fn when_concurrent_accept(world: &mut TanrenWorld, count: usize, token: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let invitation_token =
         InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
     // Build N independent acceptance requests, then dispatch them
@@ -232,7 +253,10 @@ async fn then_n_fail_with(world: &mut TanrenWorld, count: usize, code: String) {
 
 #[then(expr = "{word} receives a session token")]
 async fn then_session_token(world: &mut TanrenWorld, actor: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let entry = ctx
         .actors
         .get(&actor)
@@ -258,7 +282,10 @@ async fn then_session_token(world: &mut TanrenWorld, actor: String) {
 
 #[then(expr = "{word}'s account belongs to no organization")]
 async fn then_no_org(world: &mut TanrenWorld, actor: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let entry = ctx
         .actors
         .get(&actor)
@@ -277,7 +304,10 @@ async fn then_no_org(world: &mut TanrenWorld, actor: String) {
 
 #[then(expr = "{word} has joined an organization")]
 async fn then_joined_org(world: &mut TanrenWorld, actor: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let entry = ctx
         .actors
         .get(&actor)
@@ -295,7 +325,10 @@ async fn then_joined_org(world: &mut TanrenWorld, actor: String) {
 
 #[then(expr = "{word} now holds {int} accounts")]
 async fn then_holds_n_accounts(world: &mut TanrenWorld, actor: String, count: usize) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let entry = ctx.actors.get(&actor).expect("actor must have signed up");
     let mut owned = 0;
     if entry.sign_up.is_some() {
@@ -312,7 +345,10 @@ async fn then_holds_n_accounts(world: &mut TanrenWorld, actor: String, count: us
 
 #[then(expr = "the request fails with code {string}")]
 async fn then_fails_with(world: &mut TanrenWorld, code: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let actual = match &ctx.last_outcome {
         Some(HarnessOutcome::Failure(reason)) => reason.code().to_owned(),
         Some(HarnessOutcome::SignedUp(_)) => "signed_up_unexpectedly".to_owned(),
@@ -328,7 +364,10 @@ async fn then_fails_with(world: &mut TanrenWorld, code: String) {
 
 #[then(expr = "a {string} event is recorded")]
 async fn then_event_recorded(world: &mut TanrenWorld, kind: String) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     // Some surfaces propagate events asynchronously; poll briefly.
     let mut attempts = 0;
     loop {
@@ -365,7 +404,10 @@ async fn do_sign_up(
     password: String,
     display_name: String,
 ) {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let parsed_email = Email::parse(&email).expect("scenario emails must parse");
     let result = ctx
         .harness
@@ -402,7 +444,10 @@ fn serialize_tally(tally: &ConcurrentAcceptanceTally) -> SerializedTally {
 }
 
 async fn read_concurrent_tally(world: &mut TanrenWorld) -> ConcurrentAcceptanceTally {
-    let ctx = world.ensure_account_ctx().await;
+    let ctx = world
+        .ensure_account_ctx()
+        .await
+        .expect("account context must initialize");
     let entry = ctx
         .actors
         .get("__concurrent_tally__")
