@@ -2,6 +2,7 @@ use std::str::FromStr;
 use std::time::Duration;
 
 use expectrl::Regex;
+use secrecy::{ExposeSecret, SecretString};
 use tanren_contract::AccountFailureReason;
 use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission};
 use uuid::Uuid;
@@ -34,7 +35,7 @@ pub(super) const RE_ERROR_CHECK: &str =
 #[derive(Clone, Debug)]
 pub(super) struct AccountCredentials {
     pub(super) email: String,
-    pub(super) password: String,
+    pub(super) password: SecretString,
 }
 
 pub(super) fn parse_account_id(raw: &str, context: &str) -> HarnessResult<AccountId> {
@@ -105,7 +106,11 @@ pub(super) fn sign_in_in_session(
     open_form(session, 1, "open sign-in form")?;
     send(session, &credentials.email, "fill sign-in email")?;
     send(session, "\t", "sign-in next field")?;
-    send(session, &credentials.password, "fill sign-in password")?;
+    send(
+        session,
+        credentials.password.expose_secret(),
+        "fill sign-in password",
+    )?;
     send(session, "\r", "submit sign-in form")?;
 
     match expect_regex_capture(session, RE_SIGN_IN_SUCCESS, 1, "sign-in success marker") {

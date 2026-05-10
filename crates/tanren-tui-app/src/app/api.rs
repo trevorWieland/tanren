@@ -1,23 +1,19 @@
-use std::time::Duration;
+use std::env;
 
-use anyhow::Result;
-use reqwest::{Client, Response};
-use secrecy::ExposeSecret;
-use serde::Deserialize;
-use tanren_contract::{
-    AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
-    CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
-    SignUpRequest,
+use tanren_client_integrations::{
+    AcceptInvitationCookieResponse, AcceptInvitationInput, CheckOrganizationPermissionInput,
+    CreateOrganizationInput, SignInCookieResponse, SignInInput, SignUpCookieResponse, SignUpInput,
+    TuiApiClient, TuiClientError,
 };
-use tanren_identity_policy::OrgId;
+use tanren_contract::{
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+};
 
-const HTTP_TIMEOUT: Duration = Duration::from_secs(15);
+const API_BASE_URL_ENV: &str = "TANREN_API_BASE_URL";
 
 #[derive(Debug, Clone)]
 pub(super) struct ApiClient {
-    base_url: String,
-    http: Client,
+    inner: TuiApiClient,
 }
 
 #[derive(Debug, Clone)]
@@ -26,211 +22,122 @@ pub(super) struct ActiveSession {
 }
 
 #[derive(Debug, Clone)]
-pub(super) struct SignUpCookieResponse {
-    pub(super) account: AccountView,
-    pub(super) has_token: bool,
+pub(super) enum ApiClientState {
+    Available(ApiClient),
+    Unavailable(String),
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct SignInCookieResponse {
-    pub(super) account: AccountView,
-    pub(super) has_token: bool,
+impl ApiClientState {
+    pub(super) fn from_env() -> Self {
+        match env::var(API_BASE_URL_ENV) {
+            Ok(base_url) => match ApiClient::new(base_url) {
+                Ok(client) => Self::Available(client),
+                Err(err) => Self::Unavailable(err.message()),
+            },
+            Err(_) => {
+                Self::Unavailable("TANREN_API_BASE_URL is not set; submit will fail.".to_owned())
+            }
+        }
+    }
+
+    pub(super) fn as_client(&self) -> Option<&ApiClient> {
+        match self {
+            Self::Available(client) => Some(client),
+            Self::Unavailable(_) => None,
+        }
+    }
+
+    pub(super) fn unavailable_message(&self) -> Option<&str> {
+        match self {
+            Self::Available(_) => None,
+            Self::Unavailable(message) => Some(message.as_str()),
+        }
+    }
 }
 
-#[derive(Debug, Clone)]
-pub(super) struct AcceptInvitationCookieResponse {
-    pub(super) account: AccountView,
-    pub(super) joined_org: OrgId,
-    pub(super) has_token: bool,
+impl ApiClient {
+    pub(super) fn new(base_url: String) -> Result<Self, ApiError> {
+        let inner = TuiApiClient::new(base_url).map_err(ApiError::from)?;
+        Ok(Self { inner })
+    }
+
+    pub(super) async fn sign_up(
+        &self,
+        input: SignUpInput,
+    ) -> Result<SignUpCookieResponse, ApiError> {
+        self.inner.sign_up(input).await.map_err(ApiError::from)
+    }
+
+    pub(super) async fn sign_in(
+        &self,
+        input: SignInInput,
+    ) -> Result<SignInCookieResponse, ApiError> {
+        self.inner.sign_in(input).await.map_err(ApiError::from)
+    }
+
+    pub(super) async fn accept_invitation(
+        &self,
+        input: AcceptInvitationInput,
+    ) -> Result<AcceptInvitationCookieResponse, ApiError> {
+        self.inner
+            .accept_invitation(input)
+            .await
+            .map_err(ApiError::from)
+    }
+
+    pub(super) async fn create_organization(
+        &self,
+        input: CreateOrganizationInput,
+    ) -> Result<CreateOrganizationResponse, ApiError> {
+        self.inner
+            .create_organization(input)
+            .await
+            .map_err(ApiError::from)
+    }
+
+    pub(super) async fn list_organizations(&self) -> Result<ListOrganizationsResponse, ApiError> {
+        self.inner
+            .list_organizations()
+            .await
+            .map_err(ApiError::from)
+    }
+
+    pub(super) async fn check_organization_permission(
+        &self,
+        input: CheckOrganizationPermissionInput,
+    ) -> Result<CheckOrganizationPermissionResponse, ApiError> {
+        self.inner
+            .check_organization_permission(input)
+            .await
+            .map_err(ApiError::from)
+    }
 }
 
 #[derive(Debug, Clone)]
 pub(super) enum ApiError {
     Failure { code: String, summary: String },
-    Transport(String),
-    Decode(String),
+    Validation(String),
+    Internal(String),
 }
 
 impl ApiError {
     pub(super) fn message(&self) -> String {
         match self {
             Self::Failure { code, summary } => format!("{code}: {summary}"),
-            Self::Transport(summary) | Self::Decode(summary) => {
-                format!("internal_error: {summary}")
-            }
+            Self::Validation(summary) => format!("validation_failed: {summary}"),
+            Self::Internal(summary) => format!("internal_error: {summary}"),
         }
     }
 }
 
-impl ApiClient {
-    pub(super) fn new(base_url: String) -> Result<Self> {
-        let http = Client::builder()
-            .cookie_store(true)
-            .timeout(HTTP_TIMEOUT)
-            .build()?;
-        Ok(Self { base_url, http })
+impl From<TuiClientError> for ApiError {
+    fn from(value: TuiClientError) -> Self {
+        match value {
+            TuiClientError::Failure { code, summary } => Self::Failure { code, summary },
+            TuiClientError::Validation(summary) => Self::Validation(summary),
+            TuiClientError::Transport(summary)
+            | TuiClientError::Decode(summary)
+            | TuiClientError::Configuration(summary) => Self::Internal(summary),
+        }
     }
-
-    pub(super) async fn sign_up(
-        &self,
-        req: SignUpRequest,
-    ) -> Result<SignUpCookieResponse, ApiError> {
-        let response = self
-            .http
-            .post(format!("{}/accounts", self.base_url))
-            .json(&serde_json::json!({
-                "email": req.email.as_str(),
-                "password": req.password.expose_secret(),
-                "display_name": req.display_name,
-            }))
-            .send()
-            .await
-            .map_err(|e| ApiError::Transport(format!("POST /accounts: {e}")))?;
-        let payload: AccountCookieResponse = decode_response(response, "POST /accounts").await?;
-        Ok(SignUpCookieResponse {
-            account: payload.account,
-            has_token: session_has_token(&payload.session),
-        })
-    }
-
-    pub(super) async fn sign_in(
-        &self,
-        req: SignInRequest,
-    ) -> Result<SignInCookieResponse, ApiError> {
-        let response = self
-            .http
-            .post(format!("{}/sessions", self.base_url))
-            .json(&serde_json::json!({
-                "email": req.email.as_str(),
-                "password": req.password.expose_secret(),
-            }))
-            .send()
-            .await
-            .map_err(|e| ApiError::Transport(format!("POST /sessions: {e}")))?;
-        let payload: AccountCookieResponse = decode_response(response, "POST /sessions").await?;
-        Ok(SignInCookieResponse {
-            account: payload.account,
-            has_token: session_has_token(&payload.session),
-        })
-    }
-
-    pub(super) async fn accept_invitation(
-        &self,
-        req: AcceptInvitationRequest,
-    ) -> Result<AcceptInvitationCookieResponse, ApiError> {
-        let response = self
-            .http
-            .post(format!(
-                "{}/invitations/{}/accept",
-                self.base_url,
-                req.invitation_token.as_str()
-            ))
-            .json(&serde_json::json!({
-                "email": req.email.as_str(),
-                "password": req.password.expose_secret(),
-                "display_name": req.display_name,
-            }))
-            .send()
-            .await
-            .map_err(|e| ApiError::Transport(format!("POST /invitations/{{token}}/accept: {e}")))?;
-        let payload: AcceptInvitationCookieResponseWire =
-            decode_response(response, "POST /invitations/{token}/accept").await?;
-        Ok(AcceptInvitationCookieResponse {
-            account: payload.account,
-            joined_org: payload.joined_org,
-            has_token: session_has_token(&payload.session),
-        })
-    }
-
-    pub(super) async fn create_organization(
-        &self,
-        req: CreateOrganizationApiRequest,
-    ) -> Result<CreateOrganizationResponse, ApiError> {
-        let response = self
-            .http
-            .post(format!("{}/organizations", self.base_url))
-            .json(&req)
-            .send()
-            .await
-            .map_err(|e| ApiError::Transport(format!("POST /organizations: {e}")))?;
-        decode_response(response, "POST /organizations").await
-    }
-
-    pub(super) async fn list_organizations(&self) -> Result<ListOrganizationsResponse, ApiError> {
-        let url = format!(
-            "{}/organizations?limit={}",
-            self.base_url, LIST_ORGANIZATIONS_DEFAULT_LIMIT
-        );
-        let response = self
-            .http
-            .get(url)
-            .send()
-            .await
-            .map_err(|e| ApiError::Transport(format!("GET /organizations: {e}")))?;
-        decode_response(response, "GET /organizations").await
-    }
-
-    pub(super) async fn check_organization_permission(
-        &self,
-        req: CheckOrganizationPermissionApiRequest,
-    ) -> Result<CheckOrganizationPermissionResponse, ApiError> {
-        let response = self
-            .http
-            .post(format!("{}/organizations/permissions/check", self.base_url))
-            .json(&req)
-            .send()
-            .await
-            .map_err(|e| {
-                ApiError::Transport(format!("POST /organizations/permissions/check: {e}"))
-            })?;
-        decode_response(response, "POST /organizations/permissions/check").await
-    }
-}
-
-fn session_has_token(session: &SessionEnvelope) -> bool {
-    match session {
-        SessionEnvelope::Cookie { .. } => true,
-        SessionEnvelope::Bearer { token, .. } => !token.expose_secret().is_empty(),
-    }
-}
-
-async fn decode_response<T>(response: Response, context: &str) -> Result<T, ApiError>
-where
-    T: serde::de::DeserializeOwned,
-{
-    let status = response.status();
-    if status.is_success() {
-        return response
-            .json::<T>()
-            .await
-            .map_err(|e| ApiError::Decode(format!("decode {context} success body: {e}")));
-    }
-
-    let body = response
-        .json::<FailureBody>()
-        .await
-        .map_err(|e| ApiError::Decode(format!("decode {context} failure body: {e}")))?;
-    Err(ApiError::Failure {
-        code: body.code,
-        summary: body.summary,
-    })
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct AccountCookieResponse {
-    account: AccountView,
-    session: SessionEnvelope,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct AcceptInvitationCookieResponseWire {
-    account: AccountView,
-    session: SessionEnvelope,
-    joined_org: OrgId,
-}
-
-#[derive(Debug, Clone, Deserialize)]
-struct FailureBody {
-    code: String,
-    summary: String,
 }

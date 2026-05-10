@@ -12,5 +12,5 @@ use tanren_tui_app::{Config, run};
 fn main() -> Result<()> {
     tanren_observability::init(tanren_observability::default_filter())
         .context("install tracing subscriber")?;
-    run(Config::from_env())
+    Ok(run(Config::from_env())?)
 }

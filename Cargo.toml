@@ -276,4 +276,5 @@ utoipa-axum = "0.2"
 # version. Currently consumed only by `tanren-testkit` behind the
 # `test-hooks` feature.
 expectrl = "0.7"
+portable-pty = "0.8"
 regex = "1"

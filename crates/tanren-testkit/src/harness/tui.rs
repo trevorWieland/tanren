@@ -74,6 +74,7 @@ impl TuiHarness {
         })
     }
     fn spawn_session(&self) -> HarnessResult<expectrl::Session> {
+        let _pty_system = portable_pty::native_pty_system();
         let mut command = Command::new(&self.binary);
         command.env("TANREN_API_BASE_URL", &self.api_base_url);
         command.env("RUST_LOG", "info");
@@ -131,7 +132,7 @@ impl AccountHarness for TuiHarness {
                     account_id,
                     AccountCredentials {
                         email: req.email.as_str().to_owned(),
-                        password: req.password.expose_secret().to_owned(),
+                        password: req.password.clone(),
                     },
                 );
                 Ok(HarnessSession {
@@ -187,7 +188,7 @@ impl AccountHarness for TuiHarness {
                     account_id,
                     AccountCredentials {
                         email: req.email.as_str().to_owned(),
-                        password: req.password.expose_secret().to_owned(),
+                        password: req.password.clone(),
                     },
                 );
                 Ok(HarnessSession {
@@ -260,7 +261,7 @@ impl AccountHarness for TuiHarness {
                     account_id,
                     AccountCredentials {
                         email: req.email.as_str().to_owned(),
-                        password: req.password.expose_secret().to_owned(),
+                        password: req.password.clone(),
                     },
                 );
                 Ok(HarnessAcceptance {

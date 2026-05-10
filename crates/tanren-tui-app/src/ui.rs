@@ -3,17 +3,14 @@
 //! workspace 500-line budget.
 
 use secrecy::SecretString;
-use std::str::FromStr;
+use tanren_client_integrations::{
+    AcceptInvitationInput, CheckOrganizationPermissionInput, CreateOrganizationInput, SignInInput,
+    SignUpInput,
+};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView,
-    CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionResponse,
-    CreateOrganizationApiRequest, CreateOrganizationResponse, ListOrganizationsResponse,
-    SignInRequest, SignUpRequest, organization_permission_options,
+    AccountFailureReason, AccountView, CheckOrganizationPermissionResponse,
+    CreateOrganizationResponse, ListOrganizationsResponse,
 };
-use tanren_identity_policy::{
-    Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission, ValidationError,
-};
-use uuid::Uuid;
 
 use crate::{FormField, FormState, OutcomeView};
 
@@ -126,7 +123,7 @@ pub(crate) fn sign_in_outcome(account: &AccountView, has_token: bool) -> Outcome
 
 pub(crate) fn accept_invitation_outcome(
     account: &AccountView,
-    joined_org: OrgId,
+    joined_org: &str,
     has_token: bool,
 ) -> OutcomeView {
     OutcomeView {
@@ -208,73 +205,58 @@ pub(crate) fn permission_denied_message() -> String {
     format_failure(AccountFailureReason::PermissionDenied)
 }
 
-fn validation_message(err: &ValidationError) -> String {
-    format!("validation_failed: {err}")
-}
-
-pub(crate) fn parse_sign_up(state: &FormState) -> Result<SignUpRequest, String> {
-    let email = Email::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    let password = SecretString::from(state.value(1).to_owned());
-    let display_name = state.value(2).to_owned();
-    Ok(SignUpRequest {
+pub(crate) fn parse_sign_up(state: &FormState) -> Result<SignUpInput, String> {
+    let email = required_field("email", state.value(0))?;
+    let password = required_field("password", state.value(1))?;
+    let display_name = required_field("display_name", state.value(2))?;
+    Ok(SignUpInput {
         email,
-        password,
+        password: SecretString::from(password),
         display_name,
     })
 }
 
-pub(crate) fn parse_sign_in(state: &FormState) -> Result<SignInRequest, String> {
-    let email = Email::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    let password = SecretString::from(state.value(1).to_owned());
-    Ok(SignInRequest { email, password })
+pub(crate) fn parse_sign_in(state: &FormState) -> Result<SignInInput, String> {
+    let email = required_field("email", state.value(0))?;
+    let password = required_field("password", state.value(1))?;
+    Ok(SignInInput {
+        email,
+        password: SecretString::from(password),
+    })
 }
 
-pub(crate) fn parse_accept_invitation(
-    state: &FormState,
-) -> Result<AcceptInvitationRequest, String> {
-    let invitation_token =
-        InvitationToken::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    let email = Email::parse(state.value(1)).map_err(|e| validation_message(&e))?;
-    let password = SecretString::from(state.value(2).to_owned());
-    let display_name = state.value(3).to_owned();
-    Ok(AcceptInvitationRequest {
+pub(crate) fn parse_accept_invitation(state: &FormState) -> Result<AcceptInvitationInput, String> {
+    let invitation_token = required_field("invitation_token", state.value(0))?;
+    let email = required_field("email", state.value(1))?;
+    let password = required_field("password", state.value(2))?;
+    let display_name = required_field("display_name", state.value(3))?;
+    Ok(AcceptInvitationInput {
         invitation_token,
         email,
-        password,
+        password: SecretString::from(password),
         display_name,
     })
 }
 
 pub(crate) fn parse_create_organization(
     state: &FormState,
-) -> Result<CreateOrganizationApiRequest, String> {
-    let name = OrganizationName::parse(state.value(0)).map_err(|e| validation_message(&e))?;
-    Ok(CreateOrganizationApiRequest {
-        name,
-        idempotency_key: None,
-    })
+) -> Result<CreateOrganizationInput, String> {
+    let name = required_field("organization_name", state.value(0))?;
+    Ok(CreateOrganizationInput { name })
 }
 
 pub(crate) fn parse_check_organization_permission(
     state: &FormState,
-) -> Result<CheckOrganizationPermissionApiRequest, String> {
-    let org_id = parse_org_id(state.value(0))?;
-    let permission = parse_permission(state.value(1))?;
-    Ok(CheckOrganizationPermissionApiRequest { org_id, permission })
+) -> Result<CheckOrganizationPermissionInput, String> {
+    let org_id = required_field("org_id", state.value(0))?;
+    let permission = required_field("permission", state.value(1))?;
+    Ok(CheckOrganizationPermissionInput { org_id, permission })
 }
 
-fn parse_org_id(raw: &str) -> Result<OrgId, String> {
-    let uuid = Uuid::parse_str(raw).map_err(|e| format!("validation_failed: {e}"))?;
-    Ok(OrgId::from(uuid))
-}
-
-fn parse_permission(raw: &str) -> Result<OrganizationPermission, String> {
-    OrganizationPermission::from_str(raw.trim()).map_err(|_| {
-        let expected = organization_permission_options()
-            .into_iter()
-            .map(OrganizationPermission::as_str)
-            .collect::<Vec<_>>()
-            .join("|");
-        format!("validation_failed: permission must be {expected}")
-    })
+fn required_field(label: &str, raw: &str) -> Result<String, String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return Err(format!("validation_failed: {label} must not be empty"));
+    }
+    Ok(trimmed.to_owned())
 }

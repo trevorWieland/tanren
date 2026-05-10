@@ -15,8 +15,8 @@
 //! - `draw` hosts the ratatui rendering primitives.
 //! - `ui` hosts form-field factories, outcome adapters, and validation.
 //!
-//! The TUI runs as an HTTP client against the control-plane API using a
-//! cookie jar-backed `reqwest::Client`.
+//! The TUI runs against the HTTP control-plane via a typed app-service
+//! client boundary in `tanren-client-integrations`.
 
 mod app;
 mod draw;
@@ -24,13 +24,13 @@ mod ui;
 
 use std::io::{Stdout, stdout};
 
-use anyhow::{Context, Result};
 use crossterm::execute;
 use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
+use thiserror::Error;
 
 /// Configuration for the TUI runtime. R-0001 sub-8 keeps it deliberately
 /// empty — the TUI reads `TANREN_API_BASE_URL` at startup so this struct exists
@@ -48,6 +48,18 @@ impl Config {
     }
 }
 
+#[derive(Debug, Error)]
+pub enum TuiError {
+    #[error("{context}: {source}")]
+    Io {
+        context: &'static str,
+        #[source]
+        source: std::io::Error,
+    },
+    #[error("{0}")]
+    App(String),
+}
+
 /// Run the TUI to completion. Returns once the user exits or a setup
 /// error occurs.
 ///
@@ -55,35 +67,58 @@ impl Config {
 ///
 /// Surfaces errors from terminal setup/teardown and from the runtime
 /// loop. Exit-via-`q`/`Ctrl-C` is `Ok(())`.
-pub fn run(_config: Config) -> Result<()> {
-    let mut terminal = setup_terminal().context("setup terminal")?;
-    let app_result = app::App::new().and_then(|mut app| app.run(&mut terminal));
-    let teardown_result = teardown_terminal(&mut terminal).context("teardown terminal");
+pub fn run(_config: Config) -> Result<(), TuiError> {
+    let mut terminal = setup_terminal()?;
+    let app_result = app::App::new()
+        .map_err(|err| TuiError::App(err.to_string()))
+        .and_then(|mut app| {
+            app.run(&mut terminal)
+                .map_err(|err| TuiError::App(err.to_string()))
+        });
+    let teardown_result = teardown_terminal(&mut terminal);
     app_result.and(teardown_result)
 }
 
-fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>> {
-    enable_raw_mode().context("enable raw mode")?;
+fn setup_terminal() -> Result<Terminal<CrosstermBackend<Stdout>>, TuiError> {
+    enable_raw_mode().map_err(|source| TuiError::Io {
+        context: "setup terminal: enable raw mode",
+        source,
+    })?;
     let mut out = stdout();
-    if let Err(err) = execute!(out, EnterAlternateScreen).context("enter alternate screen") {
+    if let Err(source) = execute!(out, EnterAlternateScreen) {
         let _ = disable_raw_mode();
-        return Err(err);
+        return Err(TuiError::Io {
+            context: "setup terminal: enter alternate screen",
+            source,
+        });
     }
     let backend = CrosstermBackend::new(out);
-    match Terminal::new(backend).context("construct terminal") {
+    match Terminal::new(backend) {
         Ok(terminal) => Ok(terminal),
-        Err(err) => {
+        Err(source) => {
             let _ = execute!(stdout(), LeaveAlternateScreen);
             let _ = disable_raw_mode();
-            Err(err)
+            Err(TuiError::Io {
+                context: "setup terminal: construct terminal",
+                source,
+            })
         }
     }
 }
 
-fn teardown_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<()> {
-    disable_raw_mode().context("disable raw mode")?;
-    execute!(terminal.backend_mut(), LeaveAlternateScreen).context("leave alternate screen")?;
-    terminal.show_cursor().context("show cursor")?;
+fn teardown_terminal(terminal: &mut Terminal<CrosstermBackend<Stdout>>) -> Result<(), TuiError> {
+    disable_raw_mode().map_err(|source| TuiError::Io {
+        context: "teardown terminal: disable raw mode",
+        source,
+    })?;
+    execute!(terminal.backend_mut(), LeaveAlternateScreen).map_err(|source| TuiError::Io {
+        context: "teardown terminal: leave alternate screen",
+        source,
+    })?;
+    terminal.show_cursor().map_err(|source| TuiError::Io {
+        context: "teardown terminal: show cursor",
+        source,
+    })?;
     Ok(())
 }
 

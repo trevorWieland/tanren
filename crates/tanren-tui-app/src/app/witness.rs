@@ -1,34 +1,35 @@
+use tanren_client_integrations::AcceptInvitationCookieResponse;
 use tanren_contract::{
-    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+    AccountView, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
+    ListOrganizationsResponse,
 };
-use tanren_identity_policy::{AccountId, OrgId};
 
 pub(super) fn app_ready() {
     tracing::info!("tui_witness op=app kind=ready");
 }
 
-pub(super) fn sign_up_success(account_id: AccountId, has_token: bool) {
+pub(super) fn sign_up_success(account: &AccountView, has_token: bool) {
     tracing::info!(
         "tui_witness op=sign_up kind=success account_id={} session_token_present={}",
-        account_id,
+        account.id,
         has_token
     );
 }
 
-pub(super) fn sign_in_success(account_id: AccountId, has_token: bool) {
+pub(super) fn sign_in_success(account: &AccountView, has_token: bool) {
     tracing::info!(
         "tui_witness op=sign_in kind=success account_id={} session_token_present={}",
-        account_id,
+        account.id,
         has_token
     );
 }
 
-pub(super) fn accept_invitation_success(account_id: AccountId, joined_org: OrgId, has_token: bool) {
+pub(super) fn accept_invitation_success(response: &AcceptInvitationCookieResponse) {
     tracing::info!(
         "tui_witness op=accept_invitation kind=success account_id={} joined_org={} session_token_present={}",
-        account_id,
-        joined_org,
-        has_token
+        response.account.id,
+        response.joined_org,
+        response.has_token
     );
 }
 
