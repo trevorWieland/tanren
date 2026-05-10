@@ -15,6 +15,17 @@ Feature: Bootstrap Tanren assets into an existing repository
       And rust-cargo defaults install all methodology command assets and standards files
       And the install manifest records the rust-cargo profile and default integrations
 
+    @positive @cli
+    Scenario: Reinstall rust-cargo assets is a no-op when generated outputs are unchanged
+      Given a clean repository fixture
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given repository file ".tanren/install-manifest.toml" baseline is recorded
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      And no files are written in the repository fixture
+      And repository file ".tanren/install-manifest.toml" preserves its baseline content
+
     @falsification @cli
     Scenario: First install preserves pre-existing user-edited standards files
       Given a clean repository fixture

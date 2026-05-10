@@ -34,9 +34,8 @@ pub(super) struct PreparedWrite {
 
 #[derive(Debug)]
 pub(super) struct PreparedManifest {
-    pub(super) staged: StagedReplacement,
+    pub(super) staged: Option<StagedReplacement>,
     pub(super) prior: Option<Vec<u8>>,
-    pub(super) payload: Vec<u8>,
 }
 
 #[derive(Debug)]
@@ -93,25 +92,35 @@ pub(super) fn prepare_apply(plan: &InstallPlan) -> Result<PreparedApply, Install
             });
         }
 
-        let staged_manifest = stage_replacement_payload(
+        let manifest_absolute = revalidate_planned_apply_path(
             plan,
             plan.manifest_path(),
             plan.manifest_absolute_path(),
-            &manifest_payload,
         )?;
-        staged_temp_paths.push(staged_manifest.temp_path.clone());
-        let manifest_prior = read_prior_payload(plan.manifest_path(), &staged_manifest.absolute)?;
-        rollback_records.insert(
-            plan.manifest_path().clone(),
-            RollbackRecord {
-                absolute: staged_manifest.absolute.clone(),
-                prior: prior_to_state(manifest_prior.clone()),
-            },
-        );
+        ensure_destination_not_symlink(plan.manifest_path(), &manifest_absolute)?;
+        let manifest_prior = read_prior_payload(plan.manifest_path(), &manifest_absolute)?;
+        let staged_manifest = if manifest_prior.as_deref() == Some(manifest_payload.as_slice()) {
+            None
+        } else {
+            let staged = stage_replacement_payload(
+                plan,
+                plan.manifest_path(),
+                plan.manifest_absolute_path(),
+                &manifest_payload,
+            )?;
+            staged_temp_paths.push(staged.temp_path.clone());
+            rollback_records.insert(
+                plan.manifest_path().clone(),
+                RollbackRecord {
+                    absolute: staged.absolute.clone(),
+                    prior: prior_to_state(manifest_prior.clone()),
+                },
+            );
+            Some(staged)
+        };
         let manifest = PreparedManifest {
             staged: staged_manifest,
             prior: manifest_prior,
-            payload: manifest_payload,
         };
 
         let mut removals = Vec::with_capacity(plan.removals().len());
@@ -246,7 +255,9 @@ pub(super) fn cleanup_staged_payloads(prepared: &PreparedApply) {
     for write in &prepared.writes {
         cleanup_temporary_file(&write.staged.temp_path);
     }
-    cleanup_temporary_file(&prepared.manifest.staged.temp_path);
+    if let Some(staged_manifest) = &prepared.manifest.staged {
+        cleanup_temporary_file(&staged_manifest.temp_path);
+    }
 }
 
 pub(super) fn resolve_apply_failure(

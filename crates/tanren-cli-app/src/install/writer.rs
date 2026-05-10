@@ -56,13 +56,15 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
             changed_paths.push(write.staged.path.clone());
         }
 
-        commit_staged_replacement(plan, &prepared.manifest.staged)?;
-        if prepared.manifest.prior.is_none() {
-            report.created.push(prepared.manifest.staged.path.clone());
-        } else if prepared.manifest.prior.as_deref() != Some(prepared.manifest.payload.as_slice()) {
-            report.updated.push(prepared.manifest.staged.path.clone());
+        if let Some(staged_manifest) = &prepared.manifest.staged {
+            commit_staged_replacement(plan, staged_manifest)?;
+            if prepared.manifest.prior.is_none() {
+                report.created.push(staged_manifest.path.clone());
+            } else {
+                report.updated.push(staged_manifest.path.clone());
+            }
+            changed_paths.push(staged_manifest.path.clone());
         }
-        changed_paths.push(prepared.manifest.staged.path.clone());
 
         Ok(())
     })();
