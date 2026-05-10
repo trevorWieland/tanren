@@ -155,6 +155,17 @@ impl Migration {
                     .col(UserCredentials::Id)
                     .to_owned(),
             )
+            .await?;
+        manager
+            .create_index(
+                Index::create()
+                    .name("idx_user_credentials_id_account_unique")
+                    .table(UserCredentials::Table)
+                    .col(UserCredentials::Id)
+                    .col(UserCredentials::AccountId)
+                    .unique()
+                    .to_owned(),
+            )
             .await
     }
 
@@ -218,6 +229,15 @@ impl Migration {
                             .timestamp_with_time_zone()
                             .not_null(),
                     )
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_user_credential_values_item_account")
+                            .from(UserCredentialValues::Table, UserCredentialValues::ItemId)
+                            .from(UserCredentialValues::Table, UserCredentialValues::AccountId)
+                            .to(UserCredentials::Table, UserCredentials::Id)
+                            .to(UserCredentials::Table, UserCredentials::AccountId)
+                            .on_delete(ForeignKeyAction::Cascade),
+                    )
                     .to_owned(),
             )
             .await?;
@@ -266,6 +286,14 @@ impl Migration {
     }
 
     async fn drop_user_credentials(&self, manager: &SchemaManager<'_>) -> Result<(), DbErr> {
+        manager
+            .drop_index(
+                Index::drop()
+                    .name("idx_user_credentials_id_account_unique")
+                    .table(UserCredentials::Table)
+                    .to_owned(),
+            )
+            .await?;
         manager
             .drop_index(
                 Index::drop()

@@ -332,11 +332,6 @@ impl UserConfigurationStore for Store {
             txn.commit().await?;
             return Ok(false);
         }
-        entity::user_credential_values::Entity::delete_many()
-            .filter(entity::user_credential_values::Column::ItemId.eq(parsed_id))
-            .filter(entity::user_credential_values::Column::AccountId.eq(account_id.as_uuid()))
-            .exec(&txn)
-            .await?;
         txn.commit().await?;
         Ok(true)
     }
