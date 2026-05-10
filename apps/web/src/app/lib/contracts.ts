@@ -2,8 +2,6 @@ import * as v from "valibot";
 
 import type { components, paths } from "@/app/lib/api-contract.gen";
 
-const PROVIDER_FAMILY_PATTERN = /^(?!.*--)[a-z0-9][a-z0-9-]{0,46}[a-z0-9]$/;
-
 export type AccountView = components["schemas"]["AccountView"];
 export type SessionView = components["schemas"]["CookieSessionEnvelope"];
 export type SignUpInput = components["schemas"]["SignUpRequest"];
@@ -163,7 +161,7 @@ export const designatedHostSchema = v.pipe(
 export const selectAsActiveSchema = v.boolean();
 
 const projectRepositoryViewSchema = v.strictObject({
-  provider_family: v.pipe(v.string(), v.regex(PROVIDER_FAMILY_PATTERN)),
+  source_control_host: designatedHostSchema,
   repository: repositoryRefSchema,
 });
 

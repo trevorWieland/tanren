@@ -6,7 +6,7 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
-use tanren_identity_policy::{AccountId, DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
+use tanren_identity_policy::{AccountId, DesignatedHost, ProjectId, RepositoryRef};
 use utoipa::ToSchema;
 
 /// Connect an existing repository as a Tanren project.
@@ -257,8 +257,8 @@ pub struct ProjectView {
 /// Repository metadata bound to a project.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ProjectRepositoryView {
-    /// Source-control provider family for the repository.
-    pub provider_family: ProviderFamily,
+    /// Source-control host where this repository is bound.
+    pub source_control_host: DesignatedHost,
     /// Canonical `owner/name` repository identity.
     pub repository: RepositoryRef,
 }

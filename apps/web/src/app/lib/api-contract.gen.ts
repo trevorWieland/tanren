@@ -413,8 +413,8 @@ export interface components {
     };
     /** @description Repository metadata bound to a project. */
     ProjectRepositoryView: {
-      /** @description Source-control provider family for the repository. */
-      provider_family: components["schemas"]["ProviderFamily"];
+      /** @description Source-control host where this repository is bound. */
+      source_control_host: string;
       /** @description Canonical `owner/name` repository identity. */
       repository: components["schemas"]["RepositoryRef"];
     };
@@ -446,13 +446,6 @@ export interface components {
       /** @description Active-project selection metadata. */
       selection: components["schemas"]["ProjectSelectionView"];
     };
-    /**
-     * @description Source-control provider family identifier.
-     *
-     *     Provider families are lower-case kebab-case tokens with an
-     *     alphabetic prefix and no adjacent separators.
-     */
-    ProviderFamily: string;
     /**
      * @description Canonical repository identity (`owner/name`) used for project setup.
      *

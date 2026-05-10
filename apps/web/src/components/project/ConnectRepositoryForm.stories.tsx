@@ -106,7 +106,7 @@ export const Success: Story = {
             id: "00000000-0000-7000-8000-0000000000e1",
             owning_account_id: "00000000-0000-7000-8000-0000000000b1",
             repository: {
-              provider_family: "fixture-source-control",
+              source_control_host: "source-control.local",
               repository: "acme/tanren",
             },
             selection: {

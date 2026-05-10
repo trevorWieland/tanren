@@ -87,8 +87,9 @@ where
     }
 
     let provider_family = provider.family();
-    let designated_host = DesignatedHost::parse(provider_family.as_str())
-        .map_err(|_| AppServiceError::Project(ProjectFailureReason::ValidationFailed))?;
+    let designated_host = provider
+        .host_for_repository_binding(&command.request.repository)
+        .map_err(map_provider_error)?;
 
     let setup = register_project_repository(
         store,
@@ -373,7 +374,7 @@ fn project_view(setup: &ProjectSetupRecord) -> ProjectView {
         id: setup.project.id,
         owning_account_id: setup.project.owning_account_id,
         repository: ProjectRepositoryView {
-            provider_family: setup.repository.provider_family.clone(),
+            source_control_host: setup.repository.designated_host.clone(),
             repository: setup.repository.repository_ref.clone(),
         },
         selection: ProjectSelectionView {

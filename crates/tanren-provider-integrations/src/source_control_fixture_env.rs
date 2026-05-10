@@ -27,6 +27,14 @@ impl SourceControlProvider for EnvFixtureSourceControlProvider {
         ProviderFamily::source_control()
     }
 
+    fn host_for_repository_binding(
+        &self,
+        _repository: &RepositoryRef,
+    ) -> Result<DesignatedHost, SourceControlError> {
+        DesignatedHost::parse("source-control.local")
+            .map_err(|_| SourceControlError::OperationFailed)
+    }
+
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
         if self.config.provider_reachable {
             Ok(())

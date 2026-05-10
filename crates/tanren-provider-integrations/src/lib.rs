@@ -61,6 +61,12 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
     /// Source-control provider family identifier.
     fn family(&self) -> ProviderFamily;
 
+    /// Resolve consumer-facing host metadata for a repository binding.
+    fn host_for_repository_binding(
+        &self,
+        repository: &RepositoryRef,
+    ) -> Result<DesignatedHost, SourceControlError>;
+
     /// Validate that the provider is reachable.
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError>;
 
@@ -92,6 +98,12 @@ pub trait SourceControlProvider: Send + Sync + std::fmt::Debug {
 
 const SOURCE_CONTROL_PROVIDER_FIXTURE_ENV: &str = "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE";
 const SOURCE_CONTROL_PROVIDER_ALLOW_ALL_FIXTURE: &str = "allow_all";
+const DEFAULT_SOURCE_CONTROL_BINDING_HOST: &str = "source-control.local";
+
+fn default_source_control_binding_host() -> Result<DesignatedHost, SourceControlError> {
+    DesignatedHost::parse(DEFAULT_SOURCE_CONTROL_BINDING_HOST)
+        .map_err(|_| SourceControlError::OperationFailed)
+}
 
 /// Deterministic source-control provider that always fails closed.
 #[derive(Debug, Clone, Default)]
@@ -101,6 +113,13 @@ pub struct UnavailableSourceControlProvider;
 impl SourceControlProvider for UnavailableSourceControlProvider {
     fn family(&self) -> ProviderFamily {
         ProviderFamily::source_control()
+    }
+
+    fn host_for_repository_binding(
+        &self,
+        _repository: &RepositoryRef,
+    ) -> Result<DesignatedHost, SourceControlError> {
+        default_source_control_binding_host()
     }
 
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
@@ -172,6 +191,13 @@ pub struct AllowAllSourceControlProvider;
 impl SourceControlProvider for AllowAllSourceControlProvider {
     fn family(&self) -> ProviderFamily {
         ProviderFamily::source_control()
+    }
+
+    fn host_for_repository_binding(
+        &self,
+        _repository: &RepositoryRef,
+    ) -> Result<DesignatedHost, SourceControlError> {
+        default_source_control_binding_host()
     }
 
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
@@ -374,6 +400,13 @@ impl FixtureSourceControlProvider {
 impl SourceControlProvider for FixtureSourceControlProvider {
     fn family(&self) -> ProviderFamily {
         ProviderFamily::source_control()
+    }
+
+    fn host_for_repository_binding(
+        &self,
+        _repository: &RepositoryRef,
+    ) -> Result<DesignatedHost, SourceControlError> {
+        default_source_control_binding_host()
     }
 
     async fn ensure_provider_reachable(&self) -> Result<(), SourceControlError> {
