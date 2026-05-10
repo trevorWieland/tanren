@@ -23,7 +23,7 @@ tanren-identity-policy = { path = "../tanren-identity-policy", features = [
   "test-hooks",
 ] }
 tanren-observability = { path = "../tanren-observability" }
-tanren-testkit = { path = "../tanren-testkit" }
+tanren-testkit = { path = "../tanren-testkit", features = ["tui-pty"] }
 tokio = { workspace = true }
 thiserror = { workspace = true }
 

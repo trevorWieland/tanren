@@ -487,8 +487,8 @@ reference that resolves to a missing profile both fail CI.
 | `utoipa-axum` | `0.2` | `OpenApiRouter` integration for Axum handler annotations. | [`profiles/rust-cargo/architecture/openapi-generation.md`](../../profiles/rust-cargo/architecture/openapi-generation.md) |
 | `rand` | `0.9` | CSPRNG for opaque session/invitation tokens (32 random bytes). UUIDs are never used as secrets. | [`profiles/rust-cargo/architecture/id-formats.md`](../../profiles/rust-cargo/architecture/id-formats.md) |
 | `base64` | `0.22` | URL-safe-no-pad encoding for opaque tokens; transport-safe in cookies, headers, and URLs. | [`profiles/rust-cargo/architecture/id-formats.md`](../../profiles/rust-cargo/architecture/id-formats.md) |
-| `expectrl` | `0.7` | Expect-style TUI test driver for `@tui` BDD harness. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
-| `portable-pty` | `0.8` | Cross-platform pty backend used by `expectrl` to drive `tanren-tui`. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
+| `expectrl` | `0.7` | Expect-style TUI test driver for `@tui` BDD harness. Isolated behind the `tui-pty` feature in `tanren-testkit`. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
+| `portable-pty` | `0.8` | Cross-platform PTY backend used by `expectrl` to drive `tanren-tui`. The cross-platform terminal backend boundary (Unix `pty` / Windows `ConPTY`) lives here. | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
 | `syn` | `2` | AST walker for `xtask` AST-driven guards (`check-secrets`, `check-newtype-ids`, `check-bdd-wire-coverage`, `check-test-hooks`, `check-tracing-init`). Replaces grep heuristics. | [`profiles/rust-cargo/global/just-ci-gate.md`](../../profiles/rust-cargo/global/just-ci-gate.md) |
 | `cucumber` | `0.23` | BDD harness for `@api`/`@cli`/`@mcp`/`@tui` slices (existing). | [`profiles/rust-cargo/testing/bdd-wire-harness.md`](../../profiles/rust-cargo/testing/bdd-wire-harness.md) |
 

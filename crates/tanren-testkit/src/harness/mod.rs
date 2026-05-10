@@ -45,6 +45,9 @@ mod api_codec;
 mod cli;
 mod in_process;
 mod mcp;
+#[cfg(feature = "tui-pty")]
+// TUI PTY harness — gated behind the `tui-pty` feature so the default
+// `test-hooks` surface does not pull in `expectrl` or `portable-pty`.
 mod tui;
 mod web;
 
@@ -65,6 +68,7 @@ pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
+#[cfg(feature = "tui-pty")]
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 

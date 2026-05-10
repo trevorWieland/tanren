@@ -381,8 +381,23 @@ shape. Implementations:
 | `@api` | Spawns `tanren-api-app` on an ephemeral port; reqwest client with cookie jar. |
 | `@cli` | `tokio::process::Command` against the compiled `tanren-cli` binary. |
 | `@mcp` | Spawns `tanren-mcp-app` on an ephemeral port; `rmcp` client. |
-| `@tui` | `expectrl` over `portable-pty` wrapping the compiled `tanren-tui` binary. |
+| `@tui` | `expectrl` over `portable-pty` wrapping the compiled `tanren-tui` binary. Gated behind the `tui-pty` Cargo feature in `tanren-testkit`; the default `test-hooks` feature does not pull in PTY crates. |
 | `@web` | `playwright-bdd` against a running api-app + Next.js dev server. |
+
+### TUI PTY feature gate
+
+The `@tui` harness uses `expectrl` (an expect-style library) over
+`portable-pty` (a cross-platform pseudo-terminal backend) to drive the
+compiled `tanren-tui` binary in a real PTY session. These two crates are
+heavy platform dependencies that compile native C code; they are isolated
+behind the dedicated `tui-pty` Cargo feature in `tanren-testkit` so that
+the default `test-hooks` feature (and its consumers) do not pay the
+compile-time or dependency-graph cost. The BDD crate (`tanren-bdd`) is the
+only consumer that enables `tui-pty`, since it is the only crate that runs
+`@tui`-tagged scenarios. The cross-platform terminal backend boundary lives
+at the `portable-pty` crate, which abstracts over Unix `pty` and Windows
+`ConPTY` — all other harnesses (API, CLI, MCP, web, in-process) are pure
+Rust with no native PTY dependency.
 
 Each harness exposes the same async trait surface so step bodies are
 written once and dispatched by tag.

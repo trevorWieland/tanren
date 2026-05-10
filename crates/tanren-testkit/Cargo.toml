@@ -18,7 +18,16 @@ default = ["test-hooks"]
 # guard never trips on an inadvertently public test seam. Consumers
 # (currently only `tanren-bdd`) inherit the gate via
 # `default-features` or by enabling `test-hooks` explicitly.
-test-hooks = ["dep:expectrl", "dep:portable-pty"]
+test-hooks = []
+
+# TUI-only PTY harness feature. The real PTY backend (`expectrl` over
+# `portable-pty`) is isolated behind this feature so that the default
+# testkit dependency graph stays light — crates that do not drive the
+# TUI binary in a pseudo-terminal do not pay the compile-time cost of
+# cross-platform PTY support. The BDD crate enables this when running
+# `@tui`-tagged scenarios; all other harnesses (API, CLI, MCP, web,
+# in-process) work without it.
+tui-pty = ["dep:expectrl", "dep:portable-pty"]
 
 [dependencies]
 async-trait = { workspace = true }

@@ -16,9 +16,12 @@ pub mod harness;
 pub use harness::{
     AccountHarness, ActorState, ApiHarness, CliHarness, ConcurrentAcceptanceTally,
     HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessOutcome, HarnessResult,
-    HarnessSession, InProcessHarness, InvalidSessionKind, McpHarness, TuiHarness, WebHarness,
-    event_kinds, record_failure,
+    HarnessSession, InProcessHarness, InvalidSessionKind, McpHarness, WebHarness, event_kinds,
+    record_failure,
 };
+
+#[cfg(feature = "tui-pty")]
+pub use harness::TuiHarness;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
