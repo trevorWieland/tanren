@@ -346,6 +346,7 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "web posture contract" just check-web-posture-contract
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
@@ -742,6 +743,16 @@ check-orphan-traits:
 # drift from the running server. Wired into `check` by PR 12.
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
+
+# Regenerate web deployment-posture contract and fixture artifacts from
+# canonical Rust/OpenAPI sources.
+generate-web-posture-contract:
+    @{{ cargo }} run -q -p tanren-xtask -- generate-web-posture-contract
+
+# Assert generated web deployment-posture contract and fixture artifacts
+# are in sync with canonical Rust/OpenAPI sources.
+check-web-posture-contract:
+    @{{ cargo }} run -q -p tanren-xtask -- check-web-posture-contract
 
 # Run the regression-fixture test suite that proves each guard rejects
 # its synthetic regression. Each fixture under

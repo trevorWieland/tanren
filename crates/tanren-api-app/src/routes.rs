@@ -15,10 +15,11 @@ use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CurrentDeploymentPostureResponse, DeploymentPosture,
     DeploymentPostureCapability, DeploymentPostureCapabilitySummary,
-    DeploymentPostureCapabilityUnavailableReason, DeploymentPostureReadModel,
-    DeploymentPostureScope, DeploymentPostureUnavailableCapability, SessionEnvelope,
-    SetDeploymentPostureRequest, SetDeploymentPostureResponse, SignInRequest, SignUpRequest,
-    SupportedDeploymentPosture, SupportedDeploymentPosturesResponse,
+    DeploymentPostureCapabilityUnavailableReason, DeploymentPostureFailureBody,
+    DeploymentPostureFailureReason, DeploymentPostureReadModel, DeploymentPostureScope,
+    DeploymentPostureUnavailableCapability, SessionEnvelope, SetDeploymentPostureRequest,
+    SetDeploymentPostureResponse, SignInRequest, SignUpRequest, SupportedDeploymentPosture,
+    SupportedDeploymentPosturesResponse,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -134,6 +135,8 @@ pub struct AcceptInvitationBody {
         DeploymentPostureCapabilitySummary,
         SetDeploymentPostureRequest,
         SetDeploymentPostureResponse,
+        DeploymentPostureFailureBody,
+        DeploymentPostureFailureReason,
     )),
     tags(
         (name = "health", description = "Liveness probe."),

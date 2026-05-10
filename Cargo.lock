@@ -4562,6 +4562,8 @@ dependencies = [
  "serde",
  "serde_json",
  "syn 2.0.117",
+ "tanren-api-app",
+ "tanren-contract",
  "toml",
  "walkdir",
 ]

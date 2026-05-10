@@ -8,6 +8,7 @@
     "build": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations && next build --turbopack",
     "start": "next start",
     "i18n:compile": "paraglide-js compile --project ./src/i18n/project.inlang --outdir ./src/i18n/paraglide --emit-ts-declarations",
+    "posture:generate": "cargo run -q -p tanren-xtask -- generate-web-posture-contract",
     "lint": "oxlint .",
     "typecheck": "tsgo --noEmit",
     "format": "prettier --write .",

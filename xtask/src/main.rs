@@ -10,6 +10,7 @@ mod check_profiles;
 mod check_secrets;
 mod check_test_hooks;
 mod check_tracing_init;
+mod generate_web_posture_contract;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -123,6 +124,14 @@ enum Command {
     /// `profiles/rust-cargo/architecture/openapi-generation.md`.
     #[command(name = "check-openapi-handcraft")]
     OpenapiHandcraft(RootArg),
+    /// Generate web deployment-posture TypeScript contract artifacts
+    /// from canonical Rust/OpenAPI sources.
+    #[command(name = "generate-web-posture-contract")]
+    GenerateWebPostureContract(RootArg),
+    /// Check that generated web deployment-posture TypeScript contract
+    /// artifacts are up to date with canonical Rust/OpenAPI sources.
+    #[command(name = "check-web-posture-contract")]
+    CheckWebPostureContract(RootArg),
 }
 
 fn main() -> Result<()> {
@@ -140,6 +149,12 @@ fn main() -> Result<()> {
         Command::Profiles(r) => check_profiles::run(&r.resolve()?),
         Command::OrphanTraits(r) => check_orphan_traits::run(&r.resolve()?),
         Command::OpenapiHandcraft(r) => check_openapi_handcraft::run(&r.resolve()?),
+        Command::GenerateWebPostureContract(r) => {
+            generate_web_posture_contract::run(&r.resolve()?, false)
+        }
+        Command::CheckWebPostureContract(r) => {
+            generate_web_posture_contract::run(&r.resolve()?, true)
+        }
     }
 }
 

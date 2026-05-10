@@ -57,6 +57,7 @@ use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
+use utoipa::OpenApi;
 
 #[cfg(any(test, feature = "test-hooks"))]
 use crate::cookies::session_layer_with_secure;
@@ -135,6 +136,13 @@ fn parse_cors_origins(raw: Option<&str>) -> Result<Vec<HeaderValue>> {
         return Ok(vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)]);
     }
     Ok(out)
+}
+
+/// Build the canonical `OpenAPI` document from the same route metadata
+/// and contract types the running API server uses.
+#[must_use]
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
+    routes::ApiDoc::openapi()
 }
 
 #[derive(Clone)]
