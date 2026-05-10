@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
   AccountRequestError,
+  myAccountCapabilities,
   myPermissionsWithCapabilityCheck,
 } from "@/app/lib/account-client";
 
@@ -14,6 +15,29 @@ function jsonResponse(payload: unknown, status = 200): Response {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+describe("myAccountCapabilities", () => {
+  it("requests session-scoped capabilities without a query string", async () => {
+    const fetchMock = vi.fn<typeof fetch>().mockResolvedValueOnce(
+      jsonResponse({
+        can_view_my_permissions: true,
+      }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await myAccountCapabilities();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "http://localhost:8080/me/capabilities",
+      {
+        method: "GET",
+        credentials: "include",
+      },
+    );
+  });
 });
 
 describe("myPermissionsWithCapabilityCheck", () => {
@@ -99,15 +123,23 @@ describe("myPermissionsWithCapabilityCheck", () => {
     await myPermissionsWithCapabilityCheck({ cursor: "cursor-1" });
 
     expect(fetchMock).toHaveBeenCalledTimes(4);
-    expect(fetchMock.mock.calls[0]?.[0]).toBe(
+    expect(fetchMock.mock.calls[0]).toEqual([
       "http://localhost:8080/me/capabilities",
-    );
+      {
+        method: "GET",
+        credentials: "include",
+      },
+    ]);
     expect(fetchMock.mock.calls[1]?.[0]).toBe(
       "http://localhost:8080/me/permissions",
     );
-    expect(fetchMock.mock.calls[2]?.[0]).toBe(
+    expect(fetchMock.mock.calls[2]).toEqual([
       "http://localhost:8080/me/capabilities",
-    );
+      {
+        method: "GET",
+        credentials: "include",
+      },
+    ]);
     expect(fetchMock.mock.calls[3]?.[0]).toBe(
       "http://localhost:8080/me/permissions?cursor=cursor-1",
     );

@@ -96,9 +96,6 @@ export type SessionView = SignInResult["session"];
 export type MyPermissionsQuery = NonNullable<
   MyPermissionsOperation["parameters"]["query"]
 >;
-export type MyCapabilitiesQuery = NonNullable<
-  MyCapabilitiesOperation["parameters"]["query"]
->;
 
 export type PermissionScopeView =
   | {
@@ -414,15 +411,11 @@ export async function myPermissionsWithCapabilityCheck(
   return myPermissions(query);
 }
 
-export function myAccountCapabilities(
-  query: MyCapabilitiesQuery = {},
-): Promise<OperationSuccessBody<MyCapabilitiesOperation>> {
-  const params = new URLSearchParams();
-  if (query.account_id && query.account_id.trim() !== "") {
-    params.set("account_id", query.account_id);
-  }
+export function myAccountCapabilities(): Promise<
+  OperationSuccessBody<MyCapabilitiesOperation>
+> {
   return requestJson<OperationSuccessBody<MyCapabilitiesOperation>>(
-    queryPath(MY_CAPABILITIES_PATH, params),
+    MY_CAPABILITIES_PATH,
     MY_CAPABILITIES_METHOD,
   );
 }
