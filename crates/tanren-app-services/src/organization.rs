@@ -6,8 +6,9 @@ use tanren_contract::{
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
     ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID, ORGANIZATION_CREATED_EVENT_KIND,
-    ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent, OrganizationProofLink,
-    OrganizationSourceLink, OrganizationView,
+    ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent, OrganizationProjectSummary,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView,
+    organization_permission_options,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationPermission, SessionToken};
 use tanren_policy::{Decision, OrganizationPermissionGate, evaluate_organization_permission_gate};
@@ -46,8 +47,12 @@ where
             id: output.organization.id,
             name: output.organization.name,
         },
+        available_permissions: organization_permission_options(),
         granted_permissions: output.granted_permissions,
         initial_project_count: output.initial_project_count,
+        project_summary: OrganizationProjectSummary {
+            total_count: output.initial_project_count,
+        },
         proof_link: OrganizationProofLink {
             behavior_id: ORGANIZATION_CREATE_BEHAVIOR_ID.to_owned(),
         },

@@ -34,14 +34,25 @@ pub struct CreateOrganizationRequest {
 pub struct CreateOrganizationResponse {
     /// Freshly created organization.
     pub organization: OrganizationView,
+    /// Contract-projected permission options for organization operations.
+    pub available_permissions: Vec<OrganizationPermission>,
     /// Administrative permissions granted to the creator.
     pub granted_permissions: Vec<OrganizationPermission>,
     /// New organizations always begin with zero projects.
     pub initial_project_count: u64,
+    /// Organization project summary (extensible beyond initial create semantics).
+    pub project_summary: OrganizationProjectSummary,
     /// Stable proof reference clients can render without event-log probing.
     pub proof_link: OrganizationProofLink,
     /// Stable source reference for the canonical creation event.
     pub source_link: OrganizationSourceLink,
+}
+
+/// Summary projection for organization project counts.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct OrganizationProjectSummary {
+    /// Total projects currently present in the organization.
+    pub total_count: u64,
 }
 
 /// List-organizations request.
@@ -256,6 +267,12 @@ pub const ORGANIZATION_CREATE_BEHAVIOR_ID: &str = "B-0066";
 pub const LIST_ORGANIZATIONS_DEFAULT_LIMIT: u64 = 50;
 /// Maximum allowed page size for listing organizations.
 pub const LIST_ORGANIZATIONS_MAX_LIMIT: u64 = 100;
+
+/// Canonical contract projection of available organization permissions.
+#[must_use]
+pub fn organization_permission_options() -> Vec<OrganizationPermission> {
+    OrganizationPermission::ALL.to_vec()
+}
 
 /// Shared payload contract for `organization_created`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]

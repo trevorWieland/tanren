@@ -19,8 +19,9 @@ pub use organization::{
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsApiQuery,
     ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
     ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent,
-    OrganizationFailureBody, OrganizationFailureCode, OrganizationProofLink,
-    OrganizationSourceLink, OrganizationView,
+    OrganizationFailureBody, OrganizationFailureCode, OrganizationProjectSummary,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView,
+    organization_permission_options,
 };
 
 use serde::{Deserialize, Serialize};

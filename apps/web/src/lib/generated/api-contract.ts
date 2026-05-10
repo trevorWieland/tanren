@@ -211,6 +211,8 @@ export interface components {
     };
     /** @description Create-organization response. */
     CreateOrganizationResponse: {
+      /** @description Contract-projected permission options for organization operations. */
+      available_permissions: components["schemas"]["OrganizationPermission"][];
       /** @description Administrative permissions granted to the creator. */
       granted_permissions: components["schemas"]["OrganizationPermission"][];
       /**
@@ -220,6 +222,8 @@ export interface components {
       initial_project_count: number;
       /** @description Freshly created organization. */
       organization: components["schemas"]["OrganizationView"];
+      /** @description Organization project summary (extensible beyond initial create semantics). */
+      project_summary: components["schemas"]["OrganizationProjectSummary"];
       /** @description Stable proof reference clients can render without event-log probing. */
       proof_link: components["schemas"]["OrganizationProofLink"];
       /** @description Stable source reference for the canonical creation event. */
@@ -329,6 +333,14 @@ export interface components {
       | "configure"
       | "set_policy"
       | "delete";
+    /** @description Summary projection for organization project counts. */
+    OrganizationProjectSummary: {
+      /**
+       * Format: int64
+       * @description Total projects currently present in the organization.
+       */
+      total_count: number;
+    };
     /**
      * @description Closed error-code taxonomy for organization operations across all
      *     interfaces.

@@ -25,8 +25,8 @@ use std::sync::Arc;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationProofLink,
-    OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
+    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationProjectSummary,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, Identifier, OrgId, OrganizationName, OrganizationPermission,
@@ -321,8 +321,12 @@ impl AccountHarness for TuiHarness {
                 let (event_family, event_kind) = parse_source_event(&source_event_raw)?;
                 Ok(CreateOrganizationResponse {
                     organization: OrganizationView { id: org_id, name },
+                    available_permissions: OrganizationPermission::ALL.to_vec(),
                     granted_permissions,
                     initial_project_count,
+                    project_summary: OrganizationProjectSummary {
+                        total_count: initial_project_count,
+                    },
                     proof_link: OrganizationProofLink {
                         behavior_id: proof_behavior_id.trim().to_owned(),
                     },

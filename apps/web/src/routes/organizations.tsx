@@ -147,14 +147,14 @@ export function OrganizationHarnessRoute(): ReactNode {
       },
     }));
 
-    if (response.body.granted_permissions.length > 0) {
-      setPermissionOptions(response.body.granted_permissions);
+    if (response.body.available_permissions.length > 0) {
+      setPermissionOptions(response.body.available_permissions);
       window.localStorage.setItem(
         ORGANIZATION_PERMISSION_CACHE_KEY,
-        JSON.stringify(response.body.granted_permissions),
+        JSON.stringify(response.body.available_permissions),
       );
       setPermission(
-        (previous) => previous || response.body.granted_permissions[0] || "",
+        (previous) => previous || response.body.available_permissions[0] || "",
       );
     }
 

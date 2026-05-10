@@ -8,7 +8,7 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView,
     CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionResponse,
     CreateOrganizationApiRequest, CreateOrganizationResponse, ListOrganizationsResponse,
-    SignInRequest, SignUpRequest,
+    SignInRequest, SignUpRequest, organization_permission_options,
 };
 use tanren_identity_policy::{
     Email, InvitationToken, OrgId, OrganizationName, OrganizationPermission, ValidationError,
@@ -153,6 +153,10 @@ pub(crate) fn create_organization_outcome(response: &CreateOrganizationResponse)
             format!("name: {}", response.organization.name),
             format!("granted_permissions: {granted}"),
             format!("initial_project_count: {}", response.initial_project_count),
+            format!(
+                "project_total_count: {}",
+                response.project_summary.total_count
+            ),
             format!("proof_behavior_id: {}", response.proof_link.behavior_id),
             format!(
                 "source_event: {}.{}",
@@ -266,7 +270,7 @@ fn parse_org_id(raw: &str) -> Result<OrgId, String> {
 
 fn parse_permission(raw: &str) -> Result<OrganizationPermission, String> {
     OrganizationPermission::from_str(raw.trim()).map_err(|_| {
-        let expected = OrganizationPermission::ALL
+        let expected = organization_permission_options()
             .into_iter()
             .map(OrganizationPermission::as_str)
             .collect::<Vec<_>>()

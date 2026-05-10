@@ -21,7 +21,8 @@ use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
     CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
-    OrganizationProofLink, OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
+    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
+    SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -316,8 +317,12 @@ impl AccountHarness for CliHarness {
         })?;
         Ok(CreateOrganizationResponse {
             organization: OrganizationView { id: org_id, name },
+            available_permissions: OrganizationPermission::ALL.to_vec(),
             granted_permissions: Self::parse_permissions(granted_raw)?,
             initial_project_count,
+            project_summary: OrganizationProjectSummary {
+                total_count: initial_project_count,
+            },
             proof_link: OrganizationProofLink {
                 behavior_id: proof_behavior_id,
             },

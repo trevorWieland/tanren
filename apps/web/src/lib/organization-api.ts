@@ -1,6 +1,10 @@
 import { useState } from "react";
 
-import type { components, paths } from "@/lib/generated/api-contract";
+import type {
+  components,
+  operations,
+  paths,
+} from "@/lib/generated/api-contract";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 const DEFAULT_ORGANIZATION_LIST_LIMIT = 50;
@@ -28,42 +32,35 @@ export type OrganizationProofLink =
   components["schemas"]["OrganizationProofLink"];
 export type OrganizationSourceLink =
   components["schemas"]["OrganizationSourceLink"];
+export type OrganizationProjectSummary =
+  components["schemas"]["OrganizationProjectSummary"];
 export type CreateOrganizationApiRequest =
-  components["schemas"]["CreateOrganizationApiRequest"];
+  operations["create_organization_route"]["requestBody"]["content"]["application/json"];
 export type CheckOrganizationPermissionApiRequest =
-  components["schemas"]["CheckOrganizationPermissionApiRequest"];
+  operations["check_organization_permission_route"]["requestBody"]["content"]["application/json"];
 export type CreateOrganizationResponse =
-  components["schemas"]["CreateOrganizationResponse"];
+  operations["create_organization_route"]["responses"][201]["content"]["application/json"];
 export type ListOrganizationsResponse =
-  components["schemas"]["ListOrganizationsResponse"];
+  operations["list_organizations_route"]["responses"][200]["content"]["application/json"];
 export type OrganizationListCursor = components["schemas"]["MembershipId"];
 export type CheckOrganizationPermissionResponse =
-  components["schemas"]["CheckOrganizationPermissionResponse"];
+  operations["check_organization_permission_route"]["responses"][200]["content"]["application/json"];
+export type ListOrganizationsApiRequest = NonNullable<
+  paths["/organizations"]["parameters"]["query"]
+>;
 
-export interface ListOrganizationsApiRequest {
-  limit?: number;
-  cursor?: OrganizationListCursor;
-}
-
+type ContractOrganizationFailureCode =
+  components["schemas"]["OrganizationFailureCode"];
+type LocalOrganizationFailureCode = "unavailable" | "invalid_response";
 export type OrganizationFailureCode =
-  | "auth_required"
-  | "permission_denied"
-  | "validation_failed"
-  | "conflict"
-  | "idempotency_conflict"
-  | "internal_error"
-  | "unavailable"
-  | "invalid_response"
-  | string;
+  | ContractOrganizationFailureCode
+  | LocalOrganizationFailureCode;
 
 type GeneratedOrganizationErrorResponse =
   components["schemas"]["OrganizationFailureBody"];
-export type OrganizationErrorResponse = Omit<
-  GeneratedOrganizationErrorResponse,
-  "code"
-> & {
-  code: OrganizationFailureCode;
-};
+export type OrganizationErrorResponse =
+  | GeneratedOrganizationErrorResponse
+  | { code: LocalOrganizationFailureCode; summary: string };
 
 export interface OrganizationDecodedResponse {
   ok: boolean;
@@ -136,7 +133,7 @@ export function isOrganizationErrorResponse(
   return hasStringField(value, "code") && hasStringField(value, "summary");
 }
 
-function isGeneratedAccountFailureBody(
+function isGeneratedOrganizationFailureBody(
   value: unknown,
 ): value is GeneratedOrganizationErrorResponse {
   return hasStringField(value, "code") && hasStringField(value, "summary");
@@ -160,6 +157,17 @@ export function isOrganizationSourceLink(
   return hasOnlyStringFields(value, ["event_family", "event_kind"]);
 }
 
+export function isOrganizationProjectSummary(
+  value: unknown,
+): value is OrganizationProjectSummary {
+  return (
+    isObjectRecord(value) &&
+    typeof value["total_count"] === "number" &&
+    Number.isInteger(value["total_count"]) &&
+    value["total_count"] >= 0
+  );
+}
+
 export function isCreateOrganizationResponse(
   value: unknown,
 ): value is CreateOrganizationResponse {
@@ -181,6 +189,18 @@ export function isCreateOrganizationResponse(
     return false;
   }
 
+  const availablePermissions = value["available_permissions"];
+  if (!Array.isArray(availablePermissions)) {
+    return false;
+  }
+  if (
+    !availablePermissions.every((permission) =>
+      isOrganizationPermission(permission),
+    )
+  ) {
+    return false;
+  }
+
   const initialProjectCount = value["initial_project_count"];
   if (
     typeof initialProjectCount !== "number" ||
@@ -194,7 +214,11 @@ export function isCreateOrganizationResponse(
     return false;
   }
 
-  return isOrganizationSourceLink(value["source_link"]);
+  if (!isOrganizationSourceLink(value["source_link"])) {
+    return false;
+  }
+
+  return isOrganizationProjectSummary(value["project_summary"]);
 }
 
 export function isListOrganizationsResponse(
@@ -251,7 +275,10 @@ export function decodeOrganizationApiResponse<TBody>(
     };
   }
 
-  if (response.hasValidJson && isGeneratedAccountFailureBody(response.json)) {
+  if (
+    response.hasValidJson &&
+    isGeneratedOrganizationFailureBody(response.json)
+  ) {
     return {
       ok: false,
       status: response.status,
