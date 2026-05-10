@@ -16,11 +16,14 @@ use crate::entity;
 use crate::{
     NewProject, NewProjectRepository, ProjectListCursor, ProjectListPage, ProjectRecord,
     ProjectRepositoryRecord, ProjectSetupRecord, ProjectStore, ProjectStoreError,
-    SetActiveProjectError, Store, StoreError, parse_db_project_id,
+    SetActiveProjectError, Store, StoreError,
+    db_constraints::{
+        is_project_repository_unique_conflict, is_projects_single_active_unique_conflict,
+    },
+    parse_db_project_id,
 };
 
 const ACTIVE_SELECTION_RETRY_LIMIT: usize = 3;
-const PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX: &str = "idx_projects_single_active_per_account";
 
 #[async_trait]
 impl ProjectStore for Store {
@@ -460,8 +463,7 @@ fn map_set_active_transaction_error(
 }
 
 fn map_project_repository_insert_error(err: sea_orm::DbErr) -> ProjectStoreError {
-    let lower = err.to_string().to_lowercase();
-    if lower.contains("unique") || lower.contains("duplicate") {
+    if is_project_repository_unique_conflict(&err) {
         return ProjectStoreError::DuplicateRepository;
     }
     ProjectStoreError::Store(StoreError::from(err))
@@ -485,11 +487,4 @@ fn should_retry_active_selection_set_active_error(err: &SetActiveProjectError) -
         | SetActiveProjectError::NoAccess
         | SetActiveProjectError::NotFound => false,
     }
-}
-
-fn is_projects_single_active_unique_conflict(err: &sea_orm::DbErr) -> bool {
-    let lower = err.to_string().to_lowercase();
-    (lower.contains("unique") || lower.contains("duplicate"))
-        && (lower.contains(PROJECTS_SINGLE_ACTIVE_PER_ACCOUNT_INDEX)
-            || lower.contains("projects.owning_account_id"))
 }

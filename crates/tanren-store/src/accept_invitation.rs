@@ -16,6 +16,7 @@ use sea_orm::{
 use tanren_identity_policy::{MembershipId, OrgId, SessionToken, ValidationError};
 use uuid::Uuid;
 
+use crate::db_constraints::is_duplicate_account_identifier_conflict;
 use crate::entity;
 use crate::traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
@@ -150,13 +151,7 @@ async fn insert_account_in_txn(
     };
     let inserted = match account_model.insert(txn).await {
         Ok(a) => a,
-        Err(err) => {
-            let lower = err.to_string().to_lowercase();
-            if lower.contains("unique") || lower.contains("duplicate") {
-                return Err(AcceptInvitationError::DuplicateIdentifier);
-            }
-            return Err(StoreError::from(err).into());
-        }
+        Err(err) => return Err(map_account_insert_error(err)),
     };
     AccountRecord::try_from(inserted).map_err(AcceptInvitationError::Store)
 }
@@ -230,4 +225,11 @@ fn map_transaction_error(
         }
         sea_orm::TransactionError::Transaction(inner) => inner,
     }
+}
+
+fn map_account_insert_error(err: sea_orm::DbErr) -> AcceptInvitationError {
+    if is_duplicate_account_identifier_conflict(&err) {
+        return AcceptInvitationError::DuplicateIdentifier;
+    }
+    AcceptInvitationError::Store(StoreError::from(err))
 }

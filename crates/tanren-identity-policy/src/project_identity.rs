@@ -62,12 +62,6 @@ impl ProjectId {
     }
 }
 
-impl From<Uuid> for ProjectId {
-    fn from(value: Uuid) -> Self {
-        Self(value)
-    }
-}
-
 impl AsRef<Uuid> for ProjectId {
     fn as_ref(&self) -> &Uuid {
         &self.0

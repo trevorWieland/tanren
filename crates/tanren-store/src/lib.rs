@@ -8,6 +8,7 @@
 //! across the dependency boundary.
 
 mod accept_invitation;
+mod db_constraints;
 mod entity;
 mod migration;
 mod project_store;
