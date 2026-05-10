@@ -4,6 +4,7 @@ import type {
   CurrentDeploymentPostureResponse,
   DeploymentPosture,
   DeploymentPostureFailureCode,
+  DeploymentPostureScope,
   SetDeploymentPostureRequest,
   SetDeploymentPostureResponse,
   SupportedDeploymentPosture,
@@ -43,6 +44,7 @@ export interface AccountView {
 export type {
   CurrentDeploymentPostureResponse as DeploymentPostureGetResponse,
   DeploymentPosture,
+  DeploymentPostureScope,
   SetDeploymentPostureRequest,
   SetDeploymentPostureResponse,
   SupportedDeploymentPosture,
@@ -51,6 +53,8 @@ export type {
 
 let deploymentPostureListCache: Promise<SupportedDeploymentPosturesResponse> | null =
   null;
+const ACTIVE_ACCOUNT_SCOPE_STORAGE_KEY = "tanren.active-account-scope-id";
+let activeAccountScopeCache: string | null | undefined;
 
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
@@ -76,6 +80,43 @@ export interface AcceptInvitationResult {
   account: AccountView;
   session: SessionView;
   joined_org: string;
+}
+
+function loadCachedActiveAccountScopeId(): string | null {
+  if (activeAccountScopeCache !== undefined) {
+    return activeAccountScopeCache;
+  }
+  if (typeof window === "undefined") {
+    activeAccountScopeCache = null;
+    return activeAccountScopeCache;
+  }
+  const raw = window.localStorage.getItem(ACTIVE_ACCOUNT_SCOPE_STORAGE_KEY);
+  if (raw === null || raw.trim() === "") {
+    activeAccountScopeCache = null;
+    return activeAccountScopeCache;
+  }
+  activeAccountScopeCache = raw.trim();
+  return activeAccountScopeCache;
+}
+
+function persistActiveAccountScopeId(accountId: string): void {
+  const normalized = accountId.trim();
+  activeAccountScopeCache = normalized === "" ? null : normalized;
+  if (typeof window === "undefined") {
+    return;
+  }
+  if (activeAccountScopeCache === null) {
+    window.localStorage.removeItem(ACTIVE_ACCOUNT_SCOPE_STORAGE_KEY);
+  } else {
+    window.localStorage.setItem(
+      ACTIVE_ACCOUNT_SCOPE_STORAGE_KEY,
+      activeAccountScopeCache,
+    );
+  }
+}
+
+export function getActiveAccountScopeId(): string | null {
+  return loadCachedActiveAccountScopeId();
 }
 
 /**
@@ -256,24 +297,30 @@ async function getJsonDecoded<T>(
   return requestJson<T>("GET", path, undefined, decode);
 }
 
-export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return postJson<SignUpResult>("/accounts", input);
+export async function signUp(input: SignUpInput): Promise<SignUpResult> {
+  const result = await postJson<SignUpResult>("/accounts", input);
+  persistActiveAccountScopeId(result.session.account_id);
+  return result;
 }
 
-export function signIn(input: SignInInput): Promise<SignInResult> {
-  return postJson<SignInResult>("/sessions", input);
+export async function signIn(input: SignInInput): Promise<SignInResult> {
+  const result = await postJson<SignInResult>("/sessions", input);
+  persistActiveAccountScopeId(result.session.account_id);
+  return result;
 }
 
-export function acceptInvitation(
+export async function acceptInvitation(
   token: string,
   input: Omit<AcceptInvitationInput, "invitation_token">,
 ): Promise<AcceptInvitationResult> {
   const path = `/invitations/${encodeURIComponent(token)}/accept`;
-  return postJson<AcceptInvitationResult>(path, {
+  const result = await postJson<AcceptInvitationResult>(path, {
     email: input.email,
     password: input.password,
     display_name: input.display_name,
   });
+  persistActiveAccountScopeId(result.session.account_id);
+  return result;
 }
 
 export function listDeploymentPostures(): Promise<SupportedDeploymentPosturesResponse> {
@@ -337,4 +384,5 @@ export async function signOut(): Promise<void> {
       summary: `HTTP ${response.status}`,
     });
   }
+  persistActiveAccountScopeId("");
 }

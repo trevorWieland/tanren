@@ -1,123 +1,156 @@
 "use client";
 
-import { useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
 
 import {
   AccountRequestError,
   describeFailure,
+  getActiveAccountScopeId,
   getDeploymentPosture,
   listDeploymentPosturesCached,
   setDeploymentPosture,
-  type DeploymentPosture,
   type DeploymentPostureGetResponse,
-  type DeploymentPostureListResponse,
   type SupportedDeploymentPosture,
 } from "@/app/lib/account-client";
 import { isDeploymentPosture } from "@/app/lib/generated/deployment-posture-contract";
 import * as m from "@/i18n/paraglide/messages";
 
-const DEFAULT_POSTURES: DeploymentPosture[] = [
-  "hosted",
-  "self_hosted",
-  "local_only",
-];
+import { DeploymentPostureAuditSection } from "./DeploymentPostureAuditSection";
+import { DeploymentPostureDiscoverySection } from "./DeploymentPostureDiscoverySection";
+import { DeploymentPostureMutationSection } from "./DeploymentPostureMutationSection";
+import { DeploymentPostureReadbackSection } from "./DeploymentPostureReadbackSection";
+import {
+  buildOperationalScopeOptions,
+  operationalScopeId,
+  type OperationalScopeOption,
+} from "./posture-view-model";
+
+function describeRequestError(reason: unknown): string {
+  if (reason instanceof AccountRequestError) {
+    return reason.message;
+  }
+  if (reason instanceof Error) {
+    return reason.message;
+  }
+  return String(reason);
+}
 
 export function DeploymentPosturePanel(): ReactNode {
-  const [accountId, setAccountId] = useState("");
-  const [selectedPosture, setSelectedPosture] = useState<string>("hosted");
   const [supported, setSupported] = useState<SupportedDeploymentPosture[]>([]);
+  const [scopeOptions, setScopeOptions] = useState<OperationalScopeOption[]>(
+    [],
+  );
+  const [selectedScopeKey, setSelectedScopeKey] = useState("");
+  const [selectedPosture, setSelectedPosture] = useState<string>("");
   const [current, setCurrent] =
     useState<DeploymentPostureGetResponse["current"]>(null);
   const [postureError, setPostureError] = useState<string | null>(null);
   const [postureNotice, setPostureNotice] = useState<string | null>(null);
   const [auditReference, setAuditReference] = useState<string | null>(null);
-  const [loadingSupported, setLoadingSupported] = useState(false);
+  const [discovering, setDiscovering] = useState(false);
+  const [discoveryReady, setDiscoveryReady] = useState(false);
   const [loadingCurrent, setLoadingCurrent] = useState(false);
   const [savingPosture, setSavingPosture] = useState(false);
 
-  const ensureSupported = async (): Promise<
-    SupportedDeploymentPosture[] | null
-  > => {
-    if (supported.length > 0) {
-      return supported;
-    }
-    setLoadingSupported(true);
+  const selectedScope = useMemo(
+    () =>
+      scopeOptions.find(
+        (scopeOption) => scopeOption.key === selectedScopeKey,
+      ) ?? null,
+    [scopeOptions, selectedScopeKey],
+  );
+
+  const discoverCapabilities = useCallback(async (): Promise<void> => {
+    setPostureError(null);
+    setPostureNotice(null);
+    setAuditReference(null);
+    setDiscovering(true);
+    setDiscoveryReady(false);
     try {
+      const activeAccountId = getActiveAccountScopeId();
+      const options = buildOperationalScopeOptions(activeAccountId);
+      if (options.length === 0) {
+        setSupported([]);
+        setScopeOptions([]);
+        setSelectedScopeKey("");
+        setCurrent(null);
+        setPostureError(
+          "No authenticated account scope is available. Sign in, then discover capabilities.",
+        );
+        return;
+      }
+
       const response = await listDeploymentPosturesCached();
       setSupported(response.supported);
-      setSelectedPosture((currentValue) => {
-        const hasCurrent = response.supported.some(
-          (item) => item.posture === currentValue,
+      setScopeOptions(options);
+      setSelectedScopeKey((currentValue) => {
+        const stillExists = options.some(
+          (scopeOption) => scopeOption.key === currentValue,
         );
-        if (hasCurrent) {
+        if (stillExists) {
           return currentValue;
         }
-        return response.supported[0]?.posture ?? "hosted";
+        return options[0]?.key ?? "";
       });
-      return response.supported;
+      setSelectedPosture((currentValue) => {
+        const currentSupported = response.supported.some(
+          (item) => item.posture === currentValue,
+        );
+        if (currentSupported) {
+          return currentValue;
+        }
+        return response.supported[0]?.posture ?? "";
+      });
+      setDiscoveryReady(true);
     } catch (reason: unknown) {
-      const message =
-        reason instanceof AccountRequestError
-          ? reason.message
-          : reason instanceof Error
-            ? reason.message
-            : String(reason);
-      setPostureError(message);
-      return null;
+      setPostureError(describeRequestError(reason));
     } finally {
-      setLoadingSupported(false);
+      setDiscovering(false);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    void discoverCapabilities();
+  }, [discoverCapabilities]);
 
   const loadCurrent = async (): Promise<void> => {
-    const trimmed = accountId.trim();
-    if (trimmed === "") {
-      setPostureError(m.posture_accountIdRequired());
+    if (!selectedScope) {
+      setPostureError("Select an operational scope before reading posture.");
       return;
     }
     setPostureError(null);
     setPostureNotice(null);
     setAuditReference(null);
-    if ((await ensureSupported()) === null) {
-      return;
-    }
     setLoadingCurrent(true);
     try {
-      const response = await getDeploymentPosture("account", trimmed);
+      const response = await getDeploymentPosture(
+        selectedScope.scope.scope,
+        operationalScopeId(selectedScope.scope),
+      );
       setCurrent(response.current);
       if (response.current === null) {
         setPostureNotice(m.posture_notSet());
       }
     } catch (reason: unknown) {
-      const message =
-        reason instanceof AccountRequestError
-          ? reason.message
-          : reason instanceof Error
-            ? reason.message
-            : String(reason);
-      setPostureError(message);
+      setPostureError(describeRequestError(reason));
     } finally {
       setLoadingCurrent(false);
     }
   };
 
   const savePosture = async (): Promise<void> => {
-    const trimmed = accountId.trim();
-    if (trimmed === "") {
-      setPostureError(m.posture_accountIdRequired());
+    if (!selectedScope) {
+      setPostureError("Select an operational scope before setting posture.");
       return;
     }
     setPostureError(null);
     setPostureNotice(null);
     setAuditReference(null);
-    const supportedPostures = await ensureSupported();
-    if (supportedPostures === null) {
-      return;
-    }
+
     if (
       !isDeploymentPosture(selectedPosture) ||
-      !supportedPostures.some((item) => item.posture === selectedPosture)
+      !supported.some((item) => item.posture === selectedPosture)
     ) {
       setPostureError(
         describeFailure({
@@ -127,10 +160,11 @@ export function DeploymentPosturePanel(): ReactNode {
       );
       return;
     }
+
     setSavingPosture(true);
     try {
       const response = await setDeploymentPosture({
-        scope: { scope: "account", account_id: trimmed },
+        scope: selectedScope.scope,
         posture: selectedPosture,
       });
       setCurrent({
@@ -141,139 +175,56 @@ export function DeploymentPosturePanel(): ReactNode {
       setAuditReference(response.audit_reference);
       setPostureNotice(m.posture_saved());
     } catch (reason: unknown) {
-      const message =
-        reason instanceof AccountRequestError
-          ? reason.message
-          : reason instanceof Error
-            ? reason.message
-            : String(reason);
-      setPostureError(message);
+      setPostureError(describeRequestError(reason));
     } finally {
       setSavingPosture(false);
     }
   };
 
-  const formatAvailableCaps = (caps: string[]): string =>
-    caps.length === 0 ? m.posture_none() : caps.join(", ");
-
-  const formatUnavailableCaps = (
-    unavailable: DeploymentPostureListResponse["supported"][number]["capability_summary"]["unavailable"],
-  ): string =>
-    unavailable.length === 0
-      ? m.posture_none()
-      : unavailable
-          .map(
-            (capability) => `${capability.capability} (${capability.reason})`,
-          )
-          .join(", ");
-
-  const postureOptions =
-    supported.length === 0
-      ? DEFAULT_POSTURES
-      : supported.map((item) => item.posture);
+  const canMutate =
+    discoveryReady && selectedScope !== null && supported.length > 0;
+  const canReadCurrent = discoveryReady && selectedScope !== null;
 
   return (
-    <section className="rounded-md border border-[--color-border] bg-[--color-bg-surface] p-6">
-      <h2 className="mb-4 text-xl font-semibold">{m.posture_title()}</h2>
-      <p className="mb-4 text-sm text-[--color-fg-muted]">
-        {m.posture_subtitle()}
-      </p>
-      <div className="mb-4 grid gap-3 sm:grid-cols-[2fr_1fr_auto_auto]">
-        <input
-          value={accountId}
-          onChange={(event) => setAccountId(event.target.value)}
-          placeholder={m.posture_accountIdPlaceholder()}
-          className="rounded border border-[--color-border] bg-transparent px-3 py-2 font-mono text-sm"
-        />
-        <select
-          value={selectedPosture}
-          onChange={(event) => setSelectedPosture(event.target.value)}
-          className="rounded border border-[--color-border] bg-transparent px-3 py-2 text-sm"
-        >
-          {postureOptions.map((posture) => (
-            <option key={posture} value={posture}>
-              {posture}
-            </option>
-          ))}
-        </select>
-        <button
-          type="button"
-          onClick={() => {
-            void loadCurrent();
-          }}
-          className="rounded border border-[--color-border] px-3 py-2 text-sm"
-        >
-          {loadingCurrent ? m.posture_loading() : m.posture_load()}
-        </button>
-        <button
-          type="button"
-          onClick={() => {
-            void savePosture();
-          }}
-          className="rounded border border-[--color-border] px-3 py-2 text-sm"
-        >
-          {savingPosture ? m.posture_saving() : m.posture_save()}
-        </button>
-      </div>
-      <div className="space-y-2 text-sm">
-        <p className="font-semibold">{m.posture_supported()}</p>
-        {supported.length === 0 ? (
-          <button
-            type="button"
-            onClick={() => {
-              void ensureSupported();
-            }}
-            className="rounded border border-[--color-border] px-3 py-2 text-sm"
-          >
-            {loadingSupported
-              ? m.posture_loadingSupported()
-              : m.posture_loadSupported()}
-          </button>
-        ) : null}
-        {supported.map((item) => (
-          <div
-            key={item.posture}
-            className="rounded border border-[--color-border] p-3"
-          >
-            <p className="font-mono">{item.posture}</p>
-            <p>
-              {m.posture_available()}:{" "}
-              {formatAvailableCaps(item.capability_summary.available)}
-            </p>
-            <p>
-              {m.posture_unavailable()}:{" "}
-              {formatUnavailableCaps(item.capability_summary.unavailable)}
-            </p>
-          </div>
-        ))}
-        <p className="pt-2 font-semibold">{m.posture_current()}</p>
-        {current === null ? (
-          <p className="text-[--color-fg-muted]">{m.posture_notSet()}</p>
-        ) : (
-          <div className="rounded border border-[--color-border] p-3">
-            <p className="font-mono">{current.posture}</p>
-            <p>
-              {m.posture_available()}:{" "}
-              {formatAvailableCaps(current.capability_summary.available)}
-            </p>
-            <p>
-              {m.posture_unavailable()}:{" "}
-              {formatUnavailableCaps(current.capability_summary.unavailable)}
-            </p>
-          </div>
-        )}
-        {postureNotice !== null ? (
-          <p className="text-[--color-fg-muted]">{postureNotice}</p>
-        ) : null}
-        {auditReference !== null ? (
-          <p className="font-mono text-[--color-fg-muted]">
-            audit reference: {auditReference}
-          </p>
-        ) : null}
-        {postureError !== null ? (
-          <p className="text-[--color-error]">{postureError}</p>
-        ) : null}
-      </div>
+    <section className="space-y-4 rounded-md border border-[--color-border] bg-[--color-bg-surface] p-6">
+      <h2 className="text-xl font-semibold">{m.posture_title()}</h2>
+      <p className="text-sm text-[--color-fg-muted]">{m.posture_subtitle()}</p>
+      <DeploymentPostureDiscoverySection
+        discoveryReady={discoveryReady}
+        discoveryLoading={discovering}
+        onDiscover={() => {
+          void discoverCapabilities();
+        }}
+        scopeOptions={scopeOptions}
+        selectedScopeKey={selectedScopeKey}
+        onSelectScope={setSelectedScopeKey}
+      />
+      <DeploymentPostureMutationSection
+        canMutate={canMutate}
+        canReadCurrent={canReadCurrent}
+        savingPosture={savingPosture}
+        loadingCurrent={loadingCurrent}
+        selectedPosture={selectedPosture}
+        supported={supported}
+        onSelectPosture={setSelectedPosture}
+        onLoadCurrent={() => {
+          void loadCurrent();
+        }}
+        onSavePosture={() => {
+          void savePosture();
+        }}
+      />
+      <DeploymentPostureReadbackSection
+        supported={supported}
+        current={current}
+      />
+      <DeploymentPostureAuditSection
+        postureNotice={postureNotice}
+        auditReference={auditReference}
+      />
+      {postureError !== null ? (
+        <p className="text-sm text-[--color-error]">{postureError}</p>
+      ) : null}
     </section>
   );
 }
