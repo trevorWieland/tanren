@@ -6,7 +6,8 @@ mod cli;
 mod report;
 
 use crate::install::error::InstallError;
-use crate::install::manifest::{INSTALL_MANIFEST_REPO_PATH, InstallManifest};
+use crate::install::manifest::{INSTALL_MANIFEST_REPO_PATH, InstallManifest, RepoRelativePath};
+use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallPlan, InstallReport, plan_install};
 
 pub use cli::UpgradeCommand;
@@ -44,16 +45,17 @@ impl UpgradePreview {
 /// Build an upgrade preview from the existing repository install manifest.
 fn preview_upgrade(repository: &Path) -> Result<UpgradePreview, InstallError> {
     let repository_root = validate_repository_root(repository)?;
-    let manifest_path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
+    let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
+    let manifest_absolute_path = resolve_repo_path(&repository_root, &manifest_path)?;
 
-    if !manifest_path.exists() {
+    if !manifest_absolute_path.exists() {
         return Ok(UpgradePreview::NoInstallManifest);
     }
 
-    let manifest = load_install_manifest(&manifest_path)?;
+    let manifest = load_install_manifest(&manifest_path, &manifest_absolute_path)?;
     if manifest.integrations.is_empty() {
         return Err(InstallError::InvalidInstallManifest {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            path: manifest_path.as_str().to_owned(),
             message: "manifest integrations list cannot be empty".to_owned(),
         });
     }
@@ -89,15 +91,19 @@ fn apply_upgrade(preview: &UpgradePreview) -> Result<Option<InstallReport>, Inst
     }
 }
 
-fn load_install_manifest(manifest_path: &Path) -> Result<InstallManifest, InstallError> {
-    let raw_manifest =
-        std::fs::read_to_string(manifest_path).map_err(|err| InstallError::ReadFailure {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+fn load_install_manifest(
+    manifest_path: &RepoRelativePath,
+    manifest_absolute_path: &Path,
+) -> Result<InstallManifest, InstallError> {
+    let raw_manifest = std::fs::read_to_string(manifest_absolute_path).map_err(|err| {
+        InstallError::ReadFailure {
+            path: manifest_path.as_str().to_owned(),
             message: err.to_string(),
-        })?;
+        }
+    })?;
 
     toml::from_str(&raw_manifest).map_err(|err| InstallError::InvalidInstallManifest {
-        path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+        path: manifest_path.as_str().to_owned(),
         message: err.to_string(),
     })
 }

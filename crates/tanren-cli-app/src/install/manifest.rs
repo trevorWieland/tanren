@@ -15,7 +15,7 @@ const NIBBLES: &[u8; 16] = b"0123456789abcdef";
 const SHA256_HEX_LENGTH: usize = 64;
 
 /// Install manifest schema version.
-pub(super) const INSTALL_MANIFEST_VERSION: u32 = 1;
+pub(super) const INSTALL_MANIFEST_VERSION: ManifestVersion = ManifestVersion::new(1);
 /// Repo-local metadata path for persisted install state.
 pub(super) const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
 
@@ -39,7 +39,49 @@ pub enum PreservationPolicy {
     PreserveUserEdits,
 }
 
-/// Strict repository-relative path (no absolute roots, no `..` traversal).
+/// Install manifest schema version.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct ManifestVersion(u32);
+
+impl ManifestVersion {
+    /// Build a manifest version value.
+    #[must_use]
+    pub const fn new(value: u32) -> Self {
+        Self(value)
+    }
+
+    /// Numeric version value used in serialized manifests.
+    #[must_use]
+    pub const fn as_u32(self) -> u32 {
+        self.0
+    }
+}
+
+impl fmt::Display for ManifestVersion {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.0.fmt(formatter)
+    }
+}
+
+impl Serialize for ManifestVersion {
+    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        serializer.serialize_u32(self.as_u32())
+    }
+}
+
+impl<'de> Deserialize<'de> for ManifestVersion {
+    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
+    where
+        D: Deserializer<'de>,
+    {
+        u32::deserialize(deserializer).map(Self::new)
+    }
+}
+
+/// Canonical repository-relative path (no absolute roots, no `..` traversal).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoRelativePath(String);
 
@@ -59,16 +101,28 @@ impl RepoRelativePath {
             });
         }
 
-        let is_valid = candidate
-            .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-        if !is_valid {
+        let mut normalized = Vec::new();
+        for component in candidate.components() {
+            match component {
+                Component::Normal(segment) => {
+                    normalized.push(segment.to_string_lossy().into_owned());
+                }
+                Component::CurDir => {}
+                _ => {
+                    return Err(InstallError::InvalidRepoRelativePath {
+                        path: path.to_owned(),
+                    });
+                }
+            }
+        }
+
+        if normalized.is_empty() {
             return Err(InstallError::InvalidRepoRelativePath {
                 path: path.to_owned(),
             });
         }
 
-        Ok(Self(path.to_owned()))
+        Ok(Self(normalized.join("/")))
     }
 
     /// Borrow the validated path string.
@@ -182,7 +236,7 @@ pub struct ManifestEntry {
 /// Install manifest stored under repo-local metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct InstallManifest {
-    pub manifest_version: u32,
+    pub manifest_version: ManifestVersion,
     pub profile: InstallProfile,
     pub integrations: Vec<InstallIntegration>,
     pub entries: Vec<ManifestEntry>,
