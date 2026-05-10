@@ -313,6 +313,29 @@ pub struct MyPermissionsReadMetaRecord {
     pub source: String,
     /// Wall-clock instant when this snapshot was generated.
     pub generated_at: DateTime<Utc>,
+    /// Source checkpoint captured for this account after row enumeration.
+    pub source_checkpoint: MyPermissionsSourceCheckpointRecord,
+    /// Freshness status based on checkpoint drift during the read.
+    pub staleness: MyPermissionsStalenessRecord,
+}
+
+/// Account-scoped checkpoint metadata for a self-permission read.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MyPermissionsSourceCheckpointRecord {
+    /// Highest permission-grant row id observed for this account.
+    pub max_permission_grant_id: Option<PermissionGrantId>,
+    /// Highest permission-constraint row id observed for this account.
+    pub max_permission_constraint_id: Option<PermissionConstraintId>,
+}
+
+/// Freshness status of the self-permission snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MyPermissionsStalenessRecord {
+    /// Snapshot is current with the source checkpoint.
+    Fresh,
+    /// Snapshot may lag source-of-truth updates.
+    PotentiallyStale,
 }
 
 /// Pagination envelope for self-permission reads.

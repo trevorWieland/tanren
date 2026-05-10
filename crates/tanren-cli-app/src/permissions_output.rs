@@ -1,7 +1,7 @@
 use std::io::Write;
 
 use anyhow::{Context, Result};
-use tanren_contract::{MyPermissionEntry, MyPermissionsResponse};
+use tanren_contract::{MyPermissionEntry, MyPermissionsResponse, MyPermissionsStaleness};
 
 pub(crate) fn print_permissions(response: &MyPermissionsResponse) -> Result<()> {
     let stdout = std::io::stdout();
@@ -17,9 +17,22 @@ pub(crate) fn print_permissions(response: &MyPermissionsResponse) -> Result<()> 
     .context("write page metadata")?;
     writeln!(
         handle,
-        "read_metadata source={} generated_at={}",
+        "read_metadata source={} generated_at={} staleness={} max_permission_grant_id={} max_permission_constraint_id={}",
         response.read_metadata.source,
         response.read_metadata.generated_at.to_rfc3339(),
+        format_staleness(response.read_metadata.staleness),
+        response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_grant_id
+            .as_deref()
+            .unwrap_or("none"),
+        response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_constraint_id
+            .as_deref()
+            .unwrap_or("none"),
     )
     .context("write read metadata")?;
 
@@ -51,6 +64,13 @@ pub(crate) fn print_permissions(response: &MyPermissionsResponse) -> Result<()> 
         }
     }
     Ok(())
+}
+
+fn format_staleness(staleness: MyPermissionsStaleness) -> &'static str {
+    match staleness {
+        MyPermissionsStaleness::Fresh => "fresh",
+        MyPermissionsStaleness::PotentiallyStale => "potentially_stale",
+    }
 }
 
 fn write_permission_row(

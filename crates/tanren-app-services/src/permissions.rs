@@ -6,9 +6,13 @@
 use tanren_contract::{
     MyAccountCapabilitiesResponse, MyOrganizationPermissions, MyPermissionEntry,
     MyPermissionsFailureReason, MyPermissionsPageMeta, MyPermissionsReadMeta, MyPermissionsRequest,
-    MyPermissionsResponse, MyProjectPermissions, PermissionConstraintView,
+    MyPermissionsResponse, MyPermissionsSourceCheckpoint, MyPermissionsStaleness,
+    MyProjectPermissions, PermissionConstraintView,
 };
-use tanren_store::{AccountStore, MyPermissionsCursor, MyPermissionsPage, MyPermissionsRecord};
+use tanren_store::{
+    AccountStore, MyPermissionsCursor, MyPermissionsPage, MyPermissionsRecord,
+    MyPermissionsStalenessRecord,
+};
 
 use crate::{AppServiceError, MyPermissionsContext};
 
@@ -94,6 +98,19 @@ fn to_contract_response(
         read_metadata: MyPermissionsReadMeta {
             source: record.read_metadata.source,
             generated_at: record.read_metadata.generated_at,
+            source_checkpoint: MyPermissionsSourceCheckpoint {
+                max_permission_grant_id: record
+                    .read_metadata
+                    .source_checkpoint
+                    .max_permission_grant_id
+                    .map(|id| id.as_uuid().to_string()),
+                max_permission_constraint_id: record
+                    .read_metadata
+                    .source_checkpoint
+                    .max_permission_constraint_id
+                    .map(|id| id.as_uuid().to_string()),
+            },
+            staleness: to_contract_staleness(record.read_metadata.staleness),
         },
         organizations,
         projects,
@@ -159,4 +176,11 @@ fn total_entries(record: &MyPermissionsRecord) -> usize {
         .map(|section| section.permissions.len())
         .sum();
     organization_entries + project_entries
+}
+
+fn to_contract_staleness(staleness: MyPermissionsStalenessRecord) -> MyPermissionsStaleness {
+    match staleness {
+        MyPermissionsStalenessRecord::Fresh => MyPermissionsStaleness::Fresh,
+        MyPermissionsStalenessRecord::PotentiallyStale => MyPermissionsStaleness::PotentiallyStale,
+    }
 }

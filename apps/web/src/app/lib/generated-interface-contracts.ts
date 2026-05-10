@@ -337,13 +337,23 @@ export interface components {
        * @description Wall-clock instant when this response snapshot was generated.
        */
       generated_at: string;
-      /**
-       * @description Canonical read source name serving this response.
-       *
-       *     This endpoint performs a direct read over permission tables. It does
-       *     not report projection checkpoint or staleness guarantees.
-       */
+      /** @description Canonical read source name serving this response. */
       source: string;
+      /**
+       * @description Source checkpoint sampled after the permission rows were read.
+       *
+       *     Checkpoint identifiers are the highest row ids seen in the
+       *     account-scoped permission source tables at metadata capture time.
+       */
+      source_checkpoint: components["schemas"]["MyPermissionsSourceCheckpoint"];
+      /**
+       * @description Freshness status relative to source-checkpoint drift during this read.
+       *
+       *     `fresh` means the checkpoint before and after row enumeration matched.
+       *     `potentially_stale` means the checkpoint advanced while rows were
+       *     enumerated, so this page may lag newly appended grants/constraints.
+       */
+      staleness: components["schemas"]["MyPermissionsStaleness"];
     };
     /** @description Response payload for self-permission introspection. */
     MyPermissionsResponse: {
@@ -356,6 +366,18 @@ export interface components {
       /** @description Read metadata for the returned snapshot. */
       read_metadata: components["schemas"]["MyPermissionsReadMeta"];
     };
+    /** @description Account-scoped checkpoint metadata for self-permission reads. */
+    MyPermissionsSourceCheckpoint: {
+      /** @description Highest permission-constraint row id visible for this account when read. */
+      max_permission_constraint_id?: string | null;
+      /** @description Highest permission-grant row id visible for this account when read. */
+      max_permission_grant_id?: string | null;
+    };
+    /**
+     * @description Freshness status for the self-permission snapshot.
+     * @enum {string}
+     */
+    MyPermissionsStaleness: "fresh" | "potentially_stale";
     /** @description Project-level permission section for the current caller. */
     MyProjectPermissions: {
       /** @description Effective permission entries for this project. */
@@ -867,6 +889,10 @@ export type MyPermissionsReadMeta =
   components["schemas"]["MyPermissionsReadMeta"];
 export type MyPermissionsResponse =
   components["schemas"]["MyPermissionsResponse"];
+export type MyPermissionsSourceCheckpoint =
+  components["schemas"]["MyPermissionsSourceCheckpoint"];
+export type MyPermissionsStaleness =
+  components["schemas"]["MyPermissionsStaleness"];
 export type MyProjectPermissions =
   components["schemas"]["MyProjectPermissions"];
 export type OrgId = components["schemas"]["OrgId"];

@@ -181,6 +181,24 @@ async fn then_permissions_limit_defaults(world: &mut TanrenWorld, expected_limit
         view.response.page.limit, expected,
         "expected default page limit to be enforced"
     );
+    assert!(
+        !view.response.read_metadata.source.trim().is_empty(),
+        "expected read metadata source to be populated"
+    );
+    assert!(
+        view.response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_grant_id
+            .is_some()
+            || view
+                .response
+                .read_metadata
+                .source_checkpoint
+                .max_permission_constraint_id
+                .is_some(),
+        "expected read metadata checkpoint ids to include at least one row id"
+    );
 }
 
 #[then(expr = "the permissions page limit is clamped to {int}")]

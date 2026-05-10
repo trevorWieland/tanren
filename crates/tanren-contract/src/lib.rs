@@ -17,7 +17,8 @@ pub use permissions::{
     InterfaceError, InterfaceErrorCode, MY_PERMISSIONS_DEFAULT_LIMIT, MY_PERMISSIONS_MAX_LIMIT,
     MyOrganizationPermissions, MyPermissionEntry, MyPermissionsFailureReason,
     MyPermissionsPageMeta, MyPermissionsReadMeta, MyPermissionsRequest, MyPermissionsResponse,
-    MyProjectPermissions, PermissionConstraintView,
+    MyPermissionsSourceCheckpoint, MyPermissionsStaleness, MyProjectPermissions,
+    PermissionConstraintView,
 };
 
 use serde::{Deserialize, Serialize};

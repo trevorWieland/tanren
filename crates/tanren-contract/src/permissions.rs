@@ -97,12 +97,39 @@ pub struct MyPermissionsPageMeta {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct MyPermissionsReadMeta {
     /// Canonical read source name serving this response.
-    ///
-    /// This endpoint performs a direct read over permission tables. It does
-    /// not report projection checkpoint or staleness guarantees.
     pub source: String,
     /// Wall-clock instant when this response snapshot was generated.
     pub generated_at: DateTime<Utc>,
+    /// Source checkpoint sampled after the permission rows were read.
+    ///
+    /// Checkpoint identifiers are the highest row ids seen in the
+    /// account-scoped permission source tables at metadata capture time.
+    pub source_checkpoint: MyPermissionsSourceCheckpoint,
+    /// Freshness status relative to source-checkpoint drift during this read.
+    ///
+    /// `fresh` means the checkpoint before and after row enumeration matched.
+    /// `potentially_stale` means the checkpoint advanced while rows were
+    /// enumerated, so this page may lag newly appended grants/constraints.
+    pub staleness: MyPermissionsStaleness,
+}
+
+/// Account-scoped checkpoint metadata for self-permission reads.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct MyPermissionsSourceCheckpoint {
+    /// Highest permission-grant row id visible for this account when read.
+    pub max_permission_grant_id: Option<String>,
+    /// Highest permission-constraint row id visible for this account when read.
+    pub max_permission_constraint_id: Option<String>,
+}
+
+/// Freshness status for the self-permission snapshot.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum MyPermissionsStaleness {
+    /// Snapshot is current with the source checkpoint captured in metadata.
+    Fresh,
+    /// Snapshot may lag source-of-truth updates.
+    PotentiallyStale,
 }
 
 /// Organization-level permission section for the current caller.

@@ -16,6 +16,15 @@ import {
 } from "./permission-formatting";
 import type { PermissionPageView } from "./use-my-permissions-pages";
 
+function checkpointSummary(pageView: PermissionPageView): string {
+  const checkpoint = pageView.response.read_metadata.source_checkpoint;
+  const grantId =
+    checkpoint.max_permission_grant_id ?? m.myPermissions_metadataNone();
+  const constraintId =
+    checkpoint.max_permission_constraint_id ?? m.myPermissions_metadataNone();
+  return `grant:${grantId} constraint:${constraintId}`;
+}
+
 function SourceReferenceValue({ reference }: { reference: string }): ReactNode {
   if (reference.startsWith("http://") || reference.startsWith("https://")) {
     return (
@@ -243,6 +252,14 @@ export function PermissionPageSection({
             pageView.response.read_metadata.generated_at,
           ).toLocaleString()}
         </dd>
+        <dt className="text-[--color-fg-muted]">
+          {m.myPermissions_metadataCheckpointLabel()}
+        </dt>
+        <dd className="break-all">{checkpointSummary(pageView)}</dd>
+        <dt className="text-[--color-fg-muted]">
+          {m.myPermissions_metadataStalenessLabel()}
+        </dt>
+        <dd>{pageView.response.read_metadata.staleness}</dd>
         <dt className="text-[--color-fg-muted]">
           {m.myPermissions_metadataLimitLabel()}
         </dt>

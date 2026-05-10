@@ -217,11 +217,51 @@ Then(
     }
     const body = (await response.json()) as {
       page?: { limit?: number };
+      read_metadata?: {
+        source?: string;
+        generated_at?: string;
+        staleness?: string;
+        source_checkpoint?: {
+          max_permission_grant_id?: null | string;
+          max_permission_constraint_id?: null | string;
+        };
+      };
     };
     const observed = body.page?.limit;
     if (observed !== expectedLimit) {
       throw new Error(
         `expected default page limit ${expectedLimit}, got ${String(observed)}`,
+      );
+    }
+    const readMetadata = body.read_metadata;
+    if (!readMetadata?.source) {
+      throw new Error("expected read_metadata.source to be populated");
+    }
+    if (
+      !readMetadata.generated_at ||
+      Number.isNaN(Date.parse(readMetadata.generated_at))
+    ) {
+      throw new Error(
+        `expected read_metadata.generated_at to be an RFC3339 timestamp, got ${String(readMetadata?.generated_at)}`,
+      );
+    }
+    if (
+      readMetadata.staleness !== "fresh" &&
+      readMetadata.staleness !== "potentially_stale"
+    ) {
+      throw new Error(
+        `expected read_metadata.staleness to be a known value, got ${String(readMetadata.staleness)}`,
+      );
+    }
+    if (!readMetadata.source_checkpoint) {
+      throw new Error("expected read_metadata.source_checkpoint to be present");
+    }
+    if (
+      !readMetadata.source_checkpoint.max_permission_grant_id &&
+      !readMetadata.source_checkpoint.max_permission_constraint_id
+    ) {
+      throw new Error(
+        "expected read_metadata.source_checkpoint to contain at least one row id",
       );
     }
   },

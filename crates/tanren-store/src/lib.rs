@@ -20,9 +20,10 @@ pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, MyOrganizationPermissionsRecord,
     MyPermissionRecord, MyPermissionsCursor, MyPermissionsPage, MyPermissionsReadMetaRecord,
-    MyPermissionsRecord, MyPermissionsScopeKind, MyProjectPermissionsRecord, NewAccount,
-    NewInvitation, NewPermissionConstraint, NewPermissionGrant, PermissionConstraintRecord,
-    PermissionGrantRecord, PermissionGrantScope, SessionRecord,
+    MyPermissionsRecord, MyPermissionsScopeKind, MyPermissionsSourceCheckpointRecord,
+    MyPermissionsStalenessRecord, MyProjectPermissionsRecord, NewAccount, NewInvitation,
+    NewPermissionConstraint, NewPermissionGrant, PermissionConstraintRecord, PermissionGrantRecord,
+    PermissionGrantScope, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,

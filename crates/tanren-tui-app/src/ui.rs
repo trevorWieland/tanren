@@ -6,7 +6,7 @@ use secrecy::SecretString;
 use tanren_app_services::AppServiceError;
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, MyPermissionEntry, MyPermissionsResponse,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    MyPermissionsStaleness, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{
     Email, InvitationToken, PermissionGrantSource, PolicyConstraintSource, ValidationError,
@@ -114,9 +114,22 @@ pub(crate) fn my_permissions_outcome(response: &MyPermissionsResponse) -> Outcom
         response.page.limit, response.page.returned, request_cursor, next_cursor
     ));
     lines.push(format!(
-        "read_metadata source={} generated_at={}",
+        "read_metadata source={} generated_at={} staleness={} max_permission_grant_id={} max_permission_constraint_id={}",
         response.read_metadata.source,
-        response.read_metadata.generated_at.to_rfc3339()
+        response.read_metadata.generated_at.to_rfc3339(),
+        format_staleness(response.read_metadata.staleness),
+        response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_grant_id
+            .as_deref()
+            .unwrap_or("none"),
+        response
+            .read_metadata
+            .source_checkpoint
+            .max_permission_constraint_id
+            .as_deref()
+            .unwrap_or("none"),
     ));
     if response.organizations.is_empty() && response.projects.is_empty() {
         lines.push("permissions=none".to_owned());
@@ -177,6 +190,13 @@ fn format_constraint_source(source: PolicyConstraintSource) -> String {
     match source {
         PolicyConstraintSource::OrganizationPolicy => "organization_policy".to_owned(),
         PolicyConstraintSource::ProjectPolicy => "project_policy".to_owned(),
+    }
+}
+
+fn format_staleness(staleness: MyPermissionsStaleness) -> &'static str {
+    match staleness {
+        MyPermissionsStaleness::Fresh => "fresh",
+        MyPermissionsStaleness::PotentiallyStale => "potentially_stale",
     }
 }
 

@@ -19,6 +19,7 @@ pub(crate) async fn load_my_permissions(
     page: MyPermissionsPage,
 ) -> Result<MyPermissionsRecord, StoreError> {
     let generated_at = Utc::now();
+    let source_checkpoint_before_read = load_source_checkpoint(conn, account_id).await?;
     let limit_plus_one = page.limit.saturating_add(1);
     let query = introspection_query(
         conn.get_database_backend(),
@@ -37,6 +38,11 @@ pub(crate) async fn load_my_permissions(
     if has_next_page {
         parsed_rows.truncate(usize::from(page.limit));
     }
+    let source_checkpoint_after_read = load_source_checkpoint(conn, account_id).await?;
+    let staleness = derive_staleness(
+        &source_checkpoint_before_read,
+        &source_checkpoint_after_read,
+    );
 
     let mut organizations: Vec<MyOrganizationPermissionsRecord> = Vec::new();
     let mut projects: Vec<MyProjectPermissionsRecord> = Vec::new();
@@ -63,9 +69,41 @@ pub(crate) async fn load_my_permissions(
         read_metadata: crate::MyPermissionsReadMetaRecord {
             source: "permission_introspection_permission_grants_table_v1".to_owned(),
             generated_at,
+            source_checkpoint: source_checkpoint_after_read,
+            staleness,
         },
         organizations,
         projects,
+    })
+}
+
+fn derive_staleness(
+    source_checkpoint_before_read: &crate::MyPermissionsSourceCheckpointRecord,
+    source_checkpoint_after_read: &crate::MyPermissionsSourceCheckpointRecord,
+) -> crate::MyPermissionsStalenessRecord {
+    if source_checkpoint_before_read == source_checkpoint_after_read {
+        crate::MyPermissionsStalenessRecord::Fresh
+    } else {
+        crate::MyPermissionsStalenessRecord::PotentiallyStale
+    }
+}
+
+async fn load_source_checkpoint(
+    conn: &DatabaseConnection,
+    account_id: AccountId,
+) -> Result<crate::MyPermissionsSourceCheckpointRecord, StoreError> {
+    let query = source_checkpoint_query(conn.get_database_backend(), account_id);
+    let row = conn.query_one(query).await?.ok_or(StoreError::Invariant {
+        entity: "permission_grants",
+        detail: "source checkpoint query returned no row",
+    })?;
+    let max_permission_grant_id: Option<Uuid> = row.try_get("", "max_permission_grant_id")?;
+    let max_permission_constraint_id: Option<Uuid> =
+        row.try_get("", "max_permission_constraint_id")?;
+
+    Ok(crate::MyPermissionsSourceCheckpointRecord {
+        max_permission_grant_id: max_permission_grant_id.map(PermissionGrantId::new),
+        max_permission_constraint_id: max_permission_constraint_id.map(PermissionConstraintId::new),
     })
 }
 
@@ -290,6 +328,31 @@ fn introspection_query_base_sql(account_placeholder: &str) -> String {
     format!(
         r"{INTROSPECTION_QUERY_SELECT_JOIN}
 WHERE pg.account_id = {account_placeholder}",
+    )
+}
+
+fn source_checkpoint_query(backend: DbBackend, account_id: AccountId) -> Statement {
+    Statement::from_sql_and_values(
+        backend,
+        source_checkpoint_query_sql(backend),
+        [account_id.as_uuid().into()],
+    )
+}
+
+fn source_checkpoint_query_sql(backend: DbBackend) -> String {
+    let account_placeholder = match backend {
+        DbBackend::Postgres => "$1",
+        DbBackend::Sqlite | DbBackend::MySql => "?",
+    };
+    format!(
+        r"
+SELECT
+  MAX(pg.id) AS max_permission_grant_id,
+  MAX(pc.id) AS max_permission_constraint_id
+FROM permission_grants pg
+LEFT JOIN permission_constraints pc ON pc.grant_id = pg.id
+WHERE pg.account_id = {account_placeholder}
+"
     )
 }
 

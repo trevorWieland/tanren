@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use regex::Regex;
 use tanren_contract::{
     AccountView, MY_PERMISSIONS_DEFAULT_LIMIT, MyPermissionsPageMeta, MyPermissionsReadMeta,
-    MyPermissionsResponse,
+    MyPermissionsResponse, MyPermissionsSourceCheckpoint, MyPermissionsStaleness,
 };
 use tanren_identity_policy::{AccountId, Identifier, OrgId};
 use uuid::Uuid;
@@ -61,8 +61,7 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
     let mut page_limit = MY_PERMISSIONS_DEFAULT_LIMIT;
     let mut page_request_cursor: Option<String> = None;
     let mut page_next_cursor: Option<String> = None;
-    let mut read_source = "permission_introspection_permission_grants_table_v1".to_owned();
-    let mut read_generated_at = Utc::now();
+    let mut read_metadata: Option<ParsedCliReadMeta> = None;
 
     for line in stdout.lines() {
         let line = line.trim();
@@ -79,8 +78,7 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
         }
         if line.starts_with("read_metadata ") {
             let read_meta = parse_read_metadata_line(line)?;
-            read_source = read_meta.source;
-            read_generated_at = read_meta.generated_at;
+            read_metadata = Some(read_meta);
             continue;
         }
         let Some((scope, scope_id, entry)) = parse_permission_line(line)? else {
@@ -105,6 +103,10 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
             }),
         }
     }
+    let read_metadata = read_metadata.ok_or_else(|| {
+        HarnessError::Transport("missing read_metadata line in cli stdout".to_owned())
+    })?;
+
     Ok(MyPermissionsResponse {
         page: MyPermissionsPageMeta {
             limit: page_limit,
@@ -113,8 +115,13 @@ pub(super) fn parse_permissions_output(stdout: &str) -> HarnessResult<MyPermissi
             next_cursor: page_next_cursor,
         },
         read_metadata: MyPermissionsReadMeta {
-            source: read_source,
-            generated_at: read_generated_at,
+            source: read_metadata.source,
+            generated_at: read_metadata.generated_at,
+            source_checkpoint: MyPermissionsSourceCheckpoint {
+                max_permission_grant_id: read_metadata.max_permission_grant_id,
+                max_permission_constraint_id: read_metadata.max_permission_constraint_id,
+            },
+            staleness: read_metadata.staleness,
         },
         organizations,
         projects,
@@ -152,6 +159,9 @@ fn parse_page_metadata_line(line: &str) -> HarnessResult<ParsedCliPageMeta> {
 struct ParsedCliReadMeta {
     source: String,
     generated_at: DateTime<Utc>,
+    staleness: MyPermissionsStaleness,
+    max_permission_grant_id: Option<String>,
+    max_permission_constraint_id: Option<String>,
 }
 
 fn parse_read_metadata_line(line: &str) -> HarnessResult<ParsedCliReadMeta> {
@@ -162,10 +172,30 @@ fn parse_read_metadata_line(line: &str) -> HarnessResult<ParsedCliReadMeta> {
             ))
         })?
         .with_timezone(&Utc);
+    let staleness = parse_staleness(capture(line, r"staleness=(\S+)")?.as_str())?;
     Ok(ParsedCliReadMeta {
         source: capture(line, r"source=(\S+)")?,
         generated_at,
+        staleness,
+        max_permission_grant_id: normalize_optional(capture(
+            line,
+            r"max_permission_grant_id=(\S+)",
+        )?),
+        max_permission_constraint_id: normalize_optional(capture(
+            line,
+            r"max_permission_constraint_id=(\S+)",
+        )?),
     })
+}
+
+fn parse_staleness(raw: &str) -> HarnessResult<MyPermissionsStaleness> {
+    match raw {
+        "fresh" => Ok(MyPermissionsStaleness::Fresh),
+        "potentially_stale" => Ok(MyPermissionsStaleness::PotentiallyStale),
+        _ => Err(HarnessError::Transport(format!(
+            "parse read metadata staleness from cli stdout: unsupported value {raw}"
+        ))),
+    }
 }
 
 #[derive(Debug, Clone, Copy)]
