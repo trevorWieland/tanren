@@ -59,12 +59,18 @@ function readbackSection(page: Page): Locator {
 }
 
 function currentPostureCard(page: Page): Locator {
+  const scopeLine = page
+    .locator("p.font-mono")
+    .filter({
+      hasText: /^scope:\s*(account|project|installation):/i,
+    })
+    .first();
   return readbackSection(page)
     .locator("div")
     .filter({
-      hasText: /scope:\s*(account|project|installation):/i,
+      has: scopeLine,
     })
-    .first();
+    .last();
 }
 
 function auditSection(page: Page): Locator {
@@ -128,14 +134,6 @@ function operationalScopeLabelFromCurrentScope(
   return `installation: ${scope.installation_id}`;
 }
 
-function isListPostureResponse(response: Response): boolean {
-  if (response.request().method() !== "GET") {
-    return false;
-  }
-  const pathname = new URL(response.url()).pathname;
-  return pathname === "/deployment-postures";
-}
-
 function isSetPostureResponse(response: Response): boolean {
   if (response.request().method() !== "POST") {
     return false;
@@ -150,6 +148,44 @@ function isGetPostureResponse(response: Response): boolean {
   }
   const pathname = new URL(response.url()).pathname;
   return pathname.startsWith("/deployment-postures/");
+}
+
+async function readSupportedPosturesViaBrowser(
+  page: Page,
+): Promise<{ ok: boolean; status: number; json: unknown }> {
+  return browserJsonRequest(page, "GET", "/deployment-postures");
+}
+
+async function isDiscoveryFormReady(page: Page): Promise<boolean> {
+  return page.evaluate(() => {
+    const operationalScopeSelect = document.querySelector<HTMLSelectElement>(
+      "#posture-operational-scope",
+    );
+    const postureSelect =
+      document.querySelector<HTMLSelectElement>("#posture-value");
+    if (!operationalScopeSelect || !postureSelect) {
+      return false;
+    }
+    if (operationalScopeSelect.disabled || postureSelect.disabled) {
+      return false;
+    }
+
+    const loadButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => /\bload\b/i.test(button.textContent ?? ""),
+    );
+    const saveButton = Array.from(document.querySelectorAll("button")).find(
+      (button) => /\b(save|set posture)\b/i.test(button.textContent ?? ""),
+    );
+    if (
+      !loadButton ||
+      !saveButton ||
+      loadButton.hasAttribute("disabled") ||
+      saveButton.hasAttribute("disabled")
+    ) {
+      return false;
+    }
+    return postureSelect.options.length > 0;
+  });
 }
 
 async function parseJsonResponse(response: Response): Promise<{
@@ -174,26 +210,33 @@ async function openPosturePageForScope(
   page: Page,
   accountId: string,
 ): Promise<void> {
-  await page.addInitScript(
-    `window.localStorage.setItem("tanren.active-account-scope-id", ${JSON.stringify(accountId)});`,
-  );
   await page.goto("/deployment-posture");
+  await page.evaluate((activeAccountId: string) => {
+    window.localStorage.setItem(
+      "tanren.active-account-scope-id",
+      activeAccountId,
+    );
+  }, accountId);
+  await page.reload();
   await page
     .getByRole("heading", { name: /deployment posture operations/i })
     .waitFor();
 }
 
 async function discoverCapabilitiesFromUi(page: Page): Promise<unknown> {
-  const listResponsePromise = page.waitForResponse(isListPostureResponse);
-  await page
-    .getByRole("button", { name: /discover capabilities/i })
-    .first()
-    .click();
-  const listResponse = await parseJsonResponse(await listResponsePromise);
   const operationalScopeSelect = page.locator("#posture-operational-scope");
   const postureSelect = page.locator("#posture-value");
   const loadButton = page.getByRole("button", { name: /load/i }).first();
-  const saveButton = page.getByRole("button", { name: /save/i }).first();
+  const saveButton = page
+    .getByRole("button", { name: /(save|set posture)/i })
+    .first();
+
+  if (!(await isDiscoveryFormReady(page))) {
+    await page
+      .getByRole("button", { name: /discover capabilities/i })
+      .first()
+      .click();
+  }
 
   await operationalScopeSelect.waitFor();
   await postureSelect.waitFor();
@@ -210,6 +253,7 @@ async function discoverCapabilitiesFromUi(page: Page): Promise<unknown> {
     undefined,
     { timeout: 10_000 },
   );
+  const listResponse = await readSupportedPosturesViaBrowser(page);
   if (!listResponse.ok) {
     throw new Error(
       `list supported postures failed with HTTP ${listResponse.status}`,
