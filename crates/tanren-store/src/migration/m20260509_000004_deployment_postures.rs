@@ -50,6 +50,38 @@ impl MigrationTrait for Migration {
                             .col(DeploymentPostures::ScopeKind)
                             .col(DeploymentPostures::ScopeId),
                     )
+                    // Closed posture set enforced at the DB layer.
+                    .check(Expr::col(DeploymentPostures::Posture).is_in([
+                        "hosted",
+                        "self_hosted",
+                        "local_only",
+                    ]))
+                    // Closed scope-kind set enforced at the DB layer.
+                    .check(Expr::col(DeploymentPostures::ScopeKind).is_in([
+                        "account",
+                        "project",
+                        "installation",
+                    ]))
+                    // Until project/installation backing tables land, only
+                    // account-scoped rows are allowed.
+                    .check(Expr::col(DeploymentPostures::ScopeKind).eq("account"))
+                    // Every mutation actor must reference an existing account.
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_deployment_postures_changed_by_accounts")
+                            .from(DeploymentPostures::Table, DeploymentPostures::ChangedBy)
+                            .to(Accounts::Table, Accounts::Id)
+                            .on_delete(ForeignKeyAction::Restrict),
+                    )
+                    // Supported account-scoped targets must reference an
+                    // existing account id.
+                    .foreign_key(
+                        ForeignKey::create()
+                            .name("fk_deployment_postures_scope_account")
+                            .from(DeploymentPostures::Table, DeploymentPostures::ScopeId)
+                            .to(Accounts::Table, Accounts::Id)
+                            .on_delete(ForeignKeyAction::Restrict),
+                    )
                     .to_owned(),
             )
             .await
@@ -70,4 +102,10 @@ enum DeploymentPostures {
     Posture,
     ChangedBy,
     ChangedAt,
+}
+
+#[derive(DeriveIden)]
+enum Accounts {
+    Table,
+    Id,
 }
