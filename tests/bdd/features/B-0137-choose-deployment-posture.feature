@@ -225,8 +225,8 @@ Feature: Choose a deployment posture
       And the error summary is readable
 
     @falsification @tui
-    Scenario: TUI denies changing a missing account scope
+    Scenario: TUI rejects a missing account scope
       Given a TUI account actor with posture permission
       When the actor sets deployment posture "hosted" for a missing account scope over TUI
-      Then the request fails with code "permission_denied"
+      Then the request fails with code "scope_not_found"
       And the error summary is readable

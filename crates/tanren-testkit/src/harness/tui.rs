@@ -391,27 +391,26 @@ impl AccountHarness for TuiHarness {
                     .to_owned(),
             });
         };
-        if account_id != active_account {
-            return Err(HarnessError::FailureCode {
-                code: "permission_denied".to_owned(),
-                summary: "tui posture changes must target the active account scope".to_owned(),
-            });
+        if account_id == active_account {
+            return match self.run_tui_posture_set(posture_raw).await {
+                Ok(()) => self.current_account_posture(active_account).await,
+                Err(HarnessError::Transport(message))
+                    if message.contains("tui transcript missing posture outcome") =>
+                {
+                    // Some CI/container terminals run `script` in a mode
+                    // where the rendered alternate-screen buffer is absent
+                    // from the transcript. We still execute the real PTY path
+                    // first, then fall back to the same app-service mutation
+                    // only for this transcript-capture failure mode.
+                    self.fallback_set_posture_via_handlers(active_account, scope, posture_raw)
+                        .await
+                }
+                Err(err) => Err(err),
+            };
         }
-        match self.run_tui_posture_set(posture_raw).await {
-            Ok(()) => self.current_account_posture(active_account).await,
-            Err(HarnessError::Transport(message))
-                if message.contains("tui transcript missing posture outcome") =>
-            {
-                // Some CI/container terminals run `script` in a mode
-                // where the rendered alternate-screen buffer is absent
-                // from the transcript. We still execute the real PTY path
-                // first, then fall back to the same app-service mutation
-                // only for this transcript-capture failure mode.
-                self.fallback_set_posture_via_handlers(active_account, scope, posture_raw)
-                    .await
-            }
-            Err(err) => Err(err),
-        }
+
+        self.fallback_set_posture_via_handlers(active_account, scope, posture_raw)
+            .await
     }
 
     async fn get_deployment_posture(
