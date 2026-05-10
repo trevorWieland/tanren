@@ -16,6 +16,7 @@ mod writer;
 mod writer_tx;
 
 pub use cli::InstallCommand;
+pub use error::InstallCommandError;
 pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;

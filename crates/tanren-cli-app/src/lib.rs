@@ -24,10 +24,22 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
+use thiserror::Error;
 
 pub mod install;
+mod standards;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
+
+#[derive(Debug, Error)]
+enum RunError {
+    #[error(transparent)]
+    Runtime(#[from] anyhow::Error),
+    #[error(transparent)]
+    Standards(#[from] standards::StandardsCommandError),
+    #[error(transparent)]
+    Install(#[from] install::InstallCommandError),
+}
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
 /// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
@@ -66,6 +78,8 @@ enum Command {
         #[command(subcommand)]
         action: AccountAction,
     },
+    /// Inspect configured standards files for the repository.
+    Standards(standards::StandardsCommand),
     /// Bootstrap Tanren assets into a repository.
     Install(install::InstallCommand),
 }
@@ -120,13 +134,14 @@ enum AccountAction {
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
 pub fn run(config: Config) -> ExitCode {
-    let result = match config.command {
-        None | Some(Command::Health) => print_health(),
+    let result: Result<(), RunError> = match config.command {
+        None | Some(Command::Health) => print_health().map_err(RunError::from),
         Some(Command::Migrate {
             action: MigrateAction::Up { database_url },
-        }) => run_migrate_up(&database_url),
-        Some(Command::Account { action }) => dispatch_account(action),
-        Some(Command::Install(command)) => command.run().map_err(anyhow::Error::new),
+        }) => run_migrate_up(&database_url).map_err(RunError::from),
+        Some(Command::Account { action }) => dispatch_account(action).map_err(RunError::from),
+        Some(Command::Standards(command)) => command.run().map_err(RunError::from),
+        Some(Command::Install(command)) => command.run().map_err(RunError::from),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
