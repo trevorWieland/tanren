@@ -181,9 +181,9 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<CreateOrganizationToolRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let session_token = request
-            .session_token
-            .unwrap_or_else(|| SessionToken::from_secret(secrecy::SecretString::from("")));
+        let Some(session_token) = request.session_token else {
+            return Ok(auth_required_failure());
+        };
         match self
             .handlers
             .create_organization(
@@ -210,9 +210,9 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<ListOrganizationsToolRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let session_token = request
-            .session_token
-            .unwrap_or_else(|| SessionToken::from_secret(secrecy::SecretString::from("")));
+        let Some(session_token) = request.session_token else {
+            return Ok(auth_required_failure());
+        };
         match self
             .handlers
             .list_organizations(
@@ -237,9 +237,9 @@ impl TanrenMcp {
         &self,
         Parameters(request): Parameters<CheckOrganizationPermissionToolRequest>,
     ) -> Result<CallToolResult, McpError> {
-        let session_token = request
-            .session_token
-            .unwrap_or_else(|| SessionToken::from_secret(secrecy::SecretString::from("")));
+        let Some(session_token) = request.session_token else {
+            return Ok(auth_required_failure());
+        };
         match self
             .handlers
             .check_organization_permission(
@@ -291,6 +291,10 @@ impl ServerHandler for TanrenMcp {
     }
 }
 
+fn auth_required_failure() -> CallToolResult {
+    map_failure(AppServiceError::Account(AccountFailureReason::AuthRequired))
+}
+
 /// Encode a successful handler response as a JSON-text `CallToolResult`.
 fn success<T: Serialize>(value: &T) -> CallToolResult {
     let text = serde_json::to_string(value).unwrap_or_else(|_| "{}".to_owned());
@@ -306,13 +310,16 @@ fn map_failure(err: AppServiceError) -> CallToolResult {
             (reason.code().to_owned(), reason.summary().to_owned())
         }
         AppServiceError::InvalidInput(message) => ("validation_failed".to_owned(), message),
-        AppServiceError::Store(err) => (
-            "internal_error".to_owned(),
-            format!("Tanren encountered an internal error: {err}"),
-        ),
+        AppServiceError::Store(err) => {
+            tracing::error!(target: "tanren_mcp", error = %err, "store error");
+            (
+                "internal_error".to_owned(),
+                "Tanren encountered an internal error.".to_owned(),
+            )
+        }
         _ => (
             "internal_error".to_owned(),
-            "Unknown app-service failure".to_owned(),
+            "Tanren encountered an internal error.".to_owned(),
         ),
     };
     let body = json!({
@@ -428,7 +435,7 @@ pub fn build_router_with_store(
 /// the listener cannot bind, or `axum::serve` returns an error.
 pub async fn serve(_config: Config) -> Result<()> {
     let bind = env::var(BIND_ADDRESS_ENV).unwrap_or_else(|_| DEFAULT_BIND_ADDRESS.to_owned());
-    let auth_config = Arc::new(AuthConfig::from_env());
+    let auth_config = Arc::new(AuthConfig::from_env().context("load MCP auth config")?);
     if auth_config.bootstrap_key.is_none() {
         tracing::warn!(
             target: "tanren_mcp",
