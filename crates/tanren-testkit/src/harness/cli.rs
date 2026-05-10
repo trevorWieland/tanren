@@ -20,8 +20,8 @@ use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
     CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    SignInRequest, SignUpRequest,
+    OrganizationBehaviorId, OrganizationProjectSummary, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -300,7 +300,10 @@ impl AccountHarness for CliHarness {
         let org_id_raw = captures.get(1).map_or("", |m| m.as_str());
         let granted_raw = captures.get(3).map_or("", |m| m.as_str());
         let initial_project_count_raw = captures.get(4).map_or("", |m| m.as_str());
-        let proof_behavior_id = captures.get(5).map_or("", |m| m.as_str()).to_owned();
+        let proof_behavior_id = OrganizationBehaviorId::from_str(
+            captures.get(5).map_or("", |m| m.as_str()),
+        )
+        .map_err(|err| HarnessError::Transport(format!("parse proof_behavior_id: {err}")))?;
         let source_event = captures.get(6).map_or("", |m| m.as_str());
         let org_id = OrgId::from(
             Uuid::parse_str(org_id_raw)

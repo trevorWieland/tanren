@@ -20,8 +20,37 @@ export const ORGANIZATION_API_ROUTES = {
 };
 
 export const ORGANIZATION_RUNTIME_ROUTE = "/organizations" as const;
+export type OrganizationCreateBehaviorId =
+  components["schemas"]["OrganizationBehaviorId"];
+export type OrganizationEventFamily = "organization";
+export type OrganizationCreatedEventKind = "organization_created";
+export const ORGANIZATION_BEHAVIOR_FEATURE_PATH =
+  "tests/bdd/features/B-0066-create-organization.feature" as const;
+
+function deriveBehaviorIdFromFeaturePath(
+  featurePath: string,
+): OrganizationCreateBehaviorId {
+  const filename = featurePath.split("/").at(-1) ?? "";
+  const match = /^(B-\d{4})-/.exec(filename);
+  if (!match) {
+    throw new Error(
+      `feature path '${featurePath}' must begin with B-XXXX- behavior prefix`,
+    );
+  }
+  return match[1] as OrganizationCreateBehaviorId;
+}
+
+export const ORGANIZATION_CREATE_BEHAVIOR_ID = deriveBehaviorIdFromFeaturePath(
+  ORGANIZATION_BEHAVIOR_FEATURE_PATH,
+);
+export const ORGANIZATION_EVENT_FAMILY: OrganizationEventFamily =
+  "organization";
+export const ORGANIZATION_CREATED_EVENT_KIND: OrganizationCreatedEventKind =
+  "organization_created";
+export const ORGANIZATION_WEB_HARNESS_BEHAVIOR_SEGMENT: Lowercase<OrganizationCreateBehaviorId> =
+  ORGANIZATION_CREATE_BEHAVIOR_ID.toLowerCase() as Lowercase<OrganizationCreateBehaviorId>;
 export const ORGANIZATION_WEB_HARNESS_ROUTE =
-  "/harness/b-0066/organizations" as const;
+  `/harness/${ORGANIZATION_WEB_HARNESS_BEHAVIOR_SEGMENT}/organizations` as const;
 export type OrganizationAdminPermission =
   components["schemas"]["OrganizationPermission"];
 export type CreateOrganizationApiRequest =
@@ -29,7 +58,7 @@ export type CreateOrganizationApiRequest =
 export type CheckOrganizationPermissionApiRequest =
   operations["check_organization_permission_route"]["requestBody"]["content"]["application/json"];
 export type ListOrganizationsApiRequest = NonNullable<
-  paths["/organizations"]["parameters"]["query"]
+  operations["list_organizations_route"]["parameters"]["query"]
 >;
 
 export const ORGANIZATION_WIRE_TEST_IDS = {

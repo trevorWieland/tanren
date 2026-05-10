@@ -7,6 +7,8 @@
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use std::fmt;
+use std::str::FromStr;
 use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
     SessionToken,
@@ -338,7 +340,7 @@ pub struct OrganizationFailureBody {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationProofLink {
     /// Canonical behavior id proving this command contract.
-    pub behavior_id: String,
+    pub behavior_id: OrganizationBehaviorId,
 }
 
 /// Stable reference to source evidence for organization create.
@@ -356,6 +358,41 @@ pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 pub const ORGANIZATION_CREATED_EVENT_KIND: &str = "organization_created";
 /// Canonical behavior proof id for organization creation.
 pub const ORGANIZATION_CREATE_BEHAVIOR_ID: &str = "B-0066";
+
+/// Canonical behavior id taxonomy for organization operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub enum OrganizationBehaviorId {
+    /// `B-0066` — Create an organization.
+    #[serde(rename = "B-0066")]
+    B0066CreateOrganization,
+}
+
+impl OrganizationBehaviorId {
+    /// Stable string form used in wire contracts and witnesses.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::B0066CreateOrganization => ORGANIZATION_CREATE_BEHAVIOR_ID,
+        }
+    }
+}
+
+impl fmt::Display for OrganizationBehaviorId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+impl FromStr for OrganizationBehaviorId {
+    type Err = &'static str;
+
+    fn from_str(value: &str) -> Result<Self, Self::Err> {
+        match value {
+            ORGANIZATION_CREATE_BEHAVIOR_ID => Ok(Self::B0066CreateOrganization),
+            _ => Err("unknown organization behavior id"),
+        }
+    }
+}
 /// Default page size for listing organizations.
 pub const LIST_ORGANIZATIONS_DEFAULT_LIMIT: u64 = 50;
 /// Maximum allowed page size for listing organizations.

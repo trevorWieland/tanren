@@ -469,7 +469,7 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
 /// same module as the `#[utoipa::path]`-annotated handlers, so the
 /// router constructor lives here too.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
-    OpenApiRouter::with_openapi(ApiDoc::openapi())
+    OpenApiRouter::with_openapi(openapi_document())
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
@@ -479,4 +479,10 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(check_organization_permission_route))
         .routes(routes!(revoke_route))
         .with_state(state)
+}
+
+/// Materialize the canonical `OpenAPI` document from route metadata and
+/// contract schemas.
+pub(crate) fn openapi_document() -> utoipa::openapi::OpenApi {
+    ApiDoc::openapi()
 }

@@ -5,8 +5,8 @@ use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
-    ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID, ORGANIZATION_CREATED_EVENT_KIND,
-    ORGANIZATION_EVENT_FAMILY, OrganizationCreatedEvent, OrganizationProjectSummary,
+    ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
+    OrganizationBehaviorId, OrganizationCreatedEvent, OrganizationProjectSummary,
     OrganizationProofLink, OrganizationSourceLink, OrganizationView,
     organization_permission_options,
 };
@@ -54,7 +54,7 @@ where
             total_count: output.initial_project_count,
         },
         proof_link: OrganizationProofLink {
-            behavior_id: ORGANIZATION_CREATE_BEHAVIOR_ID.to_owned(),
+            behavior_id: OrganizationBehaviorId::B0066CreateOrganization,
         },
         source_link: OrganizationSourceLink {
             event_family: ORGANIZATION_EVENT_FAMILY.to_owned(),

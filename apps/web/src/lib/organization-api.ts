@@ -1,12 +1,9 @@
 import { useState } from "react";
 
-import type {
-  components,
-  operations,
-  paths,
-} from "@/lib/generated/api-contract";
+import type { components, operations } from "@/lib/generated/api-contract";
 import {
   ORGANIZATION_API_ROUTES,
+  ORGANIZATION_CREATE_BEHAVIOR_ID,
   buildListOrganizationsApiRequest,
   isOrganizationAdminPermission,
 } from "@/lib/organization-routes";
@@ -36,7 +33,7 @@ export type OrganizationListCursor = components["schemas"]["MembershipId"];
 export type CheckOrganizationPermissionResponse =
   operations["check_organization_permission_route"]["responses"][200]["content"]["application/json"];
 export type ListOrganizationsApiRequest = NonNullable<
-  paths["/organizations"]["parameters"]["query"]
+  operations["list_organizations_route"]["parameters"]["query"]
 >;
 
 type ContractOrganizationFailureCode =
@@ -138,7 +135,10 @@ export function isOrganizationViewResponse(
 export function isOrganizationProofLink(
   value: unknown,
 ): value is OrganizationProofLink {
-  return hasOnlyStringFields(value, ["behavior_id"]);
+  if (!hasOnlyStringFields(value, ["behavior_id"]) || !isObjectRecord(value)) {
+    return false;
+  }
+  return value["behavior_id"] === ORGANIZATION_CREATE_BEHAVIOR_ID;
 }
 
 export function isOrganizationSourceLink(

@@ -1,11 +1,14 @@
 // playwright-bdd step definitions for the `@web` slice of B-0066.
 //
 // These steps drive the harness-owned B-0066 web witness surface
-// (`/harness/b-0066/organizations`).
+// (`/harness/<behavior-id>/organizations`).
 
 import { createBdd } from "playwright-bdd";
 
 import {
+  ORGANIZATION_CREATE_BEHAVIOR_ID,
+  ORGANIZATION_CREATED_EVENT_KIND,
+  ORGANIZATION_EVENT_FAMILY,
   ORGANIZATION_WIRE_TEST_IDS,
   organizationRowTestId,
 } from "@/lib/organization-routes";
@@ -27,9 +30,6 @@ import {
 } from "./organization-wire";
 
 const { Then, When } = createBdd(test);
-const ORGANIZATION_CREATE_BEHAVIOR_ID = "B-0066";
-const ORGANIZATION_EVENT_FAMILY = "organization";
-const ORGANIZATION_CREATED_EVENT_KIND = "organization_created";
 
 When(
   /^(\w+) creates organization "([^"]+)"$/,

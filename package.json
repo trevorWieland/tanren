@@ -12,6 +12,7 @@
     "lint": "pnpm --filter ./apps/web lint",
     "typecheck": "pnpm --filter ./apps/web typecheck",
     "test": "pnpm --filter ./apps/web test",
+    "contract:generate:web": "just web-contract-generate",
     "format": "pnpm --filter ./apps/web format",
     "format:check": "pnpm --filter ./apps/web format:check"
   },

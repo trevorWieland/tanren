@@ -17,6 +17,7 @@
     "storybook:build": "storybook build",
     "storybook:test": "vitest run --project=storybook",
     "bddgen": "bddgen",
+    "contract:generate": "if [ -z \"${OPENAPI_INPUT:-}\" ]; then echo \"OPENAPI_INPUT must point at canonical Rust OpenAPI output (run: just web-contract-generate)\" >&2; exit 1; fi; openapi-typescript \"$OPENAPI_INPUT\" --output ./src/lib/generated/api-contract.ts && prettier --write ./src/lib/generated/api-contract.ts",
     "e2e": "bddgen && playwright test",
     "e2e:install": "playwright install --with-deps chromium"
   },
@@ -44,6 +45,7 @@
     "concurrently": "catalog:default",
     "vite": "catalog:default",
     "oxlint": "catalog:default",
+    "openapi-typescript": "catalog:default",
     "playwright-bdd": "catalog:default",
     "prettier": "catalog:default",
     "storybook": "catalog:default",

@@ -338,7 +338,8 @@ async fn then_org_exposes_canonical_links(
 
 fn assert_canonical_create_links(created: &CreateOrganizationResponse) {
     assert_eq!(
-        created.proof_link.behavior_id, ORGANIZATION_CREATE_BEHAVIOR_ID,
+        created.proof_link.behavior_id.as_str(),
+        ORGANIZATION_CREATE_BEHAVIOR_ID,
         "create response should carry the canonical behavior proof link"
     );
     assert_eq!(

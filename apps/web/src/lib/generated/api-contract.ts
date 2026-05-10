@@ -13,10 +13,8 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /**
-     * Self-signup: create a new personal account and mint a cookie-bound
-     *     session.
-     */
+    /** Self-signup: create a new personal account and mint a cookie-bound
+     *     session. */
     post: operations["sign_up_route"];
     delete?: never;
     options?: never;
@@ -60,10 +58,7 @@ export interface paths {
   };
   "/organizations": {
     parameters: {
-      query?: {
-        cursor?: components["schemas"]["MembershipId"];
-        limit?: number;
-      };
+      query?: never;
       header?: never;
       path?: never;
       cookie?: never;
@@ -119,10 +114,8 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    /**
-     * Revoke (sign out) the current session. Clears the cookie via
-     *     `Session::flush` and returns 204.
-     */
+    /** Revoke (sign out) the current session. Clears the cookie via
+     *     `Session::flush` and returns 204. */
     post: operations["revoke_route"];
     delete?: never;
     options?: never;
@@ -134,12 +127,7 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    /**
-     * @description Path body for `POST /invitations/{token}/accept`. Splits the password
-     *     into a `String` here (then re-wraps as `SecretString` before handing
-     *     off to app-services) so utoipa can document the schema; the secret
-     *     stays in memory only for the lifetime of this function.
-     */
+    /** @description Path body for `POST /invitations/{token}/accept`. */
     AcceptInvitationBody: {
       /** @description Display name. */
       display_name: string;
@@ -203,10 +191,8 @@ export interface components {
     /** @description API body for create-organization routes. */
     CreateOrganizationApiRequest: {
       idempotency_key?: null | components["schemas"]["IdempotencyKey"];
-      /**
-       * @description Candidate organization name. Validated + normalized by
-       *     `OrganizationName` during deserialization.
-       */
+      /** @description Candidate organization name. Validated + normalized by
+       *     `OrganizationName` during deserialization. */
       name: components["schemas"]["OrganizationName"];
     };
     /** @description Create-organization response. */
@@ -266,18 +252,13 @@ export interface components {
       /** @description Build-time package version. */
       version: string;
     };
-    /**
-     * @description Stable idempotency key for replay-safe mutation requests.
+    /** @description Stable idempotency key for replay-safe mutation requests.
      *
      *     The value is preserved except for surrounding whitespace trimming.
      *     Keys are bounded to 128 chars and cannot contain ASCII control
-     *     characters. Invalid values map to stable validation failures:
-     *     `idempotency key is empty`, `idempotency key exceeds the maximum length`,
-     *     and `idempotency key contains control characters`.
-     */
+     *     characters. */
     IdempotencyKey: string;
-    /**
-     * @description User-facing identifier for an account. R-0001's chosen mechanism is
+    /** @description User-facing identifier for an account. R-0001's chosen mechanism is
      *     identifier+password where the identifier is the canonical email; the
      *     type wraps the raw string so future mechanisms can lift constraints
      *     in one place.
@@ -289,13 +270,20 @@ export interface components {
      *     scenarios in `tests/bdd/features/B-0043-create-account.feature`
      *     (case-variant rejection, malformed-input rejection); per the
      *     BDD-only test surface policy there are no Rust unit or doc-tests
-     *     for these rules.
-     */
+     *     for these rules. */
     Identifier: string;
+    /** @description Query parameters for `GET /organizations`. */
+    ListOrganizationsApiQuery: {
+      cursor?: null | components["schemas"]["MembershipId"];
+      /**
+       * Format: int64
+       * @description Maximum page size the caller asks for.
+       */
+      limit?: number | null;
+    };
     /** @description List-organizations response. */
     ListOrganizationsResponse: {
-      /** @description Opaque cursor callers can pass to fetch the next page. */
-      next_cursor: components["schemas"]["MembershipId"] | null;
+      next_cursor?: null | components["schemas"]["MembershipId"];
       /** @description Organizations visible to the requested account. */
       organizations: components["schemas"]["OrganizationView"][];
     };
@@ -310,7 +298,30 @@ export interface components {
      */
     OrgId: string;
     /**
-     * @description Validated organization name.
+     * @description Canonical behavior id taxonomy for organization operations.
+     * @enum {string}
+     */
+    OrganizationBehaviorId: "B-0066";
+    /** @description Shared `{code, summary}` body for organization-operation failures. */
+    OrganizationFailureBody: {
+      /** @description Stable error code from the organization taxonomy. */
+      code: components["schemas"]["OrganizationFailureCode"];
+      /** @description Human-readable summary. */
+      summary: string;
+    };
+    /**
+     * @description Closed error-code taxonomy for organization operations across all
+     *     interfaces.
+     * @enum {string}
+     */
+    OrganizationFailureCode:
+      | "conflict"
+      | "idempotency_conflict"
+      | "validation_failed"
+      | "auth_required"
+      | "permission_denied"
+      | "internal_error";
+    /** @description Validated organization name.
      *
      *     Organization names are canonicalized to a global uniqueness key:
      *     surrounding whitespace is trimmed, inner whitespace is collapsed to a
@@ -320,8 +331,7 @@ export interface components {
      *
      *     `OrganizationName` does NOT derive `Deserialize` — the custom impl below
      *     routes every wire input through [`parse`](Self::parse) so blank/malformed
-     *     names are rejected at the boundary with stable validation errors.
-     */
+     *     names are rejected at the boundary with stable validation errors. */
     OrganizationName: string;
     /**
      * @description Closed set of organization-level administrative permissions.
@@ -341,29 +351,10 @@ export interface components {
        */
       total_count: number;
     };
-    /**
-     * @description Closed error-code taxonomy for organization operations across all
-     *     interfaces.
-     * @enum {string}
-     */
-    OrganizationFailureCode:
-      | "conflict"
-      | "idempotency_conflict"
-      | "validation_failed"
-      | "auth_required"
-      | "permission_denied"
-      | "internal_error";
-    /** @description Shared `{code, summary}` body for organization-operation failures. */
-    OrganizationFailureBody: {
-      /** @description Stable error code from the organization taxonomy. */
-      code: components["schemas"]["OrganizationFailureCode"];
-      /** @description Human-readable summary. */
-      summary: string;
-    };
     /** @description Stable reference to behavior proof coverage for organization create. */
     OrganizationProofLink: {
       /** @description Canonical behavior id proving this command contract. */
-      behavior_id: string;
+      behavior_id: components["schemas"]["OrganizationBehaviorId"];
     };
     /** @description Stable reference to source evidence for organization create. */
     OrganizationSourceLink: {
@@ -379,8 +370,7 @@ export interface components {
       /** @description Organization name uniqueness key. */
       name: components["schemas"]["OrganizationName"];
     };
-    /**
-     * @description Transport-aware projection of a freshly minted session.
+    /** @description Transport-aware projection of a freshly minted session.
      *
      *     The `@web` and `@api` surfaces deliver session tokens via an
      *     `HttpOnly + Secure + SameSite=Strict` cookie set by the API; the body
@@ -393,8 +383,7 @@ export interface components {
      *
      *     See `docs/architecture/subsystems/interfaces.md` § "Canonical session,
      *     error, `OpenAPI`, and design-token decisions" and
-     *     `profiles/rust-cargo/architecture/cookie-session.md`.
-     */
+     *     `profiles/rust-cargo/architecture/cookie-session.md`. */
     SessionEnvelope:
       | {
           /** @description Account this session is bound to. */
@@ -442,10 +431,8 @@ export interface components {
     SignUpRequest: {
       /** @description Human-readable display name for the new account. */
       display_name: string;
-      /**
-       * @description Email address that will own the new account. Lower-cased + trimmed
-       *     during validation.
-       */
+      /** @description Email address that will own the new account. Lower-cased + trimmed
+       *     during validation. */
       email: components["schemas"]["Email"];
       /**
        * Format: password
@@ -455,12 +442,9 @@ export interface components {
        */
       password: string;
     };
-    /**
-     * @description Cookie-transport response shape for the api surface. Mirrors
-     *     `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` but
-     *     projects the session into [`SessionEnvelope::Cookie`] (no token in
-     *     body — it ships in the `Set-Cookie` header).
-     */
+    /** @description Cookie-transport response shape for the api surface. Mirrors
+     *     `SignUpResponse`/`SignInResponse`/`AcceptInvitationResponse` and projects
+     *     the session into [`SessionEnvelope::Cookie`] (body has no token). */
     SignUpResponseCookie: {
       /** @description View of the freshly created account. */
       account: components["schemas"]["AccountView"];
@@ -604,8 +588,10 @@ export interface operations {
   list_organizations_route: {
     parameters: {
       query?: {
-        cursor?: components["schemas"]["MembershipId"];
-        limit?: number;
+        /** @description Maximum page size the caller asks for. */
+        limit?: number | null;
+        /** @description Opaque page cursor returned by a previous list call. */
+        cursor?: null | components["schemas"]["MembershipId"];
       };
       header?: never;
       path?: never;

@@ -346,6 +346,7 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "web contract sync" just check-web-contract-sync
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
@@ -743,6 +744,21 @@ check-orphan-traits:
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
 
+# Verify the checked-in web API contract remains reproducible from the
+# canonical Rust OpenAPI source.
+check-web-contract-sync:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="apps/web/src/lib/generated/api-contract.ts"
+    before="$(sha256sum "${target}" | awk '{print $1}')"
+    just web-contract-generate
+    after="$(sha256sum "${target}" | awk '{print $1}')"
+    if [[ "${before}" != "${after}" ]]; then
+        echo "FAIL: ${target} is out of sync with canonical Rust OpenAPI."
+        echo "Run: just web-contract-generate"
+        exit 1
+    fi
+
 # Run the regression-fixture test suite that proves each guard rejects
 # its synthetic regression. Each fixture under
 # `xtask/tests/fixtures/<guard>/` is a synthetic minimal source tree
@@ -852,6 +868,17 @@ ci:
 # ============================================================================
 # Web frontend (apps/web/)
 # ============================================================================
+
+# Regenerate the web TypeScript API contract from the canonical Rust
+# OpenAPI source.
+web-contract-generate:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    openapi_json="$(mktemp -t tanren-openapi.XXXXXX.json)"
+    trap 'rm -f "${openapi_json}"' EXIT
+    CARGO_INCREMENTAL=0 {{ cargo }} build -p tanren-api-app --bin tanren-api-openapi --locked --quiet
+    {{ cargo }} run -q -p tanren-api-app --bin tanren-api-openapi --locked > "${openapi_json}"
+    OPENAPI_INPUT="${openapi_json}" pnpm --filter @tanren/web run contract:generate
 
 # Install pnpm workspace dependencies. Lockfile must be up to date.
 web-install:

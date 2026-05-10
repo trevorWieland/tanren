@@ -63,7 +63,7 @@ use tower_http::cors::CorsLayer;
 #[cfg(any(test, feature = "test-hooks"))]
 use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
-use crate::routes::build_router;
+use crate::routes::{build_router, openapi_document};
 
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
@@ -76,6 +76,13 @@ const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 const CORS_ORIGINS_ENV: &str = "TANREN_API_CORS_ORIGINS";
+
+/// Generate the canonical `OpenAPI` document directly from Rust route
+/// annotations and contract schemas.
+#[must_use]
+pub fn generate_openapi_document() -> utoipa::openapi::OpenApi {
+    openapi_document()
+}
 
 /// Configuration for the tanren-api runtime.
 #[derive(Debug, Clone)]

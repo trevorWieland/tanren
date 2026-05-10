@@ -18,6 +18,8 @@ import {
   buildConfigurePermissionApiRequest,
   buildCreateOrganizationApiRequest,
   isOrganizationAdminPermission,
+  ORGANIZATION_BEHAVIOR_FEATURE_PATH,
+  ORGANIZATION_CREATE_BEHAVIOR_ID,
   ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
   normalizeOrganizationName,
@@ -44,16 +46,20 @@ export default function OrganizationsRoute(): ReactNode {
       <header className="flex flex-col gap-2">
         <h1 className="text-2xl font-semibold">Organizations</h1>
         <p className="text-sm text-[--color-fg-muted]">
-          The B-0066 behavior-proof witness surface is harness-owned at{" "}
-          <code>{ORGANIZATION_WEB_HARNESS_ROUTE}</code>.
+          The {ORGANIZATION_CREATE_BEHAVIOR_ID} behavior-proof witness surface
+          is harness-owned at <code>{ORGANIZATION_WEB_HARNESS_ROUTE}</code>.
         </p>
         <p className="text-sm text-[--color-fg-muted]">
           This runtime route remains product-facing and does not mirror
           harness-side browser state.
         </p>
+        <p className="text-sm text-[--color-fg-muted]">
+          Shared feature source:{" "}
+          <code>{ORGANIZATION_BEHAVIOR_FEATURE_PATH}</code>
+        </p>
         <p>
           <Link className="underline" href={ORGANIZATION_WEB_HARNESS_ROUTE}>
-            Open B-0066 harness witness surface
+            Open {ORGANIZATION_CREATE_BEHAVIOR_ID} harness witness surface
           </Link>
         </p>
       </header>
@@ -235,7 +241,7 @@ export function OrganizationHarnessRoute(): ReactNode {
       data-testid={ORGANIZATION_WIRE_TEST_IDS.page}
     >
       <h1 className="text-2xl font-semibold">
-        B-0066 Organization Harness Witness Surface
+        {ORGANIZATION_CREATE_BEHAVIOR_ID} Organization Harness Witness Surface
       </h1>
       <p className="text-sm text-[--color-fg-muted]">
         Harness-owned web witness for create/list/permission checks.
