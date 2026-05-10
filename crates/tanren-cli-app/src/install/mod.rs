@@ -8,6 +8,7 @@ mod catalog;
 mod cli;
 #[cfg(feature = "test-hooks")]
 pub mod contract;
+mod drift;
 mod error;
 mod manifest;
 mod path_guard;
@@ -16,6 +17,7 @@ mod writer;
 mod writer_tx;
 
 pub use cli::InstallCommand;
+pub use drift::{InstallDriftKind, InstallDriftRecord, InstallDriftReport};
 pub use error::InstallError;
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
@@ -142,6 +144,16 @@ pub fn plan_install(
     let profile = InstallProfile::from_str(profile)?;
     let integrations = parse_integration_selection(integration_selection)?;
     plan::build_install_plan(repository, profile, &integrations)
+}
+
+/// Build a read-only install drift report from raw install inputs.
+pub fn check_install_drift(
+    repository: &Path,
+    profile: &str,
+    integration_selection: Option<&str>,
+) -> Result<InstallDriftReport, InstallError> {
+    let plan = plan_install(repository, profile, integration_selection)?;
+    Ok(drift::build_install_drift_report(&plan))
 }
 
 /// Validate install inputs, then apply the manifest-driven repository writes.
