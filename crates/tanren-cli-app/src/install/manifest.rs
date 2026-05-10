@@ -5,6 +5,7 @@ use std::path::{Component, Path};
 
 use serde::{Deserialize, Deserializer, Serialize, Serializer};
 use sha2::{Digest, Sha256};
+use thiserror::Error;
 
 use crate::install::InstallIntegration;
 use crate::install::InstallProfile;
@@ -117,17 +118,20 @@ pub(super) struct InstallAssetProjection {
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sha256Hex(String);
 
+/// Parse error for [`Sha256Hex`].
+#[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
+#[error("content hash must be exactly {SHA256_HEX_LENGTH} lowercase hex characters")]
+pub struct Sha256HexParseError;
+
 impl Sha256Hex {
     /// Validate and construct a SHA-256 hex digest.
-    pub fn parse(value: &str) -> Result<Self, String> {
+    pub fn parse(value: &str) -> Result<Self, Sha256HexParseError> {
         if value.len() != SHA256_HEX_LENGTH
             || !value
                 .bytes()
                 .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
         {
-            return Err(format!(
-                "content hash must be exactly {SHA256_HEX_LENGTH} lowercase hex characters"
-            ));
+            return Err(Sha256HexParseError);
         }
 
         Ok(Self(value.to_owned()))
