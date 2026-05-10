@@ -9,7 +9,7 @@ use crate::install::writer_tx::{
 
 /// Install apply report grouped by observable outcome.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
-pub struct InstallReport {
+pub(crate) struct InstallReport {
     pub created: Vec<RepoRelativePath>,
     pub updated: Vec<RepoRelativePath>,
     pub removed: Vec<RepoRelativePath>,

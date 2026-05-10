@@ -10,7 +10,7 @@ use crate::install::plan_install;
 
 /// Typed drift status for one planned install asset.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum InstallDriftStatus {
+pub(crate) enum InstallDriftStatus {
     /// Repository file matches the current install projection.
     Clean,
     /// Tanren-owned generated file exists but content differs from projection.
@@ -26,7 +26,7 @@ pub enum InstallDriftStatus {
 impl InstallDriftStatus {
     /// Whether this status should count as drift.
     #[must_use]
-    pub const fn is_drift(self) -> bool {
+    pub(crate) const fn is_drift(self) -> bool {
         matches!(
             self,
             Self::ChangedGeneratedAsset
@@ -38,7 +38,7 @@ impl InstallDriftStatus {
 
 /// Drift status for one install-managed repository path.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstallDriftEntry {
+pub(crate) struct InstallDriftEntry {
     path: RepoRelativePath,
     status: InstallDriftStatus,
 }
@@ -46,33 +46,33 @@ pub struct InstallDriftEntry {
 impl InstallDriftEntry {
     /// Repo-relative path for this drift status row.
     #[must_use]
-    pub fn path(&self) -> &RepoRelativePath {
+    pub(crate) fn path(&self) -> &RepoRelativePath {
         &self.path
     }
 
     /// Typed drift status for this row.
     #[must_use]
-    pub const fn status(&self) -> InstallDriftStatus {
+    pub(crate) const fn status(&self) -> InstallDriftStatus {
         self.status
     }
 }
 
 /// Read-only drift report for install-managed repository assets.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstallDriftReport {
+pub(crate) struct InstallDriftReport {
     entries: Vec<InstallDriftEntry>,
 }
 
 impl InstallDriftReport {
     /// One row per install-managed asset in deterministic path order.
     #[must_use]
-    pub fn entries(&self) -> &[InstallDriftEntry] {
+    pub(crate) fn entries(&self) -> &[InstallDriftEntry] {
         &self.entries
     }
 
     /// Number of entries currently classified as drift.
     #[must_use]
-    pub fn drift_count(&self) -> usize {
+    pub(crate) fn drift_count(&self) -> usize {
         self.entries
             .iter()
             .filter(|entry| entry.status().is_drift())
@@ -81,7 +81,7 @@ impl InstallDriftReport {
 
     /// Whether drift exists for any install-managed path.
     #[must_use]
-    pub fn has_drift(&self) -> bool {
+    pub(crate) fn has_drift(&self) -> bool {
         self.drift_count() > 0
     }
 }

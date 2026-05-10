@@ -22,7 +22,7 @@ const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
 
 /// Delivery-owned proof failures surfaced to BDD assertion mapping.
 #[derive(Debug, Error)]
-pub enum InstallProofError {
+pub(crate) enum InstallProofError {
     #[error("invalid integration assertion selection '{selection}': {source}")]
     InvalidIntegrationSelection {
         selection: String,
@@ -85,7 +85,7 @@ pub enum InstallProofError {
 }
 
 /// Assert the default rust-cargo install writes both command and standards assets.
-pub fn assert_rust_cargo_default_assets_installed(
+pub(crate) fn assert_rust_cargo_default_assets_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
@@ -105,7 +105,7 @@ pub fn assert_rust_cargo_default_assets_installed(
 }
 
 /// Assert rust-cargo standards profile assets are installed.
-pub fn assert_rust_cargo_standards_installed(
+pub(crate) fn assert_rust_cargo_standards_installed(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
@@ -113,7 +113,7 @@ pub fn assert_rust_cargo_standards_installed(
 }
 
 /// Assert only the selected integration command assets are installed.
-pub fn assert_selected_integration_command_assets(
+pub(crate) fn assert_selected_integration_command_assets(
     repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
@@ -130,7 +130,7 @@ pub fn assert_selected_integration_command_assets(
 }
 
 /// Assert install manifest defaults for rust-cargo profile installs.
-pub fn assert_manifest_rust_cargo_defaults(
+pub(crate) fn assert_manifest_rust_cargo_defaults(
     repository_root: &Path,
 ) -> Result<(), InstallProofError> {
     let manifest = read_install_manifest(repository_root)?;
@@ -170,7 +170,7 @@ pub fn assert_manifest_rust_cargo_defaults(
 
 /// Append a stale generated-manifest row for mutation-flow fixtures.
 #[cfg(feature = "test-hooks")]
-pub fn append_stale_generated_manifest_entry(
+pub(crate) fn append_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &RepoRelativePath,
     content_hash: &str,
@@ -186,7 +186,7 @@ pub fn append_stale_generated_manifest_entry(
 
 /// Inject a raw stale generated-manifest row (used by traversal tamper witnesses).
 #[cfg(feature = "test-hooks")]
-pub fn tamper_manifest_with_raw_generated_entry(
+pub(crate) fn tamper_manifest_with_raw_generated_entry(
     repository_root: &Path,
     raw_path: &str,
 ) -> Result<(), InstallProofError> {
@@ -213,7 +213,7 @@ pub fn tamper_manifest_with_raw_generated_entry(
 
 /// Read a workspace catalog file for fixture seeding.
 #[cfg(feature = "test-hooks")]
-pub fn read_workspace_catalog_file(
+pub(crate) fn read_workspace_catalog_file(
     relative_path: &RepoRelativePath,
 ) -> Result<String, InstallProofError> {
     let absolute = workspace_root()?.join(relative_path.as_str());

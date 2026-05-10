@@ -5,8 +5,8 @@ use std::path::Path;
 use std::str::FromStr;
 
 use serde::{Deserialize, Serialize};
-use tanren_cli_app::install::contract;
-use tanren_cli_app::install::{RepoRelativePath, sha256_hex};
+use tanren_cli_app::test_hooks::install::contract;
+use tanren_cli_app::test_hooks::install::{RepoRelativePath, sha256_hex};
 use thiserror::Error;
 
 /// Install manifest schema version asserted by the BDD install proofs.
@@ -202,5 +202,5 @@ pub fn read_workspace_catalog_file(
 #[must_use]
 #[cfg(feature = "test-hooks")]
 pub fn sha256_hex_string(bytes: &[u8]) -> String {
-    sha256_hex(bytes).to_string()
+    sha256_hex(bytes)
 }

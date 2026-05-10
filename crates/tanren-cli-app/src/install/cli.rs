@@ -5,15 +5,14 @@ use std::path::{Path, PathBuf};
 
 use clap::Args;
 
+use crate::install::drift::InstallDriftStatus;
 use crate::install::error::{InstallCommandError, InstallDriftCommandError};
 use crate::install::manifest::RepoRelativePath;
-use crate::install::{
-    InstallDriftReport, InstallDriftStatus, InstallReport, apply_install, check_install_drift,
-};
+use crate::install::{InstallDriftReport, InstallReport, apply_install, check_install_drift};
 
 /// `tanren-cli install` arguments.
 #[derive(Debug, Clone, Args)]
-pub struct InstallCommand {
+pub(crate) struct InstallCommand {
     /// Repository path to install into (defaults to current directory).
     #[arg(long, default_value = ".")]
     repo: PathBuf,
@@ -27,7 +26,7 @@ pub struct InstallCommand {
 
 impl InstallCommand {
     /// Validate install inputs, apply install, and emit a concise outcome report.
-    pub fn run(&self) -> Result<(), InstallCommandError> {
+    pub(crate) fn run(&self) -> Result<(), InstallCommandError> {
         let report = apply_install(&self.repo, &self.profile, self.integrations.as_deref())
             .map_err(InstallCommandError::from)?;
         self.write_success_report(&report)
@@ -64,7 +63,7 @@ impl InstallCommand {
 
 /// `tanren-cli drift` arguments.
 #[derive(Debug, Clone, Args)]
-pub struct DriftCommand {
+pub(crate) struct DriftCommand {
     /// Repository path to analyze (defaults to current directory).
     #[arg(long, default_value = ".")]
     repo: PathBuf,
@@ -78,7 +77,7 @@ pub struct DriftCommand {
 
 impl DriftCommand {
     /// Validate drift inputs, analyze install-managed paths, and emit a concise report.
-    pub fn run(&self) -> Result<(), InstallDriftCommandError> {
+    pub(crate) fn run(&self) -> Result<(), InstallDriftCommandError> {
         let report = check_install_drift(&self.repo, &self.profile, self.integrations.as_deref())
             .map_err(InstallDriftCommandError::from)?;
         self.write_report(&report)?;

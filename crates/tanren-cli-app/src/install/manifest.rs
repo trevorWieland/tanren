@@ -22,7 +22,7 @@ pub(super) const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.to
 /// Installed-asset classification used by install drift and apply planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum AssetClass {
+pub(crate) enum AssetClass {
     /// Tanren methodology command material rendered per integration.
     MethodologyCommand,
     /// Standards profile guidance file.
@@ -32,7 +32,7 @@ pub enum AssetClass {
 /// Preservation contract for install/update behavior.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum PreservationPolicy {
+pub(crate) enum PreservationPolicy {
     /// Tanren-owned generated file that can be replaced on re-install.
     ReplaceGenerated,
     /// User-editable standards file that should not be overwritten silently.
@@ -41,11 +41,11 @@ pub enum PreservationPolicy {
 
 /// Strict repository-relative path (no absolute roots, no `..` traversal).
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct RepoRelativePath(String);
+pub(crate) struct RepoRelativePath(String);
 
 impl RepoRelativePath {
     /// Validate and construct a repository-relative path.
-    pub fn parse(path: &str) -> Result<Self, InstallError> {
+    pub(crate) fn parse(path: &str) -> Result<Self, InstallError> {
         if path.is_empty() {
             return Err(InstallError::InvalidRepoRelativePath {
                 path: path.to_owned(),
@@ -73,13 +73,13 @@ impl RepoRelativePath {
 
     /// Borrow the validated path string.
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 
     /// Borrow as a [`Path`].
     #[must_use]
-    pub fn as_path(&self) -> &Path {
+    pub(crate) fn as_path(&self) -> &Path {
         Path::new(&self.0)
     }
 }
@@ -116,16 +116,16 @@ pub(super) struct InstallAssetProjection {
 
 /// Strict lowercase SHA-256 digest encoded as 64 hex characters.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct Sha256Hex(String);
+pub(crate) struct Sha256Hex(String);
 
 /// Parse error for [`Sha256Hex`].
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 #[error("content hash must be exactly {SHA256_HEX_LENGTH} lowercase hex characters")]
-pub struct Sha256HexParseError;
+pub(crate) struct Sha256HexParseError;
 
 impl Sha256Hex {
     /// Validate and construct a SHA-256 hex digest.
-    pub fn parse(value: &str) -> Result<Self, Sha256HexParseError> {
+    pub(crate) fn parse(value: &str) -> Result<Self, Sha256HexParseError> {
         if value.len() != SHA256_HEX_LENGTH
             || !value
                 .bytes()
@@ -139,7 +139,7 @@ impl Sha256Hex {
 
     /// Borrow the validated digest string.
     #[must_use]
-    pub fn as_str(&self) -> &str {
+    pub(crate) fn as_str(&self) -> &str {
         &self.0
     }
 }
@@ -171,7 +171,7 @@ impl<'de> Deserialize<'de> for Sha256Hex {
 
 /// Manifest row written/checked by future install workflows.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ManifestEntry {
+pub(crate) struct ManifestEntry {
     pub path: RepoRelativePath,
     pub content_hash: Sha256Hex,
     pub asset_class: AssetClass,
@@ -181,7 +181,7 @@ pub struct ManifestEntry {
 
 /// Install manifest stored under repo-local metadata.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct InstallManifest {
+pub(crate) struct InstallManifest {
     pub manifest_version: u32,
     pub profile: InstallProfile,
     pub integrations: Vec<InstallIntegration>,
@@ -191,7 +191,7 @@ pub struct InstallManifest {
 impl InstallManifest {
     /// Create a deterministic manifest from typed install inputs.
     #[must_use]
-    pub fn from_entries(
+    pub(crate) fn from_entries(
         profile: InstallProfile,
         integrations: Vec<InstallIntegration>,
         entries: Vec<ManifestEntry>,

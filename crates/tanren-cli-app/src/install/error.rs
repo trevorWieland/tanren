@@ -5,7 +5,7 @@ use thiserror::Error;
 /// Typed install-input and catalog validation errors.
 #[derive(Debug, Error, Clone, PartialEq, Eq)]
 #[non_exhaustive]
-pub enum InstallError {
+pub(crate) enum InstallError {
     /// The requested standards profile is not supported.
     #[error("unsupported install profile '{name}'")]
     UnsupportedProfile { name: String },
@@ -47,7 +47,7 @@ pub enum InstallError {
 /// Typed `tanren-cli install` command failures at the CLI-library boundary.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum InstallCommandError {
+pub(crate) enum InstallCommandError {
     /// Input or selection validation failed before writes occurred.
     #[error("error: validation_failed — {source}")]
     ValidationFailed {
@@ -86,7 +86,7 @@ impl From<InstallError> for InstallCommandError {
 /// Typed `tanren-cli drift` command failures at the CLI-library boundary.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum InstallDriftCommandError {
+pub(crate) enum InstallDriftCommandError {
     /// Input, path, catalog, or manifest validation failed before analysis.
     #[error("error: drift_check_failed — {source}")]
     DriftCheckFailed {
@@ -113,7 +113,7 @@ impl From<InstallDriftError> for InstallDriftCommandError {
 /// Typed read-only drift check failures.
 #[derive(Debug, Error)]
 #[non_exhaustive]
-pub enum InstallDriftError {
+pub(crate) enum InstallDriftError {
     /// Input, path, catalog, or manifest validation failed before analysis.
     #[error("error: drift_check_failed — {source}")]
     DriftCheckFailed {

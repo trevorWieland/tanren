@@ -7,7 +7,7 @@ use std::str::FromStr;
 mod catalog;
 mod cli;
 #[cfg(feature = "test-hooks")]
-pub mod contract;
+pub(crate) mod contract;
 mod drift;
 mod error;
 mod manifest;
@@ -16,25 +16,25 @@ mod plan;
 mod writer;
 mod writer_tx;
 
-pub use cli::{DriftCommand, InstallCommand};
-pub use drift::{InstallDriftEntry, InstallDriftReport, InstallDriftStatus};
-pub use error::{InstallDriftCommandError, InstallDriftError, InstallError};
+pub(crate) use cli::{DriftCommand, InstallCommand};
+pub(crate) use drift::InstallDriftReport;
+pub(crate) use error::{InstallDriftError, InstallError};
 #[cfg(feature = "test-hooks")]
-pub use manifest::RepoRelativePath;
-pub use plan::InstallPlan;
-pub use writer::InstallReport;
+pub(crate) use manifest::RepoRelativePath;
+pub(crate) use plan::InstallPlan;
+pub(crate) use writer::InstallReport;
 
 /// Calculate a hex SHA-256 digest for test fixture bytes.
 #[must_use]
 #[cfg(feature = "test-hooks")]
-pub fn sha256_hex(bytes: &[u8]) -> manifest::Sha256Hex {
+pub(crate) fn sha256_hex(bytes: &[u8]) -> manifest::Sha256Hex {
     manifest::sha256_hex(bytes)
 }
 
 /// Supported Tanren standards profiles for local repository bootstrap.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum InstallProfile {
+pub(crate) enum InstallProfile {
     /// Install the Rust + Cargo standards profile.
     RustCargo,
 }
@@ -42,7 +42,8 @@ pub enum InstallProfile {
 impl InstallProfile {
     /// Canonical profile identifier.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    #[cfg(feature = "test-hooks")]
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::RustCargo => "rust-cargo",
         }
@@ -67,7 +68,7 @@ impl FromStr for InstallProfile {
     Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
 )]
 #[serde(rename_all = "kebab-case")]
-pub enum InstallIntegration {
+pub(crate) enum InstallIntegration {
     Claude,
     Codex,
     OpenCode,
@@ -76,7 +77,8 @@ pub enum InstallIntegration {
 impl InstallIntegration {
     /// Canonical integration identifier.
     #[must_use]
-    pub const fn as_str(self) -> &'static str {
+    #[cfg(feature = "test-hooks")]
+    pub(crate) const fn as_str(self) -> &'static str {
         match self {
             Self::Claude => "claude",
             Self::Codex => "codex",
@@ -86,7 +88,7 @@ impl InstallIntegration {
 
     /// Return all supported integrations.
     #[must_use]
-    pub fn all() -> BTreeSet<Self> {
+    pub(crate) fn all() -> BTreeSet<Self> {
         [Self::Claude, Self::Codex, Self::OpenCode]
             .into_iter()
             .collect()
@@ -112,7 +114,7 @@ impl FromStr for InstallIntegration {
 ///
 /// The parser validates all names before install planning. `None` means
 /// "install all supported integrations".
-pub fn parse_integration_selection(
+pub(crate) fn parse_integration_selection(
     selection: Option<&str>,
 ) -> Result<BTreeSet<InstallIntegration>, InstallError> {
     let Some(raw_selection) = selection else {
@@ -136,7 +138,7 @@ pub fn parse_integration_selection(
 }
 
 /// Build a validated install plan from raw install inputs.
-pub fn plan_install(
+pub(crate) fn plan_install(
     repository: &Path,
     profile: &str,
     integration_selection: Option<&str>,
@@ -147,7 +149,7 @@ pub fn plan_install(
 }
 
 /// Validate install inputs, then apply the manifest-driven repository writes.
-pub fn apply_install(
+pub(crate) fn apply_install(
     repository: &Path,
     profile: &str,
     integration_selection: Option<&str>,
@@ -157,7 +159,7 @@ pub fn apply_install(
 }
 
 /// Validate install inputs, then analyze repository drift without mutations.
-pub fn check_install_drift(
+pub(crate) fn check_install_drift(
     repository: &Path,
     profile: &str,
     integration_selection: Option<&str>,

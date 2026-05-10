@@ -18,7 +18,7 @@ use crate::install::{InstallIntegration, InstallProfile};
 
 /// Planned file-write action category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum PlannedWriteKind {
+pub(crate) enum PlannedWriteKind {
     Created,
     Updated,
     Restored,
@@ -26,7 +26,7 @@ pub enum PlannedWriteKind {
 
 /// One planned write for a generated install asset.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedWrite {
+pub(crate) struct PlannedWrite {
     path: RepoRelativePath,
     absolute_path: PathBuf,
     content: &'static str,
@@ -36,13 +36,13 @@ pub struct PlannedWrite {
 impl PlannedWrite {
     /// Repo-relative output path for the write.
     #[must_use]
-    pub fn path(&self) -> &RepoRelativePath {
+    pub(crate) fn path(&self) -> &RepoRelativePath {
         &self.path
     }
 
     /// Planned write category.
     #[must_use]
-    pub const fn kind(&self) -> PlannedWriteKind {
+    pub(crate) const fn kind(&self) -> PlannedWriteKind {
         self.kind
     }
 
@@ -61,7 +61,7 @@ impl PlannedWrite {
 
 /// One planned generated-file removal.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct PlannedRemoval {
+pub(crate) struct PlannedRemoval {
     path: RepoRelativePath,
     absolute_path: PathBuf,
 }
@@ -69,7 +69,7 @@ pub struct PlannedRemoval {
 impl PlannedRemoval {
     /// Repo-relative path for the removal.
     #[must_use]
-    pub fn path(&self) -> &RepoRelativePath {
+    pub(crate) fn path(&self) -> &RepoRelativePath {
         &self.path
     }
 
@@ -82,7 +82,7 @@ impl PlannedRemoval {
 
 /// Install plan produced after validating inputs and current repository state.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct InstallPlan {
+pub(crate) struct InstallPlan {
     repository_root: PathBuf,
     writes: Vec<PlannedWrite>,
     removals: Vec<PlannedRemoval>,
@@ -101,25 +101,25 @@ impl InstallPlan {
 
     /// Planned generated-file writes.
     #[must_use]
-    pub fn writes(&self) -> &[PlannedWrite] {
+    pub(crate) fn writes(&self) -> &[PlannedWrite] {
         &self.writes
     }
 
     /// Planned generated-file removals.
     #[must_use]
-    pub fn removals(&self) -> &[PlannedRemoval] {
+    pub(crate) fn removals(&self) -> &[PlannedRemoval] {
         &self.removals
     }
 
     /// Paths explicitly preserved due to user drift policy.
     #[must_use]
-    pub fn preserved(&self) -> &[RepoRelativePath] {
+    pub(crate) fn preserved(&self) -> &[RepoRelativePath] {
         &self.preserved
     }
 
     /// Repo-relative manifest path.
     #[must_use]
-    pub fn manifest_path(&self) -> &RepoRelativePath {
+    pub(crate) fn manifest_path(&self) -> &RepoRelativePath {
         &self.manifest_path
     }
 
@@ -131,7 +131,7 @@ impl InstallPlan {
 
     /// Materialized manifest payload.
     #[must_use]
-    pub fn manifest(&self) -> &InstallManifest {
+    pub(crate) fn manifest(&self) -> &InstallManifest {
         &self.manifest
     }
 }

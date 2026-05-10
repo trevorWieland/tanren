@@ -25,7 +25,9 @@ use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
-pub mod install;
+mod install;
+#[cfg(feature = "test-hooks")]
+pub mod test_hooks;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
