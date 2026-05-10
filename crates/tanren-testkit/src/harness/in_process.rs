@@ -21,7 +21,7 @@ use tanren_contract::{
 };
 use tanren_identity_policy::Argon2idVerifier;
 use tanren_provider_integrations::{
-    SourceControlProvider, fixture_allow_all_source_control_provider,
+    FixtureSourceControlConfig, FixtureSourceControlProvider, SourceControlProvider,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
@@ -38,6 +38,7 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     source_control: Arc<dyn SourceControlProvider>,
+    fixture_source_control: FixtureSourceControlProvider,
     kind: HarnessKind,
 }
 
@@ -72,10 +73,15 @@ impl InProcessHarness {
             .map_err(|e| HarnessError::Transport(format!("ephemeral store: {e}")))?;
         let clock = Clock::from_fn(Utc::now);
         let handlers = Handlers::with_verifier(clock, Arc::new(Argon2idVerifier::fast_for_tests()));
+        let fixture_source_control =
+            FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
+        let source_control: Arc<dyn SourceControlProvider> =
+            Arc::new(fixture_source_control.clone());
         Ok(Self {
             store,
             handlers,
-            source_control: fixture_allow_all_source_control_provider(),
+            source_control,
+            fixture_source_control,
             kind,
         })
     }
@@ -227,6 +233,39 @@ impl ProjectHarness for InProcessHarness {
             )
             .await
             .map_err(translate_app_error)
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        repository: tanren_identity_policy::RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control
+            .set_repository_access(actor_account_id, repository, allowed);
+        Ok(())
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        host: tanren_identity_policy::DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control.set_host_reachable(&host, true);
+        self.fixture_source_control
+            .set_host_create_access(actor_account_id, &host, allowed);
+        Ok(())
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &tanren_identity_policy::DesignatedHost,
+        repository: &tanren_identity_policy::RepositoryRef,
+    ) -> HarnessResult<bool> {
+        Ok(self
+            .fixture_source_control
+            .repository_created_at_host(host, repository))
     }
 }
 

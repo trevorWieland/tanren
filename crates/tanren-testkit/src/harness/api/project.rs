@@ -5,6 +5,7 @@ use tanren_contract::{
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
     ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
 };
+use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 
 use super::super::{HarnessError, HarnessResult, ProjectHarness};
 use super::ApiHarness;
@@ -107,6 +108,39 @@ impl ProjectHarness for ApiHarness {
         }
         serde_json::from_value(json)
             .map_err(|e| HarnessError::Transport(format!("decode active project response: {e}")))
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control
+            .set_repository_access(actor_account_id, repository, allowed);
+        Ok(())
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control.set_host_reachable(&host, true);
+        self.fixture_source_control
+            .set_host_create_access(actor_account_id, &host, allowed);
+        Ok(())
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> HarnessResult<bool> {
+        Ok(self
+            .fixture_source_control
+            .repository_created_at_host(host, repository))
     }
 }
 

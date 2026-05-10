@@ -25,13 +25,12 @@ interface RepositoryFixtureState {
 
 interface HostFixtureState {
   host: string;
-  canCreate: boolean;
-  createdRepositories: Set<string>;
 }
 
 interface WebProjectWorld {
   actors: Map<string, ProjectActorState>;
   repositories: Map<string, RepositoryFixtureState>;
+  repositoryAccess: Map<string, Set<string>>;
   hosts: Map<string, HostFixtureState>;
   lastFailureCode: string | null;
 }
@@ -41,6 +40,7 @@ const extendedTest = accountTest.extend<{ projectWorld: WebProjectWorld }>({
     await use({
       actors: new Map(),
       repositories: new Map(),
+      repositoryAccess: new Map(),
       hosts: new Map(),
       lastFailureCode: null,
     });
@@ -77,6 +77,32 @@ function canonicalHost(raw: string): string {
   return raw.trim().toLowerCase();
 }
 
+function repositoryAccessSet(
+  world: WebProjectWorld,
+  actorName: string,
+): Set<string> {
+  let current = world.repositoryAccess.get(actorName);
+  if (!current) {
+    current = new Set<string>();
+    world.repositoryAccess.set(actorName, current);
+  }
+  return current;
+}
+
+function setRepositoryAccess(
+  world: WebProjectWorld,
+  actorName: string,
+  repository: string,
+  allowed: boolean,
+): void {
+  const access = repositoryAccessSet(world, actorName);
+  if (allowed) {
+    access.add(repository);
+  } else {
+    access.delete(repository);
+  }
+}
+
 function apiUrl(): string {
   return process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
 }
@@ -95,7 +121,8 @@ async function postWithSession<T>(
   const response = await page.context().request.post(`${apiUrl()}${path}`, {
     data: body,
   });
-  const payload = (await response.json()) as T;
+  const raw = await response.text();
+  const payload = raw.length > 0 ? (JSON.parse(raw) as T) : ({} as T);
   return {
     ok: response.ok(),
     status: response.status(),
@@ -123,6 +150,71 @@ async function createProjectAccount(page: Page, name: string): Promise<string> {
   return payload.account.id;
 }
 
+async function setRepositoryAccessFixture(
+  page: Page,
+  accountId: string,
+  repository: string,
+  allowed: boolean,
+): Promise<void> {
+  const response = await postWithSession<Record<string, never>>(
+    page,
+    "/test-hooks/source-control/repository-access",
+    {
+      account_id: accountId,
+      repository,
+      allowed,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `set repository access failed: ${response.status} ${repository} allowed=${allowed}`,
+    );
+  }
+}
+
+async function setHostCreateAccessFixture(
+  page: Page,
+  accountId: string,
+  host: string,
+  allowed: boolean,
+): Promise<void> {
+  const response = await postWithSession<Record<string, never>>(
+    page,
+    "/test-hooks/source-control/host-create-access",
+    {
+      account_id: accountId,
+      host,
+      allowed,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `set host create access failed: ${response.status} ${host} allowed=${allowed}`,
+    );
+  }
+}
+
+async function repositoryCreatedAtHostFixture(
+  page: Page,
+  repository: string,
+  host: string,
+): Promise<boolean> {
+  const response = await postWithSession<{ created?: boolean }>(
+    page,
+    "/test-hooks/source-control/repository-created",
+    {
+      host,
+      repository,
+    },
+  );
+  if (!response.ok) {
+    throw new Error(
+      `read created repository fixture failed: ${response.status} ${host}/${repository}`,
+    );
+  }
+  return response.payload.created === true;
+}
+
 Given(
   /^(\w+) has a project account$/,
   async ({ page, projectWorld }, name: string) => {
@@ -133,6 +225,10 @@ Given(
     state.lastConnectedRepository = null;
     state.lastCreatedRepository = null;
     state.lastDesignatedHost = null;
+    for (const repository of projectWorld.repositories.keys()) {
+      setRepositoryAccess(projectWorld, name, repository, true);
+      await setRepositoryAccessFixture(page, state.accountId, repository, true);
+    }
     projectWorld.lastFailureCode = null;
   },
 );
@@ -140,7 +236,7 @@ Given(
 Given(
   /^repository fixture "([^"]+)" has fingerprint "([^"]+)" and (\d+) prior commits$/,
   async (
-    { projectWorld },
+    { page, projectWorld },
     repository: string,
     fingerprint: string,
     priorCommitsRaw: string,
@@ -161,12 +257,51 @@ Given(
       fingerprint,
       priorCommits,
     });
+    for (const [actorName, state] of projectWorld.actors.entries()) {
+      setRepositoryAccess(projectWorld, actorName, canonical, true);
+      if (!state.accountId) {
+        continue;
+      }
+      await setRepositoryAccessFixture(page, state.accountId, canonical, true);
+    }
+  },
+);
+
+Given(
+  /^repository fixture "([^"]+)" is accessible to (\w+)$/,
+  async ({ page, projectWorld }, repository: string, name: string) => {
+    const canonical = canonicalRepository(repository);
+    if (!projectWorld.repositories.has(canonical)) {
+      throw new Error(`repository fixture missing for ${canonical}`);
+    }
+    const state = actor(projectWorld, name);
+    if (!state.accountId) {
+      throw new Error(`actor ${name} has no project account`);
+    }
+    setRepositoryAccess(projectWorld, name, canonical, true);
+    await setRepositoryAccessFixture(page, state.accountId, canonical, true);
+  },
+);
+
+Given(
+  /^repository fixture "([^"]+)" is not accessible to (\w+)$/,
+  async ({ page, projectWorld }, repository: string, name: string) => {
+    const canonical = canonicalRepository(repository);
+    if (!projectWorld.repositories.has(canonical)) {
+      throw new Error(`repository fixture missing for ${canonical}`);
+    }
+    const state = actor(projectWorld, name);
+    if (!state.accountId) {
+      throw new Error(`actor ${name} has no project account`);
+    }
+    setRepositoryAccess(projectWorld, name, canonical, false);
+    await setRepositoryAccessFixture(page, state.accountId, canonical, false);
   },
 );
 
 Given(
   /^designated fixture host "([^"]+)" is accessible to (\w+)$/,
-  async ({ projectWorld }, host: string, name: string) => {
+  async ({ page, projectWorld }, host: string, name: string) => {
     const state = actor(projectWorld, name);
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account id`);
@@ -174,15 +309,14 @@ Given(
     const canonical = canonicalHost(host);
     projectWorld.hosts.set(canonical, {
       host: canonical,
-      canCreate: true,
-      createdRepositories: new Set<string>(),
     });
+    await setHostCreateAccessFixture(page, state.accountId, canonical, true);
   },
 );
 
 Given(
   /^designated fixture host "([^"]+)" is not accessible to (\w+)$/,
-  async ({ projectWorld }, host: string, name: string) => {
+  async ({ page, projectWorld }, host: string, name: string) => {
     const state = actor(projectWorld, name);
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account id`);
@@ -190,9 +324,8 @@ Given(
     const canonical = canonicalHost(host);
     projectWorld.hosts.set(canonical, {
       host: canonical,
-      canCreate: false,
-      createdRepositories: new Set<string>(),
     });
+    await setHostCreateAccessFixture(page, state.accountId, canonical, false);
   },
 );
 
@@ -308,14 +441,6 @@ When(
     await page.goto("/projects/new");
     await page.waitForLoadState("domcontentloaded");
 
-    if (!host.canCreate) {
-      projectWorld.lastFailureCode = "no_access";
-      state.lastConnectedRepository = null;
-      state.lastCreatedRepository = null;
-      state.lastDesignatedHost = canonicalHostName;
-      return;
-    }
-
     await page.getByLabel(/repository/i).fill(repository);
     await page.getByLabel(/designated host/i).fill(canonicalHostName);
     const selectAsActive = page.getByLabel(/select as active/i);
@@ -341,7 +466,6 @@ When(
       state.lastCreatedRepository =
         payload.project?.repository?.repository ?? canonicalRepositoryName;
       state.connectedRepositories.add(state.lastCreatedRepository);
-      host.createdRepositories.add(state.lastCreatedRepository);
       return;
     }
 
@@ -378,7 +502,11 @@ Then(
 
 Then(
   /^repository "([^"]+)" exists at designated host "([^"]+)"$/,
-  async ({ projectWorld }, repository: string, designatedHost: string) => {
+  async (
+    { page, projectWorld },
+    repository: string,
+    designatedHost: string,
+  ) => {
     const canonicalRepositoryName = canonicalRepository(repository);
     const canonicalHostName = canonicalHost(designatedHost);
     const host = projectWorld.hosts.get(canonicalHostName);
@@ -387,7 +515,12 @@ Then(
         `designated host fixture missing for ${canonicalHostName}`,
       );
     }
-    if (!host.createdRepositories.has(canonicalRepositoryName)) {
+    const created = await repositoryCreatedAtHostFixture(
+      page,
+      canonicalRepositoryName,
+      canonicalHostName,
+    );
+    if (!created) {
       throw new Error(
         `expected repository ${canonicalRepositoryName} to exist at designated host ${canonicalHostName}`,
       );
@@ -397,7 +530,11 @@ Then(
 
 Then(
   /^repository "([^"]+)" does not exist at designated host "([^"]+)"$/,
-  async ({ projectWorld }, repository: string, designatedHost: string) => {
+  async (
+    { page, projectWorld },
+    repository: string,
+    designatedHost: string,
+  ) => {
     const canonicalRepositoryName = canonicalRepository(repository);
     const canonicalHostName = canonicalHost(designatedHost);
     const host = projectWorld.hosts.get(canonicalHostName);
@@ -406,7 +543,12 @@ Then(
         `designated host fixture missing for ${canonicalHostName}`,
       );
     }
-    if (host.createdRepositories.has(canonicalRepositoryName)) {
+    const created = await repositoryCreatedAtHostFixture(
+      page,
+      canonicalRepositoryName,
+      canonicalHostName,
+    );
+    if (created) {
       throw new Error(
         `expected repository ${canonicalRepositoryName} not to exist at designated host ${canonicalHostName}`,
       );

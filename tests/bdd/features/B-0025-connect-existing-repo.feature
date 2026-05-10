@@ -14,6 +14,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: API connects an existing repository as an active project
       Given alice has a project account
       And repository fixture "ApiTeam/Atlas" has fingerprint "repo-fp::apiteam/atlas" and 3 prior commits
+      And repository fixture "ApiTeam/Atlas" is accessible to alice
       When alice connects existing repository "ApiTeam/Atlas" as an active project
       Then the connection succeeds
       And repository "ApiTeam/Atlas" keeps fingerprint "repo-fp::apiteam/atlas"
@@ -27,6 +28,8 @@ Feature: Connect Tanren to an existing repository
       Given alice has a project account
       And repository fixture "ApiTeam/Alpha" has fingerprint "repo-fp::apiteam/alpha" and 3 prior commits
       And repository fixture "ApiTeam/Beta" has fingerprint "repo-fp::apiteam/beta" and 2 prior commits
+      And repository fixture "ApiTeam/Alpha" is accessible to alice
+      And repository fixture "ApiTeam/Beta" is accessible to alice
       When alice connects existing repository "ApiTeam/Alpha" as an active project
       Then the connection succeeds
       When alice connects existing repository "ApiTeam/Beta" as an active project
@@ -36,14 +39,17 @@ Feature: Connect Tanren to an existing repository
 
     @falsification @api
     Scenario: API rejects connecting a repository without access
-      Given repository fixture "ApiTeam/Private" has fingerprint "repo-fp::apiteam/private" and 5 prior commits
-      When outsider tries to connect existing repository "ApiTeam/Private" without an account
-      Then the project request fails with code "auth_required"
+      Given alice has a project account
+      And repository fixture "ApiTeam/Private" has fingerprint "repo-fp::apiteam/private" and 5 prior commits
+      And repository fixture "ApiTeam/Private" is not accessible to alice
+      When alice connects existing repository "ApiTeam/Private" as an active project
+      Then the project request fails with code "no_access"
 
     @falsification @api
     Scenario: API rejects duplicate repository connection and keeps one record
       Given alice has a project account
       And repository fixture "ApiTeam/Single" has fingerprint "repo-fp::apiteam/single" and 2 prior commits
+      And repository fixture "ApiTeam/Single" is accessible to alice
       When alice connects existing repository "ApiTeam/Single" as an active project
       Then the connection succeeds
       When alice connects existing repository "ApiTeam/Single" as an active project
@@ -54,6 +60,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: API does not import prior commits as Tanren activity
       Given alice has a project account
       And repository fixture "ApiTeam/History" has fingerprint "repo-fp::apiteam/history" and 11 prior commits
+      And repository fixture "ApiTeam/History" is accessible to alice
       When alice connects existing repository "ApiTeam/History" as an active project
       Then the connection succeeds
       And repository "apiteam/history" has zero Tanren activity counts
@@ -64,6 +71,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: Web connects an existing repository as an active project
       Given alice has a project account
       And repository fixture "WebTeam/Atlas" has fingerprint "repo-fp::webteam/atlas" and 3 prior commits
+      And repository fixture "WebTeam/Atlas" is accessible to alice
       When alice connects existing repository "WebTeam/Atlas" as an active project
       Then the connection succeeds
       And repository "WebTeam/Atlas" keeps fingerprint "repo-fp::webteam/atlas"
@@ -77,6 +85,8 @@ Feature: Connect Tanren to an existing repository
       Given alice has a project account
       And repository fixture "WebTeam/Alpha" has fingerprint "repo-fp::webteam/alpha" and 3 prior commits
       And repository fixture "WebTeam/Beta" has fingerprint "repo-fp::webteam/beta" and 2 prior commits
+      And repository fixture "WebTeam/Alpha" is accessible to alice
+      And repository fixture "WebTeam/Beta" is accessible to alice
       When alice connects existing repository "WebTeam/Alpha" as an active project
       Then the connection succeeds
       When alice connects existing repository "WebTeam/Beta" as an active project
@@ -86,14 +96,17 @@ Feature: Connect Tanren to an existing repository
 
     @falsification @web
     Scenario: Web rejects connecting a repository without access
-      Given repository fixture "WebTeam/Private" has fingerprint "repo-fp::webteam/private" and 5 prior commits
-      When outsider tries to connect existing repository "WebTeam/Private" without an account
-      Then the project request fails with code "auth_required"
+      Given alice has a project account
+      And repository fixture "WebTeam/Private" has fingerprint "repo-fp::webteam/private" and 5 prior commits
+      And repository fixture "WebTeam/Private" is not accessible to alice
+      When alice connects existing repository "WebTeam/Private" as an active project
+      Then the project request fails with code "no_access"
 
     @falsification @web
     Scenario: Web rejects duplicate repository connection and keeps one record
       Given alice has a project account
       And repository fixture "WebTeam/Single" has fingerprint "repo-fp::webteam/single" and 2 prior commits
+      And repository fixture "WebTeam/Single" is accessible to alice
       When alice connects existing repository "WebTeam/Single" as an active project
       Then the connection succeeds
       When alice connects existing repository "WebTeam/Single" as an active project
@@ -104,6 +117,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: Web does not import prior commits as Tanren activity
       Given alice has a project account
       And repository fixture "WebTeam/History" has fingerprint "repo-fp::webteam/history" and 11 prior commits
+      And repository fixture "WebTeam/History" is accessible to alice
       When alice connects existing repository "WebTeam/History" as an active project
       Then the connection succeeds
       And repository "webteam/history" has zero Tanren activity counts
@@ -114,6 +128,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: CLI connects an existing repository as an active project
       Given alice has a project account
       And repository fixture "CliTeam/Atlas" has fingerprint "repo-fp::cliteam/atlas" and 3 prior commits
+      And repository fixture "CliTeam/Atlas" is accessible to alice
       When alice connects existing repository "CliTeam/Atlas" as an active project
       Then the connection succeeds
       And repository "CliTeam/Atlas" keeps fingerprint "repo-fp::cliteam/atlas"
@@ -127,6 +142,8 @@ Feature: Connect Tanren to an existing repository
       Given alice has a project account
       And repository fixture "CliTeam/Alpha" has fingerprint "repo-fp::cliteam/alpha" and 3 prior commits
       And repository fixture "CliTeam/Beta" has fingerprint "repo-fp::cliteam/beta" and 2 prior commits
+      And repository fixture "CliTeam/Alpha" is accessible to alice
+      And repository fixture "CliTeam/Beta" is accessible to alice
       When alice connects existing repository "CliTeam/Alpha" as an active project
       Then the connection succeeds
       When alice connects existing repository "CliTeam/Beta" as an active project
@@ -136,14 +153,17 @@ Feature: Connect Tanren to an existing repository
 
     @falsification @cli
     Scenario: CLI rejects connecting a repository without access
-      Given repository fixture "CliTeam/Private" has fingerprint "repo-fp::cliteam/private" and 5 prior commits
-      When outsider tries to connect existing repository "CliTeam/Private" without an account
+      Given alice has a project account
+      And repository fixture "CliTeam/Private" has fingerprint "repo-fp::cliteam/private" and 5 prior commits
+      And repository fixture "CliTeam/Private" is not accessible to alice
+      When alice connects existing repository "CliTeam/Private" as an active project
       Then the project request fails with code "no_access"
 
     @falsification @cli
     Scenario: CLI rejects duplicate repository connection and keeps one record
       Given alice has a project account
       And repository fixture "CliTeam/Single" has fingerprint "repo-fp::cliteam/single" and 2 prior commits
+      And repository fixture "CliTeam/Single" is accessible to alice
       When alice connects existing repository "CliTeam/Single" as an active project
       Then the connection succeeds
       When alice connects existing repository "CliTeam/Single" as an active project
@@ -154,6 +174,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: CLI does not import prior commits as Tanren activity
       Given alice has a project account
       And repository fixture "CliTeam/History" has fingerprint "repo-fp::cliteam/history" and 11 prior commits
+      And repository fixture "CliTeam/History" is accessible to alice
       When alice connects existing repository "CliTeam/History" as an active project
       Then the connection succeeds
       And repository "cliteam/history" has zero Tanren activity counts
@@ -164,6 +185,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: MCP connects an existing repository as an active project
       Given alice has a project account
       And repository fixture "McpTeam/Atlas" has fingerprint "repo-fp::mcpteam/atlas" and 3 prior commits
+      And repository fixture "McpTeam/Atlas" is accessible to alice
       When alice connects existing repository "McpTeam/Atlas" as an active project
       Then the connection succeeds
       And repository "McpTeam/Atlas" keeps fingerprint "repo-fp::mcpteam/atlas"
@@ -177,6 +199,8 @@ Feature: Connect Tanren to an existing repository
       Given alice has a project account
       And repository fixture "McpTeam/Alpha" has fingerprint "repo-fp::mcpteam/alpha" and 3 prior commits
       And repository fixture "McpTeam/Beta" has fingerprint "repo-fp::mcpteam/beta" and 2 prior commits
+      And repository fixture "McpTeam/Alpha" is accessible to alice
+      And repository fixture "McpTeam/Beta" is accessible to alice
       When alice connects existing repository "McpTeam/Alpha" as an active project
       Then the connection succeeds
       When alice connects existing repository "McpTeam/Beta" as an active project
@@ -185,15 +209,18 @@ Feature: Connect Tanren to an existing repository
       And alice has exactly 2 connected project records
 
     @falsification @mcp
-    Scenario: MCP rejects connecting a repository without a project actor credential
-      Given repository fixture "McpTeam/Private" has fingerprint "repo-fp::mcpteam/private" and 5 prior commits
-      When outsider tries to connect existing repository "McpTeam/Private" without an account
-      Then the project request fails with code "auth_required"
+    Scenario: MCP rejects connecting a repository without access
+      Given alice has a project account
+      And repository fixture "McpTeam/Private" has fingerprint "repo-fp::mcpteam/private" and 5 prior commits
+      And repository fixture "McpTeam/Private" is not accessible to alice
+      When alice connects existing repository "McpTeam/Private" as an active project
+      Then the project request fails with code "no_access"
 
     @falsification @mcp
     Scenario: MCP rejects duplicate repository connection and keeps one record
       Given alice has a project account
       And repository fixture "McpTeam/Single" has fingerprint "repo-fp::mcpteam/single" and 2 prior commits
+      And repository fixture "McpTeam/Single" is accessible to alice
       When alice connects existing repository "McpTeam/Single" as an active project
       Then the connection succeeds
       When alice connects existing repository "McpTeam/Single" as an active project
@@ -205,6 +232,7 @@ Feature: Connect Tanren to an existing repository
       Given alice has a project account
       And bob has a project account
       And repository fixture "McpTeam/CrossAccount" has fingerprint "repo-fp::mcpteam/crossaccount" and 4 prior commits
+      And repository fixture "McpTeam/CrossAccount" is accessible to alice
       When alice uses their credential to connect existing repository "McpTeam/CrossAccount" for bob as an active project
       Then the project request fails with code "no_access"
       And bob has exactly 0 connected project records
@@ -213,6 +241,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: MCP does not import prior commits as Tanren activity
       Given alice has a project account
       And repository fixture "McpTeam/History" has fingerprint "repo-fp::mcpteam/history" and 11 prior commits
+      And repository fixture "McpTeam/History" is accessible to alice
       When alice connects existing repository "McpTeam/History" as an active project
       Then the connection succeeds
       And repository "mcpteam/history" has zero Tanren activity counts
@@ -223,6 +252,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: TUI connects an existing repository as an active project
       Given alice has a project account
       And repository fixture "TuiTeam/Atlas" has fingerprint "repo-fp::tuiteam/atlas" and 3 prior commits
+      And repository fixture "TuiTeam/Atlas" is accessible to alice
       When alice connects existing repository "TuiTeam/Atlas" as an active project
       Then the connection succeeds
       And repository "TuiTeam/Atlas" keeps fingerprint "repo-fp::tuiteam/atlas"
@@ -236,6 +266,8 @@ Feature: Connect Tanren to an existing repository
       Given alice has a project account
       And repository fixture "TuiTeam/Alpha" has fingerprint "repo-fp::tuiteam/alpha" and 3 prior commits
       And repository fixture "TuiTeam/Beta" has fingerprint "repo-fp::tuiteam/beta" and 2 prior commits
+      And repository fixture "TuiTeam/Alpha" is accessible to alice
+      And repository fixture "TuiTeam/Beta" is accessible to alice
       When alice connects existing repository "TuiTeam/Alpha" as an active project
       Then the connection succeeds
       When alice connects existing repository "TuiTeam/Beta" as an active project
@@ -245,14 +277,17 @@ Feature: Connect Tanren to an existing repository
 
     @falsification @tui
     Scenario: TUI rejects connecting a repository without access
-      Given repository fixture "TuiTeam/Private" has fingerprint "repo-fp::tuiteam/private" and 5 prior commits
-      When outsider tries to connect existing repository "TuiTeam/Private" without an account
+      Given alice has a project account
+      And repository fixture "TuiTeam/Private" has fingerprint "repo-fp::tuiteam/private" and 5 prior commits
+      And repository fixture "TuiTeam/Private" is not accessible to alice
+      When alice connects existing repository "TuiTeam/Private" as an active project
       Then the project request fails with code "no_access"
 
     @falsification @tui
     Scenario: TUI rejects duplicate repository connection and keeps one record
       Given alice has a project account
       And repository fixture "TuiTeam/Single" has fingerprint "repo-fp::tuiteam/single" and 2 prior commits
+      And repository fixture "TuiTeam/Single" is accessible to alice
       When alice connects existing repository "TuiTeam/Single" as an active project
       Then the connection succeeds
       When alice connects existing repository "TuiTeam/Single" as an active project
@@ -263,6 +298,7 @@ Feature: Connect Tanren to an existing repository
     Scenario: TUI does not import prior commits as Tanren activity
       Given alice has a project account
       And repository fixture "TuiTeam/History" has fingerprint "repo-fp::tuiteam/history" and 11 prior commits
+      And repository fixture "TuiTeam/History" is accessible to alice
       When alice connects existing repository "TuiTeam/History" as an active project
       Then the connection succeeds
       And repository "tuiteam/history" has zero Tanren activity counts

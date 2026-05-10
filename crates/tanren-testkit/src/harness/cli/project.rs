@@ -8,6 +8,7 @@ use tanren_contract::{
     ConnectProjectRepositoryResponse, CreateProjectRequest, CreateProjectResponse,
     ListVisibleProjectsRequest, ProjectCollectionView,
 };
+use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tokio::process::Command;
 
 use super::super::api::project_code_to_reason;
@@ -27,7 +28,10 @@ impl ProjectHarness for CliHarness {
         req: ConnectProjectRepositoryRequest,
     ) -> HarnessResult<ConnectProjectRepositoryResponse> {
         let output = Command::new(&self.binary)
-            .env("TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE", "allow_all")
+            .env(
+                "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE",
+                self.project_provider_fixture_env_value(),
+            )
             .args([
                 "project",
                 "connect-repository",
@@ -88,8 +92,12 @@ impl ProjectHarness for CliHarness {
                 "cli harness currently expects select_as_active=true".to_owned(),
             ));
         }
+        let designated_host = req.designated_host.clone();
         let output = Command::new(&self.binary)
-            .env("TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE", "allow_all")
+            .env(
+                "TANREN_SOURCE_CONTROL_PROVIDER_FIXTURE",
+                self.project_provider_fixture_env_value(),
+            )
             .args([
                 "project",
                 "create",
@@ -113,7 +121,10 @@ impl ProjectHarness for CliHarness {
         if !output.status.success() {
             return Err(project_failure_from_output(&output.stdout, &output.stderr));
         }
-        decode_project_json(&output.stdout, "decode create project response")
+        let response: CreateProjectResponse =
+            decode_project_json(&output.stdout, "decode create project response")?;
+        self.record_created_repository(&designated_host, &response.project.repository.repository);
+        Ok(response)
     }
 
     async fn active_project(
@@ -141,6 +152,34 @@ impl ProjectHarness for CliHarness {
             return Err(project_failure_from_output(&output.stdout, &output.stderr));
         }
         decode_project_json(&output.stdout, "decode active project response")
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.configure_repository_access(actor_account_id, repository, allowed);
+        Ok(())
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.configure_designated_host_create_access(actor_account_id, &host, allowed);
+        Ok(())
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> HarnessResult<bool> {
+        Ok(self.observed_repository_created_at_host(host, repository))
     }
 }
 

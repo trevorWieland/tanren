@@ -27,7 +27,7 @@ use tanren_contract::{
     CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, ProjectFailureReason,
     ProjectPageRequest, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::AccountId;
+use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tanren_store::EventEnvelope;
 
 use super::HarnessError;
@@ -176,6 +176,38 @@ impl ProjectHarness for WebHarness {
             .active_project(ActiveProjectRequest {
                 owning_account_id: session_account_id,
             })
+            .await
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.inner
+            .set_repository_access(actor_account_id, repository, allowed)
+            .await
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.inner
+            .set_designated_host_create_access(actor_account_id, host, allowed)
+            .await
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> HarnessResult<bool> {
+        self.inner
+            .repository_created_at_host(host, repository)
             .await
     }
 }

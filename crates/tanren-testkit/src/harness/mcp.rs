@@ -23,6 +23,7 @@ use tanren_contract::{
     SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
+use tanren_provider_integrations::{FixtureSourceControlConfig, FixtureSourceControlProvider};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -43,6 +44,7 @@ pub struct McpHarness {
     client: Option<RunningService<RoleClient, ClientInfo>>,
     session_credentials: HashMap<AccountId, SecretString>,
     last_actor_session_account_id: Option<AccountId>,
+    fixture_source_control: FixtureSourceControlProvider,
     server: Option<JoinHandle<()>>,
 }
 
@@ -80,9 +82,12 @@ impl McpHarness {
             .local_addr()
             .map_err(|e| HarnessError::Transport(format!("local addr: {e}")))?;
 
+        let fixture_source_control =
+            FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
         let (router, cancellation) = tanren_mcp_app::build_router_with_store(
             store.clone(),
             SecretString::from(TEST_API_KEY.to_owned()),
+            Arc::new(fixture_source_control.clone()),
         );
 
         let server = tokio::spawn(async move {
@@ -102,6 +107,7 @@ impl McpHarness {
             client: Some(client),
             session_credentials: HashMap::new(),
             last_actor_session_account_id: None,
+            fixture_source_control,
             server: Some(server),
         })
     }
@@ -347,6 +353,39 @@ impl ProjectHarness for McpHarness {
             .await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode active project response: {e}")))
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: tanren_identity_policy::RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control
+            .set_repository_access(actor_account_id, repository, allowed);
+        Ok(())
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: tanren_identity_policy::DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control.set_host_reachable(&host, true);
+        self.fixture_source_control
+            .set_host_create_access(actor_account_id, &host, allowed);
+        Ok(())
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &tanren_identity_policy::DesignatedHost,
+        repository: &tanren_identity_policy::RepositoryRef,
+    ) -> HarnessResult<bool> {
+        Ok(self
+            .fixture_source_control
+            .repository_created_at_host(host, repository))
     }
 }
 

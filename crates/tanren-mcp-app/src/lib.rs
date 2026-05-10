@@ -30,8 +30,6 @@ use tanren_contract::{
     SignUpRequest,
 };
 use tanren_identity_policy::AccountId;
-#[cfg(any(test, feature = "test-hooks"))]
-use tanren_provider_integrations::fixture_allow_all_source_control_provider;
 use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
 use tokio::net::TcpListener;
 use tokio_util::sync::CancellationToken;
@@ -402,6 +400,7 @@ fn build_router(
 pub fn build_router_with_store(
     store: Arc<Store>,
     api_key: secrecy::SecretString,
+    source_control: Arc<dyn SourceControlProvider>,
 ) -> (Router, CancellationToken) {
     let auth_state = Arc::new(AuthState {
         config: AuthConfig {
@@ -414,7 +413,7 @@ pub fn build_router_with_store(
         auth_state,
         Handlers::new(),
         store,
-        fixture_allow_all_source_control_provider(),
+        source_control,
         cancellation.clone(),
     );
     (router, cancellation)

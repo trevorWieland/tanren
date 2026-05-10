@@ -19,3 +19,4 @@ test-hooks = []
 async-trait = { workspace = true }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
+uuid = { workspace = true }

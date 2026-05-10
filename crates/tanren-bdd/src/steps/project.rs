@@ -39,6 +39,17 @@ async fn given_project_account(world: &mut TanrenWorld, actor: String) {
     entry.last_connected_repository = None;
     entry.last_created_repository = None;
     entry.last_designated_host = None;
+    let existing_repositories = ctx
+        .repositories
+        .values()
+        .map(|fixture| fixture.repository.clone())
+        .collect::<Vec<_>>();
+    for repository in existing_repositories {
+        ctx.harness
+            .set_repository_access(session.account_id, repository, true)
+            .await
+            .expect("default repository access grant should configure");
+    }
     ctx.last_failure_code = None;
 }
 
@@ -63,11 +74,40 @@ async fn given_repository_fixture(
     ctx.repositories.insert(
         parsed.as_str().to_owned(),
         RepositoryFixtureState {
-            repository: parsed,
+            repository: parsed.clone(),
             fingerprint,
             prior_commits,
         },
     );
+    let known_accounts = ctx
+        .actors
+        .values()
+        .filter_map(|state| state.account_id)
+        .collect::<Vec<_>>();
+    for account_id in known_accounts {
+        ctx.harness
+            .set_repository_access(account_id, parsed.clone(), true)
+            .await
+            .expect("default repository access grant should configure");
+    }
+}
+
+#[given(expr = "repository fixture {string} is accessible to {word}")]
+async fn given_repository_accessible_to_actor(
+    world: &mut TanrenWorld,
+    repository: String,
+    actor: String,
+) {
+    set_repository_access(world, repository, actor, true).await;
+}
+
+#[given(expr = "repository fixture {string} is not accessible to {word}")]
+async fn given_repository_not_accessible_to_actor(
+    world: &mut TanrenWorld,
+    repository: String,
+    actor: String,
+) {
+    set_repository_access(world, repository, actor, false).await;
 }
 
 #[when(expr = "{word} connects existing repository {string} as an active project")]
@@ -324,7 +364,7 @@ async fn connect_existing_impl(
         "repository fixture must be seeded before connect attempt"
     );
 
-    let account_id = if without_account {
+    let request_account_id = if without_account {
         AccountId::fresh()
     } else {
         actor_account_id(&ctx.actors, &actor)
@@ -333,7 +373,7 @@ async fn connect_existing_impl(
     let result = ctx
         .harness
         .connect_project_repository(ConnectProjectRepositoryRequest {
-            owning_account_id: account_id,
+            owning_account_id: request_account_id,
             repository: parsed_repository.clone(),
             select_as_active: true,
         })
@@ -343,7 +383,7 @@ async fn connect_existing_impl(
         .actors
         .entry(actor)
         .or_insert_with(ProjectActorState::default);
-    entry.account_id = Some(account_id);
+    entry.account_id = Some(request_account_id);
     match result {
         Ok(response) => {
             entry.last_connected_repository = Some(response.project.repository.repository);
@@ -372,4 +412,23 @@ fn actor_account_id(
 
 fn repository_fingerprint(repository: &RepositoryRef) -> String {
     format!("repo-fp::{}", repository.as_str())
+}
+
+async fn set_repository_access(
+    world: &mut TanrenWorld,
+    repository: String,
+    actor: String,
+    allowed: bool,
+) {
+    let parsed_repository = RepositoryRef::parse(&repository).expect("repository must parse");
+    let ctx = world.ensure_project_ctx().await;
+    assert!(
+        ctx.repositories.contains_key(parsed_repository.as_str()),
+        "repository fixture must be seeded before access configuration"
+    );
+    let account_id = actor_account_id(&ctx.actors, &actor);
+    ctx.harness
+        .set_repository_access(account_id, parsed_repository, allowed)
+        .await
+        .expect("repository fixture access should configure");
 }

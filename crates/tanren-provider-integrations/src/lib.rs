@@ -6,6 +6,8 @@
 //! (Slack, email). Concrete adapters live in separate crates introduced by
 //! the slice that first needs each provider family.
 
+mod source_control_fixture_env;
+
 use std::sync::Arc;
 use tanren_identity_policy::{AccountId, DesignatedHost, ProviderFamily, RepositoryRef};
 use thiserror::Error;
@@ -153,6 +155,11 @@ pub fn production_source_control_provider() -> Arc<dyn SourceControlProvider> {
         {
             return fixture_allow_all_source_control_provider();
         }
+        if let Some(provider) =
+            source_control_fixture_env::env_fixture_source_control_provider(raw.trim())
+        {
+            return provider;
+        }
     }
     Arc::new(UnavailableSourceControlProvider)
 }
@@ -280,6 +287,85 @@ impl FixtureSourceControlProvider {
                 .cmp(&(right_host.as_str(), right_repo.as_str()))
         });
         out
+    }
+
+    /// Update provider-reachability for this fixture.
+    pub fn set_provider_reachable(&self, reachable: bool) {
+        let mut guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard.config.provider_reachable = reachable;
+    }
+
+    /// Toggle designated-host reachability for this fixture.
+    pub fn set_host_reachable(&self, host: &DesignatedHost, reachable: bool) {
+        let mut guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        if reachable {
+            guard
+                .config
+                .reachable_hosts
+                .insert(host.as_str().to_owned());
+        } else {
+            guard.config.reachable_hosts.remove(host.as_str());
+        }
+    }
+
+    /// Toggle repository-access permission for `(actor, repository)`.
+    pub fn set_repository_access(
+        &self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) {
+        let mut guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let pair = (actor_account_id, repository);
+        if allowed {
+            guard.config.repository_access.insert(pair);
+        } else {
+            guard.config.repository_access.remove(&pair);
+        }
+    }
+
+    /// Toggle host-create permission for `(actor, host)`.
+    pub fn set_host_create_access(
+        &self,
+        actor_account_id: AccountId,
+        host: &DesignatedHost,
+        allowed: bool,
+    ) {
+        let mut guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        let pair = (actor_account_id, host.as_str().to_owned());
+        if allowed {
+            guard.config.host_create_access.insert(pair);
+        } else {
+            guard.config.host_create_access.remove(&pair);
+        }
+    }
+
+    /// Return whether this fixture observed a repository created at host.
+    #[must_use]
+    pub fn repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> bool {
+        let guard = match self.state.lock() {
+            Ok(guard) => guard,
+            Err(poisoned) => poisoned.into_inner(),
+        };
+        guard
+            .created_repositories
+            .contains(&(host.as_str().to_owned(), repository.clone()))
     }
 }
 

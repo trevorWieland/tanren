@@ -5,6 +5,7 @@ mod project;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::{collections::HashSet, iter};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -12,7 +13,7 @@ use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_identity_policy::{AccountId, DesignatedHost, Identifier, OrgId, RepositoryRef};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -28,6 +29,12 @@ pub struct CliHarness {
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    provider_reachable: bool,
+    reachable_hosts: HashSet<String>,
+    repository_access: HashSet<(AccountId, RepositoryRef)>,
+    host_create_access: HashSet<(AccountId, String)>,
+    fail_repository_create: bool,
+    created_repositories: HashSet<(String, RepositoryRef)>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -59,7 +66,102 @@ impl CliHarness {
             db_path,
             db_url,
             binary,
+            provider_reachable: true,
+            reachable_hosts: HashSet::new(),
+            repository_access: HashSet::new(),
+            host_create_access: HashSet::new(),
+            fail_repository_create: false,
+            created_repositories: HashSet::new(),
         })
+    }
+
+    pub(crate) fn project_provider_fixture_env_value(&self) -> String {
+        let mut reachable_hosts = self.reachable_hosts.iter().cloned().collect::<Vec<_>>();
+        reachable_hosts.sort_unstable();
+        let mut repo_access = self
+            .repository_access
+            .iter()
+            .map(|(account, repository)| format!("{account}@{}", repository.as_str()))
+            .collect::<Vec<_>>();
+        repo_access.sort_unstable();
+        let mut host_create_access = self
+            .host_create_access
+            .iter()
+            .map(|(account, host)| format!("{account}@{host}"))
+            .collect::<Vec<_>>();
+        host_create_access.sort_unstable();
+        let provider_reachable = if self.provider_reachable { "1" } else { "0" };
+        let fail_repository_create = if self.fail_repository_create {
+            "1"
+        } else {
+            "0"
+        };
+        iter::once("fixture-v1".to_owned())
+            .chain(iter::once(format!(
+                "provider_reachable={provider_reachable}"
+            )))
+            .chain(iter::once(format!(
+                "fail_repository_create={fail_repository_create}"
+            )))
+            .chain(iter::once(format!(
+                "reachable_hosts={}",
+                reachable_hosts.join("|")
+            )))
+            .chain(iter::once(format!("repo_access={}", repo_access.join("|"))))
+            .chain(iter::once(format!(
+                "host_create_access={}",
+                host_create_access.join("|")
+            )))
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    pub(crate) fn configure_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) {
+        let pair = (actor_account_id, repository);
+        if allowed {
+            self.repository_access.insert(pair);
+        } else {
+            self.repository_access.remove(&pair);
+        }
+    }
+
+    pub(crate) fn configure_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: &DesignatedHost,
+        allowed: bool,
+    ) {
+        let normalized_host = host.as_str().to_owned();
+        self.reachable_hosts.insert(normalized_host.clone());
+        let pair = (actor_account_id, normalized_host);
+        if allowed {
+            self.host_create_access.insert(pair);
+        } else {
+            self.host_create_access.remove(&pair);
+        }
+    }
+
+    pub(crate) fn record_created_repository(
+        &mut self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) {
+        self.created_repositories
+            .insert((host.as_str().to_owned(), repository.clone()));
+    }
+
+    pub(crate) fn observed_repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> bool {
+        self.created_repositories
+            .contains(&(host.as_str().to_owned(), repository.clone()))
     }
 }
 

@@ -62,7 +62,7 @@ use tanren_contract::{
     CreateProjectRequest, CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView,
     ProjectFailureReason, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, DesignatedHost, InvitationToken, OrgId, RepositoryRef};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -288,6 +288,32 @@ pub trait ProjectHarness: AccountHarness {
         &mut self,
         req: ActiveProjectRequest,
     ) -> HarnessResult<ActiveProjectView>;
+
+    /// Configure whether an actor can access a repository in the fixture
+    /// source-control provider.
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()>;
+
+    /// Configure designated-host reachability and actor create access in the
+    /// fixture source-control provider.
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()>;
+
+    /// Observe whether the fixture source-control provider recorded repository
+    /// creation at the designated host.
+    async fn repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> HarnessResult<bool>;
 }
 
 /// Default short-window timeout used by the wire harnesses.

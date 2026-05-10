@@ -54,9 +54,11 @@ use axum::Json;
 use axum::http::{HeaderValue, header};
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
-#[cfg(any(test, feature = "test-hooks"))]
-use tanren_provider_integrations::fixture_allow_all_source_control_provider;
-use tanren_provider_integrations::{SourceControlProvider, production_source_control_provider};
+use tanren_provider_integrations::SourceControlProvider;
+#[cfg(not(feature = "test-hooks"))]
+use tanren_provider_integrations::production_source_control_provider;
+#[cfg(feature = "test-hooks")]
+use tanren_provider_integrations::{FixtureSourceControlConfig, FixtureSourceControlProvider};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -161,10 +163,17 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
             .await
             .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
     );
+    #[cfg(feature = "test-hooks")]
+    let fixture_source_control =
+        FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
+    #[cfg(feature = "test-hooks")]
+    let source_control: Arc<dyn SourceControlProvider> = Arc::new(fixture_source_control.clone());
+    #[cfg(not(feature = "test-hooks"))]
+    let source_control = production_source_control_provider();
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
-        source_control: production_source_control_provider(),
+        source_control,
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
@@ -192,7 +201,10 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
 
     let merged = router.merge(openapi_router);
     #[cfg(feature = "test-hooks")]
-    let merged = merged.merge(test_hooks::router(store.clone()));
+    let merged = merged.merge(test_hooks::router_with_source_control(
+        store.clone(),
+        fixture_source_control,
+    ));
     let merged = merged.layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),
@@ -241,11 +253,12 @@ pub async fn build_app_with_store(
     cookie_database_url: &str,
     cors_allow_origins: Vec<HeaderValue>,
     secure_cookie: bool,
+    source_control: Arc<dyn SourceControlProvider>,
 ) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
-        source_control: fixture_allow_all_source_control_provider(),
+        source_control,
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;

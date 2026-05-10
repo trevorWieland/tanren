@@ -14,6 +14,7 @@ use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
 };
+use tanren_provider_integrations::{FixtureSourceControlConfig, FixtureSourceControlProvider};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -30,6 +31,7 @@ pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
+    fixture_source_control: FixtureSourceControlProvider,
     server: Option<JoinHandle<()>>,
     /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
@@ -67,11 +69,14 @@ impl ApiHarness {
 
         let cors_origin = HeaderValue::from_str(&base_url)
             .map_err(|e| HarnessError::Transport(format!("cors header: {e}")))?;
+        let fixture_source_control =
+            FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
         let app = tanren_api_app::build_app_with_store(
             store.clone(),
             &database_url,
             vec![cors_origin],
             false,
+            Arc::new(fixture_source_control.clone()),
         )
         .await
         .map_err(|e| HarnessError::Transport(format!("build app: {e}")))?;
@@ -91,6 +96,7 @@ impl ApiHarness {
             base_url,
             client,
             store,
+            fixture_source_control,
             server: Some(server),
             db_path,
         })

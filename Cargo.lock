@@ -4403,6 +4403,7 @@ dependencies = [
  "async-trait",
  "tanren-identity-policy",
  "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]
