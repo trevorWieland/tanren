@@ -18,7 +18,9 @@ mod writer_tx;
 
 pub(crate) use cli::{DriftCommand, InstallCommand};
 pub(crate) use drift::InstallDriftReport;
-pub(crate) use error::{InstallDriftError, InstallError};
+pub(crate) use error::{
+    InstallCommandError, InstallDriftCommandError, InstallDriftError, InstallError,
+};
 #[cfg(feature = "test-hooks")]
 pub(crate) use manifest::RepoRelativePath;
 pub(crate) use plan::InstallPlan;

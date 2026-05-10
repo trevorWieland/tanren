@@ -25,9 +25,12 @@ use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
 use tanren_identity_policy::{Email, InvitationToken};
 
+mod error;
 mod install;
 #[cfg(feature = "test-hooks")]
 pub mod test_hooks;
+
+use crate::error::CliAppError;
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
 
@@ -124,15 +127,7 @@ enum AccountAction {
 /// `main` can return it directly without re-encoding error context.
 #[must_use]
 pub fn run(config: Config) -> ExitCode {
-    let result = match config.command {
-        None | Some(Command::Health) => print_health(),
-        Some(Command::Migrate {
-            action: MigrateAction::Up { database_url },
-        }) => run_migrate_up(&database_url),
-        Some(Command::Account { action }) => dispatch_account(action),
-        Some(Command::Install(command)) => command.run().map_err(anyhow::Error::new),
-        Some(Command::Drift(command)) => command.run().map_err(anyhow::Error::new),
-    };
+    let result = dispatch_command(config);
     match result {
         Ok(()) => ExitCode::SUCCESS,
         Err(err) => {
@@ -142,6 +137,29 @@ pub fn run(config: Config) -> ExitCode {
             ExitCode::from(1)
         }
     }
+}
+
+fn dispatch_command(config: Config) -> std::result::Result<(), CliAppError> {
+    match config.command {
+        None | Some(Command::Health) => {
+            print_health()?;
+        }
+        Some(Command::Migrate {
+            action: MigrateAction::Up { database_url },
+        }) => {
+            run_migrate_up(&database_url)?;
+        }
+        Some(Command::Account { action }) => {
+            dispatch_account(action)?;
+        }
+        Some(Command::Install(command)) => {
+            command.run()?;
+        }
+        Some(Command::Drift(command)) => {
+            command.run()?;
+        }
+    }
+    Ok(())
 }
 
 fn print_health() -> Result<()> {
