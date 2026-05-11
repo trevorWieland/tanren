@@ -8,276 +8,349 @@ use crate::install::manifest::{
 };
 use crate::install::{InstallIntegration, InstallProfile};
 
-const COMMAND_SOURCES: &[(&str, &str, &str)] = &[
-    (
-        "plan-product",
-        "commands/project/plan-product.md",
-        include_str!(concat!(
+// ---------------------------------------------------------------------------
+// Typed command entries (shared across all integrations)
+// ---------------------------------------------------------------------------
+
+/// One methodology command in the static catalog.
+struct CommandEntry {
+    name: &'static str,
+    source_path: &'static str,
+    content: &'static str,
+}
+
+const COMMAND_ENTRIES: &[CommandEntry] = &[
+    CommandEntry {
+        name: "plan-product",
+        source_path: "commands/project/plan-product.md",
+        content: include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../commands/project/plan-product.md"
         )),
-    ),
-    (
-        "identify-behaviors",
-        "commands/project/identify-behaviors.md",
-        include_str!(concat!(
+    },
+    CommandEntry {
+        name: "identify-behaviors",
+        source_path: "commands/project/identify-behaviors.md",
+        content: include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../commands/project/identify-behaviors.md"
         )),
-    ),
-    (
-        "architect-system",
-        "commands/project/architect-system.md",
-        include_str!(concat!(
+    },
+    CommandEntry {
+        name: "architect-system",
+        source_path: "commands/project/architect-system.md",
+        content: include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../commands/project/architect-system.md"
         )),
-    ),
-    (
-        "craft-roadmap",
-        "commands/project/craft-roadmap.md",
-        include_str!(concat!(
+    },
+    CommandEntry {
+        name: "craft-roadmap",
+        source_path: "commands/project/craft-roadmap.md",
+        content: include_str!(concat!(
             env!("CARGO_MANIFEST_DIR"),
             "/../../commands/project/craft-roadmap.md"
         )),
-    ),
+    },
 ];
 
-const CLAUDE_COMMAND_DESTINATION_ROOT: &str = ".claude/commands/";
-const CODEX_COMMAND_DESTINATION_ROOT: &str = ".codex/skills/";
-const OPENCODE_COMMAND_DESTINATION_ROOT: &str = ".opencode/commands/";
+// ---------------------------------------------------------------------------
+// IntegrationSpec — one data block per integration
+// ---------------------------------------------------------------------------
 
-const RUST_CARGO_PROFILE_SOURCES: &[(&str, &str)] = &[
-    (
-        "profiles/rust-cargo/architecture/cookie-session.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/cookie-session.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/crate-layering.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/crate-layering.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/id-formats.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/id-formats.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/naming-conventions.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/naming-conventions.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/openapi-generation.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/openapi-generation.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/secrets-handling.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/secrets-handling.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/thin-binary-crate.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/thin-binary-crate.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/trait-based-abstraction.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/trait-based-abstraction.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/architecture/workspace-layout.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/architecture/workspace-layout.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/global/address-deprecations-immediately.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/global/address-deprecations-immediately.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/global/dependency-management.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/global/dependency-management.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/global/just-ci-gate.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/global/just-ci-gate.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/edition-and-toolchain.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/edition-and-toolchain.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/error-handling.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/error-handling.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/file-and-function-limits.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/file-and-function-limits.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/internal-visibility-controls.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/internal-visibility-controls.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/naming-conventions.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/naming-conventions.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/no-unsafe-no-debug-output.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/no-unsafe-no-debug-output.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/type-safety-patterns.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/type-safety-patterns.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/rust/workspace-lints.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/rust/workspace-lints.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/bdd-wire-harness.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/bdd-wire-harness.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/behavior-inventory-and-scenario-traceability.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/behavior-inventory-and-scenario-traceability.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/coverage-as-scenario-proxy.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/coverage-as-scenario-proxy.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/gherkin-quality-rules.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/gherkin-quality-rules.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/mandatory-coverage.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/mandatory-coverage.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/mock-boundaries.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/mock-boundaries.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/mutation-strength-gate.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/mutation-strength-gate.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/nextest-configuration.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/nextest-configuration.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/no-test-skipping.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/no-test-skipping.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/test-timing-rules.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/test-timing-rules.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/test-tooling.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/test-tooling.md"
-        )),
-    ),
-    (
-        "profiles/rust-cargo/testing/three-tier-test-structure.md",
-        include_str!(concat!(
-            env!("CARGO_MANIFEST_DIR"),
-            "/../../profiles/rust-cargo/testing/three-tier-test-structure.md"
-        )),
-    ),
+/// Typed specification for an install integration.
+///
+/// Adding a new `InstallIntegration` variant requires editing exactly one
+/// `IntegrationSpec` data block, the enum definition, and `FromStr`.
+struct IntegrationSpec {
+    integration: InstallIntegration,
+    destination_root: &'static str,
+}
+
+/// Integration data block for Claude.
+const INTEGRATION_CLAUDE: IntegrationSpec = IntegrationSpec {
+    integration: InstallIntegration::Claude,
+    destination_root: ".claude/commands/",
+};
+
+/// Integration data block for Codex.
+const INTEGRATION_CODEX: IntegrationSpec = IntegrationSpec {
+    integration: InstallIntegration::Codex,
+    destination_root: ".codex/skills/",
+};
+
+/// Integration data block for `OpenCode`.
+const INTEGRATION_OPENCODE: IntegrationSpec = IntegrationSpec {
+    integration: InstallIntegration::OpenCode,
+    destination_root: ".opencode/commands/",
+};
+
+const ALL_INTEGRATION_SPECS: &[&IntegrationSpec] = &[
+    &INTEGRATION_CLAUDE,
+    &INTEGRATION_CODEX,
+    &INTEGRATION_OPENCODE,
 ];
+
+// ---------------------------------------------------------------------------
+// ProfileSpec — one data block per profile
+// ---------------------------------------------------------------------------
+
+/// One standards entry within a profile specification.
+struct StandardsEntry {
+    source_path: &'static str,
+    content: &'static str,
+}
+
+/// Typed specification for an install profile.
+///
+/// Adding a new `InstallProfile` variant requires editing exactly one
+/// `ProfileSpec` data block, the enum definition, and `FromStr`.
+struct ProfileSpec {
+    profile: InstallProfile,
+    standards_entries: &'static [StandardsEntry],
+}
+
+/// Profile data block for Rust + Cargo.
+const PROFILE_RUST_CARGO: ProfileSpec = ProfileSpec {
+    profile: InstallProfile::RustCargo,
+    standards_entries: &[
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/cookie-session.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/cookie-session.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/crate-layering.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/crate-layering.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/id-formats.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/id-formats.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/naming-conventions.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/naming-conventions.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/openapi-generation.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/openapi-generation.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/secrets-handling.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/secrets-handling.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/thin-binary-crate.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/thin-binary-crate.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/trait-based-abstraction.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/trait-based-abstraction.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/architecture/workspace-layout.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/architecture/workspace-layout.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/global/address-deprecations-immediately.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/global/address-deprecations-immediately.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/global/dependency-management.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/global/dependency-management.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/global/just-ci-gate.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/global/just-ci-gate.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/edition-and-toolchain.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/edition-and-toolchain.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/error-handling.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/error-handling.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/file-and-function-limits.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/file-and-function-limits.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/internal-visibility-controls.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/internal-visibility-controls.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/naming-conventions.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/naming-conventions.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/no-unsafe-no-debug-output.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/no-unsafe-no-debug-output.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/type-safety-patterns.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/type-safety-patterns.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/rust/workspace-lints.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/rust/workspace-lints.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/bdd-wire-harness.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/bdd-wire-harness.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/behavior-inventory-and-scenario-traceability.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/behavior-inventory-and-scenario-traceability.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/coverage-as-scenario-proxy.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/coverage-as-scenario-proxy.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/gherkin-quality-rules.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/gherkin-quality-rules.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/mandatory-coverage.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/mandatory-coverage.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/mock-boundaries.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/mock-boundaries.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/mutation-strength-gate.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/mutation-strength-gate.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/nextest-configuration.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/nextest-configuration.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/no-test-skipping.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/no-test-skipping.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/test-timing-rules.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/test-timing-rules.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/test-tooling.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/test-tooling.md"
+            )),
+        },
+        StandardsEntry {
+            source_path: "profiles/rust-cargo/testing/three-tier-test-structure.md",
+            content: include_str!(concat!(
+                env!("CARGO_MANIFEST_DIR"),
+                "/../../profiles/rust-cargo/testing/three-tier-test-structure.md"
+            )),
+        },
+    ],
+};
+
+const ALL_PROFILE_SPECS: &[&ProfileSpec] = &[&PROFILE_RUST_CARGO];
 
 // Previously generated command destinations kept as trusted removal candidates.
 // These paths are no longer emitted by the active catalog but may still exist in
 // older manifests from earlier installer versions.
 const LEGACY_TRUSTED_GENERATED_DESTINATIONS: &[&str] = &[".codex/skills/retired-command.md"];
+
+// ---------------------------------------------------------------------------
+// Catalog builder
+// ---------------------------------------------------------------------------
 
 /// Build the static install asset catalog for a profile + integration selection.
 pub(super) fn build_install_asset_catalog(
@@ -286,13 +359,16 @@ pub(super) fn build_install_asset_catalog(
 ) -> Result<Vec<InstallAssetProjection>, InstallError> {
     let mut assets = Vec::new();
 
-    for (command_name, source_path, content) in COMMAND_SOURCES {
+    let profile_spec = find_profile_spec(profile)?;
+
+    for command in COMMAND_ENTRIES {
         for integration in integrations {
-            let destination = integration_destination(*integration, command_name);
+            let spec = find_integration_spec(*integration);
+            let destination = format!("{}{}.md", spec.destination_root, command.name);
             assets.push(install_asset(
-                source_path,
+                command.source_path,
                 &destination,
-                content,
+                command.content,
                 AssetClass::MethodologyCommand,
                 Some(*integration),
                 PreservationPolicy::ReplaceGenerated,
@@ -300,19 +376,15 @@ pub(super) fn build_install_asset_catalog(
         }
     }
 
-    match profile {
-        InstallProfile::RustCargo => {
-            for (source_path, content) in RUST_CARGO_PROFILE_SOURCES {
-                assets.push(install_asset(
-                    source_path,
-                    source_path,
-                    content,
-                    AssetClass::StandardsProfile,
-                    None,
-                    PreservationPolicy::PreserveUserEdits,
-                )?);
-            }
-        }
+    for entry in profile_spec.standards_entries {
+        assets.push(install_asset(
+            entry.source_path,
+            entry.source_path,
+            entry.content,
+            AssetClass::StandardsProfile,
+            None,
+            PreservationPolicy::PreserveUserEdits,
+        )?);
     }
 
     Ok(assets)
@@ -322,8 +394,8 @@ pub(super) fn build_install_asset_catalog(
 pub(super) fn build_trusted_generated_asset_registry()
 -> Result<BTreeSet<RepoRelativePath>, InstallError> {
     let mut registry = BTreeSet::new();
-    for profile in [InstallProfile::RustCargo] {
-        for asset in build_install_asset_catalog(profile, &InstallIntegration::all())? {
+    for spec in ALL_PROFILE_SPECS {
+        for asset in build_install_asset_catalog(spec.profile, &InstallIntegration::all())? {
             if asset.preservation == PreservationPolicy::ReplaceGenerated {
                 registry.insert(asset.destination_path);
             }
@@ -343,7 +415,7 @@ pub(super) fn generated_integration_destination_roots(
 ) -> BTreeSet<&'static str> {
     integrations
         .iter()
-        .map(|integration| integration_destination_root(*integration))
+        .map(|integration| find_integration_spec(*integration).destination_root)
         .collect()
 }
 
@@ -357,6 +429,27 @@ pub(super) fn is_current_generated_integration_destination(
     destination_roots
         .iter()
         .any(|root| matches_generated_command_layout(path.as_str(), root))
+}
+
+// ---------------------------------------------------------------------------
+// Internal helpers
+// ---------------------------------------------------------------------------
+
+fn find_profile_spec(profile: InstallProfile) -> Result<&'static ProfileSpec, InstallError> {
+    ALL_PROFILE_SPECS
+        .iter()
+        .find(|spec| spec.profile == profile)
+        .copied()
+        .ok_or_else(|| InstallError::UnsupportedProfile {
+            name: profile.as_str().to_owned(),
+        })
+}
+
+fn find_integration_spec(integration: InstallIntegration) -> &'static IntegrationSpec {
+    ALL_INTEGRATION_SPECS
+        .iter()
+        .find(|spec| spec.integration == integration)
+        .expect("every InstallIntegration variant must have a matching IntegrationSpec")
 }
 
 fn install_asset(
@@ -375,21 +468,6 @@ fn install_asset(
         integration,
         preservation,
     })
-}
-
-fn integration_destination(integration: InstallIntegration, command_name: &str) -> String {
-    format!(
-        "{}{command_name}.md",
-        integration_destination_root(integration)
-    )
-}
-
-const fn integration_destination_root(integration: InstallIntegration) -> &'static str {
-    match integration {
-        InstallIntegration::Claude => CLAUDE_COMMAND_DESTINATION_ROOT,
-        InstallIntegration::Codex => CODEX_COMMAND_DESTINATION_ROOT,
-        InstallIntegration::OpenCode => OPENCODE_COMMAND_DESTINATION_ROOT,
-    }
 }
 
 #[cfg(feature = "test-hooks")]
