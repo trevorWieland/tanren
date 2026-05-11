@@ -1,5 +1,3 @@
-"use client";
-
 import type { ReactNode } from "react";
 
 import type { BehaviorHarnessRouteLeaf } from "@/lib/generated/behavior-harness-routes";
