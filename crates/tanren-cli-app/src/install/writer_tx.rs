@@ -1,5 +1,5 @@
 use std::collections::BTreeMap;
-use std::fs::{self, OpenOptions};
+use std::fs;
 use std::io::{ErrorKind, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -7,7 +7,10 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::install::error::InstallError;
 use crate::install::manifest::RepoRelativePath;
-use crate::install::path_guard::resolve_repo_path;
+use crate::install::path_guard::{
+    CreateNewFileOutcome, guarded_create_dir_all, guarded_remove_file, guarded_rename,
+    guarded_try_create_new_file, resolve_repo_path, revalidate_destination_symlink_status,
+};
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -145,7 +148,7 @@ pub(super) fn prepare_apply(plan: &InstallPlan) -> Result<PreparedApply, Install
 
     if prepare_result.is_err() {
         for path in &staged_temp_paths {
-            cleanup_temporary_file(path);
+            guarded_remove_file(path);
         }
     }
 
@@ -181,7 +184,9 @@ fn stage_replacement_payload(
 ) -> Result<StagedReplacement, InstallError> {
     let absolute = revalidate_planned_apply_path(plan, path, planned_absolute)?;
     ensure_parent_directory(path, &absolute)?;
-    let absolute = revalidate_planned_apply_path(plan, path, planned_absolute)?;
+    // Revalidate symlink and component status immediately after directory
+    // creation to close the TOCTOU window before opening the staging file.
+    revalidate_destination_symlink_status(path, &absolute)?;
     let temp_path = create_staged_temporary_payload(path, &absolute, content)?;
     Ok(StagedReplacement {
         path: path.clone(),
@@ -195,7 +200,7 @@ fn create_staged_temporary_payload(
     absolute: &Path,
     content: &[u8],
 ) -> Result<PathBuf, InstallError> {
-    ensure_destination_not_symlink(path, absolute)?;
+    revalidate_destination_symlink_status(path, absolute)?;
 
     let Some(parent) = absolute.parent() else {
         return Err(InstallError::WriteFailure {
@@ -208,7 +213,7 @@ fn create_staged_temporary_payload(
     let mut file = temp.file;
 
     if let Err(err) = file.write_all(content) {
-        cleanup_temporary_file(&temp.path);
+        guarded_remove_file(&temp.path);
         return Err(InstallError::WriteFailure {
             path: path.as_str().to_owned(),
             message: err.to_string(),
@@ -216,7 +221,7 @@ fn create_staged_temporary_payload(
     }
 
     if let Err(err) = file.sync_all() {
-        cleanup_temporary_file(&temp.path);
+        guarded_remove_file(&temp.path);
         return Err(InstallError::WriteFailure {
             path: path.as_str().to_owned(),
             message: err.to_string(),
@@ -232,21 +237,17 @@ pub(super) fn commit_staged_replacement(
     staged: &StagedReplacement,
 ) -> Result<(), InstallError> {
     let absolute = revalidate_planned_apply_path(plan, &staged.path, &staged.absolute)?;
-    ensure_destination_not_symlink(&staged.path, &absolute)?;
-    fs::rename(&staged.temp_path, &absolute).map_err(|err| {
-        cleanup_temporary_file(&staged.temp_path);
-        InstallError::WriteFailure {
-            path: staged.path.as_str().to_owned(),
-            message: err.to_string(),
-        }
+    revalidate_destination_symlink_status(&staged.path, &absolute)?;
+    guarded_rename(&staged.path, &staged.temp_path, &absolute).inspect_err(|_| {
+        guarded_remove_file(&staged.temp_path);
     })
 }
 
 pub(super) fn cleanup_staged_payloads(prepared: &PreparedApply) {
     for write in &prepared.writes {
-        cleanup_temporary_file(&write.staged.temp_path);
+        guarded_remove_file(&write.staged.temp_path);
     }
-    cleanup_temporary_file(&prepared.manifest.staged.temp_path);
+    guarded_remove_file(&prepared.manifest.staged.temp_path);
 }
 
 pub(super) fn resolve_apply_failure(
@@ -338,10 +339,7 @@ fn ensure_parent_directory(path: &RepoRelativePath, absolute: &Path) -> Result<(
     if let Some(parent) = absolute.parent()
         && !parent.exists()
     {
-        fs::create_dir_all(parent).map_err(|err| InstallError::CreateDirectoryFailure {
-            path: path.as_str().to_owned(),
-            message: err.to_string(),
-        })?;
+        guarded_create_dir_all(path, parent)?;
     }
 
     Ok(())
@@ -352,7 +350,7 @@ fn atomic_replace_file(
     absolute: &Path,
     content: &[u8],
 ) -> Result<(), InstallError> {
-    ensure_destination_not_symlink(path, absolute)?;
+    revalidate_destination_symlink_status(path, absolute)?;
 
     let Some(parent) = absolute.parent() else {
         return Err(InstallError::WriteFailure {
@@ -365,7 +363,7 @@ fn atomic_replace_file(
     let mut file = temp.file;
 
     if let Err(err) = file.write_all(content) {
-        cleanup_temporary_file(&temp.path);
+        guarded_remove_file(&temp.path);
         return Err(InstallError::WriteFailure {
             path: path.as_str().to_owned(),
             message: err.to_string(),
@@ -373,7 +371,7 @@ fn atomic_replace_file(
     }
 
     if let Err(err) = file.sync_all() {
-        cleanup_temporary_file(&temp.path);
+        guarded_remove_file(&temp.path);
         return Err(InstallError::WriteFailure {
             path: path.as_str().to_owned(),
             message: err.to_string(),
@@ -381,29 +379,9 @@ fn atomic_replace_file(
     }
 
     drop(file);
-    fs::rename(&temp.path, absolute).map_err(|err| {
-        cleanup_temporary_file(&temp.path);
-        InstallError::WriteFailure {
-            path: path.as_str().to_owned(),
-            message: err.to_string(),
-        }
+    guarded_rename(path, &temp.path, absolute).inspect_err(|_| {
+        guarded_remove_file(&temp.path);
     })
-}
-
-fn ensure_destination_not_symlink(
-    path: &RepoRelativePath,
-    absolute: &Path,
-) -> Result<(), InstallError> {
-    if let Ok(metadata) = fs::symlink_metadata(absolute)
-        && metadata.file_type().is_symlink()
-    {
-        return Err(InstallError::UnsafeRepositoryPath {
-            path: path.as_str().to_owned(),
-            message: "resolved destination is a symbolic link".to_owned(),
-        });
-    }
-
-    Ok(())
 }
 
 struct TemporaryFile {
@@ -420,25 +398,15 @@ fn create_temp_file(
 
     for attempt in 0..64 {
         let temp_path = build_temp_path(parent, destination, attempt);
-        match OpenOptions::new()
-            .create_new(true)
-            .write(true)
-            .open(&temp_path)
-        {
-            Ok(file) => {
+        match guarded_try_create_new_file(path, &temp_path)? {
+            CreateNewFileOutcome::Created(file) => {
                 return Ok(TemporaryFile {
                     path: temp_path,
                     file,
                 });
             }
-            Err(err) if err.kind() == ErrorKind::AlreadyExists => {
-                last_message = err.to_string();
-            }
-            Err(err) => {
-                return Err(InstallError::WriteFailure {
-                    path: path.as_str().to_owned(),
-                    message: err.to_string(),
-                });
+            CreateNewFileOutcome::AlreadyExists => {
+                "temporary file path already exists".clone_into(&mut last_message);
             }
         }
     }
@@ -463,10 +431,4 @@ fn build_temp_path(parent: &Path, destination: &Path, attempt: u32) -> PathBuf {
         std::process::id(),
     );
     parent.join(temp_name)
-}
-
-fn cleanup_temporary_file(path: &Path) {
-    if path.exists() {
-        let _ = fs::remove_file(path);
-    }
 }
