@@ -9,12 +9,21 @@
 
 mod accept_invitation;
 mod entity;
+mod event_ops;
 mod migration;
+mod provider_connection;
 mod records;
 mod traits;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+pub use event_ops::EventEnvelope;
 pub use migration::Migrator;
+pub use provider_connection::{
+    NewProviderConnection, NewReachableRepository, PaginatedReachableRepositories,
+    ProviderConnectionEstablished, ProviderConnectionFailed, ProviderConnectionInitiated,
+    ProviderConnectionMetadata, ProviderConnectionStatus, ProviderConnectionStore,
+    ReachableRepository,
+};
 pub use records::{
     AccountRecord, DeploymentPosture, DeploymentPostureRecord, DeploymentPostureScope,
     InvitationRecord, MembershipRecord, NewAccount, NewDeploymentPosture, NewInvitation,
@@ -27,7 +36,6 @@ use sea_orm::{
 };
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
-use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -68,21 +76,6 @@ impl Clone for Store {
     }
 }
 
-/// A row in Tanren's canonical event log.
-///
-/// Per architecture, payloads are JSON-serialised typed events. F-0001 ships
-/// only the envelope shape; concrete event types arrive with later behavior
-/// slices.
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct EventEnvelope {
-    /// UUID v7 — globally unique, time-ordered.
-    pub id: Uuid,
-    /// Wall-clock time the event was appended.
-    pub occurred_at: DateTime<Utc>,
-    /// Opaque JSON payload.
-    pub payload: serde_json::Value,
-}
-
 impl Store {
     /// Connect to a database by URL (e.g. `postgres://...`).
     ///
@@ -111,16 +104,6 @@ impl Store {
     pub async fn migrate(&self) -> Result<(), StoreError> {
         Migrator::up(&self.conn, None).await?;
         Ok(())
-    }
-}
-
-impl From<entity::events::Model> for EventEnvelope {
-    fn from(model: entity::events::Model) -> Self {
-        Self {
-            id: model.id,
-            occurred_at: model.occurred_at,
-            payload: model.payload,
-        }
     }
 }
 
@@ -295,28 +278,22 @@ impl AccountStore for Store {
         payload: serde_json::Value,
         now: DateTime<Utc>,
     ) -> Result<EventEnvelope, StoreError> {
-        let envelope = EventEnvelope {
-            id: Uuid::now_v7(),
-            occurred_at: now,
-            payload,
-        };
-        let model = entity::events::ActiveModel {
-            id: Set(envelope.id),
-            occurred_at: Set(envelope.occurred_at),
-            payload: Set(envelope.payload.clone()),
-        };
-        model.insert(&self.conn).await?;
-        Ok(envelope)
+        let id = Uuid::now_v7();
+        let model = event_ops::event_active_model(id, now, payload);
+        let inserted = model.insert(&self.conn).await?;
+        // `model.insert()` returns the row with database-assigned values.
+        // The `position` column is populated by the `events_position_seq`
+        // sequence default — the canonical global ordering authority.
+        Ok(EventEnvelope::from(inserted))
     }
 
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
-        // tie-breaker. Without the secondary key, events landing inside the
-        // same timestamp bucket can come back in different orders across
-        // reads — replay correctness demands a total order.
+        // The global `position` is the canonical ordering authority for
+        // replay, cursors, and subscriptions per state.md § Event Log.
+        // The column is NOT NULL — every row has a database-assigned
+        // position value.
         let rows = entity::events::Entity::find()
-            .order_by_desc(entity::events::Column::OccurredAt)
-            .order_by_desc(entity::events::Column::Id)
+            .order_by_desc(entity::events::Column::Position)
             .limit(limit)
             .all(&self.conn)
             .await?;
@@ -394,13 +371,9 @@ impl DeploymentPostureStore for Store {
         .await?;
 
         let event_id = Uuid::now_v7();
-        entity::events::ActiveModel {
-            id: Set(event_id),
-            occurred_at: Set(new.changed_at),
-            payload: Set(event_payload),
-        }
-        .insert(&tx)
-        .await?;
+        let mut evt = event_ops::event_active_model(event_id, new.changed_at, event_payload);
+        evt.event_type = Set(Some("deployment_posture.changed".to_owned()));
+        evt.insert(&tx).await?;
         tx.commit().await?;
         Ok(DeploymentPostureMutationRecord {
             record: DeploymentPostureRecord {

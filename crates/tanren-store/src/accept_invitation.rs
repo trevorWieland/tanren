@@ -206,11 +206,7 @@ async fn append_success_events_in_txn(
     ctx: &AcceptInvitationEventContext,
 ) -> Result<(), AcceptInvitationError> {
     for payload in (events_builder)(ctx) {
-        let model = entity::events::ActiveModel {
-            id: Set(Uuid::now_v7()),
-            occurred_at: Set(ctx.now),
-            payload: Set(payload),
-        };
+        let model = crate::event_ops::event_active_model(Uuid::now_v7(), ctx.now, payload);
         model.insert(txn).await.map_err(StoreError::from)?;
     }
     Ok(())

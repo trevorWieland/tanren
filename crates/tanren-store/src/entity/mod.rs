@@ -8,3 +8,5 @@ pub(crate) mod deployment_postures;
 pub(crate) mod events;
 pub(crate) mod invitations;
 pub(crate) mod memberships;
+pub(crate) mod provider_connection_reachable_repos;
+pub(crate) mod provider_connections;
