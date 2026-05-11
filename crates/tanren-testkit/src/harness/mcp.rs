@@ -2,6 +2,7 @@
 //! drives the three account-flow tools through the rmcp
 //! streamable-HTTP client.
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
 
@@ -12,18 +13,26 @@ use rmcp::model::{CallToolRequestParams, CallToolResult, ClientInfo, Content, Ra
 use rmcp::service::RunningService;
 use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
+use sea_orm::ConnectionTrait;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
+use tanren_provider_integrations::{FixtureSourceControlConfig, FixtureSourceControlProvider};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_reason, project_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, ProjectHarness,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -32,7 +41,11 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    server_uri: String,
     client: Option<RunningService<RoleClient, ClientInfo>>,
+    session_credentials: HashMap<AccountId, SecretString>,
+    last_actor_session_account_id: Option<AccountId>,
+    fixture_source_control: FixtureSourceControlProvider,
     server: Option<JoinHandle<()>>,
 }
 
@@ -70,9 +83,12 @@ impl McpHarness {
             .local_addr()
             .map_err(|e| HarnessError::Transport(format!("local addr: {e}")))?;
 
+        let fixture_source_control =
+            FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
         let (router, cancellation) = tanren_mcp_app::build_router_with_store(
             store.clone(),
             SecretString::from(TEST_API_KEY.to_owned()),
+            Arc::new(fixture_source_control.clone()),
         );
 
         let server = tokio::spawn(async move {
@@ -81,29 +97,40 @@ impl McpHarness {
                 .await;
         });
 
+        let server_uri = format!("http://{local_addr}/mcp");
         // Build the rmcp client transport with the bearer-token header.
-        let config =
-            StreamableHttpClientTransportConfig::with_uri(format!("http://{local_addr}/mcp"))
-                .auth_header(TEST_API_KEY.to_owned());
-        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
-        let client = ClientInfo::default()
-            .serve(transport)
-            .await
-            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
+        let client = Self::connect_client(&server_uri, TEST_API_KEY).await?;
 
         Ok(Self {
             store,
             db_path,
+            server_uri,
             client: Some(client),
+            session_credentials: HashMap::new(),
+            last_actor_session_account_id: None,
+            fixture_source_control,
             server: Some(server),
         })
     }
 
-    async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
-        let client = self
-            .client
-            .as_ref()
-            .ok_or_else(|| HarnessError::Transport("rmcp client gone".to_owned()))?;
+    async fn connect_client(
+        server_uri: &str,
+        bearer_token: &str,
+    ) -> HarnessResult<RunningService<RoleClient, ClientInfo>> {
+        let config = StreamableHttpClientTransportConfig::with_uri(server_uri.to_owned())
+            .auth_header(bearer_token.to_owned());
+        let transport = StreamableHttpClientTransport::with_client(reqwest::Client::new(), config);
+        ClientInfo::default()
+            .serve(transport)
+            .await
+            .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))
+    }
+
+    async fn invoke_tool(
+        client: &RunningService<RoleClient, ClientInfo>,
+        name: &'static str,
+        body: Value,
+    ) -> HarnessResult<Value> {
         let args: serde_json::Map<String, Value> = match body {
             Value::Object(map) => map,
             other => {
@@ -125,6 +152,60 @@ impl McpHarness {
             return Err(failure_from_payload(&payload));
         }
         Ok(payload)
+    }
+
+    async fn call_tool(&mut self, name: &'static str, body: Value) -> HarnessResult<Value> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| HarnessError::Transport("rmcp client gone".to_owned()))?;
+        Self::invoke_tool(client, name, body).await
+    }
+
+    async fn call_tool_with_bearer(
+        &self,
+        bearer_token: &str,
+        name: &'static str,
+        body: Value,
+    ) -> HarnessResult<Value> {
+        let client = Self::connect_client(&self.server_uri, bearer_token).await?;
+        let payload = Self::invoke_tool(&client, name, body).await;
+        drop(client);
+        payload
+    }
+
+    async fn call_project_tool_as_actor(
+        &mut self,
+        actor_account_id: Option<AccountId>,
+        name: &'static str,
+        body: Value,
+    ) -> HarnessResult<Value> {
+        let maybe_secret = actor_account_id
+            .and_then(|account_id| self.session_credentials.get(&account_id).cloned())
+            .or_else(|| {
+                self.last_actor_session_account_id
+                    .and_then(|account_id| self.session_credentials.get(&account_id).cloned())
+            });
+        if let Some(secret) = maybe_secret {
+            self.call_tool_with_bearer(secret.expose_secret(), name, body)
+                .await
+        } else {
+            // Deliberately fall back to the bootstrap key so falsification
+            // scenarios can assert that bootstrap credentials alone do not
+            // authorize project tools.
+            self.call_tool(name, body).await
+        }
+    }
+
+    fn remember_session_credential(&mut self, session: &HarnessSession, payload: &Value) {
+        let token = payload["session"]["token"]
+            .as_str()
+            .filter(|s| !s.is_empty());
+        if let Some(token) = token {
+            self.last_actor_session_account_id = Some(session.account_id);
+            self.session_credentials
+                .insert(session.account_id, SecretString::from(token.to_owned()));
+        }
     }
 }
 
@@ -153,7 +234,9 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.remember_session_credential(&session, &payload);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +245,9 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.remember_session_credential(&session, &payload);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -177,6 +262,7 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        self.remember_session_credential(&session, &payload);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -201,6 +287,121 @@ impl AccountHarness for McpHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+}
+
+#[async_trait]
+impl ProjectHarness for McpHarness {
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.connect_project_repository_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self
+            .call_project_tool_as_actor(Some(actor_account_id), "project.connect_repository", body)
+            .await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project response: {e}")))
+    }
+
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        let actor_account_id = req.owning_account_id;
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self
+            .call_project_tool_as_actor(Some(actor_account_id), "project.list_visible", body)
+            .await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode project list response: {e}")))
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        let actor_account_id = req.owning_account_id;
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self
+            .call_project_tool_as_actor(Some(actor_account_id), "project.create", body)
+            .await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode create project response: {e}")))
+    }
+
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        let actor_account_id = req.owning_account_id;
+        let body = serde_json::to_value(req)
+            .map_err(|e| HarnessError::Transport(format!("encode request: {e}")))?;
+        let payload = self
+            .call_project_tool_as_actor(Some(actor_account_id), "project.active", body)
+            .await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode active project response: {e}")))
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: tanren_identity_policy::RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control
+            .set_repository_access(actor_account_id, repository, allowed);
+        Ok(())
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: tanren_identity_policy::DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control.set_host_reachable(&host, true);
+        self.fixture_source_control
+            .set_host_create_access(actor_account_id, &host, allowed);
+        Ok(())
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &tanren_identity_policy::DesignatedHost,
+        repository: &tanren_identity_policy::RepositoryRef,
+    ) -> HarnessResult<bool> {
+        Ok(self
+            .fixture_source_control
+            .repository_created_at_host(host, repository))
+    }
+
+    async fn source_control_call_counters(
+        &mut self,
+    ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
+        Ok(self.fixture_source_control.call_counters())
+    }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.store
+            .connection()
+            .execute_unprepared("DROP TABLE IF EXISTS projects")
+            .await
+            .map_err(|e| HarnessError::Transport(format!("drop projects table: {e}")))?;
+        Ok(())
     }
 }
 
@@ -245,6 +446,8 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
         .to_owned();
     if let Some(reason) = code_to_reason(&code) {
         HarnessError::Account(reason, summary)
+    } else if let Some(reason) = project_code_to_reason(&code) {
+        HarnessError::Project(reason, summary)
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }

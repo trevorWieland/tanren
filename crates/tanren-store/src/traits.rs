@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId, ProviderFamily,
+    RepositoryRef, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, NewProject, NewProjectRepository,
+    ProjectRecord, ProjectRepositoryRecord, ProjectSetupRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -242,6 +244,15 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
 
+    /// Resolve a non-expired session by token.
+    ///
+    /// Returns `Ok(None)` when the token is unknown or expired at `now`.
+    async fn find_active_session(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
     /// Append a payload to the canonical event log at the supplied
     /// instant.
     async fn append_event(
@@ -283,4 +294,169 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for project-setup persistence flows.
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectStoreError {
+    /// A project already exists for this repository in the owning account.
+    #[error("duplicate repository within owning account scope")]
+    DuplicateRepository,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Durable idempotency reservation for project create/connect commands.
+#[derive(Debug, Clone)]
+pub struct ProjectCommandReservation {
+    /// Reservation attempt id used for compare-and-finalize ownership checks.
+    pub reservation_id: ProjectId,
+    /// Account that owns the target project command.
+    pub owning_account_id: AccountId,
+    /// Provider family for the command's repository key.
+    pub provider_family: ProviderFamily,
+    /// Canonical repository identity (`owner/name`) for this command key.
+    pub repository_ref: RepositoryRef,
+}
+
+/// Result of trying to reserve an account/repository project command key.
+#[derive(Debug, Clone)]
+pub enum ProjectCommandReservationResult {
+    /// Caller owns the reservation and can proceed.
+    Acquired(ProjectCommandReservation),
+    /// A completed reservation already exists for this command key.
+    DuplicateRepository,
+    /// Another command currently owns an in-flight reservation.
+    InFlight,
+    /// Command attempts for this key are temporarily rate-limited.
+    RateLimited,
+}
+
+/// Failure taxonomy for active-project selection.
+#[derive(Debug, thiserror::Error)]
+pub enum SetActiveProjectError {
+    /// The project id does not exist.
+    #[error("project not found")]
+    NotFound,
+    /// The project exists but is owned by a different account.
+    #[error("project not accessible to account")]
+    NoAccess,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Deterministic project-list cursor.
+#[derive(Debug, Clone)]
+pub struct ProjectListCursor {
+    /// Primary sort key from the project row.
+    pub active_selected_at: Option<DateTime<Utc>>,
+    /// Secondary sort key from the project row.
+    pub created_at: DateTime<Utc>,
+    /// Final tie-breaker sort key from the project row.
+    pub project_id: ProjectId,
+}
+
+/// Bounded project-list read-model page.
+#[derive(Debug, Clone)]
+pub struct ProjectListPage {
+    /// Page of project setup records.
+    pub projects: Vec<ProjectSetupRecord>,
+    /// Applied page size.
+    pub page_size: u16,
+    /// Whether another page exists.
+    pub has_more: bool,
+    /// Cursor for the next page, when available.
+    pub next_cursor: Option<ProjectListCursor>,
+    /// Newest project-row timestamp in the account scope (if any).
+    pub as_of: Option<DateTime<Utc>>,
+}
+
+/// Port consumed by project setup/listing handlers.
+#[async_trait]
+pub trait ProjectStore: Send + Sync + std::fmt::Debug {
+    /// Return whether an account id exists.
+    async fn account_exists(&self, account_id: AccountId) -> Result<bool, StoreError>;
+
+    /// Create or reuse a durable reservation for project create/connect
+    /// commands keyed by account + provider + repository.
+    async fn reserve_project_command(
+        &self,
+        owning_account_id: AccountId,
+        provider_family: &ProviderFamily,
+        repository_ref: &RepositoryRef,
+        now: DateTime<Utc>,
+    ) -> Result<ProjectCommandReservationResult, StoreError>;
+
+    /// Finalize a previously acquired reservation after successful command
+    /// completion.
+    async fn finalize_project_command_reservation(
+        &self,
+        reservation: &ProjectCommandReservation,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// Mark a previously acquired reservation failed after command rejection or
+    /// internal failure.
+    async fn fail_project_command_reservation(
+        &self,
+        reservation: &ProjectCommandReservation,
+        now: DateTime<Utc>,
+    ) -> Result<(), StoreError>;
+
+    /// Insert a project row.
+    async fn insert_project(&self, new: NewProject) -> Result<ProjectRecord, StoreError>;
+
+    /// Insert a project-repository binding row.
+    async fn insert_project_repository(
+        &self,
+        new: NewProjectRepository,
+    ) -> Result<ProjectRepositoryRecord, ProjectStoreError>;
+
+    /// Atomically create a project and repository binding, and optionally
+    /// select the new project as active for the owning account.
+    async fn create_project_setup(
+        &self,
+        project: NewProject,
+        repository: NewProjectRepository,
+        select_as_active: bool,
+    ) -> Result<ProjectSetupRecord, ProjectStoreError>;
+
+    /// Find a project-repository binding by account + repository identity.
+    async fn find_project_repository(
+        &self,
+        owning_account_id: AccountId,
+        provider_family: &ProviderFamily,
+        repository_ref: &RepositoryRef,
+    ) -> Result<Option<ProjectRepositoryRecord>, StoreError>;
+
+    /// List project setup records for an account page ordered by
+    /// `active_selected_at DESC NULLS LAST, created_at DESC, id DESC`.
+    async fn list_projects_for_account(
+        &self,
+        owning_account_id: AccountId,
+        page_size: u16,
+        cursor: Option<&ProjectListCursor>,
+    ) -> Result<ProjectListPage, StoreError>;
+
+    /// Read the currently active project setup record for an account.
+    async fn active_project_for_account(
+        &self,
+        owning_account_id: AccountId,
+    ) -> Result<Option<ProjectSetupRecord>, StoreError>;
+
+    /// Mark one visible project active for an account, clearing any prior
+    /// active selection in the same account.
+    ///
+    /// Returns:
+    /// - [`SetActiveProjectError::NotFound`] when `project_id` does not exist.
+    /// - [`SetActiveProjectError::NoAccess`] when the project exists but is not
+    ///   owned by `owning_account_id`.
+    async fn set_active_project(
+        &self,
+        owning_account_id: AccountId,
+        project_id: ProjectId,
+        selected_at: DateTime<Utc>,
+    ) -> Result<(), SetActiveProjectError>;
 }

@@ -16,13 +16,19 @@
 //! which keeps `Handlers::*` invisible from `tanren-bdd`.
 
 use async_trait::async_trait;
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
+    SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, DesignatedHost, RepositoryRef};
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, ProjectHarness,
 };
 
 /// `@tui` harness — fallback wrapper around [`InProcessHarness`] until
@@ -73,5 +79,118 @@ impl AccountHarness for TuiHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+}
+
+#[async_trait]
+impl ProjectHarness for TuiHarness {
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.inner.connect_project_repository(req).await
+    }
+
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.inner
+            .connect_project_repository_as_actor(actor_account_id, req)
+            .await
+    }
+
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.inner.list_visible_projects(req).await
+    }
+
+    async fn list_visible_projects_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.inner
+            .list_visible_projects_as_actor(actor_account_id, req)
+            .await
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.inner.create_project(req).await
+    }
+
+    async fn create_project_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.inner
+            .create_project_as_actor(actor_account_id, req)
+            .await
+    }
+
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.inner.active_project(req).await
+    }
+
+    async fn active_project_as_actor(
+        &mut self,
+        actor_account_id: AccountId,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.inner
+            .active_project_as_actor(actor_account_id, req)
+            .await
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.inner
+            .set_repository_access(actor_account_id, repository, allowed)
+            .await
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.inner
+            .set_designated_host_create_access(actor_account_id, host, allowed)
+            .await
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> HarnessResult<bool> {
+        self.inner
+            .repository_created_at_host(host, repository)
+            .await
+    }
+
+    async fn source_control_call_counters(
+        &mut self,
+    ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
+        self.inner.source_control_call_counters().await
+    }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.inner.break_project_store_for_testing().await
     }
 }

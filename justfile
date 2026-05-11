@@ -779,6 +779,34 @@ ci:
         perl -e 'printf "%.2fs", $ARGV[0] / 1000' "$1"
     }
 
+    require_non_negative_integer() {
+        local value="$1"
+        local name="$2"
+        if [[ ! "${value}" =~ ^[0-9]+$ ]]; then
+            echo "error: ${name} must be a non-negative integer (got: ${value})" >&2
+            return 2
+        fi
+    }
+
+    emit_failure_output() {
+        local output_file="$1"
+        case "${ci_failure_log_mode}" in
+            full)
+                cat "${output_file}"
+                ;;
+            tail)
+                if [[ "${ci_failure_log_lines}" -eq 0 ]]; then
+                    return 0
+                fi
+                tail -n "${ci_failure_log_lines}" "${output_file}"
+                ;;
+            *)
+                echo "error: CI_FAILURE_LOG_MODE must be 'tail' or 'full' (got: ${ci_failure_log_mode})" >&2
+                return 2
+                ;;
+        esac
+    }
+
     run_stage() {
         local name="$1"
         shift
@@ -803,21 +831,36 @@ ci:
         shift
         local start
         start="$(now_ms)"
-        local output
+        local output_file
+        output_file="$(mktemp -t tanren-ci-log.XXXXXX)"
+
         echo "==> ${name}"
         set +e
-        output="$("$@" 2>&1)"
+        "$@" >"${output_file}" 2>&1
         local status="$?"
         set -e
         local elapsed="$(( $(now_ms) - start ))"
         if [[ "${status}" -eq 0 ]]; then
             echo "<== ${name} ok ($(fmt_duration "${elapsed}"))"
         else
-            echo "${output}"
+            emit_failure_output "${output_file}"
             echo "<== ${name} failed ($(fmt_duration "${elapsed}"))"
         fi
+        rm -f -- "${output_file}"
         return "${status}"
     }
+
+    ci_failure_log_mode="${CI_FAILURE_LOG_MODE:-tail}"
+    ci_failure_log_lines="${CI_FAILURE_LOG_LINES:-400}"
+    require_non_negative_integer "${ci_failure_log_lines}" "CI_FAILURE_LOG_LINES"
+    case "${ci_failure_log_mode}" in
+        tail|full)
+            ;;
+        *)
+            echo "error: CI_FAILURE_LOG_MODE must be 'tail' or 'full' (got: ${ci_failure_log_mode})" >&2
+            exit 2
+            ;;
+    esac
 
     total_start="$(now_ms)"
     run_stage "check" just check

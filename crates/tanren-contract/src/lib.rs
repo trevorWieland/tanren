@@ -6,10 +6,25 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod failure;
+pub mod project;
 
 pub use account::{
-    AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
-    SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    AcceptInvitationRequest, AcceptInvitationResponse, AcceptInvitationResponseBearer,
+    AccountFailureCode, AccountFailureReason, AccountView, BearerSessionEnvelope,
+    CookieSessionEnvelope, SessionEnvelope, SessionView, SignInRequest, SignInResponse,
+    SignInResponseBearer, SignUpRequest, SignUpResponse, SignUpResponseBearer,
+};
+pub use failure::{AccountFailureBody, ProjectFailureBody};
+pub use project::{
+    ActiveProjectCookieRequest, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryCookieRequest, ConnectProjectRepositoryRequest,
+    ConnectProjectRepositoryResponse, CreateProjectCookieRequest, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsCookieRequest, ListVisibleProjectsRequest,
+    PROJECT_LIST_DEFAULT_PAGE_SIZE, PROJECT_LIST_MAX_PAGE_SIZE, ProjectCollectionFreshnessView,
+    ProjectCollectionView, ProjectCountsView, ProjectFailureCode, ProjectFailureReason,
+    ProjectListCursor, ProjectListSelectionFilter, ProjectListSortOrder, ProjectPageRequest,
+    ProjectPaginationView, ProjectRepositoryView, ProjectSelectionView, ProjectView,
 };
 
 use serde::{Deserialize, Serialize};

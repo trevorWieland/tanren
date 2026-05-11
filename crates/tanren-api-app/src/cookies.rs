@@ -29,6 +29,12 @@ pub(crate) struct SessionWrite {
     pub(crate) expires_at: DateTime<Utc>,
 }
 
+/// Account context projected from a cookie-backed session row.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SessionAccount {
+    pub(crate) account_id: AccountId,
+}
+
 /// Insert the account id and expiry into the tower-sessions row backing
 /// this request. The cookie carrying the opaque session id is set by
 /// the middleware on response — we just write the data.
@@ -42,6 +48,31 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .await
         .context("insert expires_at into session")?;
     Ok(())
+}
+
+/// Resolve the account context from the current cookie session.
+///
+/// Returns `Ok(None)` when the session is missing, incomplete, or
+/// expired.
+pub(crate) async fn session_account(session: &Session) -> Result<Option<SessionAccount>> {
+    let account_id = session
+        .get::<AccountId>(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")?;
+    let expires_at = session
+        .get::<DateTime<Utc>>(SESSION_KEY_EXPIRES)
+        .await
+        .context("read expires_at from session")?;
+
+    let (Some(account_id), Some(expires_at)) = (account_id, expires_at) else {
+        return Ok(None);
+    };
+
+    if expires_at <= Utc::now() {
+        return Ok(None);
+    }
+
+    Ok(Some(SessionAccount { account_id }))
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships

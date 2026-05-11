@@ -1,16 +1,10 @@
-//! `@api` harness — spawns `tanren-api-app` on an ephemeral port and
-//! drives it via `reqwest::Client` with `cookie_store(true)`.
-//!
-//! The harness owns the `SQLite` database (a per-scenario file under
-//! the OS temp directory). The same database is shared between (a)
-//! the `Arc<Store>` injected into the api app for account-flow data
-//! and (b) the tower-sessions sqlite-backed cookie store. Reading
-//! recent events for the `Then a "..." event is recorded` step
-//! goes through the harness's own `Store` handle (the api app's
-//! `Arc<Store>` is a clone of the same `Store`).
+//! `@api` harness using a real `tanren-api-app` server and `reqwest`.
+
+mod project;
 
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Duration;
 
 use async_trait::async_trait;
 use axum::http::HeaderValue;
@@ -20,6 +14,7 @@ use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
 };
+use tanren_provider_integrations::{FixtureSourceControlConfig, FixtureSourceControlProvider};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -29,11 +24,14 @@ use super::{
     HarnessSession,
 };
 
+pub(crate) use project::project_code_to_reason;
+
 /// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
+    fixture_source_control: FixtureSourceControlProvider,
     server: Option<JoinHandle<()>>,
     /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
@@ -49,15 +47,6 @@ impl std::fmt::Debug for ApiHarness {
 }
 
 impl ApiHarness {
-    /// Spawn a fresh `tanren-api-app` on an ephemeral port against a
-    /// per-scenario `SQLite` database file. Returns a harness ready to
-    /// drive sign-up / sign-in / accept-invitation calls.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be connected /
-    /// migrated, the listener cannot bind, or the api app cannot be
-    /// constructed.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("api");
         let database_url = sqlite_url(&db_path);
@@ -80,11 +69,15 @@ impl ApiHarness {
 
         let cors_origin = HeaderValue::from_str(&base_url)
             .map_err(|e| HarnessError::Transport(format!("cors header: {e}")))?;
+        let fixture_source_control =
+            FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
         let app = tanren_api_app::build_app_with_store(
             store.clone(),
             &database_url,
             vec![cors_origin],
             false,
+            Arc::new(fixture_source_control.clone()),
+            fixture_source_control.clone(),
         )
         .await
         .map_err(|e| HarnessError::Transport(format!("build app: {e}")))?;
@@ -98,15 +91,38 @@ impl ApiHarness {
             .timeout(super::HARNESS_DEFAULT_TIMEOUT)
             .build()
             .map_err(|e| HarnessError::Transport(format!("client build: {e}")))?;
+        wait_for_server_ready(&client, &base_url).await?;
 
         Ok(Self {
             base_url,
             client,
             store,
+            fixture_source_control,
             server: Some(server),
             db_path,
         })
     }
+}
+
+async fn wait_for_server_ready(client: &Client, base_url: &str) -> HarnessResult<()> {
+    let health_url = format!("{base_url}/health");
+    let mut last_error: Option<String> = None;
+    for _ in 0..40 {
+        match client.get(&health_url).send().await {
+            Ok(response) if response.status().is_success() => return Ok(()),
+            Ok(response) => {
+                last_error = Some(format!("unexpected status {}", response.status()));
+            }
+            Err(err) => {
+                last_error = Some(err.to_string());
+            }
+        }
+        tokio::time::sleep(Duration::from_millis(25)).await;
+    }
+    Err(HarnessError::Transport(format!(
+        "api harness health-check never became ready: {}",
+        last_error.unwrap_or_else(|| "unknown startup failure".to_owned())
+    )))
 }
 
 impl Drop for ApiHarness {
@@ -114,8 +130,6 @@ impl Drop for ApiHarness {
         if let Some(handle) = self.server.take() {
             handle.abort();
         }
-        // Best-effort cleanup of the per-scenario DB file. Errors are
-        // intentionally ignored — temp dir cleanup will catch any stragglers.
         let _ = std::fs::remove_file(&self.db_path);
     }
 }
@@ -267,17 +281,6 @@ impl AccountHarness for ApiHarness {
         &mut self,
         requests: Vec<AcceptInvitationRequest>,
     ) -> Vec<HarnessResult<HarnessAcceptance>> {
-        // Fan out via `tokio::spawn` so each acceptance issues its own
-        // POST against the live api server in parallel. Each task gets
-        // its own `reqwest::Client` (built fresh from a default
-        // configuration) so cookie state from one task doesn't bleed
-        // into another. The shared base URL is cheap to clone.
-        //
-        // Without this override, the trait's default impl would await
-        // each request serially — defeating the @falsification @api
-        // race scenario which is supposed to prove that
-        // `consume_invitation` serializes concurrent acceptances at
-        // the store layer (Codex P2 review on PR #133).
         let base_url = self.base_url.clone();
         let mut handles = Vec::with_capacity(requests.len());
         for req in requests {
@@ -287,8 +290,6 @@ impl AccountHarness for ApiHarness {
                 req.invitation_token.as_str()
             );
             let body = accept_invitation_body(&req);
-            // Each task builds its own client. cookie_store is irrelevant
-            // here — the race scenario doesn't reuse the session.
             let client = match Client::builder().build() {
                 Ok(c) => c,
                 Err(e) => {

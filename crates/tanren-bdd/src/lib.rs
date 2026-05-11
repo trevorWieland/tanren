@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, McpHarness, ProjectHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -28,6 +28,8 @@ pub struct TanrenWorld {
     pub seed: FixtureSeed,
     /// Lazily initialized account-flow context.
     pub account: Option<AccountContext>,
+    /// Lazily initialized project-setup context.
+    pub project: Option<ProjectContext>,
 }
 
 impl TanrenWorld {
@@ -41,7 +43,7 @@ impl TanrenWorld {
             .expect("account context just initialized")
     }
 
-    /// Refresh the account context with the harness chosen for the
+    /// Refresh the per-feature contexts with the harness chosen for the
     /// supplied scenario tags. Cucumber-rs does not give step bodies
     /// access to the active scenario's tags, so the BDD bin invokes
     /// this from a `Before` hook.
@@ -51,8 +53,18 @@ impl TanrenWorld {
         S: AsRef<str>,
     {
         let kind = HarnessKind::from_tags(tags);
-        let ctx = AccountContext::new_for(kind).await;
-        self.account = Some(ctx);
+        self.account = Some(AccountContext::new_for(kind).await);
+        self.project = Some(ProjectContext::new_for(kind).await);
+    }
+
+    /// Construct (or return) the lazy project context.
+    pub async fn ensure_project_ctx(&mut self) -> &mut ProjectContext {
+        if self.project.is_none() {
+            self.project = Some(ProjectContext::new_in_process().await);
+        }
+        self.project
+            .as_mut()
+            .expect("project context just initialized")
     }
 }
 
@@ -123,6 +135,104 @@ impl AccountContext {
     }
 }
 
+/// Per-scenario state carried by the cucumber world for project-setup flows.
+pub struct ProjectContext {
+    /// Active wire harness for the current scenario.
+    pub harness: Box<dyn ProjectHarness>,
+    /// Per-actor state keyed by display name.
+    pub actors: HashMap<String, ProjectActorState>,
+    /// Fixture repository metadata keyed by canonical repository identity.
+    pub repositories: HashMap<String, RepositoryFixtureState>,
+    /// Fixture host access policy keyed by normalized host label.
+    pub hosts: HashMap<String, HostFixtureState>,
+    /// Most recent project failure code, if any.
+    pub last_failure_code: Option<String>,
+    /// Most recent project failure summary, if any.
+    pub last_failure_summary: Option<String>,
+}
+
+impl std::fmt::Debug for ProjectContext {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ProjectContext")
+            .field("harness_kind", &self.harness.kind())
+            .field("actors", &self.actors.keys().collect::<Vec<_>>())
+            .field(
+                "repositories",
+                &self.repositories.keys().collect::<Vec<_>>(),
+            )
+            .field("hosts", &self.hosts.keys().collect::<Vec<_>>())
+            .field("last_failure_code", &self.last_failure_code)
+            .field("last_failure_summary", &self.last_failure_summary)
+            .finish()
+    }
+}
+
+impl ProjectContext {
+    /// Build a project context with the in-process harness.
+    pub async fn new_in_process() -> Self {
+        Self::new_for(HarnessKind::InProcess).await
+    }
+
+    /// Build a project context with the harness matching the supplied tag kind.
+    pub async fn new_for(kind: HarnessKind) -> Self {
+        let harness: Box<dyn ProjectHarness> = match kind {
+            HarnessKind::InProcess => Box::new(
+                InProcessHarness::new(kind)
+                    .await
+                    .expect("ephemeral SQLite must connect for BDD"),
+            ),
+            HarnessKind::Api => Box::new(ApiHarness::spawn().await.expect("ApiHarness::spawn")),
+            HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
+            HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
+            HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
+            HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
+        };
+        Self {
+            harness,
+            actors: HashMap::new(),
+            repositories: HashMap::new(),
+            hosts: HashMap::new(),
+            last_failure_code: None,
+            last_failure_summary: None,
+        }
+    }
+}
+
+/// Minimal per-actor state used by project steps.
+#[derive(Debug, Default, Clone)]
+pub struct ProjectActorState {
+    /// The actor's account id used for project commands.
+    pub account_id: Option<tanren_identity_policy::AccountId>,
+    /// Last repository successfully connected by this actor.
+    pub last_connected_repository: Option<tanren_identity_policy::RepositoryRef>,
+    /// Last repository successfully created by this actor.
+    pub last_created_repository: Option<tanren_identity_policy::RepositoryRef>,
+    /// Last designated host this actor attempted for project creation.
+    pub last_designated_host: Option<String>,
+}
+
+/// Fixture repository metadata tracked by project scenarios.
+#[derive(Debug, Clone)]
+pub struct RepositoryFixtureState {
+    /// Canonical repository identity (`owner/name`).
+    pub repository: tanren_identity_policy::RepositoryRef,
+    /// Deterministic fingerprint used by the scenario.
+    pub fingerprint: String,
+    /// Number of pre-existing commits in the fixture repository.
+    pub prior_commits: usize,
+}
+
+/// Fixture metadata for a designated source-control host.
+#[derive(Debug, Clone)]
+pub struct HostFixtureState {
+    /// Normalized host label.
+    pub host: String,
+    /// Whether creation at this host should be considered accessible.
+    pub can_create: bool,
+    /// Repositories observed as created at this host in this scenario.
+    pub created_repositories: HashSet<tanren_identity_policy::RepositoryRef>,
+}
+
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
     match outcome {
         HarnessOutcome::SignedUp(_) => "SignedUp",
@@ -167,6 +277,7 @@ mod tests {
         let world = TanrenWorld {
             seed: FixtureSeed::new(42),
             account: None,
+            project: None,
         };
         assert_eq!(world.seed.value(), 42);
     }
