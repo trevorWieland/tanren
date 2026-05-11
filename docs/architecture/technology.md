@@ -389,17 +389,53 @@ Contract types derive or generate:
 Generated TypeScript is consumed by the web UI and any bundled client helpers.
 The web UI must not define independent copies of API resources or error shapes.
 
-The active-account web contract artifact is
-`apps/web/src/app/lib/generated/account-contract.ts`. Ownership is explicit:
+### Web contract regeneration chain
 
-- generation command: `cargo run -q -p tanren-xtask -- generate-web-contracts`;
-- generator implementation: `xtask/src/generate_web_contracts.rs`;
-- schema source crates: `crates/tanren-contract` and
-  `crates/tanren-identity-policy`.
+The active-account web contract artifact is the checked-in file
+`apps/web/src/app/lib/generated/account-contract.ts`. It contains
+Valibot runtime validators and inferred TypeScript types derived from
+the canonical Rust contract shapes. The file header identifies the
+generator command, the generator implementation, and the source crates.
 
-CI enforces reproducibility with `just check-web-contract-generation`,
-which builds the generator in a fresh `CARGO_TARGET_DIR`, re-emits the
-artifact, and fails on drift.
+The regeneration chain runs end-to-end when a Rust contract type changes:
+
+1. **Rust JsonSchema sources.** Contract structs and enums in
+   `crates/tanren-contract` (request/response shapes, session envelopes,
+   failure codes) and `crates/tanren-identity-policy` (domain newtypes
+   such as `AccountId`, `OrgId`, `WindowContextId`) derive `JsonSchema`
+   via `schemars`. These Rust types are the canonical source of truth for
+   every field name, constraint, and branded newtype that the web client
+   must match.
+2. **xtask generator.** `xtask/src/generate_web_contracts.rs` reads the
+   `schemars`-derived JSON Schema for each target type and emits
+   Valibot validator expressions, inferred TypeScript type aliases, and
+   `parse*` helper functions into a single output file. The generator
+   brands UUID newtypes (`AccountId`, `OrgId`, `WindowContextId`) so the
+   TypeScript type system distinguishes them from bare strings.
+3. **Checked-in artifact.** The generator writes
+   `apps/web/src/app/lib/generated/account-contract.ts`. The file is
+   committed to the repository so the web app typechecks and builds
+   without requiring a Rust toolchain in the web CI path.
+4. **Web typecheck and lint inputs.** The web application imports
+   validators and types from the generated artifact. `pnpm typecheck`
+   (via `tsgo`) and `pnpm lint` (via `oxlint`) run against the
+   generated file just like any hand-written source, so type mismatches
+   between the Rust contract layer and the web UI surface as build
+   failures.
+5. **CI drift gate.** `just check-web-contract-generation` (wired into
+   `just ci`) rebuilds the generator in a fresh `CARGO_TARGET_DIR`,
+   re-emits the artifact, and fails if the checked-in file differs from
+   the regenerated output. This prevents stale generated code from
+   landing silently.
+
+To regenerate after changing a Rust contract type:
+
+```sh
+cargo run -q -p tanren-xtask -- generate-web-contracts
+```
+
+Then commit the updated artifact. The CI drift gate verifies the result
+is reproducible.
 
 Contract generation failures are build failures.
 

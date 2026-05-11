@@ -103,6 +103,16 @@ shapes, or store server state as a divergent client-side source of truth.
 The web UI must be responsive enough to support desktop and phone workflows
 from the same application.
 
+#### Web contract regeneration
+
+The web UI imports its account contract types from the checked-in generated
+artifact at `apps/web/src/app/lib/generated/account-contract.ts`. This file
+is produced by the xtask generator from Rust `JsonSchema` sources in
+`crates/tanren-contract` and `crates/tanren-identity-policy`. The full
+regeneration chain and drift gate are documented in the technology
+architecture record under "Web contract regeneration chain" (see
+`docs/architecture/technology.md`).
+
 ### API
 
 The HTTP API is Tanren's general machine contract. It exposes:

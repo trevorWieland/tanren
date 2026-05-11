@@ -1,5 +1,25 @@
 //! `xtask generate-web-contracts` — emit web account contract types and
 //! runtime validators from Rust JSON Schema sources.
+//!
+//! Canonical command:
+//!
+//!     cargo run -q -p tanren-xtask -- generate-web-contracts
+//!
+//! Source crates (derive `JsonSchema` via `schemars`):
+//!
+//! - `crates/tanren-contract` — request/response shapes, session envelopes,
+//!   failure codes.
+//! - `crates/tanren-identity-policy` — domain newtypes (`AccountId`, `OrgId`,
+//!   `WindowContextId`, `Identifier`, `InvitationToken`).
+//!
+//! Output: `apps/web/src/app/lib/generated/account-contract.ts`.
+//!
+//! CI drift gate: `just check-web-contract-generation` (wired into `just ci`).
+//! The gate rebuilds this generator in a fresh `CARGO_TARGET_DIR`, re-emits the
+//! artifact, and fails if the checked-in file differs.
+//!
+//! See `docs/architecture/technology.md` ("Web contract regeneration chain")
+//! for the full regeneration workflow documentation.
 
 use anyhow::{Context, Result};
 use schemars::schema_for;
