@@ -12,8 +12,8 @@ use std::path::Path;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, ActiveAccountView,
     ListActiveAccountsRequest, ListActiveAccountsResponse, SessionEnvelope, SignInRequest,
-    SignUpRequest, SignedInAccountView, SwitchActiveAccountRequest, SwitchActiveAccountResponse,
-    WindowContextId,
+    SignOutRequest, SignUpRequest, SignedInAccountView, SwitchActiveAccountRequest,
+    SwitchActiveAccountResponse, WindowContextId,
 };
 use tanren_identity_policy::{AccountId, Identifier, InvitationToken, OrgId};
 
@@ -119,6 +119,11 @@ fn schema_targets() -> Vec<SchemaTarget> {
         SchemaTarget {
             name: "ListActiveAccountsRequest",
             schema: schema_json::<ListActiveAccountsRequest>(),
+            brand: None,
+        },
+        SchemaTarget {
+            name: "SignOutRequest",
+            schema: schema_json::<SignOutRequest>(),
             brand: None,
         },
         SchemaTarget {

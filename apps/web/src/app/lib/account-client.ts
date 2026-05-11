@@ -2,11 +2,12 @@ import * as m from "@/i18n/paraglide/messages";
 import type {
   AcceptInvitationRequest,
   AccountFailureCode,
-  AccountRequestFailureCode,
   AccountId,
+  AccountRequestFailureCode,
   AccountView,
   OrgId,
   SessionEnvelope,
+  SignOutRequest,
   SignedInAccountView,
   SwitchActiveAccountRequest,
   SwitchActiveAccountResponse,
@@ -15,6 +16,7 @@ import type {
 import {
   parseAccountId as parseGeneratedAccountId,
   parseListActiveAccountsResponse,
+  parseSignOutRequest,
   parseSwitchActiveAccountResponse,
   parseWebAcceptInvitationResponse,
   parseWebSignInResponse,
@@ -52,32 +54,66 @@ export interface AcceptInvitationInput {
   display_name: string;
 }
 
-export type { AccountFailureCode, AccountView, SignedInAccountView };
+// -- Discriminated failure result types --
+
+/**
+ * Typed account-request failure with an extensible code taxonomy scoped to
+ * account operations only. The `code` field is a closed union today but
+ * the `AccountRequestFailureCode` type can be extended with additional
+ * transport-level codes (unavailable, internal_error) without changing
+ * this interface.
+ */
+export interface AccountFailure {
+  readonly code: AccountRequestFailureCode;
+  readonly summary: string;
+}
+
+/**
+ * Account-level error thrown when a request fails. Carries the typed
+ * `AccountFailure` for callers to inspect.
+ */
+export class AccountRequestError extends Error {
+  readonly failure: AccountFailure;
+
+  constructor(failure: AccountFailure) {
+    super(describeFailure(failure));
+    this.failure = failure;
+    this.name = "AccountRequestError";
+  }
+}
+
+// -- View model types (distinct from generated wire models) --
 
 /**
  * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
  * sign-up/sign-in/accept-invitation. The body carries metadata only —
  * the session token itself is never readable from JavaScript.
+ *
+ * This is a **view model**: `expires_at` is a parsed `Date`, unlike the
+ * generated `SessionEnvelope` wire model which keeps it as `string`.
  */
 export interface SessionView {
-  account_id: AccountId;
-  expires_at: Date;
+  readonly account_id: AccountId;
+  readonly expires_at: Date;
 }
 
+/** Result of a successful sign-up. */
 export interface SignUpResult {
-  account: AccountView;
-  session: SessionView;
+  readonly account: AccountView;
+  readonly session: SessionView;
 }
 
+/** Result of a successful sign-in. */
 export interface SignInResult {
-  account: AccountView;
-  session: SessionView;
+  readonly account: AccountView;
+  readonly session: SessionView;
 }
 
+/** Result of a successful invitation acceptance. */
 export interface AcceptInvitationResult {
-  account: AccountView;
-  session: SessionView;
-  joined_org: OrgId;
+  readonly account: AccountView;
+  readonly session: SessionView;
+  readonly joined_org: OrgId;
 }
 
 export type ListActiveAccountsResult =
@@ -85,73 +121,77 @@ export type ListActiveAccountsResult =
 export type SwitchActiveAccountInput = SwitchActiveAccountRequest;
 export type SwitchActiveAccountResult = SwitchActiveAccountResponse;
 
-export interface AccountFailure {
-  code: AccountRequestFailureCode;
-  summary: string;
-}
+// -- Single-parse trust boundary decoders --
 
-// -- Session decoding (shared contract-consumption pattern) --
-
-function parseCookieSessionExpiry(value: string): Date | null {
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
+/**
+ * Decode a `SessionEnvelope` (wire model) into a `SessionView` (view
+ * model). Date parsing occurs exactly once at this trust boundary.
+ * Returns `null` when the envelope is not cookie-transport or the date
+ * is unparseable.
+ */
+function decodeSessionView(envelope: SessionEnvelope): SessionView | null {
+  if (envelope.transport !== "cookie") {
     return null;
   }
-  return parsed;
-}
-
-function decodeCookieSessionEnvelope(
-  payload: SessionEnvelope,
-): SessionView | null {
-  if (payload.transport !== "cookie") {
-    return null;
-  }
-  const expiresAt = parseCookieSessionExpiry(payload.expires_at);
-  if (expiresAt === null) {
+  const expiresAt = new Date(envelope.expires_at);
+  if (Number.isNaN(expiresAt.getTime())) {
     return null;
   }
   return {
-    account_id: payload.account_id,
+    account_id: envelope.account_id,
     expires_at: expiresAt,
   };
 }
 
+/**
+ * Decode a sign-up response at the trust boundary. The generated payload
+ * is parsed once via `parseWebSignUpResponse`; the session envelope is
+ * then decoded into a view model with date parsing.
+ */
 function decodeSignUpResult(payload: unknown): SignUpResult | null {
-  const decoded = parseWebSignUpResponse(payload);
-  if (decoded === null) {
+  const wire = parseWebSignUpResponse(payload);
+  if (wire === null) {
     return null;
   }
-  const session = decodeCookieSessionEnvelope(decoded.session);
+  const session = decodeSessionView(wire.session);
   if (session === null) {
     return null;
   }
-  return { account: decoded.account, session };
+  return { account: wire.account, session };
 }
 
+/**
+ * Decode a sign-in response at the trust boundary. Single-parse pattern
+ * identical to `decodeSignUpResult`.
+ */
 function decodeSignInResult(payload: unknown): SignInResult | null {
-  const decoded = parseWebSignInResponse(payload);
-  if (decoded === null) {
+  const wire = parseWebSignInResponse(payload);
+  if (wire === null) {
     return null;
   }
-  const session = decodeCookieSessionEnvelope(decoded.session);
+  const session = decodeSessionView(wire.session);
   if (session === null) {
     return null;
   }
-  return { account: decoded.account, session };
+  return { account: wire.account, session };
 }
 
+/**
+ * Decode an accept-invitation response at the trust boundary.
+ * Single-parse pattern identical to the other decoders.
+ */
 function decodeAcceptInvitationResult(
   payload: unknown,
 ): AcceptInvitationResult | null {
-  const decoded = parseWebAcceptInvitationResponse(payload);
-  if (decoded === null) {
+  const wire = parseWebAcceptInvitationResponse(payload);
+  if (wire === null) {
     return null;
   }
-  const session = decodeCookieSessionEnvelope(decoded.session);
+  const session = decodeSessionView(wire.session);
   if (session === null) {
     return null;
   }
-  return { account: decoded.account, session, joined_org: decoded.joined_org };
+  return { account: wire.account, session, joined_org: wire.joined_org };
 }
 
 // -- Auth-side-effect wrapper --
@@ -236,10 +276,12 @@ export function switchActiveAccount(
 
 /**
  * Sign-out clears the session row server-side and the cookie via
- * `Set-Cookie: tanren_session=; Max-Age=0`.
+ * `Set-Cookie: tanren_session=; Max-Age=0`. Uses a dedicated
+ * `SignOutRequest` type rather than reusing `ListActiveAccountsRequest`.
  */
 export async function signOut(): Promise<void> {
-  await postEmpty("/sessions/revoke", {}, browserWindowContext);
+  const signOutBody: SignOutRequest = parseSignOutRequest({})!;
+  await postEmpty("/sessions/revoke", signOutBody, browserWindowContext);
   browserWindowContext.clear();
 }
 
@@ -324,12 +366,9 @@ export function describeFailure(failure: AccountFailure): string {
   return m.failure_fallback();
 }
 
-export class AccountRequestError extends Error {
-  readonly failure: AccountFailure;
-
-  constructor(failure: AccountFailure) {
-    super(describeFailure(failure));
-    this.failure = failure;
-    this.name = "AccountRequestError";
-  }
-}
+export type {
+  AccountFailureCode,
+  AccountRequestFailureCode,
+  AccountView,
+  SignedInAccountView,
+};

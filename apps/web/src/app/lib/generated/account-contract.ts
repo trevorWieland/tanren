@@ -111,6 +111,9 @@ export type ListActiveAccountsRequest = v.InferOutput<
   typeof ListActiveAccountsRequestSchema
 >;
 
+export const SignOutRequestSchema = v.object({});
+export type SignOutRequest = v.InferOutput<typeof SignOutRequestSchema>;
+
 export const ListActiveAccountsResponseSchema = v.object({
   accounts: v.pipe(v.array(SignedInAccountViewSchema), v.maxLength(16)),
 });
@@ -222,6 +225,10 @@ export function parseListActiveAccountsRequest(
   payload: unknown,
 ): ListActiveAccountsRequest | null {
   return parseWithSchema(ListActiveAccountsRequestSchema, payload);
+}
+
+export function parseSignOutRequest(payload: unknown): SignOutRequest | null {
+  return parseWithSchema(SignOutRequestSchema, payload);
 }
 
 export function parseListActiveAccountsResponse(

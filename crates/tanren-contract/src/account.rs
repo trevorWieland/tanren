@@ -133,6 +133,14 @@ pub struct SessionView {
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
 pub struct ListActiveAccountsRequest {}
 
+/// Request to sign out (revoke the current session).
+///
+/// Carries no fields — the session to revoke is identified by the
+/// transport-level authentication context (cookie for web/api,
+/// bearer token for cli/mcp/tui).
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, Default)]
+pub struct SignOutRequest {}
+
 /// Redacted account fields visible in active-account switcher listings.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ActiveAccountView {

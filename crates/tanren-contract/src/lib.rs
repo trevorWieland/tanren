@@ -10,8 +10,8 @@ pub mod account;
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     ActiveAccountView, ListActiveAccountsRequest, ListActiveAccountsResponse, SessionEnvelope,
-    SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, SignedInAccountView,
-    SwitchActiveAccountRequest, SwitchActiveAccountResponse,
+    SessionView, SignInRequest, SignInResponse, SignOutRequest, SignUpRequest, SignUpResponse,
+    SignedInAccountView, SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
 pub use tanren_identity_policy::{WindowContextId, WindowContextValidationError};
 
