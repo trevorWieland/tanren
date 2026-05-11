@@ -68,6 +68,8 @@ enum Command {
     },
     /// Bootstrap Tanren assets into a repository.
     Install(install::InstallCommand),
+    /// Read-only drift check for install-managed repository assets.
+    Drift(install::DriftCommand),
 }
 
 #[derive(Debug, Subcommand)]
@@ -127,6 +129,7 @@ pub fn run(config: Config) -> ExitCode {
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
         Some(Command::Install(command)) => command.run().map_err(anyhow::Error::new),
+        Some(Command::Drift(command)) => command.run().map_err(anyhow::Error::new),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,

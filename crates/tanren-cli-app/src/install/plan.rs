@@ -163,7 +163,7 @@ pub(super) fn build_install_plan(
     let desired_generated_paths = manifest_entries
         .iter()
         .filter(|entry| entry.preservation == PreservationPolicy::ReplaceGenerated)
-        .map(|entry| entry.path.as_str())
+        .map(|entry| entry.path.clone())
         .collect::<BTreeSet<_>>();
     let trusted_generated_asset_registry = build_trusted_generated_asset_registry()?;
 
@@ -280,18 +280,17 @@ fn validate_manifest_version(
 fn build_previous_entry_map<'a>(
     _manifest_absolute_path: &Path,
     manifest: Option<&'a InstallManifest>,
-) -> Result<BTreeMap<&'a str, &'a ManifestEntry>, InstallError> {
+) -> Result<BTreeMap<&'a RepoRelativePath, &'a ManifestEntry>, InstallError> {
     let Some(previous_manifest) = manifest else {
         return Ok(BTreeMap::new());
     };
 
     let mut entries = BTreeMap::new();
     for entry in &previous_manifest.entries {
-        let path = entry.path.as_str();
-        if entries.insert(path, entry).is_some() {
+        if entries.insert(&entry.path, entry).is_some() {
             return Err(InstallError::InvalidInstallManifest {
                 path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
-                message: format!("duplicate manifest entry for '{path}'"),
+                message: format!("duplicate manifest entry for '{}'", entry.path.as_str()),
             });
         }
     }
@@ -303,13 +302,13 @@ fn build_write_plan(
     repository_root: &Path,
     assets: &[InstallAssetProjection],
     manifest_entries: &[ManifestEntry],
-    previous_entries_by_path: &BTreeMap<&str, &ManifestEntry>,
+    previous_entries_by_path: &BTreeMap<&RepoRelativePath, &ManifestEntry>,
 ) -> Result<Vec<PlannedAssetAction>, InstallError> {
     let mut actions = Vec::with_capacity(assets.len());
 
     for (asset, manifest_entry) in assets.iter().zip(manifest_entries) {
         let absolute_path = resolve_repo_path(repository_root, &asset.destination_path)?;
-        let previous_entry = previous_entries_by_path.get(asset.destination_path.as_str());
+        let previous_entry = previous_entries_by_path.get(&asset.destination_path);
         let planned = plan_asset_write(
             absolute_path,
             asset,
@@ -383,7 +382,7 @@ struct StaleRemovalPlan {
 
 fn build_removals(
     repository_root: &Path,
-    desired_generated_paths: &BTreeSet<&str>,
+    desired_generated_paths: &BTreeSet<RepoRelativePath>,
     trusted_generated_asset_registry: &BTreeSet<RepoRelativePath>,
     previous_manifest: Option<&InstallManifest>,
     manifest_absolute_path: &Path,
@@ -398,8 +397,7 @@ fn build_removals(
     let mut removals = Vec::with_capacity(manifest.entries.len());
     let mut preserved_paths = Vec::new();
     for entry in &manifest.entries {
-        let path = entry.path.as_str();
-        if desired_generated_paths.contains(path)
+        if desired_generated_paths.contains(&entry.path)
             || entry.preservation != PreservationPolicy::ReplaceGenerated
         {
             continue;

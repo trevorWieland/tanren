@@ -18,6 +18,45 @@ pub struct InstallReport {
 }
 
 impl InstallReport {
+    /// Number of newly created generated files.
+    #[must_use]
+    pub fn created_count(&self) -> usize {
+        self.created.len()
+    }
+
+    /// Number of updated generated files.
+    #[must_use]
+    pub fn updated_count(&self) -> usize {
+        self.updated.len()
+    }
+
+    /// Number of removed stale generated files.
+    #[must_use]
+    pub fn removed_count(&self) -> usize {
+        self.removed.len()
+    }
+
+    /// Number of restored previously-missing generated files.
+    #[must_use]
+    pub fn restored_count(&self) -> usize {
+        self.restored.len()
+    }
+
+    /// Number of preserved user-edited files.
+    #[must_use]
+    pub fn preserved_count(&self) -> usize {
+        self.preserved.len()
+    }
+
+    /// Whether any file was created, updated, removed, or restored.
+    #[must_use]
+    pub fn has_changes(&self) -> bool {
+        !self.created.is_empty()
+            || !self.updated.is_empty()
+            || !self.removed.is_empty()
+            || !self.restored.is_empty()
+    }
+
     fn sort_paths(&mut self) {
         self.created.sort();
         self.updated.sort();

@@ -70,6 +70,13 @@ impl InstallContext {
             .ok_or(InstallStepError::InstallCommandNotExecuted)
     }
 
+    /// Join a pre-validated repository-relative path with the repository root.
+    ///
+    /// Skips path validation because `RepositoryRelativePath` is already
+    /// validated at construction time.
+    pub(super) fn repository_relative_path(&self, relative: &RepositoryRelativePath) -> PathBuf {
+        self.repository_root.join(relative.as_str())
+    }
     pub(super) fn repository_path(&self, relative_path: &str) -> InstallStepResult<PathBuf> {
         super::manifest_helpers::validate_relative_path(relative_path)?;
         Ok(self.repository_root.join(relative_path))

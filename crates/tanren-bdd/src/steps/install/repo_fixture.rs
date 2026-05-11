@@ -18,7 +18,7 @@ impl InstallContext {
         relative_path: &RepositoryRelativePath,
         content: String,
     ) -> InstallStepResult<()> {
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_relative_path(relative_path);
         if let Some(parent) = absolute.parent() {
             fs::create_dir_all(parent).map_err(|source| {
                 manifest_helpers::io_error(
@@ -40,7 +40,7 @@ impl InstallContext {
         &mut self,
         relative_path: RepositoryRelativePath,
     ) -> InstallStepResult<()> {
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_relative_path(&relative_path);
         let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
             path: absolute,
             action: "read repository fixture file for baseline",
@@ -57,19 +57,23 @@ impl InstallContext {
         self.assert_file_exists(relative_path)?;
 
         let manifest_path = self.repository_path(".tanren/install-manifest.toml")?;
-        let mut manifest =
-            fs::read_to_string(&manifest_path).map_err(|source| InstallStepError::ReadFile {
-                path: manifest_path.clone(),
-                action: "read install manifest",
-                source,
-            })?;
+        let mut manifest = match fs::read_to_string(&manifest_path) {
+            Ok(content) => content,
+            Err(source) => {
+                return Err(InstallStepError::ReadFile {
+                    path: manifest_path,
+                    action: "read install manifest",
+                    source,
+                });
+            }
+        };
         let path_line = format!("path = \"{}\"", relative_path.as_str());
         if manifest.contains(&path_line) {
             return Err(InstallStepError::StaleManifestPathAlreadyPresent {
                 path: relative_path.as_str().to_owned(),
             });
         }
-        let stale_path = self.repository_path(relative_path.as_str())?;
+        let stale_path = self.repository_relative_path(relative_path);
         let stale_bytes = fs::read(&stale_path).map_err(|source| InstallStepError::ReadFile {
             path: stale_path,
             action: "read stale generated file for manifest hash",
@@ -101,12 +105,16 @@ impl InstallContext {
         const INVALID_HASH: &str = "not-a-sha256-hash";
 
         let manifest_path = self.repository_path(".tanren/install-manifest.toml")?;
-        let mut manifest =
-            fs::read_to_string(&manifest_path).map_err(|source| InstallStepError::ReadFile {
-                path: manifest_path.clone(),
-                action: "read install manifest",
-                source,
-            })?;
+        let mut manifest = match fs::read_to_string(&manifest_path) {
+            Ok(content) => content,
+            Err(source) => {
+                return Err(InstallStepError::ReadFile {
+                    path: manifest_path,
+                    action: "read install manifest",
+                    source,
+                });
+            }
+        };
         let path_line = format!("path = \"{TAMPERED_STALE_PATH}\"");
         if manifest.contains(&path_line) {
             return Err(InstallStepError::StaleManifestPathAlreadyPresent {
@@ -131,7 +139,7 @@ impl InstallContext {
         &mut self,
         relative_path: &RepositoryRelativePath,
     ) -> InstallStepResult<()> {
-        let absolute = self.repository_path(relative_path.as_str())?;
+        let absolute = self.repository_relative_path(relative_path);
         if !absolute.exists() {
             return Err(InstallStepError::ExpectedFileToExist { path: absolute });
         }
@@ -165,8 +173,8 @@ impl InstallContext {
         target_path: &RepositoryRelativePath,
         kind: SymlinkKind,
     ) -> InstallStepResult<()> {
-        let link_absolute = self.repository_path(link_path.as_str())?;
-        let target_absolute = self.repository_path(target_path.as_str())?;
+        let link_absolute = self.repository_relative_path(link_path);
+        let target_absolute = self.repository_relative_path(target_path);
         ensure_symlink_target_exists(&target_absolute, kind)?;
         if let Some(parent) = link_absolute.parent() {
             fs::create_dir_all(parent).map_err(|source| InstallStepError::Io {
