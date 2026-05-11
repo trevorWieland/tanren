@@ -150,3 +150,16 @@ pub fn organization_created_envelope<T: Serialize>(payload: &T) -> serde_json::V
         "payload": payload,
     })
 }
+
+/// Encode a typed organization-secret event as the JSON envelope
+/// persisted in the event log. The envelope carries the event family
+/// and kind alongside the payload, which contains metadata only — no
+/// secret values or encrypted payloads.
+#[must_use]
+pub fn organization_secret_envelope<T: Serialize>(kind: &str, payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": "organization_secret",
+        "kind": kind,
+        "payload": payload,
+    })
+}

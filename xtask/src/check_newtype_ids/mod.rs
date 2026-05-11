@@ -29,6 +29,7 @@ use std::path::Path;
 use syn::{Fields, Item};
 
 const TARGET_CRATES: &[&str] = &[
+    "tanren-configuration-secrets",
     "tanren-contract",
     "tanren-store",
     "tanren-identity-policy",

@@ -23,6 +23,7 @@ chrono = { workspace = true }
 schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
+tanren-configuration-secrets = { path = "../tanren-configuration-secrets" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }
 tanren-observation = { path = "../tanren-observation" }
 thiserror = { workspace = true }

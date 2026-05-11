@@ -268,6 +268,7 @@ sqlx = { version = "0.8", default-features = false, features = [
 # See `profiles/rust-cargo/architecture/openapi-generation.md`.
 utoipa = { version = "5", features = ["axum_extras", "chrono", "uuid"] }
 utoipa-axum = "0.2"
+aes-gcm = { version = "0.10", features = ["std"] }
 
 # BDD wire-harness dependencies (R-0001 sub-9). `expectrl` drives the TUI
 # binary in a pseudo-terminal; the `portable-pty` backend provides

@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod organization;
+pub mod organization_secret;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
@@ -23,6 +24,27 @@ pub use organization::{
     OrganizationFailureBody, OrganizationFailureCode, OrganizationProjectSummary,
     OrganizationProofLink, OrganizationSourceLink, OrganizationView, ReadModelFreshness,
     organization_capability_projection, organization_permission_options,
+};
+pub use organization_secret::{
+    CreateOrganizationSecretApiRequest, CreateOrganizationSecretRequest,
+    CreateOrganizationSecretResponse, DeleteOrganizationSecretRequest,
+    DeleteOrganizationSecretResponse, LIST_ORG_SECRETS_DEFAULT_LIMIT, LIST_ORG_SECRETS_MAX_LIMIT,
+    ListOrganizationSecretsApiQuery, ListOrganizationSecretsRequest,
+    ListOrganizationSecretsResponse, ORG_SECRET_CREATED_EVENT_KIND, ORG_SECRET_DELETED_EVENT_KIND,
+    ORG_SECRET_EVENT_FAMILY, ORG_SECRET_UPDATED_EVENT_KIND, ORG_SECRET_USED_EVENT_KIND,
+    OrganizationSecretCreatedEvent, OrganizationSecretDeletedEvent,
+    OrganizationSecretEventReference, OrganizationSecretFailureBody,
+    OrganizationSecretFailureReason, OrganizationSecretProofLink,
+    OrganizationSecretReadModelFreshness, OrganizationSecretSourceLink,
+    OrganizationSecretSummaryView, OrganizationSecretUpdatedEvent, OrganizationSecretUsedEvent,
+    OrganizationSecretView, ReadOrganizationSecretRequest, ReadOrganizationSecretResponse,
+    UpdateOrganizationSecretApiRequest, UpdateOrganizationSecretRequest,
+    UpdateOrganizationSecretResponse, UseOrganizationSecretRequest, UseOrganizationSecretResponse,
+    ValueRedacted,
+};
+pub use tanren_configuration_secrets::{
+    BaselineUsePolicy, OrganizationSecretId, OrganizationSecretName, SecretLifecycleStatus,
+    SecretOwnerScope, SecretVersion,
 };
 pub use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,

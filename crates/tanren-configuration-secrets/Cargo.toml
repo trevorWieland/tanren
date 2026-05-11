@@ -12,6 +12,11 @@ description = "Configuration and Secrets subsystem: configuration tiers, inherit
 workspace = true
 
 [dependencies]
+chrono = { workspace = true }
+schemars = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
+tanren-identity-policy = { path = "../tanren-identity-policy" }
 thiserror = { workspace = true }
+utoipa = { workspace = true }
+uuid = { workspace = true }
