@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useParams, useRouter } from "next/navigation";
 import { useCallback, useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
@@ -47,6 +47,8 @@ export default function OrganizationMembersRoute(): ReactNode {
 
 function OrganizationMembersSurface(): ReactNode {
   const router = useRouter();
+  const params = useParams<{ orgId: string }>();
+  const orgId = params?.orgId ?? "";
   const [authGate, setAuthGate] = useState<AuthGateStatus>("checking");
   const [members, setMembers] = useState<MemberRecord[]>([]);
   const [freshness, setFreshness] = useState<ReadModelFreshness | null>(null);
@@ -65,10 +67,7 @@ function OrganizationMembersSurface(): ReactNode {
         limit: DEFAULT_MEMBERS_LIST_LIMIT,
         cursor: cursor ?? null,
       });
-      const response = await listOrganizationMembersApi(
-        "__org_id_placeholder__",
-        request,
-      );
+      const response = await listOrganizationMembersApi(orgId, request);
       if (!response.ok && response.status === 401) {
         setAuthGate("unauthenticated");
         return;
@@ -92,7 +91,7 @@ function OrganizationMembersSurface(): ReactNode {
       setSourceLink(response.body.source_link);
       setNextCursor(response.body.next_cursor ?? null);
     },
-    [],
+    [orgId],
   );
 
   useEffect(() => {

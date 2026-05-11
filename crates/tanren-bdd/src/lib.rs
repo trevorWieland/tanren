@@ -17,10 +17,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use tanren_contract::{
-    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
-    ORGANIZATION_CREATE_BEHAVIOR_ID, ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse,
+    ListOrganizationMembersResponse, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
+    ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID,
 };
-use tanren_identity_policy::{OrgId, OrganizationName};
+use tanren_identity_policy::{InvitationToken, OrgId, OrganizationName};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -82,6 +83,10 @@ pub struct AccountContext {
     pub last_listed_organizations: Option<ListOrganizationsResponse>,
     /// Most recent permission-check success payload.
     pub last_checked_organization_permission: Option<CheckOrganizationPermissionResponse>,
+    /// Most recent list-organization-members success payload.
+    pub last_listed_members: Option<ListOrganizationMembersResponse>,
+    /// Invitation tokens deferred until the named org is created.
+    pub deferred_invitations: HashMap<OrganizationName, Vec<InvitationToken>>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -118,6 +123,14 @@ impl std::fmt::Debug for AccountContext {
                     .last_checked_organization_permission
                     .as_ref()
                     .map(|r| (r.org_id, r.permission, r.allowed)),
+            )
+            .field(
+                "last_listed_members_count",
+                &self.last_listed_members.as_ref().map(|r| r.members.len()),
+            )
+            .field(
+                "deferred_invitations_count",
+                &self.deferred_invitations.len(),
             )
             .finish()
     }
@@ -162,6 +175,8 @@ impl AccountContext {
             last_created_organization: None,
             last_listed_organizations: None,
             last_checked_organization_permission: None,
+            last_listed_members: None,
+            deferred_invitations: HashMap::new(),
         }
     }
 }

@@ -7,6 +7,7 @@
 use std::collections::HashSet;
 use std::str::FromStr;
 
+use chrono::{Duration as ChronoDuration, Utc};
 use cucumber::{then, when};
 use tanren_contract::{
     CreateOrganizationResponse, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
@@ -14,7 +15,9 @@ use tanren_contract::{
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
-use tanren_testkit::{HarnessError, HarnessOutcome, HarnessResult, record_failure};
+use tanren_testkit::{
+    HarnessError, HarnessInvitation, HarnessOutcome, HarnessResult, record_failure,
+};
 
 use crate::TanrenWorld;
 
@@ -32,17 +35,35 @@ async fn when_create_organization(
     )?;
     let org_name = parse_organization_name(&name)?;
 
-    let result = ctx.harness.create_organization(account_id, org_name).await;
+    let result = ctx
+        .harness
+        .create_organization(account_id, org_name.clone())
+        .await;
     match result {
         Ok(response) => {
+            let org_id = response.organization.id;
             ctx.organizations_by_name
-                .insert(response.organization.name.clone(), response.organization.id);
+                .insert(response.organization.name.clone(), org_id);
             ctx.last_created_organization = Some(response);
             ctx.last_listed_organizations = None;
             ctx.last_checked_organization_permission = None;
             ctx.last_outcome = Some(HarnessOutcome::Other(
                 "create_organization_succeeded".to_owned(),
             ));
+            if let Some(tokens) = ctx.deferred_invitations.remove(&org_name) {
+                let now = Utc::now();
+                for token in tokens {
+                    let fixture = HarnessInvitation {
+                        token,
+                        inviting_org: org_id,
+                        expires_at: now + ChronoDuration::days(1),
+                    };
+                    ctx.harness
+                        .seed_invitation(fixture)
+                        .await
+                        .expect("seed deferred invitation");
+                }
+            }
         }
         Err(err) => {
             let entry = ctx.actors.entry(actor).or_default();
@@ -227,6 +248,10 @@ async fn then_operation_succeeds(world: &mut TanrenWorld) -> HarnessResult<()> {
             if marker == "create_organization_succeeded"
                 || marker == "list_organizations_succeeded"
                 || marker == "check_organization_permission_succeeded"
+                || marker == "list_organization_members_succeeded"
+    ) || matches!(
+        &ctx.last_outcome,
+        Some(HarnessOutcome::AcceptedInvitation(_))
     );
     assert!(ok, "expected operation success, got {:?}", ctx.last_outcome);
     Ok(())
@@ -392,7 +417,7 @@ fn assert_observation_provenance(freshness: &tanren_contract::ReadModelFreshness
     );
 }
 
-fn parse_organization_name(raw: &str) -> HarnessResult<OrganizationName> {
+pub(crate) fn parse_organization_name(raw: &str) -> HarnessResult<OrganizationName> {
     OrganizationName::parse(raw).map_err(|err| {
         HarnessError::Transport(format!("scenario organization name must parse: {err}"))
     })
@@ -406,7 +431,7 @@ fn parse_permission(raw: &str) -> HarnessResult<OrganizationPermission> {
     })
 }
 
-fn require_account_id_for_actor(
+pub(crate) fn require_account_id_for_actor(
     ctx: &crate::AccountContext,
     actor: &str,
     missing_message: &str,
@@ -415,7 +440,7 @@ fn require_account_id_for_actor(
         .ok_or_else(|| HarnessError::Transport(missing_message.to_owned()))
 }
 
-fn organization_id_for_name(
+pub(crate) fn organization_id_for_name(
     ctx: &crate::AccountContext,
     org_name: &OrganizationName,
 ) -> HarnessResult<OrgId> {

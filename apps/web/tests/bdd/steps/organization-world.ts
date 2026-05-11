@@ -34,6 +34,7 @@ export interface OrganizationWorldState {
   lastListedMembersResponse: ListOrganizationMembersResponse | null;
   lastReplayExpectedOrganizationId: string | null;
   lastReplayObservedOrganizationId: string | null;
+  pendingInvitationsForOrg: Map<string, string[]>;
 }
 
 export interface OrganizationWorld {
@@ -79,6 +80,7 @@ export function orgState(world: OrganizationWorld): OrganizationWorldState {
       lastListedMembersResponse: null,
       lastReplayExpectedOrganizationId: null,
       lastReplayObservedOrganizationId: null,
+      pendingInvitationsForOrg: new Map<string, string[]>(),
     };
   }
   return world.__orgState;

@@ -25,6 +25,7 @@
 // the BDD run.
 
 import { createBdd, test as base } from "playwright-bdd";
+import { orgState, requireOrganizationWorld } from "./organization-world";
 
 interface ActorState {
   email?: string;
@@ -292,6 +293,8 @@ When(
       a.hasSession = false;
       a.lastFailureCode = await classifyFailureFromAlert(page);
     }
+    orgState(requireOrganizationWorld(world)).lastOperationSucceeded =
+      result === "ok";
   },
 );
 

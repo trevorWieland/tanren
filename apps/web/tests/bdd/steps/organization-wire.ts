@@ -15,7 +15,7 @@ import {
 } from "@/lib/organization-api";
 import {
   ORGANIZATION_API_ROUTES,
-  ORGANIZATION_MEMBERS_WIRE_TEST_IDS,
+  ORGANIZATION_MEMBERS_WEB_HARNESS_ROUTE,
   ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
   buildCheckOrganizationPermissionApiRequest,
@@ -328,9 +328,11 @@ export async function listOrganizationMembersViaWire(
   page: Page,
   orgId: string,
 ): Promise<ListOrganizationMembersOperation> {
-  await openOrganizationWireSurface(page);
+  const membersPath = ORGANIZATION_MEMBERS_WEB_HARNESS_ROUTE.replace(
+    "[orgId]",
+    orgId,
+  );
 
-  const previousSequence = await readWireSequence(page);
   const responsePromise = page.waitForResponse(
     (response) => {
       if (response.request().method() !== "GET") return false;
@@ -344,21 +346,24 @@ export async function listOrganizationMembersViaWire(
     { timeout: 30_000 },
   );
 
-  await page.getByTestId(ORGANIZATION_MEMBERS_WIRE_TEST_IDS.listSubmit).click();
+  await page.goto(membersPath);
 
-  const [outcome, response] = await Promise.all([
-    waitForWireOutcome(page, previousSequence),
-    responsePromise,
-  ]);
+  const response = await responsePromise;
+  const decodedResponse = await decodeWireResponse(
+    response,
+    isListOrganizationMembersResponse,
+    "list organization members",
+  );
 
-  return {
-    outcome,
-    response: await decodeWireResponse(
-      response,
-      isListOrganizationMembersResponse,
-      "list organization members",
-    ),
-  };
+  const outcome: WireOutcome = decodedResponse.ok
+    ? { status: "success" }
+    : {
+        status: "failure",
+        failureCode: decodedResponse.error.code,
+        failureDetail: decodedResponse.error.summary,
+      };
+
+  return { outcome, response: decodedResponse };
 }
 
 export async function decodeWireResponse<TBody>(

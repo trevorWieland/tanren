@@ -58,6 +58,29 @@ export async function signInActorViaUi(
   delete a.lastFailureCode;
 }
 
+export async function seedInvitationForOrg(
+  token: string,
+  orgId: string,
+): Promise<void> {
+  const apiUrl = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+  const expiresAt = new Date(Date.now() + 365 * 24 * 60 * 60 * 1000);
+  const res = await fetch(`${apiUrl}/test-hooks/invitations`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      token,
+      expires_at: expiresAt.toISOString(),
+      inviting_org_id: orgId,
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text();
+    throw new Error(
+      `seed invitation '${token}' for org ${orgId} failed: ${res.status} ${body}`,
+    );
+  }
+}
+
 export async function waitForHydration(page: Page): Promise<void> {
   await page.waitForFunction(
     () => {

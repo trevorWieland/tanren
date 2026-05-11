@@ -13,7 +13,7 @@ import {
   organizationRowTestId,
 } from "@/lib/organization-routes";
 
-import { signInActorViaUi } from "./api-client";
+import { seedInvitationForOrg, signInActorViaUi } from "./api-client";
 import { test } from "./account.steps";
 import {
   actor,
@@ -24,12 +24,13 @@ import {
   checkOrganizationConfigurePermissionViaWire,
   checkOrganizationPermissionViaWire,
   createOrganizationViaWire,
+  listOrganizationMembersViaWire,
   listOrganizationsViaWire,
   openOrganizationWireSurface,
   organizationKey,
 } from "./organization-wire";
 
-const { Then, When } = createBdd(test);
+const { Given, Then, When } = createBdd(test);
 
 When(
   /^(\w+) creates organization "([^"]+)"$/,
@@ -70,6 +71,13 @@ When(
     state.lastOperationSucceeded = true;
     a.hasSession = true;
     delete a.lastFailureCode;
+
+    const pendingTokens =
+      state.pendingInvitationsForOrg.get(organizationName) ?? [];
+    for (const token of pendingTokens) {
+      await seedInvitationForOrg(token, operation.snapshot.id);
+    }
+    state.pendingInvitationsForOrg.delete(organizationName);
   },
 );
 
@@ -637,5 +645,204 @@ Then(
     await page
       .getByTestId(ORGANIZATION_WIRE_TEST_IDS.listFreshness)
       .waitFor({ state: "visible", timeout: 30_000 });
+  },
+);
+
+// ── B-0065: list-organization-members steps ──────────────────────────────────
+
+Given(
+  /^a pending invitation token "([^"]+)" for organization "([^"]+)"$/,
+  async ({ world }, token: string, orgName: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const existing = state.pendingInvitationsForOrg.get(orgName) ?? [];
+    state.pendingInvitationsForOrg.set(orgName, [...existing, token]);
+  },
+);
+
+When(
+  /^(\w+) lists members of "([^"]+)"$/,
+  async ({ page, world }, name: string, organizationName: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+
+    const org = state.organizationsByName.get(
+      organizationKey(organizationName),
+    );
+    if (!org) {
+      throw new Error(
+        `organization ${organizationName} must be created or listed before member listing`,
+      );
+    }
+
+    await signInActorViaUi(page, typedWorld, name);
+    const operation = await listOrganizationMembersViaWire(page, org.id);
+
+    if (operation.outcome.status !== "success" || !operation.response.ok) {
+      a.hasSession = false;
+      a.lastFailureCode =
+        operation.outcome.failureCode ??
+        (operation.response.ok ? "unknown" : operation.response.error.code);
+      state.lastOperationSucceeded = false;
+      return;
+    }
+
+    state.lastListedMembersResponse = operation.response.body;
+    state.lastOperationSucceeded = true;
+    a.hasSession = true;
+    delete a.lastFailureCode;
+  },
+);
+
+When(
+  /^(\w+) lists members of "([^"]+)" without signing in$/,
+  async ({ page, world }, name: string, organizationName: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, name);
+
+    const org = state.organizationsByName.get(
+      organizationKey(organizationName),
+    );
+    if (!org) {
+      throw new Error(
+        `organization ${organizationName} must be created or listed before member listing`,
+      );
+    }
+
+    await page.context().clearCookies();
+    const operation = await listOrganizationMembersViaWire(page, org.id);
+
+    if (operation.outcome.status === "success" && operation.response.ok) {
+      state.lastListedMembersResponse = operation.response.body;
+      state.lastOperationSucceeded = true;
+      a.hasSession = true;
+      delete a.lastFailureCode;
+      return;
+    }
+
+    a.hasSession = false;
+    a.lastFailureCode =
+      operation.outcome.failureCode ??
+      (operation.response.ok ? "unknown" : operation.response.error.code);
+    state.lastOperationSucceeded = false;
+  },
+);
+
+const ADMIN_PERMISSIONS = new Set([
+  "invite",
+  "manage_access",
+  "configure",
+  "set_policy",
+  "delete",
+]);
+
+Then(
+  /^the member list includes (\w+) with admin permissions and grant source "([^"]+)"$/,
+  async ({ world }, actorName: string, grantSource: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, actorName);
+
+    const response = state.lastListedMembersResponse;
+    if (!response) {
+      throw new Error(
+        "member list response must be captured before this assertion",
+      );
+    }
+    if (!a.email) {
+      throw new Error(`actor ${actorName} has no recorded email`);
+    }
+
+    const member = response.members.find((m) => m.identifier === a.email);
+    if (!member) {
+      const identifiers = response.members.map((m) => m.identifier).join(", ");
+      throw new Error(
+        `expected ${actorName} (${a.email}) in member listing; got [${identifiers}]`,
+      );
+    }
+
+    const actualPermissions = new Set(
+      member.granted_permissions.map((g) => g.permission as string),
+    );
+    if (
+      ADMIN_PERMISSIONS.size !== actualPermissions.size ||
+      ![...ADMIN_PERMISSIONS].every((p) => actualPermissions.has(p))
+    ) {
+      throw new Error(
+        `expected ${actorName} to hold admin permissions [${[...ADMIN_PERMISSIONS].join(",")}], got [${[...actualPermissions].join(",")}]`,
+      );
+    }
+
+    for (const grant of member.granted_permissions) {
+      if (grant.grant_source !== grantSource) {
+        throw new Error(
+          `expected grant source ${grantSource} for ${actorName}'s ${grant.permission as string} grant, got ${grant.grant_source}`,
+        );
+      }
+    }
+  },
+);
+
+Then(
+  /^the member list includes (\w+) with member permissions and grant source "([^"]+)"$/,
+  async ({ world }, actorName: string, grantSource: string) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    const a = actor(typedWorld, actorName);
+
+    const response = state.lastListedMembersResponse;
+    if (!response) {
+      throw new Error(
+        "member list response must be captured before this assertion",
+      );
+    }
+    if (!a.email) {
+      throw new Error(`actor ${actorName} has no recorded email`);
+    }
+
+    const member = response.members.find((m) => m.identifier === a.email);
+    if (!member) {
+      const identifiers = response.members.map((m) => m.identifier).join(", ");
+      throw new Error(
+        `expected ${actorName} (${a.email}) in member listing; got [${identifiers}]`,
+      );
+    }
+
+    const actualPermissions = new Set(
+      member.granted_permissions.map((g) => g.permission as string),
+    );
+    const hasAllAdmin = [...ADMIN_PERMISSIONS].every((p) =>
+      actualPermissions.has(p),
+    );
+    if (hasAllAdmin) {
+      throw new Error(
+        `expected ${actorName} to hold member (non-admin) permissions, but got full admin set`,
+      );
+    }
+
+    for (const grant of member.granted_permissions) {
+      if (grant.grant_source !== grantSource) {
+        throw new Error(
+          `expected grant source ${grantSource} for ${actorName}'s ${grant.permission as string} grant, got ${grant.grant_source}`,
+        );
+      }
+    }
+  },
+);
+
+Then(
+  "the member listing exposes no project-scope grants",
+  async ({ world }) => {
+    const typedWorld = requireOrganizationWorld(world);
+    const state = orgState(typedWorld);
+    if (!state.lastListedMembersResponse) {
+      throw new Error(
+        "member list response must be captured before this assertion",
+      );
+    }
+    // OrganizationMemberPermissionGrant.permission is org-scoped by type;
+    // project-scope grants cannot appear in this response structure.
   },
 );

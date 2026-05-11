@@ -14,7 +14,7 @@ use chrono::{Duration as ChronoDuration, Utc};
 use cucumber::{given, then, when};
 use secrecy::SecretString;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{Email, InvitationToken, OrgId, OrganizationName};
 use tanren_testkit::{
     ConcurrentAcceptanceTally, HarnessInvitation, HarnessOutcome, record_failure,
 };
@@ -40,6 +40,23 @@ async fn given_pending_invitation(world: &mut TanrenWorld, token: String) {
         .seed_invitation(fixture)
         .await
         .expect("seed valid invitation");
+    ctx.invitations.insert(token);
+}
+
+#[given(expr = "a pending invitation token {string} for organization {string}")]
+async fn given_pending_invitation_for_org(
+    world: &mut TanrenWorld,
+    token: String,
+    org_name: String,
+) {
+    let ctx = world.ensure_account_ctx().await;
+    let parsed = InvitationToken::parse(&token).expect("scenario invitation tokens must parse");
+    let org_name_key =
+        OrganizationName::parse(&org_name).expect("scenario organization names must parse");
+    ctx.deferred_invitations
+        .entry(org_name_key)
+        .or_default()
+        .push(parsed);
     ctx.invitations.insert(token);
 }
 
