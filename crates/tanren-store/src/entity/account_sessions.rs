@@ -12,6 +12,9 @@ pub struct Model {
     pub account_id: Uuid,
     pub created_at: DateTimeUtc,
     pub expires_at: DateTimeUtc,
+    /// Currently active organization for this session. `NULL` means
+    /// the session has no active organization (personal-account mode).
+    pub active_org_id: Option<Uuid>,
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -218,6 +218,9 @@ pub struct SessionRecord {
     pub created_at: DateTime<Utc>,
     /// Wall-clock time the session expires.
     pub expires_at: DateTime<Utc>,
+    /// Currently active organization for this session.
+    /// `None` means no organization is active (personal-account mode).
+    pub active_org_id: Option<OrgId>,
 }
 
 impl From<entity::account_sessions::Model> for SessionRecord {
@@ -227,6 +230,7 @@ impl From<entity::account_sessions::Model> for SessionRecord {
             account_id: AccountId::new(model.account_id),
             created_at: model.created_at,
             expires_at: model.expires_at,
+            active_org_id: model.active_org_id.map(OrgId::new),
         }
     }
 }

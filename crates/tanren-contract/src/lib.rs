@@ -6,11 +6,15 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod active_org;
 pub mod organization;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use active_org::{
+    ListActiveOrgContextResponse, SwitchActiveOrgRequest, SwitchActiveOrgResponse,
 };
 pub use organization::{
     CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionRequest,

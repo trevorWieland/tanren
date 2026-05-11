@@ -11,7 +11,10 @@ use chrono::Utc;
 use secrecy::SecretString;
 use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, CheckOrganizationPermissionRequest,
+    AcceptInvitationRequest,
+    ListActiveOrgContextResponse,
+    SwitchActiveOrgRequest,
+    SwitchActiveOrgResponse, CheckOrganizationPermissionRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationRequest, CreateOrganizationResponse,
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsRequest, ListOrganizationsResponse,
     SignInRequest, SignUpRequest,
@@ -242,6 +245,44 @@ impl AccountHarness for InProcessHarness {
         AccountStore::recent_events(&self.store, limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn switch_active_org(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrgResponse> {
+        let session_token = self
+            .sessions
+            .get(&account_id)
+            .cloned()
+            .unwrap_or_else(|| SessionToken::from_secret(SecretString::from("")));
+        self.handlers
+            .switch_active_org(
+                &self.store,
+                SwitchActiveOrgRequest {
+                    session_token,
+                    account_id,
+                    org_id,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn list_active_org_context(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListActiveOrgContextResponse> {
+        let session_token = self
+            .sessions
+            .get(&account_id)
+            .cloned()
+            .ok_or_else(|| super::auth_required_failure())?;
+        self.handlers
+            .list_active_org_context(&self.store, &session_token, account_id)
+            .await
+            .map_err(translate_app_error)
     }
 }
 

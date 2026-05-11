@@ -54,11 +54,8 @@ use uuid::Uuid;
 ///
 /// Construct via [`Store::connect`]; apply pending migrations via
 /// [`Store::migrate`]. The handle is cheap to clone — under the hood
-/// `SeaORM` pools connections.
-///
-/// All account-flow methods are exposed via the [`AccountStore`] trait
-/// impl below; handlers depend on `&dyn AccountStore`, not on `Store`
-/// directly.
+/// `SeaORM` pools connections. All account-flow methods are exposed via
+/// the [`AccountStore`] trait; handlers depend on `&dyn AccountStore`.
 pub struct Store {
     conn: DatabaseConnection,
 }
@@ -301,6 +298,7 @@ impl AccountStore for Store {
             account_id: Set(account_id.as_uuid()),
             created_at: Set(now),
             expires_at: Set(expires_at),
+            active_org_id: Set(None),
         };
         model.insert(&self.conn).await?;
         Ok(SessionRecord {
@@ -308,6 +306,7 @@ impl AccountStore for Store {
             account_id,
             created_at: now,
             expires_at,
+            active_org_id: None,
         })
     }
 
@@ -361,6 +360,43 @@ impl AccountStore for Store {
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
+
+    async fn find_organization_by_id(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Option<OrganizationRecord>, StoreError> {
+        account_queries::find_organization_by_id(&self.conn, org_id).await
+    }
+
+    async fn list_org_permissions_for_account(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<OrganizationPermission>, StoreError> {
+        account_queries::list_org_permissions_for_account(&self.conn, account_id, org_id).await
+    }
+    async fn set_session_active_org(
+        &self,
+        token: &SessionToken,
+        org_id: OrgId,
+    ) -> Result<SessionRecord, StoreError> {
+        account_queries::set_session_active_org(&self.conn, token, org_id).await
+    }
+
+    async fn clear_session_active_org(
+        &self,
+        token: &SessionToken,
+    ) -> Result<SessionRecord, StoreError> {
+        account_queries::clear_session_active_org(&self.conn, token).await
+    }
+
+    async fn has_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<bool, StoreError> {
+        account_queries::has_membership(&self.conn, account_id, org_id).await
+    }
 }
 
 /// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
@@ -368,13 +404,11 @@ impl AccountStore for Store {
 /// (and only the testkit) enables the feature.
 #[cfg(feature = "test-hooks")]
 impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
+    /// Seed a fixture invitation row directly.
     ///
     /// # Errors
     ///
-    /// Returns [`StoreError::Database`] if the insert fails.
+    /// [`StoreError::Database`] if the insert fails.
     pub async fn seed_invitation(
         &self,
         new: NewInvitation,
@@ -390,11 +424,7 @@ impl Store {
     }
 }
 
-/// Convert a DB-stored identifier string into an [`Identifier`]. Any
-/// failure is a DB-invariant violation (we wrote the row through our
-/// own validated path), so it surfaces as a distinct
-/// [`StoreError::DataInvariant`] for triage rather than masquerading as
-/// a query failure.
+/// Convert a DB-stored identifier string into an [`Identifier`].
 pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
     Identifier::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "identifier",
@@ -402,7 +432,6 @@ pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
     })
 }
 
-/// Convert a DB-stored invitation token into an [`InvitationToken`].
 pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, StoreError> {
     InvitationToken::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "invitation_token",
@@ -410,8 +439,7 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
     })
 }
 
-/// Convert a DB-stored organization-name key into an
-/// [`OrganizationName`].
+/// Convert a DB-stored organization-name key into an [`OrganizationName`].
 pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, StoreError> {
     OrganizationName::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "organization_name",
@@ -427,8 +455,7 @@ pub(crate) fn parse_db_idempotency_key(raw: &str) -> Result<IdempotencyKey, Stor
     })
 }
 
-/// Convert a DB-stored permission key into an
-/// [`OrganizationPermission`].
+/// Convert a DB-stored permission key into an [`OrganizationPermission`].
 pub(crate) fn parse_db_organization_permission(
     raw: &str,
 ) -> Result<OrganizationPermission, StoreError> {
@@ -439,9 +466,6 @@ pub(crate) fn parse_db_organization_permission(
         })
 }
 
-/// Wrap a raw string into a [`SecretString`]. Re-exported so callers
-/// can build a [`SecretString`] without taking a direct `secrecy`
-/// dependency.
 #[must_use]
 pub fn secret_from_string(value: String) -> SecretString {
     SecretString::from(value)
@@ -454,9 +478,8 @@ pub enum StoreError {
     /// The underlying `SeaORM` call failed.
     #[error("database error: {0}")]
     Database(#[from] DbErr),
-    /// A row read out of the database failed validation against a
-    /// domain newtype's invariants. Indicates DB-side corruption — we
-    /// only ever write rows through validated newtype constructors.
+    /// A row read from the DB failed validation against domain newtype
+    /// invariants. Indicates DB-side corruption.
     #[error("data invariant violation in column `{column}`: {cause}")]
     DataInvariant {
         /// The column whose value failed to validate.

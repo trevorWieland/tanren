@@ -4,11 +4,12 @@ use chrono::{DateTime, Utc};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
-    ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
-    OrganizationBehaviorId, OrganizationCreatedEvent, OrganizationEventReference,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    ReadModelFreshness, organization_capability_projection, organization_permission_options,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListActiveOrgContextResponse,
+    ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND,
+    ORGANIZATION_EVENT_FAMILY, OrganizationBehaviorId, OrganizationCreatedEvent,
+    OrganizationEventReference, OrganizationProjectSummary, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView, ReadModelFreshness, SwitchActiveOrgRequest,
+    SwitchActiveOrgResponse, organization_capability_projection, organization_permission_options,
 };
 use tanren_identity_policy::{
     AccountId, OrgId, OrganizationPermission, OrganizationPermissionDecision,
@@ -287,4 +288,121 @@ fn map_create_organization_error(err: CreateOrganizationError) -> AppServiceErro
 fn normalize_list_limit(limit: Option<u64>) -> u64 {
     let requested = limit.unwrap_or(LIST_ORGANIZATIONS_DEFAULT_LIMIT);
     requested.clamp(1, LIST_ORGANIZATIONS_MAX_LIMIT)
+}
+
+pub(crate) async fn switch_active_org<S>(
+    store: &S,
+    clock: &Clock,
+    request: SwitchActiveOrgRequest,
+) -> Result<SwitchActiveOrgResponse, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    let now = clock.now();
+    resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
+
+    let is_member = store
+        .has_membership(request.account_id, request.org_id)
+        .await?;
+    if !is_member {
+        return Err(AppServiceError::Account(
+            AccountFailureReason::PermissionDenied,
+        ));
+    }
+
+    let updated = store
+        .set_session_active_org(&request.session_token, request.org_id)
+        .await?;
+
+    let org_permissions = load_org_permissions(store, request.account_id, request.org_id).await?;
+    let org_record = store
+        .find_organization_by_id(request.org_id)
+        .await?
+        .ok_or_else(|| AppServiceError::Account(AccountFailureReason::PermissionDenied))?;
+    let active_org = OrganizationView {
+        id: org_record.id,
+        name: org_record.name,
+        capabilities: organization_capability_projection(org_permissions),
+    };
+
+    Ok(SwitchActiveOrgResponse {
+        active_org: Some(active_org),
+        capabilities: organization_capability_projection(
+            load_org_permissions(
+                store,
+                request.account_id,
+                updated.active_org_id.unwrap_or(request.org_id),
+            )
+            .await?,
+        ),
+    })
+}
+
+pub(crate) async fn list_active_org_context<S>(
+    store: &S,
+    clock: &Clock,
+    session_token: &SessionToken,
+    account_id: AccountId,
+) -> Result<ListActiveOrgContextResponse, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    let now = clock.now();
+    let session = resolve_authenticated_account(store, account_id, session_token, now).await?;
+
+    let limit = normalize_list_limit(None);
+    let page = store
+        .list_organizations_for_account(account_id, limit, None, now)
+        .await?;
+
+    let available_organizations: Vec<OrganizationView> = page
+        .organizations
+        .iter()
+        .map(|record| OrganizationView {
+            id: record.organization.id,
+            name: record.organization.name.clone(),
+            capabilities: organization_capability_projection(record.granted_permissions.clone()),
+        })
+        .collect();
+
+    let active_org = match session.active_org_id {
+        Some(org_id) => {
+            let org_record = store
+                .find_organization_by_id(org_id)
+                .await?
+                .ok_or_else(|| AppServiceError::Account(AccountFailureReason::PermissionDenied))?;
+            let org_permissions = load_org_permissions(store, account_id, org_id).await?;
+            Some(OrganizationView {
+                id: org_record.id,
+                name: org_record.name,
+                capabilities: organization_capability_projection(org_permissions),
+            })
+        }
+        None => None,
+    };
+
+    Ok(ListActiveOrgContextResponse {
+        active_org,
+        available_organizations,
+    })
+}
+
+async fn load_org_permissions<S>(
+    store: &S,
+    account_id: AccountId,
+    org_id: OrgId,
+) -> Result<Vec<OrganizationPermission>, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    let mut granted = Vec::new();
+    for permission in OrganizationPermission::ALL {
+        if store
+            .has_organization_permission(account_id, org_id, permission)
+            .await?
+        {
+            granted.push(permission);
+        }
+    }
+    Ok(granted)
 }

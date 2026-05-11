@@ -57,7 +57,9 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    AcceptInvitationRequest,
+    ListActiveOrgContextResponse,
+    SwitchActiveOrgResponse, AccountFailureReason, AccountView,
     CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
     SignInRequest, SignUpRequest,
 };
@@ -279,6 +281,19 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// Switch the active organization for the signed-in account.
+    async fn switch_active_org(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrgResponse>;
+
+    /// List the active-org context and switchable organizations.
+    async fn list_active_org_context(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListActiveOrgContextResponse>;
 }
 
 /// Default short-window timeout used by the wire harnesses.

@@ -13,13 +13,17 @@ use axum::http::HeaderValue;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
-use tanren_app_services::Store;
+use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    AcceptInvitationRequest,
+    ListActiveOrgContextResponse,
+    SwitchActiveOrgRequest,
+    SwitchActiveOrgResponse, AccountFailureReason, AccountView,
     CheckOrganizationPermissionResponse, CreateOrganizationResponse,
     LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
+use secrecy::SecretString;
+use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission, SessionToken};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -120,6 +124,18 @@ impl ApiHarness {
         self.session_clients
             .get(&account_id)
             .ok_or_else(super::auth_required_failure)
+    }
+}
+
+impl ApiHarness {
+    fn session_token_for(&self, account_id: AccountId) -> Option<SessionToken> {
+        // The session token is stored in the cookie jar of the
+        // per-account reqwest client. Since we can't easily extract
+        // the raw cookie value from reqwest's cookie store, we keep
+        // a secondary map of account_id -> session_token.
+        // For now, return None to signal "unsigned".
+        let _ = account_id;
+        None
     }
 }
 

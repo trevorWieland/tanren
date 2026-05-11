@@ -437,6 +437,34 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    async fn find_organization_by_id(
+        &self,
+        org_id: OrgId,
+    ) -> Result<Option<OrganizationRecord>, StoreError>;
+    async fn list_org_permissions_for_account(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<Vec<OrganizationPermission>, StoreError>;
+    /// Persist the active organization for a session.
+    async fn set_session_active_org(
+        &self,
+        token: &SessionToken,
+        org_id: OrgId,
+    ) -> Result<SessionRecord, StoreError>;
+    /// Clear the active organization for a session.
+    async fn clear_session_active_org(
+        &self,
+        token: &SessionToken,
+    ) -> Result<SessionRecord, StoreError>;
+
+    /// Check whether an account holds an active membership in an org.
+    async fn has_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<bool, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

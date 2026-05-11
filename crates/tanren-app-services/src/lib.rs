@@ -21,10 +21,11 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
     CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse, ContractVersion,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
-    ListOrganizationsRequest, ListOrganizationsResponse, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse,
+    ListActiveOrgContextResponse, ListOrganizationsRequest, ListOrganizationsResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, SwitchActiveOrgRequest,
+    SwitchActiveOrgResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier, SessionToken};
 use tanren_identity_policy::{OrganizationCapability, OrganizationPermissionGate};
 pub use tanren_store::{AccountStore, Store};
 
@@ -43,7 +44,6 @@ pub struct HealthReport {
     /// Wire-contract version this binary speaks.
     pub contract_version: ContractVersion,
 }
-
 /// Injected wall-clock. BDD scenarios swap this for a deterministic
 /// fake; production binaries keep [`Clock::default`] (reads
 /// `chrono::Utc::now()`).
@@ -76,14 +76,12 @@ impl Clock {
     {
         Self { inner: Arc::new(f) }
     }
-
     /// Current wall-clock instant according to this `Clock`.
     #[must_use]
     pub fn now(&self) -> DateTime<Utc> {
         (self.inner)()
     }
 }
-
 /// Stateless handler facade. Holds an injectable [`Clock`] and
 /// [`CredentialVerifier`] so account flow handlers stay deterministic —
 /// and cheaply hashed — under the BDD harness.
@@ -109,7 +107,6 @@ impl Handlers {
     pub fn new() -> Self {
         Self::default()
     }
-
     /// Construct a handler facade backed by an explicit clock. Uses the
     /// production-strength [`Argon2idVerifier`] for hashing.
     #[must_use]
@@ -119,7 +116,6 @@ impl Handlers {
             verifier: Arc::new(Argon2idVerifier::production()),
         }
     }
-
     /// Construct a handler facade backed by an explicit
     /// [`CredentialVerifier`]. Production binaries that want to pin a
     /// non-default verifier (alternate parameter set, hardware-backed
@@ -128,7 +124,6 @@ impl Handlers {
     pub fn with_verifier(clock: Clock, verifier: Arc<dyn CredentialVerifier>) -> Self {
         Self { clock, verifier }
     }
-
     /// Liveness query. Returns the same shape regardless of which interface
     /// invoked it.
     #[must_use]
@@ -139,18 +134,16 @@ impl Handlers {
             contract_version: ContractVersion::CURRENT,
         }
     }
-
     /// Apply all pending database migrations against the supplied URL.
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::Store`] if connection or migration fails.
+    /// [`AppServiceError::Store`] if connection or migration fails.
     pub async fn migrate(&self, database_url: &str) -> Result<(), AppServiceError> {
         let store = Store::connect(database_url).await?;
         store.migrate().await?;
         Ok(())
     }
-
     /// Self-signup command: create a new personal account, mint a
     /// session, and append an `account_created` event.
     ///
@@ -169,7 +162,6 @@ impl Handlers {
     {
         account::sign_up(store, &self.clock, self.verifier.as_ref(), request).await
     }
-
     /// Sign-in command: verify an identifier+password against the
     /// stored hash and mint a fresh session.
     ///
@@ -189,7 +181,6 @@ impl Handlers {
     {
         account::sign_in(store, &self.clock, self.verifier.as_ref(), request).await
     }
-
     /// Invitation-acceptance command: consume the supplied token,
     /// create an account joined to the inviting org, and append both
     /// `account_created` and `invitation_accepted` events.
@@ -210,7 +201,6 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
-
     /// Create an organization for a currently authenticated account.
     ///
     /// # Errors
@@ -231,7 +221,6 @@ impl Handlers {
     {
         organization::create_organization(store, &self.clock, request).await
     }
-
     /// List organizations currently available to the authenticated
     /// account.
     ///
@@ -251,7 +240,6 @@ impl Handlers {
     {
         organization::list_organizations(store, &self.clock, request).await
     }
-
     /// Check whether an authenticated account currently holds a given
     /// organization permission.
     ///
@@ -271,7 +259,6 @@ impl Handlers {
     {
         organization::check_organization_permission(store, &self.clock, request).await
     }
-
     /// Resolve capability metadata from an organization permission.
     #[must_use]
     pub const fn organization_permission_capability(
@@ -279,7 +266,6 @@ impl Handlers {
     ) -> OrganizationCapability {
         tanren_identity_policy::organization_capability(permission)
     }
-
     /// Generic identity-policy-owned organization capability guard.
     ///
     /// # Errors
@@ -291,7 +277,7 @@ impl Handlers {
     pub async fn ensure_organization_capability<S>(
         &self,
         store: &S,
-        session_token: &tanren_identity_policy::SessionToken,
+        session_token: &SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
         gate: OrganizationPermissionGate,
@@ -310,7 +296,6 @@ impl Handlers {
         .await?;
         Ok(granted_gate.capability)
     }
-
     /// Permission guard for invitation issuance flows.
     ///
     /// # Errors
@@ -322,7 +307,7 @@ impl Handlers {
     pub async fn ensure_can_invite_to_organization<S>(
         &self,
         store: &S,
-        session_token: &tanren_identity_policy::SessionToken,
+        session_token: &SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
     ) -> Result<OrganizationCapability, AppServiceError>
@@ -340,19 +325,16 @@ impl Handlers {
         )
         .await
     }
-
     /// Permission guard for member-removal and access-management flows.
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::Account`] with
-    /// [`AccountFailureReason::AuthRequired`] when authentication is
-    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
-    /// when the caller lacks access-management rights.
+    /// [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// or [`AccountFailureReason::PermissionDenied`].
     pub async fn ensure_can_manage_organization_access<S>(
         &self,
         store: &S,
-        session_token: &tanren_identity_policy::SessionToken,
+        session_token: &SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
     ) -> Result<OrganizationCapability, AppServiceError>
@@ -370,19 +352,16 @@ impl Handlers {
         )
         .await
     }
-
     /// Permission guard for organization-configuration flows.
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::Account`] with
-    /// [`AccountFailureReason::AuthRequired`] when authentication is
-    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
-    /// when the caller lacks configuration rights.
+    /// [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// or [`AccountFailureReason::PermissionDenied`].
     pub async fn ensure_can_configure_organization<S>(
         &self,
         store: &S,
-        session_token: &tanren_identity_policy::SessionToken,
+        session_token: &SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
     ) -> Result<OrganizationCapability, AppServiceError>
@@ -400,19 +379,16 @@ impl Handlers {
         )
         .await
     }
-
     /// Permission guard for organization-policy editing flows.
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::Account`] with
-    /// [`AccountFailureReason::AuthRequired`] when authentication is
-    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
-    /// when the caller lacks policy-management rights.
+    /// [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// or [`AccountFailureReason::PermissionDenied`].
     pub async fn ensure_can_set_organization_policy<S>(
         &self,
         store: &S,
-        session_token: &tanren_identity_policy::SessionToken,
+        session_token: &SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
     ) -> Result<OrganizationCapability, AppServiceError>
@@ -430,19 +406,16 @@ impl Handlers {
         )
         .await
     }
-
     /// Permission guard for organization deletion flows.
     ///
     /// # Errors
     ///
-    /// Returns [`AppServiceError::Account`] with
-    /// [`AccountFailureReason::AuthRequired`] when authentication is
-    /// missing/expired or [`AccountFailureReason::PermissionDenied`]
-    /// when the caller lacks delete rights.
+    /// [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// or [`AccountFailureReason::PermissionDenied`].
     pub async fn ensure_can_delete_organization<S>(
         &self,
         store: &S,
-        session_token: &tanren_identity_policy::SessionToken,
+        session_token: &SessionToken,
         account_id: tanren_identity_policy::AccountId,
         org_id: tanren_identity_policy::OrgId,
     ) -> Result<OrganizationCapability, AppServiceError>
@@ -460,8 +433,44 @@ impl Handlers {
         )
         .await
     }
+    /// Switch the active organization for the caller's session.
+    /// Authenticates, verifies membership, persists active-org, returns
+    /// context plus capabilities.
+    ///
+    /// # Errors
+    ///
+    /// [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// or [`AccountFailureReason::PermissionDenied`] when not a member.
+    pub async fn switch_active_org<S>(
+        &self,
+        store: &S,
+        request: SwitchActiveOrgRequest,
+    ) -> Result<SwitchActiveOrgResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::switch_active_org(store, &self.clock, request).await
+    }
+    /// List the active-org context and switchable organizations.
+    /// Personal accounts with no orgs receive `active_org: None` and
+    /// an empty list without error.
+    ///
+    /// # Errors
+    ///
+    /// [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// when authentication is missing/expired.
+    pub async fn list_active_org_context<S>(
+        &self,
+        store: &S,
+        session_token: &SessionToken,
+        account_id: tanren_identity_policy::AccountId,
+    ) -> Result<ListActiveOrgContextResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::list_active_org_context(store, &self.clock, session_token, account_id).await
+    }
 }
-
 /// Errors raised by app-service handlers.
 #[derive(Debug, Error)]
 #[non_exhaustive]

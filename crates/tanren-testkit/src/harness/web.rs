@@ -8,7 +8,9 @@
 
 use async_trait::async_trait;
 use tanren_contract::{
-    AcceptInvitationRequest, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
+    AcceptInvitationRequest,
+    ListActiveOrgContextResponse,
+    SwitchActiveOrgResponse, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
     ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
@@ -95,5 +97,20 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn switch_active_org(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<SwitchActiveOrgResponse> {
+        self.inner.switch_active_org(account_id, org_id).await
+    }
+
+    async fn list_active_org_context(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListActiveOrgContextResponse> {
+        self.inner.list_active_org_context(account_id).await
     }
 }

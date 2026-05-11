@@ -1,13 +1,16 @@
 //! Query helpers shared by the `AccountStore` adapter implementation.
 
-use sea_orm::{ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect};
-use tanren_identity_policy::{AccountId, MembershipId, SessionToken};
+use sea_orm::{
+    ActiveModelTrait, ColumnTrait, EntityTrait, QueryFilter, QueryOrder, QuerySelect, Set,
+};
+use tanren_identity_policy::{AccountId, MembershipId, OrganizationPermission, SessionToken};
 
 use crate::entity;
 use crate::{
     ListOrganizationsPage, ListedOrganizationRecord, OrganizationRecord, SessionRecord, StoreError,
     parse_db_organization_permission,
 };
+use tanren_identity_policy::OrgId;
 
 pub(crate) async fn find_session_by_token(
     conn: &sea_orm::DatabaseConnection,
@@ -93,4 +96,79 @@ pub(crate) async fn list_organizations_for_account(
         checkpoint: None,
         cursor: next_cursor.map(|value| value.to_string()),
     })
+}
+
+pub(crate) async fn set_session_active_org(
+    conn: &sea_orm::DatabaseConnection,
+    token: &SessionToken,
+    org_id: OrgId,
+) -> Result<SessionRecord, StoreError> {
+    let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+        .one(conn)
+        .await?
+        .ok_or_else(|| {
+            StoreError::Database(sea_orm::DbErr::RecordNotFound(
+                "session not found".to_owned(),
+            ))
+        })?;
+    let mut active: entity::account_sessions::ActiveModel = row.into();
+    active.active_org_id = Set(Some(org_id.as_uuid()));
+    let updated = active.update(conn).await?;
+    Ok(SessionRecord::from(updated))
+}
+
+pub(crate) async fn clear_session_active_org(
+    conn: &sea_orm::DatabaseConnection,
+    token: &SessionToken,
+) -> Result<SessionRecord, StoreError> {
+    let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+        .one(conn)
+        .await?
+        .ok_or_else(|| {
+            StoreError::Database(sea_orm::DbErr::RecordNotFound(
+                "session not found".to_owned(),
+            ))
+        })?;
+    let mut active: entity::account_sessions::ActiveModel = row.into();
+    active.active_org_id = Set(None);
+    let updated = active.update(conn).await?;
+    Ok(SessionRecord::from(updated))
+}
+
+pub(crate) async fn has_membership(
+    conn: &sea_orm::DatabaseConnection,
+    account_id: AccountId,
+    org_id: OrgId,
+) -> Result<bool, StoreError> {
+    let row = entity::memberships::Entity::find()
+        .filter(entity::memberships::Column::AccountId.eq(account_id.as_uuid()))
+        .filter(entity::memberships::Column::OrgId.eq(org_id.as_uuid()))
+        .one(conn)
+        .await?;
+    Ok(row.is_some())
+}
+
+pub(crate) async fn find_organization_by_id(
+    conn: &sea_orm::DatabaseConnection,
+    org_id: OrgId,
+) -> Result<Option<OrganizationRecord>, StoreError> {
+    let row = entity::organizations::Entity::find_by_id(org_id.as_uuid())
+        .one(conn)
+        .await?;
+    row.map(OrganizationRecord::try_from).transpose()
+}
+
+pub(crate) async fn list_org_permissions_for_account(
+    conn: &sea_orm::DatabaseConnection,
+    account_id: AccountId,
+    org_id: OrgId,
+) -> Result<Vec<OrganizationPermission>, StoreError> {
+    let rows = entity::organization_permission_grants::Entity::find()
+        .filter(entity::organization_permission_grants::Column::AccountId.eq(account_id.as_uuid()))
+        .filter(entity::organization_permission_grants::Column::OrgId.eq(org_id.as_uuid()))
+        .all(conn)
+        .await?;
+    rows.into_iter()
+        .map(|row| parse_db_organization_permission(&row.permission))
+        .collect()
 }
