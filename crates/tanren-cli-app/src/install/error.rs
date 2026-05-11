@@ -42,6 +42,18 @@ pub enum InstallError {
     /// Removing stale generated output failed.
     #[error("failed removing '{path}': {message}")]
     RemoveFailure { path: String, message: String },
+    /// Uninstall preview was built for a different repository root.
+    #[error("uninstall preview repository root does not match target repository")]
+    UninstallPreviewRootMismatch,
+    /// Uninstall preview manifest fingerprint does not match current manifest.
+    #[error("uninstall preview manifest fingerprint does not match current manifest: {message}")]
+    UninstallPreviewManifestFingerprintMismatch { message: String },
+    /// On-disk file hash no longer matches the manifest hash recorded at planning time.
+    #[error("uninstall removal target '{path}' content hash drifted since planning: {message}")]
+    UninstallRemovalHashDrift { path: String, message: String },
+    /// On-disk manifest no longer matches the hash recorded at planning time.
+    #[error("install manifest content hash drifted since planning: {message}")]
+    UninstallManifestDrift { message: String },
 }
 
 /// Typed `tanren-cli install` command failures at the CLI-library boundary.
@@ -100,7 +112,11 @@ impl InstallCommandError {
             | InstallError::InvalidRepositoryPath { .. }
             | InstallError::InvalidInstallManifest { .. }
             | InstallError::UnsafeRepositoryPath { .. }
-            | InstallError::RepositoryPathNotDirectory { .. } => Self::ValidationFailed { source },
+            | InstallError::RepositoryPathNotDirectory { .. }
+            | InstallError::UninstallPreviewRootMismatch
+            | InstallError::UninstallPreviewManifestFingerprintMismatch { .. } => {
+                Self::ValidationFailed { source }
+            }
             _ => Self::UninstallFailed { source },
         }
     }

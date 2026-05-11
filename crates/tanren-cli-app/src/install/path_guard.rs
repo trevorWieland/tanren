@@ -1,6 +1,7 @@
 //! Shared path resolution guard for installer file operations.
 
 use std::fs;
+use std::io::ErrorKind;
 use std::path::{Component, Path, PathBuf};
 
 use crate::install::error::InstallError;
@@ -57,4 +58,52 @@ pub(crate) fn resolve_repo_path(
         }
     }
     Ok(absolute)
+}
+
+/// Canonicalize and validate a repository root directory.
+pub(crate) fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
+    let canonical =
+        repository
+            .canonicalize()
+            .map_err(|err| InstallError::InvalidRepositoryPath {
+                path: format!(
+                    "{} ({})",
+                    display_repository_argument(repository),
+                    redacted_io_error_kind(err.kind())
+                ),
+            })?;
+
+    if !canonical.is_dir() {
+        return Err(InstallError::RepositoryPathNotDirectory {
+            path: display_repository_argument(repository),
+        });
+    }
+
+    Ok(canonical)
+}
+
+/// Display a repository path, redacting absolute paths.
+pub(crate) fn display_repository_argument(path: &Path) -> String {
+    if path.is_absolute() {
+        "<redacted-absolute-path>".to_owned()
+    } else {
+        path.display().to_string()
+    }
+}
+
+/// Map an IO error kind to a stable redacted string.
+pub(crate) fn redacted_io_error_kind(kind: ErrorKind) -> &'static str {
+    match kind {
+        ErrorKind::NotFound => "not_found",
+        ErrorKind::PermissionDenied => "permission_denied",
+        ErrorKind::AlreadyExists => "already_exists",
+        ErrorKind::InvalidInput => "invalid_input",
+        ErrorKind::InvalidData => "invalid_data",
+        ErrorKind::TimedOut => "timed_out",
+        ErrorKind::WriteZero => "write_zero",
+        ErrorKind::Interrupted => "interrupted",
+        ErrorKind::Unsupported => "unsupported",
+        ErrorKind::UnexpectedEof => "unexpected_eof",
+        _ => "io_error",
+    }
 }

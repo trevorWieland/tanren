@@ -1,11 +1,16 @@
 //! Filesystem writer for manifest-driven install plans.
 
 use std::io::ErrorKind;
+use std::io::Read;
 use std::path::{Path, PathBuf};
 
+use sha2::{Digest, Sha256};
+
 use crate::install::error::InstallError;
-use crate::install::manifest::{INSTALL_MANIFEST_REPO_PATH, RepoRelativePath};
-use crate::install::path_guard::resolve_repo_path;
+use crate::install::manifest::{
+    INSTALL_MANIFEST_REPO_PATH, InstallManifest, RepoRelativePath, Sha256Hex, sha256_hex,
+};
+use crate::install::path_guard::{resolve_repo_path, validate_repository_root};
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 use crate::install::uninstall_plan::UninstallPreview;
 use crate::install::writer_tx::{
@@ -38,12 +43,14 @@ impl InstallReport {
 pub struct UninstallApplyReport {
     pub removed_generated: Vec<RepoRelativePath>,
     pub removed_metadata: Vec<RepoRelativePath>,
+    pub preserved_on_drift: Vec<RepoRelativePath>,
 }
 
 impl UninstallApplyReport {
     fn sort_paths(&mut self) {
         self.removed_generated.sort();
         self.removed_metadata.sort();
+        self.preserved_on_drift.sort();
     }
 }
 
@@ -53,6 +60,7 @@ struct PreparedUninstallRemoval {
     absolute: PathBuf,
     prior_content: Vec<u8>,
     class: UninstallRemovalClass,
+    expected_hash: Option<Sha256Hex>,
 }
 
 #[derive(Debug, Clone)]
@@ -128,25 +136,32 @@ pub(super) fn apply_uninstall_preview(
     preview: &UninstallPreview,
 ) -> Result<UninstallApplyReport, InstallError> {
     let repository_root = validate_repository_root(repository)?;
+    validate_preview_root(&repository_root, preview)?;
+    validate_preview_manifest_fingerprint(&repository_root, preview)?;
+
     let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
-    let manifest_absolute = resolve_manifest_absolute_path(&repository_root, &manifest_path)?;
+    let manifest_absolute = resolve_repo_path(&repository_root, &manifest_path)?;
+    let manifest_entries = load_manifest_hashes(&manifest_absolute)?;
+
     let planned_removals =
         build_uninstall_removal_plan(preview.remove(), manifest_absolute.exists(), &manifest_path);
     if planned_removals.is_empty() {
         return Ok(UninstallApplyReport::default());
     }
 
-    let prepared = prepare_uninstall_apply(&repository_root, &planned_removals)?;
+    let prepared = prepare_uninstall_apply(&repository_root, &planned_removals, &manifest_entries)?;
     let mut report = UninstallApplyReport::default();
     let mut changed_indices = Vec::with_capacity(prepared.len());
 
     let apply_result: Result<(), InstallError> = (|| {
         for (index, removal) in prepared.iter().enumerate() {
+            if let Some(expected_hash) = &removal.expected_hash {
+                revalidate_removal_hash(&removal.absolute, removal.path.as_str(), expected_hash)?;
+            }
             std::fs::remove_file(&removal.absolute).map_err(|err| InstallError::RemoveFailure {
                 path: removal.path.as_str().to_owned(),
                 message: err.to_string(),
             })?;
-
             match removal.class {
                 UninstallRemovalClass::GeneratedAsset => {
                     report.removed_generated.push(removal.path.clone());
@@ -156,6 +171,10 @@ pub(super) fn apply_uninstall_preview(
                 }
             }
             changed_indices.push(index);
+        }
+
+        if let Some(preview_fingerprint) = preview.manifest_fingerprint() {
+            guard_manifest_deletion(&manifest_absolute, preview_fingerprint)?;
         }
 
         Ok(())
@@ -174,12 +193,158 @@ pub(super) fn apply_uninstall_preview(
     Ok(report)
 }
 
+fn validate_preview_root(
+    repository_root: &Path,
+    preview: &UninstallPreview,
+) -> Result<(), InstallError> {
+    if repository_root != preview.repository_root() {
+        return Err(InstallError::UninstallPreviewRootMismatch);
+    }
+    Ok(())
+}
+
+fn validate_preview_manifest_fingerprint(
+    repository_root: &Path,
+    preview: &UninstallPreview,
+) -> Result<(), InstallError> {
+    let Some(preview_fingerprint) = preview.manifest_fingerprint() else {
+        return Ok(());
+    };
+
+    let manifest_path = repository_root.join(INSTALL_MANIFEST_REPO_PATH);
+    if !manifest_path.exists() {
+        return Err(InstallError::UninstallPreviewManifestFingerprintMismatch {
+            message: "manifest file no longer exists".to_owned(),
+        });
+    }
+
+    let current_bytes = std::fs::read(&manifest_path).map_err(|err| InstallError::ReadFailure {
+        path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+        message: err.to_string(),
+    })?;
+    let current_fingerprint = sha256_hex(&current_bytes);
+    if current_fingerprint != *preview_fingerprint {
+        return Err(InstallError::UninstallPreviewManifestFingerprintMismatch {
+            message: "manifest content changed between planning and apply".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn load_manifest_hashes(
+    manifest_absolute: &Path,
+) -> Result<Vec<(RepoRelativePath, Sha256Hex)>, InstallError> {
+    if !manifest_absolute.exists() {
+        return Ok(Vec::new());
+    }
+
+    let raw = std::fs::read_to_string(manifest_absolute).map_err(|err| {
+        InstallError::InvalidInstallManifest {
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            message: format!("failed to read manifest: {err}"),
+        }
+    })?;
+
+    let manifest: InstallManifest =
+        toml::from_str(&raw).map_err(|err| InstallError::InvalidInstallManifest {
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            message: err.to_string(),
+        })?;
+
+    Ok(manifest
+        .entries
+        .into_iter()
+        .map(|entry| (entry.path, entry.content_hash))
+        .collect())
+}
+
+fn revalidate_removal_hash(
+    path: &Path,
+    display_path: &str,
+    expected_hash: &Sha256Hex,
+) -> Result<(), InstallError> {
+    let metadata = std::fs::symlink_metadata(path).map_err(|err| InstallError::ReadFailure {
+        path: display_path.to_owned(),
+        message: err.to_string(),
+    })?;
+
+    if metadata.file_type().is_symlink() {
+        return Err(InstallError::UninstallRemovalHashDrift {
+            path: display_path.to_owned(),
+            message: "target is a symbolic link, refusing to remove".to_owned(),
+        });
+    }
+
+    if !metadata.is_file() {
+        return Err(InstallError::UninstallRemovalHashDrift {
+            path: display_path.to_owned(),
+            message: "target is not a regular file, refusing to remove".to_owned(),
+        });
+    }
+
+    let observed_hash = compute_file_sha256(path, display_path)?;
+    if observed_hash != *expected_hash {
+        return Err(InstallError::UninstallRemovalHashDrift {
+            path: display_path.to_owned(),
+            message: "content hash no longer matches manifest".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn guard_manifest_deletion(
+    manifest_absolute: &Path,
+    preview_fingerprint: &Sha256Hex,
+) -> Result<(), InstallError> {
+    if !manifest_absolute.exists() {
+        return Ok(());
+    }
+
+    let current_bytes =
+        std::fs::read(manifest_absolute).map_err(|err| InstallError::ReadFailure {
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            message: err.to_string(),
+        })?;
+    let current_fingerprint = sha256_hex(&current_bytes);
+    if current_fingerprint != *preview_fingerprint {
+        return Err(InstallError::UninstallManifestDrift {
+            message: "manifest content changed between planning and manifest deletion".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn compute_file_sha256(path: &Path, display_path: &str) -> Result<Sha256Hex, InstallError> {
+    let mut file = std::fs::File::open(path).map_err(|err| InstallError::ReadFailure {
+        path: display_path.to_owned(),
+        message: err.to_string(),
+    })?;
+    let mut hasher = Sha256::new();
+    let mut buffer = [0_u8; 16_384];
+    loop {
+        let read_count = file
+            .read(&mut buffer)
+            .map_err(|err| InstallError::ReadFailure {
+                path: display_path.to_owned(),
+                message: err.to_string(),
+            })?;
+        if read_count == 0 {
+            break;
+        }
+        hasher.update(&buffer[..read_count]);
+    }
+    Ok(sha256_hex(&hasher.finalize()))
+}
+
 fn build_uninstall_removal_plan(
     removal_paths: &[RepoRelativePath],
     manifest_exists: bool,
     manifest_path: &RepoRelativePath,
 ) -> Vec<PlannedUninstallRemoval> {
-    let mut planned = Vec::with_capacity(removal_paths.len() + usize::from(manifest_exists));
+    let mut planned = Vec::with_capacity(removal_paths.len());
     for path in removal_paths {
         planned.push(PlannedUninstallRemoval {
             path: path.clone(),
@@ -208,37 +373,10 @@ fn build_uninstall_removal_plan(
     planned
 }
 
-fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
-    let canonical =
-        repository
-            .canonicalize()
-            .map_err(|err| InstallError::InvalidRepositoryPath {
-                path: format!(
-                    "{} ({})",
-                    display_repository_argument(repository),
-                    redacted_io_error_kind(err.kind())
-                ),
-            })?;
-
-    if !canonical.is_dir() {
-        return Err(InstallError::RepositoryPathNotDirectory {
-            path: display_repository_argument(repository),
-        });
-    }
-
-    Ok(canonical)
-}
-
-fn resolve_manifest_absolute_path(
-    repository_root: &Path,
-    manifest_path: &RepoRelativePath,
-) -> Result<PathBuf, InstallError> {
-    resolve_repo_path(repository_root, manifest_path)
-}
-
 fn prepare_uninstall_apply(
     repository_root: &Path,
     planned_removals: &[PlannedUninstallRemoval],
+    manifest_entries: &[(RepoRelativePath, Sha256Hex)],
 ) -> Result<Vec<PreparedUninstallRemoval>, InstallError> {
     let mut removals = Vec::with_capacity(planned_removals.len());
     for planned in planned_removals {
@@ -265,11 +403,18 @@ fn prepare_uninstall_apply(
                 path: planned.path.as_str().to_owned(),
                 message: err.to_string(),
             })?;
+
+        let expected_hash = manifest_entries
+            .iter()
+            .find(|(path, _)| path == &planned.path)
+            .map(|(_, hash)| hash.clone());
+
         removals.push(PreparedUninstallRemoval {
             path: planned.path.clone(),
             absolute,
             prior_content,
             class: planned.class,
+            expected_hash,
         });
     }
     Ok(removals)
@@ -319,28 +464,4 @@ fn rollback_changed_paths(
     }
 
     Ok(())
-}
-
-fn display_repository_argument(path: &Path) -> String {
-    if path.is_absolute() {
-        "<redacted-absolute-path>".to_owned()
-    } else {
-        path.display().to_string()
-    }
-}
-
-fn redacted_io_error_kind(kind: ErrorKind) -> &'static str {
-    match kind {
-        ErrorKind::NotFound => "not_found",
-        ErrorKind::PermissionDenied => "permission_denied",
-        ErrorKind::AlreadyExists => "already_exists",
-        ErrorKind::InvalidInput => "invalid_input",
-        ErrorKind::InvalidData => "invalid_data",
-        ErrorKind::TimedOut => "timed_out",
-        ErrorKind::WriteZero => "write_zero",
-        ErrorKind::Interrupted => "interrupted",
-        ErrorKind::Unsupported => "unsupported",
-        ErrorKind::UnexpectedEof => "unexpected_eof",
-        _ => "io_error",
-    }
 }

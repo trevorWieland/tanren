@@ -73,12 +73,14 @@ impl InstallContext {
         for field in [
             "removed_generated=",
             "removed_metadata=",
+            "preserved_on_drift=",
             "nothing_to_uninstall=",
         ] {
             ensure_stdout_contains(run, field)?;
         }
         ensure_stdout_contains(run, "paths removed_generated=[")?;
         ensure_stdout_contains(run, "removed_metadata=[")?;
+        ensure_stdout_contains(run, "preserved_on_drift=[")?;
         Ok(())
     }
 

@@ -13,7 +13,7 @@ use crate::install::manifest::{
     ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries,
     sha256_hex,
 };
-use crate::install::path_guard::resolve_repo_path;
+use crate::install::path_guard::{resolve_repo_path, validate_repository_root};
 use crate::install::{InstallIntegration, InstallProfile};
 
 /// Planned file-write action category.
@@ -219,23 +219,6 @@ impl PlannedAssetAction {
             Self::Preserve(_) | Self::Unchanged => None,
         }
     }
-}
-
-fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
-    let canonical =
-        repository
-            .canonicalize()
-            .map_err(|err| InstallError::InvalidRepositoryPath {
-                path: format!("{} ({err})", display_repository_argument(repository)),
-            })?;
-
-    if !canonical.is_dir() {
-        return Err(InstallError::RepositoryPathNotDirectory {
-            path: display_repository_argument(repository),
-        });
-    }
-
-    Ok(canonical)
 }
 
 fn load_previous_manifest(
@@ -455,12 +438,4 @@ fn ensure_removals_unique(
         }
     }
     Ok(())
-}
-
-fn display_repository_argument(path: &Path) -> String {
-    if path.is_absolute() {
-        "<redacted-absolute-path>".to_owned()
-    } else {
-        path.display().to_string()
-    }
 }

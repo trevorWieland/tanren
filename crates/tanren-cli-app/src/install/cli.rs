@@ -144,19 +144,21 @@ impl UninstallCommand {
         let mut handle = stdout.lock();
         writeln!(
             handle,
-            "status=ok command=uninstall phase=apply repo={} removed_generated={} removed_metadata={} nothing_to_uninstall={} nothing_reason={}",
+            "status=ok command=uninstall phase=apply repo={} removed_generated={} removed_metadata={} preserved_on_drift={} nothing_to_uninstall={} nothing_reason={}",
             repository,
             report.removed_generated.len(),
             report.removed_metadata.len(),
+            report.preserved_on_drift.len(),
             preview.nothing_to_uninstall(),
             uninstall_nothing_reason(preview),
         )
         .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
         writeln!(
             handle,
-            "paths removed_generated=[{}] removed_metadata=[{}]",
+            "paths removed_generated=[{}] removed_metadata=[{}] preserved_on_drift=[{}]",
             format_path_list(&report.removed_generated),
             format_path_list(&report.removed_metadata),
+            format_path_list(&report.preserved_on_drift),
         )
         .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
         Ok(())

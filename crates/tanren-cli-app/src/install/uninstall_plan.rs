@@ -16,7 +16,7 @@ use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallManifest, ManifestEntry,
     PreservationPolicy, RepoRelativePath, Sha256Hex, sha256_hex,
 };
-use crate::install::path_guard::resolve_repo_path;
+use crate::install::path_guard::{resolve_repo_path, validate_repository_root};
 
 /// Why a manifest-tracked path is preserved during uninstall planning.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -143,6 +143,8 @@ pub struct UninstallPreview {
     warning: Vec<UninstallWarning>,
     nothing_to_uninstall: bool,
     nothing_reason: Option<UninstallNothingReason>,
+    repository_root: PathBuf,
+    manifest_fingerprint: Option<Sha256Hex>,
 }
 
 impl UninstallPreview {
@@ -181,16 +183,35 @@ impl UninstallPreview {
     pub fn total_entry_count(&self) -> usize {
         self.remove.len() + self.preserve.len() + self.warning.len()
     }
+
+    /// Canonical repository root observed at planning time.
+    #[must_use]
+    pub fn repository_root(&self) -> &Path {
+        &self.repository_root
+    }
+
+    /// SHA-256 fingerprint of the manifest content at planning time.
+    #[must_use]
+    pub fn manifest_fingerprint(&self) -> Option<&Sha256Hex> {
+        self.manifest_fingerprint.as_ref()
+    }
 }
 
 pub(super) fn build_uninstall_preview(repository: &Path) -> Result<UninstallPreview, InstallError> {
     let repository_root = validate_repository_root(repository)?;
     let manifest_absolute_path = resolve_manifest_path(&repository_root)?;
     if !manifest_absolute_path.exists() {
-        return Ok(manifest_missing_preview());
+        return Ok(manifest_missing_preview(repository_root));
     }
 
-    let manifest = load_manifest(&manifest_absolute_path)?;
+    let manifest_bytes =
+        fs::read(&manifest_absolute_path).map_err(|err| InstallError::ReadFailure {
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            message: err.to_string(),
+        })?;
+    let manifest_fingerprint = sha256_hex(&manifest_bytes);
+
+    let manifest = parse_manifest_bytes(&manifest_bytes)?;
     validate_manifest_version(&manifest)?;
     let trusted_generated_assets = build_trusted_generated_asset_registry()?;
     let entry_count = manifest.entries.len();
@@ -207,7 +228,7 @@ pub(super) fn build_uninstall_preview(repository: &Path) -> Result<UninstallPrev
         )?;
     }
 
-    Ok(outcomes.finish())
+    Ok(outcomes.finish(repository_root, Some(manifest_fingerprint)))
 }
 
 fn resolve_manifest_path(repository_root: &Path) -> Result<PathBuf, InstallError> {
@@ -215,7 +236,7 @@ fn resolve_manifest_path(repository_root: &Path) -> Result<PathBuf, InstallError
     resolve_repo_path(repository_root, &manifest_path)
 }
 
-fn manifest_missing_preview() -> UninstallPreview {
+fn manifest_missing_preview(repository_root: PathBuf) -> UninstallPreview {
     UninstallPreview {
         remove: Vec::new(),
         preserve: Vec::new(),
@@ -225,7 +246,31 @@ fn manifest_missing_preview() -> UninstallPreview {
         }],
         nothing_to_uninstall: true,
         nothing_reason: Some(UninstallNothingReason::ManifestMissing),
+        repository_root,
+        manifest_fingerprint: None,
     }
+}
+
+fn parse_manifest_bytes(bytes: &[u8]) -> Result<InstallManifest, InstallError> {
+    let raw =
+        String::from_utf8(bytes.to_vec()).map_err(|err| InstallError::InvalidInstallManifest {
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            message: err.to_string(),
+        })?;
+    toml::from_str(&raw).map_err(|err| InstallError::InvalidInstallManifest {
+        path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+        message: err.to_string(),
+    })
+}
+
+fn validate_manifest_version(manifest: &InstallManifest) -> Result<(), InstallError> {
+    if manifest.manifest_version != INSTALL_MANIFEST_VERSION {
+        return Err(InstallError::InvalidInstallManifest {
+            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+            message: format!("unsupported manifest version {}", manifest.manifest_version),
+        });
+    }
+    Ok(())
 }
 
 #[derive(Debug, Default)]
@@ -259,7 +304,11 @@ impl PreviewOutcomes {
         self.remove.push(path);
     }
 
-    fn finish(mut self) -> UninstallPreview {
+    fn finish(
+        mut self,
+        repository_root: PathBuf,
+        manifest_fingerprint: Option<Sha256Hex>,
+    ) -> UninstallPreview {
         self.remove.sort();
         self.remove.dedup();
         self.preserve.sort();
@@ -277,6 +326,8 @@ impl PreviewOutcomes {
             remove: self.remove,
             preserve: self.preserve,
             warning: self.warning,
+            repository_root,
+            manifest_fingerprint,
         }
     }
 }
@@ -284,7 +335,7 @@ impl PreviewOutcomes {
 fn plan_manifest_entry<'a>(
     entry: &'a ManifestEntry,
     repository_root: &Path,
-    trusted_generated_assets: &BTreeSet<RepoRelativePath>,
+    _trusted_generated_assets: &BTreeSet<RepoRelativePath>,
     seen_paths: &mut BTreeSet<&'a str>,
     outcomes: &mut PreviewOutcomes,
 ) -> Result<(), InstallError> {
@@ -304,9 +355,7 @@ fn plan_manifest_entry<'a>(
         return Ok(());
     }
 
-    if !trusted_generated_assets.contains(&entry.path)
-        || !is_trusted_generated_manifest_entry(entry)
-    {
+    if !is_trusted_generated_manifest_entry(entry) {
         outcomes.preserve(
             entry.path.clone(),
             UninstallPreserveReason::UntrustedManifestEntry,
@@ -318,7 +367,8 @@ fn plan_manifest_entry<'a>(
         return Ok(());
     }
 
-    let Some(absolute_path) = resolve_uninstall_target(repository_root, entry)? else {
+    let target = resolve_uninstall_target(repository_root, entry)?;
+    let Some(target_path) = target else {
         outcomes.preserve(
             entry.path.clone(),
             UninstallPreserveReason::UnsafeRepositoryPath,
@@ -330,7 +380,7 @@ fn plan_manifest_entry<'a>(
         return Ok(());
     };
 
-    if !absolute_path.exists() {
+    if !target_path.exists() {
         outcomes.preserve(
             entry.path.clone(),
             UninstallPreserveReason::MissingFromRepository,
@@ -338,8 +388,16 @@ fn plan_manifest_entry<'a>(
         return Ok(());
     }
 
-    match classify_removal_candidate(&absolute_path, entry.path.as_str(), &entry.content_hash)? {
-        RemovalCandidateState::Remove => outcomes.remove(entry.path.clone()),
+    if !validate_content_hash(&entry.content_hash) {
+        outcomes.preserve(entry.path.clone(), UninstallPreserveReason::MalformedHash);
+        return Ok(());
+    }
+
+    let state = classify_removal_candidate(&target_path, entry.path.as_str(), &entry.content_hash)?;
+    match state {
+        RemovalCandidateState::Remove => {
+            outcomes.remove(entry.path.clone());
+        }
         RemovalCandidateState::PreserveAsContentDrifted => {
             outcomes.preserve(entry.path.clone(), UninstallPreserveReason::ContentDrifted);
             outcomes.warn(UninstallWarningKind::ContentDrifted, entry.path.clone());
@@ -372,50 +430,6 @@ fn resolve_uninstall_target(
     }
 }
 
-fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
-    let canonical =
-        repository
-            .canonicalize()
-            .map_err(|err| InstallError::InvalidRepositoryPath {
-                path: format!(
-                    "{} ({})",
-                    display_repository_argument(repository),
-                    redacted_io_error_kind(err.kind())
-                ),
-            })?;
-
-    if !canonical.is_dir() {
-        return Err(InstallError::RepositoryPathNotDirectory {
-            path: display_repository_argument(repository),
-        });
-    }
-
-    Ok(canonical)
-}
-
-fn load_manifest(manifest_path: &Path) -> Result<InstallManifest, InstallError> {
-    let raw_manifest =
-        fs::read_to_string(manifest_path).map_err(|err| InstallError::InvalidInstallManifest {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
-            message: format!("failed to read manifest: {err}"),
-        })?;
-
-    toml::from_str(&raw_manifest).map_err(|err| InstallError::InvalidInstallManifest {
-        path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
-        message: err.to_string(),
-    })
-}
-
-fn validate_manifest_version(manifest: &InstallManifest) -> Result<(), InstallError> {
-    if manifest.manifest_version != INSTALL_MANIFEST_VERSION {
-        return Err(InstallError::InvalidInstallManifest {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
-            message: format!("unsupported manifest version {}", manifest.manifest_version),
-        });
-    }
-    Ok(())
-}
-
 fn hash_matches_manifest(
     path: &Path,
     display_path: &str,
@@ -443,6 +457,10 @@ fn hash_matches_manifest(
     Ok(observed_hash == *expected_hash)
 }
 
+fn validate_content_hash(hash: &Sha256Hex) -> bool {
+    Sha256Hex::parse(hash.as_str()).is_ok()
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RemovalCandidateState {
     Remove,
@@ -465,34 +483,8 @@ fn classify_removal_candidate(
     if !metadata.is_file() {
         return Ok(RemovalCandidateState::PreserveAsContentDrifted);
     }
-
     if hash_matches_manifest(path, display_path, expected_hash)? {
         return Ok(RemovalCandidateState::Remove);
     }
-
     Ok(RemovalCandidateState::PreserveAsContentDrifted)
-}
-
-fn display_repository_argument(path: &Path) -> String {
-    if path.is_absolute() {
-        "<redacted-absolute-path>".to_owned()
-    } else {
-        path.display().to_string()
-    }
-}
-
-fn redacted_io_error_kind(kind: std::io::ErrorKind) -> &'static str {
-    match kind {
-        std::io::ErrorKind::NotFound => "not_found",
-        std::io::ErrorKind::PermissionDenied => "permission_denied",
-        std::io::ErrorKind::AlreadyExists => "already_exists",
-        std::io::ErrorKind::InvalidInput => "invalid_input",
-        std::io::ErrorKind::InvalidData => "invalid_data",
-        std::io::ErrorKind::TimedOut => "timed_out",
-        std::io::ErrorKind::WriteZero => "write_zero",
-        std::io::ErrorKind::Interrupted => "interrupted",
-        std::io::ErrorKind::Unsupported => "unsupported",
-        std::io::ErrorKind::UnexpectedEof => "unexpected_eof",
-        _ => "io_error",
-    }
 }
