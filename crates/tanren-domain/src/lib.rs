@@ -38,3 +38,10 @@ pub enum DomainError {
     #[error("domain invariant violated: {0}")]
     InvariantViolation(String),
 }
+
+mod provider_connection;
+
+pub use provider_connection::{
+    ConnectionStatus, IdentityKind, ProviderConnectionId, ProviderKind, ReachableIdentity,
+    ReachableRepository, RedactedToken,
+};
