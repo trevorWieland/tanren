@@ -1,7 +1,7 @@
 //! `xtask check-secrets` — secret-typed fields must wrap a `secrecy` /
 //! workspace newtype.
 //!
-//! AST-walks `crates/tanren-{contract,store,app-services,identity-policy}`.
+//! AST-walks `crates/tanren-{configuration-secrets,contract,store,app-services,identity-policy}`.
 //! For every struct field whose name matches one of the workspace's
 //! secret-shaped names (`password`, `secret`, `api_key`, `credential`,
 //! `session_token`, `bearer`, `private_key`, `csrf`, `auth_token`), the
@@ -53,6 +53,7 @@ struct FieldExemption {
 }
 
 const TARGET_CRATES: &[&str] = &[
+    "tanren-configuration-secrets",
     "tanren-contract",
     "tanren-store",
     "tanren-app-services",
