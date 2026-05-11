@@ -4,7 +4,8 @@ use crate::install::error::InstallError;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 use crate::install::writer_tx::{
-    cleanup_staged_payloads, commit_staged_replacement, prepare_apply, resolve_apply_failure,
+    cleanup_staged_payloads, commit_staged_removal, commit_staged_replacement, prepare_apply,
+    resolve_apply_failure,
 };
 
 /// Install apply report grouped by observable outcome.
@@ -38,10 +39,7 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
 
     let apply_result: Result<(), InstallError> = (|| {
         for removal in &prepared.removals {
-            std::fs::remove_file(&removal.absolute).map_err(|err| InstallError::RemoveFailure {
-                path: removal.path.as_str().to_owned(),
-                message: err.to_string(),
-            })?;
+            commit_staged_removal(&removal.path, &removal.absolute, &removal.parent_handle)?;
             report.removed.push(removal.path.clone());
             changed_paths.push(removal.path.clone());
         }

@@ -7,7 +7,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::install::error::InstallError;
 use crate::install::manifest::RepoRelativePath;
-use crate::install::path_guard::resolve_repo_path;
+use crate::install::path_guard::{ParentHandle, resolve_repo_path};
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 
 static TEMP_FILE_SEQUENCE: AtomicU64 = AtomicU64::new(0);
@@ -24,6 +24,7 @@ pub(super) struct PreparedApply {
 pub(super) struct PreparedRemoval {
     pub(super) path: RepoRelativePath,
     pub(super) absolute: PathBuf,
+    pub(super) parent_handle: ParentHandle,
 }
 
 #[derive(Debug)]
@@ -43,6 +44,7 @@ pub(super) struct StagedReplacement {
     pub(super) path: RepoRelativePath,
     pub(super) absolute: PathBuf,
     pub(super) temp_path: PathBuf,
+    pub(super) parent_handle: ParentHandle,
 }
 
 #[derive(Debug)]
@@ -138,9 +140,11 @@ pub(super) fn prepare_apply(plan: &InstallPlan) -> Result<PreparedApply, Install
                     prior: PriorState::Present(prior),
                 },
             );
+            let parent_handle = ParentHandle::open(removal.path(), &absolute)?;
             removals.push(PreparedRemoval {
                 path: removal.path().clone(),
                 absolute,
+                parent_handle,
             });
         }
 
@@ -192,10 +196,12 @@ fn stage_replacement_payload(
     ensure_parent_directory(path, &absolute)?;
     let absolute = revalidate_planned_apply_path(plan, path, planned_absolute)?;
     let temp_path = create_staged_temporary_payload(path, &absolute, content)?;
+    let parent_handle = ParentHandle::open(path, &absolute)?;
     Ok(StagedReplacement {
         path: path.clone(),
         absolute,
         temp_path,
+        parent_handle,
     })
 }
 
@@ -242,12 +248,25 @@ pub(super) fn commit_staged_replacement(
 ) -> Result<(), InstallError> {
     let absolute = revalidate_planned_apply_path(plan, &staged.path, &staged.absolute)?;
     ensure_destination_not_symlink(&staged.path, &absolute)?;
+    staged.parent_handle.verify(&staged.path, &absolute)?;
     fs::rename(&staged.temp_path, &absolute).map_err(|err| {
         cleanup_temporary_file(&staged.temp_path);
         InstallError::WriteFailure {
             path: staged.path.as_str().to_owned(),
             message: err.to_string(),
         }
+    })
+}
+
+pub(super) fn commit_staged_removal(
+    relative: &RepoRelativePath,
+    absolute: &Path,
+    handle: &ParentHandle,
+) -> Result<(), InstallError> {
+    handle.verify(relative, absolute)?;
+    fs::remove_file(absolute).map_err(|err| InstallError::RemoveFailure {
+        path: relative.as_str().to_owned(),
+        message: err.to_string(),
     })
 }
 
@@ -326,23 +345,13 @@ fn revalidate_planned_apply_path(
     planned_absolute: &Path,
 ) -> Result<PathBuf, InstallError> {
     let absolute = resolve_apply_path(plan, path)?;
-    ensure_revalidated_matches_planned(path, planned_absolute, &absolute)?;
-    Ok(absolute)
-}
-
-fn ensure_revalidated_matches_planned(
-    path: &RepoRelativePath,
-    planned_absolute: &Path,
-    revalidated_absolute: &Path,
-) -> Result<(), InstallError> {
-    if planned_absolute != revalidated_absolute {
+    if planned_absolute != absolute {
         return Err(InstallError::UnsafeRepositoryPath {
             path: path.as_str().to_owned(),
             message: "resolved path changed between planning and apply".to_owned(),
         });
     }
-
-    Ok(())
+    Ok(absolute)
 }
 
 fn ensure_parent_directory(path: &RepoRelativePath, absolute: &Path) -> Result<(), InstallError> {

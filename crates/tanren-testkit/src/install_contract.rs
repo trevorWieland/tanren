@@ -195,6 +195,8 @@ pub type InstallProofRepoRelativePath = RepoRelativePath;
 pub use contract::ManagedBranchPayload;
 /// Delivery-owned manifest entry summary for branch payload wire representation.
 pub use contract::PayloadEntrySummary;
+/// Race-detection handle for parent directory identity verification.
+pub use tanren_cli_app::install::ParentHandle;
 
 /// Materialize a managed branch payload from a source-control checkout root.
 pub fn load_managed_branch_payload(

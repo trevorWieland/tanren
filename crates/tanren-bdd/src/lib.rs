@@ -262,3 +262,149 @@ mod tests {
         assert_eq!(world.seed.value(), 42);
     }
 }
+
+#[cfg(test)]
+mod parent_handle_tests {
+    use std::fs;
+    use std::os::unix::fs::MetadataExt;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    use tanren_testkit::{InstallProofRepoRelativePath as RepoRelativePath, ParentHandle};
+
+    static TEST_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn unique_name(label: &str) -> String {
+        let seq = TEST_COUNTER.fetch_add(1, Ordering::Relaxed);
+        format!(
+            "tanren-parent-handle-test-{}-{}-{seq}",
+            std::process::id(),
+            label
+        )
+    }
+
+    struct TempDir(std::path::PathBuf);
+
+    impl TempDir {
+        fn new(label: &str) -> Self {
+            let path = std::env::temp_dir().join(unique_name(label));
+            fs::create_dir_all(&path).expect("create temp dir");
+            Self(path)
+        }
+
+        fn path(&self) -> &std::path::Path {
+            &self.0
+        }
+    }
+
+    impl Drop for TempDir {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn relative(path: &str) -> RepoRelativePath {
+        RepoRelativePath::parse(path).expect("valid repo-relative path")
+    }
+
+    #[test]
+    fn parent_handle_verify_passes_when_parent_unchanged() {
+        let dir = TempDir::new("unchanged");
+        let parent = dir.path().join("parent");
+        fs::create_dir_all(&parent).expect("create parent");
+        let file = parent.join("target.txt");
+        fs::write(&file, b"content").expect("write target");
+
+        let rel = relative("parent/target.txt");
+        let handle = ParentHandle::open(&rel, &file).expect("open handle");
+        handle.verify(&rel, &file).expect("verify unchanged parent");
+    }
+
+    #[test]
+    fn parent_handle_verify_rejects_when_parent_replaced_by_symlink() {
+        let dir = TempDir::new("symlink-swap");
+        let original = dir.path().join("original");
+        let replacement = dir.path().join("replacement");
+        let link = dir.path().join("parent");
+        fs::create_dir_all(&original).expect("create original");
+        fs::create_dir_all(&replacement).expect("create replacement");
+
+        std::os::unix::fs::symlink(&original, &link).expect("create symlink");
+        let file = link.join("target.txt");
+        fs::write(&file, b"content").expect("write target");
+
+        let rel = relative("parent/target.txt");
+        let handle = ParentHandle::open(&rel, &file).expect("open handle");
+
+        fs::remove_file(&link).expect("remove old symlink");
+        std::os::unix::fs::symlink(&replacement, &link).expect("swap symlink");
+        fs::write(link.join("target.txt"), b"other").expect("write new target");
+
+        let result = handle.verify(&rel, &file);
+        let error_message = result.expect_err("verify should fail").to_string();
+        assert!(
+            error_message.contains("parent directory"),
+            "expected parent directory changed error, got: {error_message}"
+        );
+    }
+
+    #[test]
+    fn parent_handle_verify_rejects_when_parent_removed_and_recreated() {
+        let dir = TempDir::new("recreate");
+        let parent = dir.path().join("parent");
+        fs::create_dir_all(&parent).expect("create parent");
+        let file = parent.join("target.txt");
+        fs::write(&file, b"content").expect("write target");
+
+        let rel = relative("parent/target.txt");
+        let handle = ParentHandle::open(&rel, &file).expect("open handle");
+        let original_meta = fs::metadata(&parent).expect("original metadata");
+
+        fs::remove_dir_all(&parent).expect("remove parent");
+        fs::create_dir_all(&parent).expect("recreate parent");
+        fs::write(&file, b"new").expect("write new target");
+
+        let new_meta = fs::metadata(&parent).expect("new metadata");
+        if original_meta.dev() == new_meta.dev() && original_meta.ino() == new_meta.ino() {
+            return;
+        }
+
+        let result = handle.verify(&rel, &file);
+        let error_message = result.expect_err("verify should fail").to_string();
+        assert!(
+            error_message.contains("parent directory"),
+            "expected parent directory changed error, got: {error_message}"
+        );
+    }
+
+    #[test]
+    fn parent_handle_verify_rejects_mid_operation_directory_to_symlink_race() {
+        // Simulates the install prepare->commit race: the parent is a
+        // real directory at open time (prepare), then replaced by a
+        // symlink before verify (commit). The fd-based cross-check
+        // detects that the path now resolves to a different directory.
+        let dir = TempDir::new("mid-op-race");
+        let parent = dir.path().join("parent");
+        let escape = dir.path().join("escape");
+        fs::create_dir_all(&parent).expect("create parent");
+        fs::create_dir_all(&escape).expect("create escape");
+        let file = parent.join("target.txt");
+        fs::write(&file, b"content").expect("write target");
+
+        let rel = relative("parent/target.txt");
+        // --- prepare phase ---
+        let handle = ParentHandle::open(&rel, &file).expect("open handle");
+
+        // --- mid-operation race: replace directory with symlink ---
+        fs::remove_dir_all(&parent).expect("remove parent directory");
+        std::os::unix::fs::symlink(&escape, &parent).expect("replace with symlink");
+        fs::write(parent.join("target.txt"), b"escaped").expect("write escape target");
+
+        // --- commit phase ---
+        let result = handle.verify(&rel, &file);
+        let error_message = result.expect_err("verify should fail").to_string();
+        assert!(
+            error_message.contains("parent directory"),
+            "expected parent directory changed error, got: {error_message}"
+        );
+    }
+}

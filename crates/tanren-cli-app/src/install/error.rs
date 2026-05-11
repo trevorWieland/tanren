@@ -43,6 +43,9 @@ pub enum InstallError {
     /// Removing stale generated output failed.
     #[error("failed removing '{path}': {message}")]
     RemoveFailure { path: String, message: String },
+    /// Parent directory identity changed between resolution and mutation.
+    #[error("parent directory of '{path}' changed during install: {message}")]
+    ParentDirectoryChanged { path: String, message: String },
     /// Project methodology config projection construction failed.
     #[error("invalid project methodology config projection: {source}")]
     InvalidProjectMethodologyConfig {
