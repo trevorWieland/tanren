@@ -274,6 +274,17 @@ async fn then_not_see_credential_value(world: &mut TanrenWorld, actor: String, v
     );
 }
 
+#[when(expr = "the session expires")]
+async fn when_session_expires(world: &mut TanrenWorld) {
+    let ctx = world.ensure_account_ctx().await;
+    let result = ctx.harness.expire_session().await;
+    let outcome = match result {
+        Ok(()) => HarnessOutcome::Other("session_expired".to_owned()),
+        Err(err) => record_failure(err, ctx.actors.entry("_session".to_owned()).or_default()),
+    };
+    ctx.last_outcome = Some(outcome);
+}
+
 async fn list_user_settings(world: &mut TanrenWorld, actor: String, requested: AccountId) {
     let ctx = world.ensure_account_ctx().await;
     let result = ctx.harness.list_user_settings(requested).await;

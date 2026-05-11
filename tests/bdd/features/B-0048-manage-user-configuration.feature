@@ -66,6 +66,16 @@ Feature: Manage user-tier configuration and credentials
       When bob lists user credentials for their own account
       Then bob sees 0 user credential metadata rows
 
+    @falsification @api
+    Scenario: API rejects expired session on configuration routes
+      Given alice has signed up with email "alice-b0048-api-expiry@example.com" and password "p4ssw0rd"
+      When alice signs in with the same credentials
+      And alice lists user settings for their own account
+      Then alice sees 0 user settings
+      When the session expires
+      And alice lists user settings for their own account
+      Then the request fails with code "auth_required"
+
   Rule: Web surface
     The browser workflow uses the session-scoped
     `/configuration/account/*` API paths, submits raw credential secrets

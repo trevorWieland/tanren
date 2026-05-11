@@ -336,7 +336,7 @@ pub(super) fn list_credentials_request_from_query(
 }
 
 pub(super) async fn authenticated_account_id(session: &Session) -> Result<AccountId, Response> {
-    authenticated_session_context(session)
+    require_fresh_session(session)
         .await
         .map(|context| context.account_id)
 }
@@ -366,10 +366,19 @@ pub(crate) async fn authenticated_session_context(
             return Err(internal_error());
         }
     };
+    if expires_at < Utc::now() {
+        return Err(auth_required());
+    }
     Ok(AuthenticatedSessionContext {
         account_id,
         expires_at,
     })
+}
+
+pub(crate) async fn require_fresh_session(
+    session: &Session,
+) -> Result<AuthenticatedSessionContext, Response> {
+    authenticated_session_context(session).await
 }
 
 pub(super) fn auth_required() -> Response {

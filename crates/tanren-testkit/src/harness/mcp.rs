@@ -290,6 +290,12 @@ impl AccountHarness for McpHarness {
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode remove credential response: {e}")))
     }
+
+    async fn expire_session(&mut self) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "expire_session is not supported by this harness".to_owned(),
+        ))
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {

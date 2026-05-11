@@ -18,15 +18,17 @@
 
 use std::sync::Arc;
 
+use crate::cookies::SESSION_KEY_EXPIRES;
 use axum::Json;
 use axum::Router;
 use axum::extract::{Query, State};
 use axum::http::StatusCode;
 use axum::routing::{get, post};
-use chrono::{DateTime, Utc};
+use chrono::{DateTime, Duration, Utc};
 use serde::Deserialize;
 use tanren_identity_policy::{InvitationToken, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation, Store};
+use tower_sessions::Session;
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -84,11 +86,38 @@ pub(crate) async fn recent_events_route(
     Ok(Json(events))
 }
 
+/// Request body for `POST /test-hooks/sessions/expire-current`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct ExpireSessionBody {
+    /// Optional custom expiry timestamp. Defaults to 1 second in the past
+    /// relative to the server clock when omitted.
+    #[serde(default)]
+    pub expires_at: Option<DateTime<Utc>>,
+}
+
+pub(crate) async fn expire_current_session_route(
+    session: Session,
+    Json(body): Json<ExpireSessionBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    let expired_at = body
+        .expires_at
+        .unwrap_or_else(|| Utc::now() - Duration::seconds(1));
+    session
+        .insert(SESSION_KEY_EXPIRES, expired_at)
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::NO_CONTENT)
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
         .route("/test-hooks/events/recent", get(recent_events_route))
+        .route(
+            "/test-hooks/sessions/expire-current",
+            post(expire_current_session_route),
+        )
         .with_state(store)
 }

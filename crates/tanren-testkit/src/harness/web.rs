@@ -31,7 +31,7 @@ use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
-    AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
+    AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
 
@@ -128,5 +128,11 @@ impl AccountHarness for WebHarness {
         self.inner
             .remove_user_credential(requested_account_id, item_id)
             .await
+    }
+
+    async fn expire_session(&mut self) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "expire_session is not supported by this harness".to_owned(),
+        ))
     }
 }

@@ -1,4 +1,5 @@
 mod request_retry;
+mod session_expiry;
 mod user_configuration;
 use std::{path::PathBuf, sync::Arc};
 
@@ -408,6 +409,10 @@ impl AccountHarness for ApiHarness {
             item_id,
         )
         .await
+    }
+
+    async fn expire_session(&mut self) -> HarnessResult<()> {
+        session_expiry::expire_session(&self.base_url, &self.client).await
     }
 }
 

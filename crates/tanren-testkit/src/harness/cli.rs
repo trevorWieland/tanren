@@ -307,6 +307,12 @@ impl AccountHarness for CliHarness {
         )
         .await
     }
+
+    async fn expire_session(&mut self) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "expire_session is not supported by this harness".to_owned(),
+        ))
+    }
 }
 
 /// Locate a workspace binary by name. The BDD runner is at

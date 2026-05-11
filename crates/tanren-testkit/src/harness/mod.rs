@@ -278,6 +278,12 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         requested_account_id: AccountId,
         item_id: &str,
     ) -> HarnessResult<RemoveUserCredentialResponse>;
+
+    /// Expire the current session so subsequent authenticated requests
+    /// receive `auth_required`. Used by the expired-session
+    /// falsification scenario to prove configuration routes reject
+    /// stale sessions.
+    async fn expire_session(&mut self) -> HarnessResult<()>;
 }
 
 /// Default short-window timeout used by the wire harnesses.

@@ -255,6 +255,12 @@ impl AccountHarness for InProcessHarness {
             Err(err) => Err(translate_app_error(err)),
         }
     }
+
+    async fn expire_session(&mut self) -> HarnessResult<()> {
+        Err(HarnessError::Transport(
+            "expire_session is not supported by the in-process harness".to_owned(),
+        ))
+    }
 }
 
 impl InProcessHarness {
