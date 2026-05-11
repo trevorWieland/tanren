@@ -26,15 +26,15 @@ mod tui_binary;
 mod tui_codec;
 mod tui_driver;
 mod tui_errors;
+mod tui_screen;
 mod web;
-
-use std::collections::HashMap;
-use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::Duration;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, ApplyRoleRequest,
     ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
@@ -217,53 +217,60 @@ impl HarnessRoleTemplate {
 /// Role methods available on wire harnesses.
 #[async_trait]
 pub trait RoleHarness: Send + std::fmt::Debug {
-    /// Create a role template through the harness wire surface.
+    /// Create a role template.
     async fn create_role(
         &mut self,
         req: CreateRoleRequest,
     ) -> RoleHarnessResult<CreateRoleResponse>;
-    /// Edit a role template through the harness wire surface.
+    /// Edit a role template.
     async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse>;
-
-    /// Delete a role template through the harness wire surface.
+    /// Delete a role template.
     async fn delete_role(
         &mut self,
         req: DeleteRoleRequest,
     ) -> RoleHarnessResult<DeleteRoleResponse>;
-
-    /// Apply a role template through the harness wire surface.
+    /// Apply a role template.
     async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse>;
-
-    /// Check permission through the harness wire surface.
+    /// Check permission.
     async fn check_permission(
         &mut self,
         req: PermissionCheckRequest,
     ) -> RoleHarnessResult<PermissionCheckResponse>;
-
-    /// Seed role-template proof state directly through the harness store.
+    /// Seed a role-template fixture.
     async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()>;
-    /// Seed role-admin direct grants for the currently authenticated actor.
+    /// Seed role-admin grants for the authenticated actor.
     async fn seed_role_admin_for_authenticated_actor(
         &mut self,
         scope: RoleScope,
         permissions: Vec<PermissionName>,
     ) -> RoleHarnessResult<()>;
-    /// Read one role-template snapshot from harness proof-state storage.
+    /// Read one role-template snapshot.
     async fn read_role_template(
         &self,
         role: ScopedRole,
     ) -> RoleHarnessResult<Option<RoleTemplateView>>;
-    /// Read all direct grants for one principal from harness proof-state storage.
+    /// Read all direct grants for a principal.
     async fn read_direct_grants(
         &self,
         principal: PrincipalRef,
     ) -> RoleHarnessResult<Vec<PermissionGrantView>>;
+    /// Apply the same role request `count` times concurrently (default serial).
+    async fn apply_role_concurrent(
+        &mut self,
+        req: ApplyRoleRequest,
+        count: usize,
+    ) -> Vec<RoleHarnessResult<ApplyRoleResponse>> {
+        let mut v = Vec::with_capacity(count);
+        for _ in 0..count {
+            v.push(self.apply_role(req.clone()).await);
+        }
+        v
+    }
     #[must_use]
     fn last_transcript_text(&self) -> Option<String> {
         None
     }
 }
-
 /// Specification for an invitation seeded into the harness's backing
 /// store. Per-harness implementations translate this into the shape
 /// their underlying `Store` requires.
@@ -276,7 +283,6 @@ pub struct HarnessInvitation {
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
 }
-
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -288,10 +294,8 @@ pub struct HarnessInvitation {
 pub trait AccountHarness: Send + std::fmt::Debug {
     /// Identifier for diagnostic output.
     fn kind(&self) -> HarnessKind;
-
     /// Self-signup against the underlying surface.
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession>;
-
     /// Sign-in against the underlying surface.
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession>;
 
@@ -322,7 +326,6 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         }
         out
     }
-
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
 
@@ -333,7 +336,6 @@ pub trait AccountHarness: Send + std::fmt::Debug {
     /// before the next scenario starts. Called from the `After` hook.
     async fn drain(&mut self) {}
 }
-
 /// Default short-window timeout used by the wire harnesses.
 pub(crate) const HARNESS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -490,7 +492,6 @@ impl ConcurrentAcceptanceTally {
             Err(HarnessError::Transport(msg)) => self.other.push(msg),
         }
     }
-
     /// Number of failures matching `code`.
     #[must_use]
     pub fn failures_with_code(&self, code: &str) -> usize {

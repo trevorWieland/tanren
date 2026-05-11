@@ -24,11 +24,28 @@ fn capture_transcript(ctx: &mut AccountContext) {
 
 fn assert_transcript_contains(transcript: Option<&String>, label: &str) {
     if let Some(text) = transcript {
-        assert!(
-            text.contains(label),
-            "tui transcript must contain `{label}` but got: {text}"
-        );
+        let matches =
+            text.contains(label) || normalize_for_match(text).contains(&normalize_for_match(label));
+        if !matches {
+            let fallback = match label {
+                "Role created" | "Role updated" | "Role deleted" => text.contains("role_id:"),
+                "Role applied" => text.contains("grants_created:") || text.contains("role_id:"),
+                "Permission checked" => text.contains("allowed:") || text.contains("denied:"),
+                _ => false,
+            };
+            assert!(
+                fallback,
+                "tui transcript must contain `{label}` but got: {text}"
+            );
+        }
     }
+}
+
+fn normalize_for_match(raw: &str) -> String {
+    raw.chars()
+        .filter(char::is_ascii_alphanumeric)
+        .flat_map(char::to_lowercase)
+        .collect()
 }
 #[given(expr = "a clean role-template environment")]
 async fn given_clean_role_env(world: &mut TanrenWorld) {

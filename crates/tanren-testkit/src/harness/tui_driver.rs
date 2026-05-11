@@ -7,12 +7,15 @@ use expectrl::{Signal, WaitStatus};
 use portable_pty::{PtySize, native_pty_system};
 
 use super::HarnessError;
+use super::tui_screen::{normalize_for_match, sanitize_terminal_text};
 
 const MENU_PROMPT: &str = "Choose an action";
 const MENU_ITEM_COUNT: usize = 8;
 const QUIET_TICK_MILLIS: u64 = 30;
 const QUIET_TICKS_AFTER_OUTCOME: u8 = 4;
 const QUIET_TICKS_WITHOUT_OUTCOME: u8 = 67;
+const FORM_HINT: &str = "Enter submit";
+const QUIET_TICKS_EMPTY: u8 = 100;
 
 #[derive(Debug, Clone, Copy)]
 pub(crate) enum TuiMenuChoice {
@@ -287,7 +290,7 @@ impl TuiDriver {
         session
             .send("\r")
             .map_err(|e| HarnessError::Transport(format!("open menu choice: {e}")))?;
-        self.wait_for_fragment(session, form_title)
+        self.wait_for_fragment(session, FORM_HINT)
             .map_err(|e| HarnessError::Transport(format!("wait form `{form_title}`: {e}")))?;
 
         for (idx, value) in values.iter().enumerate() {
@@ -313,7 +316,7 @@ impl TuiDriver {
             session.send("\r").map_err(|e| {
                 HarnessError::Transport(format!("return to menu from outcome: {e}"))
             })?;
-            self.wait_for_any_fragment(session, &[MENU_PROMPT, "Sign up", "Sign in"])
+            self.wait_for_any_fragment(session, &[MENU_PROMPT, "Enter confirm"])
                 .map_err(|e| HarnessError::Transport(format!("wait menu after outcome: {e}")))?;
             *selected_index = 0;
         }
@@ -345,6 +348,9 @@ impl TuiDriver {
                     {
                         break;
                     }
+                    if combined.is_empty() && quiet_ticks >= QUIET_TICKS_EMPTY {
+                        break;
+                    }
                 }
                 Ok(read) => {
                     let chunk = String::from_utf8_lossy(&scratch[..read]);
@@ -364,6 +370,9 @@ impl TuiDriver {
                         && !combined.is_empty()
                         && quiet_ticks >= QUIET_TICKS_WITHOUT_OUTCOME
                     {
+                        break;
+                    }
+                    if combined.is_empty() && quiet_ticks >= QUIET_TICKS_EMPTY {
                         break;
                     }
                 }
@@ -463,36 +472,4 @@ fn process_is_gone(err: &impl std::fmt::Display) -> bool {
 
 fn process_has_exited(status: WaitStatus) -> bool {
     matches!(status, WaitStatus::Exited(..) | WaitStatus::Signaled(..))
-}
-
-fn sanitize_terminal_text(raw: &str) -> String {
-    let mut out = String::with_capacity(raw.len());
-    let mut chars = raw.chars().peekable();
-
-    while let Some(ch) = chars.next() {
-        if ch == '\u{1b}' {
-            if let Some('[') = chars.peek().copied() {
-                let _ = chars.next();
-                for code in chars.by_ref() {
-                    if ('@'..='~').contains(&code) {
-                        break;
-                    }
-                }
-                continue;
-            }
-            continue;
-        }
-        if ch != '\r' {
-            out.push(ch);
-        }
-    }
-
-    out
-}
-
-fn normalize_for_match(raw: &str) -> String {
-    raw.chars()
-        .filter(char::is_ascii_alphanumeric)
-        .flat_map(char::to_lowercase)
-        .collect()
 }

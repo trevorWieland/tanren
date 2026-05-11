@@ -6,4 +6,5 @@
 pub mod account;
 pub mod role;
 pub mod role_assertions;
+pub mod role_concurrent;
 pub(crate) mod role_support;

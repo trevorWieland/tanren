@@ -74,6 +74,15 @@ Feature: Manage roles as permission templates
       When the operator checks permission "project.read" for missing account principal ghost
       Then the role request fails with code "not_found"
 
+
+    @falsification @api
+    Scenario: API concurrent role application produces exactly one stable grant per permission
+      When the operator creates role template "Race API" with permissions "project.read,project.write"
+      Then the active role template has permissions "project.read,project.write"
+      When 10 concurrent applications apply the role template to account principal alice
+      Then exactly one direct grant per permission exists for account principal alice with permissions "project.read,project.write"
+      And the direct grant ids for account principal alice match across 2 repeated observations of permissions "project.read,project.write"
+
   Rule: Web surface
 
     @positive @web
@@ -132,6 +141,15 @@ Feature: Manage roles as permission templates
       Then the role request fails with code "not_found"
       When the operator checks permission "project.read" for missing account principal ghost
       Then the role request fails with code "not_found"
+
+
+    @falsification @web
+    Scenario: Web concurrent role application produces exactly one stable grant per permission
+      When the operator creates role template "Race Web" with permissions "project.read,project.write"
+      Then the active role template has permissions "project.read,project.write"
+      When 10 concurrent applications apply the role template to account principal alice
+      Then exactly one direct grant per permission exists for account principal alice with permissions "project.read,project.write"
+      And the direct grant ids for account principal alice match across 2 repeated observations of permissions "project.read,project.write"
 
   Rule: MCP surface
 
@@ -192,6 +210,15 @@ Feature: Manage roles as permission templates
       When the operator checks permission "project.read" for missing account principal ghost
       Then the role request fails with code "not_found"
 
+
+    @falsification @mcp
+    Scenario: MCP concurrent role application produces exactly one stable grant per permission
+      When the operator creates role template "Race MCP" with permissions "project.read,project.write"
+      Then the active role template has permissions "project.read,project.write"
+      When 10 concurrent applications apply the role template to account principal alice
+      Then exactly one direct grant per permission exists for account principal alice with permissions "project.read,project.write"
+      And the direct grant ids for account principal alice match across 2 repeated observations of permissions "project.read,project.write"
+
   Rule: CLI surface
 
     @positive @cli
@@ -251,6 +278,15 @@ Feature: Manage roles as permission templates
       When the operator checks permission "project.read" for missing account principal ghost
       Then the role request fails with code "not_found"
 
+
+    @falsification @cli
+    Scenario: CLI concurrent role application produces exactly one stable grant per permission
+      When the operator creates role template "Race CLI" with permissions "project.read,project.write"
+      Then the active role template has permissions "project.read,project.write"
+      When 10 concurrent applications apply the role template to account principal alice
+      Then exactly one direct grant per permission exists for account principal alice with permissions "project.read,project.write"
+      And the direct grant ids for account principal alice match across 2 repeated observations of permissions "project.read,project.write"
+
   Rule: TUI surface
 
     @positive @tui
@@ -309,3 +345,11 @@ Feature: Manage roles as permission templates
       Then the role request fails with code "not_found"
       When the operator checks permission "project.read" for missing account principal ghost
       Then the role request fails with code "not_found"
+
+    @falsification @tui
+    Scenario: TUI concurrent role application produces exactly one stable grant per permission
+      When the operator creates role template "Race TUI" with permissions "project.read,project.write"
+      Then the active role template has permissions "project.read,project.write"
+      When 10 concurrent applications apply the role template to account principal alice
+      Then exactly one direct grant per permission exists for account principal alice with permissions "project.read,project.write"
+      And the direct grant ids for account principal alice match across 2 repeated observations of permissions "project.read,project.write"

@@ -84,6 +84,48 @@ impl RoleHarness for ApiHarness {
             .map_err(|e| RoleHarnessError::Transport(format!("POST /roles/apply: {e}")))?;
         parse_role_response(response, "POST /roles/apply").await
     }
+    async fn apply_role_concurrent(
+        &mut self,
+        req: ApplyRoleRequest,
+        count: usize,
+    ) -> Vec<RoleHarnessResult<ApplyRoleResponse>> {
+        let base_url = self.base_url.clone();
+        let csrf = self
+            .csrf_token
+            .clone()
+            .unwrap_or_else(|| "missing-csrf-token".to_owned());
+        // Clone the harness client (cheap Arc clone) so each concurrent
+        // task shares the same cookie store — the authenticated session
+        // carries through without manual cookie extraction.
+        let client = self.client.clone();
+        let mut handles = Vec::with_capacity(count);
+        for _ in 0..count {
+            let url = format!("{base_url}/roles/apply");
+            let body = serde_json::to_value(&req).expect("ApplyRoleRequest serializes to JSON");
+            let task_client = client.clone();
+            let csrf_header = csrf.clone();
+            handles.push(tokio::spawn(async move {
+                let response = task_client
+                    .post(&url)
+                    .header("x-csrf-token", &csrf_header)
+                    .json(&body)
+                    .send()
+                    .await
+                    .map_err(|e| RoleHarnessError::Transport(format!("POST /roles/apply: {e}")))?;
+                parse_role_response(response, "POST /roles/apply").await
+            }));
+        }
+        let mut results = Vec::with_capacity(handles.len());
+        for handle in handles {
+            match handle.await {
+                Ok(result) => results.push(result),
+                Err(join_err) => results.push(Err(RoleHarnessError::Transport(format!(
+                    "concurrent apply task panicked: {join_err}"
+                )))),
+            }
+        }
+        results
+    }
 
     async fn check_permission(
         &mut self,
