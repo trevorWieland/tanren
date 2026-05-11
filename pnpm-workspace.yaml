@@ -6,7 +6,7 @@ packages:
 # in the workspace references `catalog:default` rather than pinning versions
 # individually, so dependency upgrades land in one place.
 catalog:
-  next: "16.2.4"
+  next: "16.2.6"
   react: "19.2.5"
   react-dom: "19.2.5"
   "@types/react": "19.2.14"
