@@ -410,6 +410,26 @@ without exposing secret values.
   key manifest metadata; restore requires explicit key availability or
   rotation into new installation-managed encryption material.
 
+## Test-Hook Secret
+
+The BDD wire-harness and Playwright (`@web`) test suite seed fixtures via
+`/test-hooks/*` HTTP routes compiled behind the `test-hooks` Cargo feature
+gate. Production binaries never enable this feature.
+
+When a shared secret is required (e.g. in environments where the test-hooks
+port is temporarily exposed to a CI pod network), the canonical environment
+variable is:
+
+- `TANREN_TEST_HOOK_SECRET` — server-side-only. The API binary reads this
+  value and validates it against an incoming `Authorization: Bearer <secret>`
+  header on every test-hook request. The secret is never projected in
+  responses, logs, or client-side code.
+
+The variable must **not** be prefixed with `NEXT_PUBLIC_` (or any equivalent
+client-side-exposure prefix). Test-hook secrets are consumed exclusively by
+the server process and the BDD harness (which runs in Node.js / Rust on the
+CI host, not in the browser).
+
 ## Rejected Alternatives
 
 - **One universal configuration precedence ladder.** Rejected because settings,

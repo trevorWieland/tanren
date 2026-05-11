@@ -212,10 +212,13 @@ pub async fn serve(config: Config) -> Result<()> {
         .with_context(|| format!("bind {bind}"))?;
     tracing::info!(target: "tanren_api", address = %bind, "tanren-api listening");
 
-    axum::serve(listener, app)
-        .with_graceful_shutdown(shutdown())
-        .await
-        .context("axum serve")?;
+    axum::serve(
+        listener,
+        app.into_make_service_with_connect_info::<std::net::SocketAddr>(),
+    )
+    .with_graceful_shutdown(shutdown())
+    .await
+    .context("axum serve")?;
     Ok(())
 }
 
@@ -267,7 +270,7 @@ pub async fn build_app_with_store(
 
     let merged = router
         .merge(openapi_router)
-        .merge(test_hooks::router(store))
+        .merge(test_hooks::router(store).layer(axum::Extension(test_hooks::InProcessMarker)))
         .layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),
