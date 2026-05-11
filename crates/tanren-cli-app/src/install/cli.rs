@@ -4,6 +4,10 @@ use std::io::Write;
 use std::path::{Path, PathBuf};
 
 use clap::Args;
+use tanren_contract::cli_output::{
+    CommandName, DriftDetailStatus, DriftStatus, InstallStatus, OutputKey, RecordKind,
+    write_bracket_list, write_count_field, write_field, write_typed_field,
+};
 
 use crate::install::drift::InstallDriftStatus;
 use crate::install::error::{InstallCommandError, InstallDriftCommandError};
@@ -46,27 +50,39 @@ impl InstallCommand {
         let repository = display_repository_argument(&self.repo);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        writeln!(
-            handle,
-            "status=ok command=install repo={} created={} updated={} removed={} restored={} preserved={}",
-            repository,
-            report.created.len(),
-            report.updated.len(),
-            report.removed.len(),
-            report.restored.len(),
-            report.preserved.len(),
+
+        let mut line = String::new();
+        line.push_str(RecordKind::Summary.as_str());
+        write_typed_field(&mut line, OutputKey::Status, InstallStatus::Ok).expect("fmt");
+        write_typed_field(&mut line, OutputKey::Command, CommandName::Install).expect("fmt");
+        write_field(&mut line, OutputKey::Repo, &repository).expect("fmt");
+        write_count_field(&mut line, OutputKey::Created, report.created.len()).expect("fmt");
+        write_count_field(&mut line, OutputKey::Updated, report.updated.len()).expect("fmt");
+        write_count_field(&mut line, OutputKey::Removed, report.removed.len()).expect("fmt");
+        write_count_field(&mut line, OutputKey::Restored, report.restored.len()).expect("fmt");
+        write_count_field(&mut line, OutputKey::Preserved, report.preserved.len()).expect("fmt");
+        writeln!(handle, "{line}")
+            .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
+
+        let mut line = String::new();
+        line.push_str(RecordKind::Paths.as_str());
+        write_bracket_list(&mut line, OutputKey::Created, &path_strs(&report.created))
+            .expect("fmt");
+        write_bracket_list(&mut line, OutputKey::Updated, &path_strs(&report.updated))
+            .expect("fmt");
+        write_bracket_list(&mut line, OutputKey::Removed, &path_strs(&report.removed))
+            .expect("fmt");
+        write_bracket_list(&mut line, OutputKey::Restored, &path_strs(&report.restored))
+            .expect("fmt");
+        write_bracket_list(
+            &mut line,
+            OutputKey::Preserved,
+            &path_strs(&report.preserved),
         )
-        .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
-        writeln!(
-            handle,
-            "paths created=[{}] updated=[{}] removed=[{}] restored=[{}] preserved=[{}]",
-            format_path_list(&report.created),
-            format_path_list(&report.updated),
-            format_path_list(&report.removed),
-            format_path_list(&report.restored),
-            format_path_list(&report.preserved),
-        )
-        .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
+        .expect("fmt");
+        writeln!(handle, "{line}")
+            .map_err(|source| InstallCommandError::StdoutWriteFailure { source })?;
+
         Ok(())
     }
 }
@@ -118,64 +134,104 @@ impl DriftCommand {
     ) -> Result<(), InstallDriftCommandError> {
         let summary = DriftSummary::from_report(report);
         let repository = display_repository_argument(&self.repo);
-        let status = if report.has_drift() { "drift" } else { "ok" };
+        let status = if report.has_drift() {
+            DriftStatus::Drift
+        } else {
+            DriftStatus::Ok
+        };
 
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
-        writeln!(
-            handle,
-            "summary status={} command=drift repo={} profile={} integrations={} clean={} changed_generated={} missing_generated={} missing_preserved={} accepted_preserved={} drift={}",
-            status,
-            repository,
-            selection.profile().as_str(),
-            selection.integrations_csv(),
-            summary.clean.len(),
-            summary.changed_generated.len(),
-            summary.missing_generated.len(),
-            summary.missing_preserved.len(),
-            summary.accepted_preserved.len(),
-            report.drift_count(),
+
+        let mut line = String::new();
+        line.push_str(RecordKind::Summary.as_str());
+        write_typed_field(&mut line, OutputKey::Status, status).expect("fmt");
+        write_typed_field(&mut line, OutputKey::Command, CommandName::Drift).expect("fmt");
+        write_field(&mut line, OutputKey::Repo, &repository).expect("fmt");
+        write_field(&mut line, OutputKey::Profile, selection.profile().as_str()).expect("fmt");
+        write_field(
+            &mut line,
+            OutputKey::Integrations,
+            &selection.integrations_csv(),
         )
-        .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
-        for path in &summary.changed_generated {
-            writeln!(
-                handle,
-                "detail status=changed_generated path={}",
-                path.as_str()
-            )
+        .expect("fmt");
+        write_count_field(&mut line, OutputKey::Clean, summary.clean.len()).expect("fmt");
+        write_count_field(
+            &mut line,
+            OutputKey::ChangedGenerated,
+            summary.changed_generated.len(),
+        )
+        .expect("fmt");
+        write_count_field(
+            &mut line,
+            OutputKey::MissingGenerated,
+            summary.missing_generated.len(),
+        )
+        .expect("fmt");
+        write_count_field(
+            &mut line,
+            OutputKey::MissingPreserved,
+            summary.missing_preserved.len(),
+        )
+        .expect("fmt");
+        write_count_field(
+            &mut line,
+            OutputKey::AcceptedPreserved,
+            summary.accepted_preserved.len(),
+        )
+        .expect("fmt");
+        write_count_field(&mut line, OutputKey::Drift, report.drift_count()).expect("fmt");
+        writeln!(handle, "{line}")
             .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+
+        for path in &summary.changed_generated {
+            write_detail_line(
+                &mut handle,
+                DriftDetailStatus::ChangedGenerated,
+                path.as_str(),
+            )?;
         }
         for path in &summary.missing_generated {
-            writeln!(
-                handle,
-                "detail status=missing_generated path={}",
-                path.as_str()
-            )
-            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+            write_detail_line(
+                &mut handle,
+                DriftDetailStatus::MissingGenerated,
+                path.as_str(),
+            )?;
         }
         for path in &summary.missing_preserved {
-            writeln!(
-                handle,
-                "detail status=missing_preserved path={}",
-                path.as_str()
-            )
-            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+            write_detail_line(
+                &mut handle,
+                DriftDetailStatus::MissingPreserved,
+                path.as_str(),
+            )?;
         }
         for path in &summary.accepted_preserved {
-            writeln!(
-                handle,
-                "detail status=accepted_preserved path={}",
-                path.as_str()
-            )
-            .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+            write_detail_line(
+                &mut handle,
+                DriftDetailStatus::AcceptedPreserved,
+                path.as_str(),
+            )?;
         }
         for path in &summary.clean {
-            writeln!(handle, "detail status=clean path={}", path.as_str())
-                .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;
+            write_detail_line(&mut handle, DriftDetailStatus::Clean, path.as_str())?;
         }
         Ok(())
     }
 }
+
+fn write_detail_line(
+    handle: &mut std::io::StdoutLock<'_>,
+    status: DriftDetailStatus,
+    path: &str,
+) -> Result<(), InstallDriftCommandError> {
+    let mut line = String::new();
+    line.push_str(RecordKind::Detail.as_str());
+    write_typed_field(&mut line, OutputKey::Status, status).expect("fmt");
+    write_field(&mut line, OutputKey::Path, path).expect("fmt");
+    writeln!(handle, "{line}")
+        .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })
+}
+
 #[derive(Debug, Default)]
 struct DriftSummary {
     clean: Vec<RepoRelativePath>,
@@ -204,12 +260,8 @@ impl DriftSummary {
     }
 }
 
-fn format_path_list(paths: &[RepoRelativePath]) -> String {
-    paths
-        .iter()
-        .map(RepoRelativePath::as_str)
-        .collect::<Vec<_>>()
-        .join(",")
+fn path_strs(paths: &[RepoRelativePath]) -> Vec<&str> {
+    paths.iter().map(RepoRelativePath::as_str).collect()
 }
 
 fn display_repository_argument(path: &Path) -> String {

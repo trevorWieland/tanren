@@ -6,11 +6,18 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod cli_output;
 pub mod install;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use cli_output::{
+    CommandName, DriftDetailStatus, DriftStatus, InstallStatus, OutputKey, RecordKind,
+    parse_bracket_list_percent_decoded, parse_kv_fields_percent_decoded, percent_decode,
+    percent_encode, write_bracket_list, write_count_field, write_field, write_typed_field,
 };
 
 pub use install::{

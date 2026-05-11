@@ -1,5 +1,10 @@
 //! Typed install-output contract — parser for `tanren-cli install` stdout.
 
+use std::collections::HashMap;
+
+use tanren_contract::cli_output::{
+    parse_bracket_list_percent_decoded, parse_kv_fields_percent_decoded,
+};
 use thiserror::Error;
 
 /// Parsed install command output — summary counts and affected paths.
@@ -57,13 +62,13 @@ impl InstallSummaryOutput {
             && self.restored_count == 0
     }
 
-    /// Whether the given path appears in any write-category (created, updated, removed, restored).
+    /// Whether the given path appears in a mutating write-category (created, updated, removed).
+    /// Restored paths are excluded — restoration returns the file to its expected content.
     #[must_use]
     pub fn is_path_in_write_categories(&self, path: &str) -> bool {
         self.created_paths.iter().any(|p| p == path)
             || self.updated_paths.iter().any(|p| p == path)
             || self.removed_paths.iter().any(|p| p == path)
-            || self.restored_paths.iter().any(|p| p == path)
     }
 }
 
@@ -83,11 +88,14 @@ pub enum InstallSummaryOutputParseError {
 
 /// Parse install CLI stdout into a typed [`InstallSummaryOutput`].
 ///
-/// Expected format:
+/// Expected format (written by the typed encoder in `tanren-contract::cli_output`):
 /// ```text
-/// status=ok command=install repo=... created=N updated=N removed=N restored=N preserved=N
-/// paths created=[path1, path2] updated=[...] removed=[...] restored=[...] preserved=[...]
+/// summary status=ok command=install repo=... created=N updated=N removed=N restored=N preserved=N
+/// paths created=[path1,path2] updated=[...] removed=[...] restored=[...] preserved=[...]
 /// ```
+///
+/// All field values are percent-decoded, so paths containing whitespace,
+/// `=`, `]`, control chars, or newlines round-trip losslessly.
 pub fn parse_install_summary_output(
     stdout: &str,
 ) -> Result<InstallSummaryOutput, InstallSummaryOutputParseError> {
@@ -96,7 +104,7 @@ pub fn parse_install_summary_output(
     let summary_line = lines
         .next()
         .ok_or(InstallSummaryOutputParseError::MissingSummaryLine)?;
-    let summary_fields = parse_kv_fields(summary_line);
+    let summary_fields = parse_kv_fields_percent_decoded(summary_line);
 
     let created_count = parse_count_field(&summary_fields, "created")?;
     let updated_count = parse_count_field(&summary_fields, "updated")?;
@@ -132,11 +140,11 @@ struct ParsedPaths {
 }
 
 fn parse_paths_line(line: &str) -> ParsedPaths {
-    let created = extract_bracket_list(line, "created=[").unwrap_or_default();
-    let updated = extract_bracket_list(line, "updated=[").unwrap_or_default();
-    let removed = extract_bracket_list(line, "removed=[").unwrap_or_default();
-    let restored = extract_bracket_list(line, "restored=[").unwrap_or_default();
-    let preserved = extract_bracket_list_from_end(line, "preserved=[");
+    let created = parse_bracket_list_percent_decoded(line, "created");
+    let updated = parse_bracket_list_percent_decoded(line, "updated");
+    let removed = parse_bracket_list_percent_decoded(line, "removed");
+    let restored = parse_bracket_list_percent_decoded(line, "restored");
+    let preserved = parse_bracket_list_percent_decoded(line, "preserved");
     ParsedPaths {
         created,
         updated,
@@ -146,47 +154,8 @@ fn parse_paths_line(line: &str) -> ParsedPaths {
     }
 }
 
-fn extract_bracket_list(line: &str, start_marker: &str) -> Option<Vec<String>> {
-    let start = line.find(start_marker)?;
-    let content_start = start + start_marker.len();
-    let remaining = &line[content_start..];
-    let end = remaining.find(']').unwrap_or(remaining.len());
-    Some(parse_comma_list(&remaining[..end]))
-}
-
-fn extract_bracket_list_from_end(line: &str, marker: &str) -> Vec<String> {
-    let Some(start) = line.rfind(marker) else {
-        return Vec::new();
-    };
-    let content_start = start + marker.len();
-    let remaining = &line[content_start..];
-    let end = remaining.find(']').unwrap_or(remaining.len());
-    parse_comma_list(&remaining[..end])
-}
-
-fn parse_comma_list(content: &str) -> Vec<String> {
-    if content.is_empty() {
-        return Vec::new();
-    }
-    content
-        .split(',')
-        .map(|s| s.trim().to_owned())
-        .filter(|s| !s.is_empty())
-        .collect()
-}
-
-fn parse_kv_fields(line: &str) -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-    for token in line.split_whitespace() {
-        if let Some((key, value)) = token.split_once('=') {
-            map.insert(key.to_owned(), value.to_owned());
-        }
-    }
-    map
-}
-
 fn parse_count_field(
-    fields: &std::collections::HashMap<String, String>,
+    fields: &HashMap<String, String>,
     name: &str,
 ) -> Result<usize, InstallSummaryOutputParseError> {
     let raw =

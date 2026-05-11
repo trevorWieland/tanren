@@ -67,7 +67,7 @@ where
 /// Cucumber `World` shared across all Tanren BDD scenarios.
 ///
 /// Install setup state is carried explicitly and separately from
-/// account-flow state. The [`WorldSetupState`] enum makes the current
+/// account-flow state. The `WorldSetupState` enum makes the current
 /// lifecycle phase machine-readable and prevents the need to consume
 /// setup errors with `take()`.
 #[derive(Debug, Default, CucumberWorld)]
@@ -312,12 +312,12 @@ impl TanrenWorld {
     }
     /// Store a setup failure so that subsequent step bodies observe the
     /// typed error. Unlike the previous `take()` approach, the error is
-    /// preserved in the [`WorldSetupState::SetupFailed`] variant and
+    /// preserved in the `WorldSetupState::SetupFailed` variant and
     /// read via [`propagate_setup_failure`] without consumption.
     fn store_install_setup_error(&mut self, error: InstallStepError) {
         self.setup_state = WorldSetupState::SetupFailed(error);
     }
-    /// If the world is in [`WorldSetupState::SetupFailed`], extract the
+    /// If the world is in `WorldSetupState::SetupFailed`, extract the
     /// error and transition the world to `NotInitialized`. Unlike the
     /// previous `take()` on `Option<InstallStepError>`, this method
     /// replaces the entire setup state atomically and does not leave a

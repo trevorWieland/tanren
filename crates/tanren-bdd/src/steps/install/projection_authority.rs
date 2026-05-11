@@ -18,10 +18,17 @@ pub(super) enum PathExpectation {
 }
 
 /// Primary: assert typed command output confirms zero writes.
+///
+/// When the command exited nonzero and stdout is empty (validation failure),
+/// there is no typed output to parse — skip the typed check and rely on the
+/// snapshot comparison in the caller.
 pub(super) fn assert_typed_zero_writes(
     run: &InstallCommandOutcome,
     kind: InstallCommandKind,
 ) -> InstallStepResult<()> {
+    if !run.is_success() && run.stdout().trim().is_empty() {
+        return Ok(());
+    }
     match kind {
         InstallCommandKind::Drift => {
             if parse_drift_output_or_err(run)?.has_drift() {
@@ -49,6 +56,10 @@ pub(super) fn assert_typed_zero_writes(
 }
 
 /// Primary for preserved/replaced: verify typed projection output before filesystem.
+///
+/// When the command exited nonzero and stdout is empty (validation failure),
+/// there is no typed output to parse — skip the projection check and rely on
+/// the filesystem comparison in the caller.
 pub(super) fn assert_path_projection(
     ctx: &InstallContext,
     relative_path: &RepositoryRelativePath,
@@ -56,6 +67,9 @@ pub(super) fn assert_path_projection(
 ) -> InstallStepResult<()> {
     let run = ctx.require_last_run()?;
     let kind = ctx.require_last_command_kind()?;
+    if !run.is_success() && run.stdout().trim().is_empty() {
+        return Ok(());
+    }
     let path_str = relative_path.as_str();
     match kind {
         InstallCommandKind::Drift => assert_drift_path_expectation(run, path_str, expectation),

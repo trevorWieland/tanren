@@ -1,5 +1,8 @@
 //! Typed drift output contract — parser for `tanren-cli drift` stdout.
 
+use tanren_contract::cli_output::{
+    DriftDetailStatus, DriftStatus, parse_kv_fields_percent_decoded,
+};
 use thiserror::Error;
 
 /// Drift output command status reported by `tanren-cli drift`.
@@ -142,13 +145,16 @@ pub enum DriftOutputParseError {
 
 /// Parse drift CLI stdout into a typed [`DriftOutput`] in a single pass.
 ///
-/// Expected format:
+/// Expected format (written by the typed encoder in `tanren-contract::cli_output`):
 /// ```text
 /// summary status=<ok|drift> command=drift ... clean=<n> changed_generated=<n> ... drift=<n>
 /// detail status=<status> path=<path>
 /// detail status=<status> path=<path>
 /// ...
 /// ```
+///
+/// All field values are percent-decoded, so paths containing whitespace,
+/// `=`, `]`, control chars, or newlines round-trip losslessly.
 pub fn parse_drift_output(stdout: &str) -> Result<DriftOutput, DriftOutputParseError> {
     let mut lines = stdout.lines().peekable();
 
@@ -198,7 +204,7 @@ struct SummaryFields {
 }
 
 fn parse_summary_line(line: &str) -> Result<SummaryFields, DriftOutputParseError> {
-    let fields = parse_kv_fields(line);
+    let fields = parse_kv_fields_percent_decoded(line);
 
     let status_str =
         fields
@@ -206,12 +212,12 @@ fn parse_summary_line(line: &str) -> Result<SummaryFields, DriftOutputParseError
             .ok_or_else(|| DriftOutputParseError::MissingSummaryField {
                 field: "status".to_owned(),
             })?;
-    let status = match status_str.as_str() {
-        "ok" => DriftCommandStatus::Ok,
-        "drift" => DriftCommandStatus::Drift,
-        other => {
+    let status = match DriftStatus::from_str_opt(status_str) {
+        Some(DriftStatus::Ok) => DriftCommandStatus::Ok,
+        Some(DriftStatus::Drift) => DriftCommandStatus::Drift,
+        None => {
             return Err(DriftOutputParseError::MissingSummaryField {
-                field: format!("status={other}"),
+                field: format!("status={status_str}"),
             });
         }
     };
@@ -253,7 +259,7 @@ fn parse_detail_record(
     line: &str,
     line_number: usize,
 ) -> Result<DriftDetailRecord, (String, usize)> {
-    let fields = parse_kv_fields(line);
+    let fields = parse_kv_fields_percent_decoded(line);
     let status_str = fields
         .get("status")
         .ok_or_else(|| ("missing 'status' field".to_owned(), line_number))?;
@@ -261,38 +267,23 @@ fn parse_detail_record(
         .get("path")
         .ok_or_else(|| ("missing 'path' field".to_owned(), line_number))?;
 
-    let status = match status_str.as_str() {
-        "clean" => DriftPathStatus::Clean,
-        "changed_generated" => DriftPathStatus::ChangedGenerated,
-        "missing_generated" => DriftPathStatus::MissingGenerated,
-        "missing_preserved" => DriftPathStatus::MissingPreserved,
-        "accepted_preserved" => DriftPathStatus::AcceptedPreserved,
-        other => {
-            return Err(DriftOutputParseError::UnknownPathStatus {
-                status: other.to_owned(),
-            }
-            .into());
-        }
+    let detail_status = DriftDetailStatus::from_str_opt(status_str).ok_or_else(|| {
+        (
+            format!("unknown drift path status '{status_str}'"),
+            line_number,
+        )
+    })?;
+
+    let status = match detail_status {
+        DriftDetailStatus::Clean => DriftPathStatus::Clean,
+        DriftDetailStatus::ChangedGenerated => DriftPathStatus::ChangedGenerated,
+        DriftDetailStatus::MissingGenerated => DriftPathStatus::MissingGenerated,
+        DriftDetailStatus::MissingPreserved => DriftPathStatus::MissingPreserved,
+        DriftDetailStatus::AcceptedPreserved => DriftPathStatus::AcceptedPreserved,
     };
 
     Ok(DriftDetailRecord {
         path: path.clone(),
         status,
     })
-}
-
-impl From<DriftOutputParseError> for (String, usize) {
-    fn from(_: DriftOutputParseError) -> Self {
-        ("parse error".to_owned(), 0)
-    }
-}
-
-fn parse_kv_fields(line: &str) -> std::collections::HashMap<String, String> {
-    let mut map = std::collections::HashMap::new();
-    for token in line.split_whitespace() {
-        if let Some((key, value)) = token.split_once('=') {
-            map.insert(key.to_owned(), value.to_owned());
-        }
-    }
-    map
 }

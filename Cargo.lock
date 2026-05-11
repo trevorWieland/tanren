@@ -4245,8 +4245,6 @@ version = "0.0.0"
 dependencies = [
  "clap",
  "secrecy",
- "serde",
- "sha2",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
@@ -4461,7 +4459,6 @@ dependencies = [
  "secrecy",
  "serde",
  "serde_json",
- "sha2",
  "tanren-api-app",
  "tanren-app-services",
  "tanren-contract",
