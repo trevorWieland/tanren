@@ -9,13 +9,14 @@ mod m20260503_000002_account_sessions_expires_at;
 mod m20260503_000003_password_phc;
 mod m20260504_000001_organizations;
 mod m20260509_000001_organization_create_idempotency;
+mod m20260511_000001_active_organization;
 
 /// Tanren's migration runner. Applied via [`Store::migrate`](crate::Store::migrate).
 pub struct Migrator;
 
 impl std::fmt::Debug for Migrator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.debug_struct("Migrator").finish()
+        f.debug_struct("Migrator").finish_non_exhaustive()
     }
 }
 
@@ -29,6 +30,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260503_000003_password_phc::Migration),
             Box::new(m20260504_000001_organizations::Migration),
             Box::new(m20260509_000001_organization_create_idempotency::Migration),
+            Box::new(m20260511_000001_active_organization::Migration),
         ]
     }
 }

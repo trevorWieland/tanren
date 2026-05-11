@@ -1,14 +1,12 @@
 //! Database access layer for Tanren.
 //!
-//! This crate is the **only** place in the workspace that owns SQL and
-//! row-shape entities. Other crates consume typed envelopes through the
-//! [`AccountStore`] port and the concrete [`Store`] adapter; the
-//! underlying `SeaORM` entity types are intentionally crate-private
-//! (`entity/` is a private module) so that row shape changes never leak
-//! across the dependency boundary.
+//! The only place in the workspace that owns SQL and row-shape entities.
+//! Other crates consume typed envelopes through the [`AccountStore`] port
+//! and the concrete [`Store`] adapter.
 
 mod accept_invitation;
 mod account_queries;
+mod active_organization;
 mod create_organization;
 mod entity;
 mod migration;
@@ -20,15 +18,16 @@ pub use migration::Migrator;
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
     OrganizationCreateIdempotencyRecord, OrganizationPermissionGrantRecord, OrganizationRecord,
-    SessionRecord,
+    ProjectRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation, CreateOrganizationAtomicOutput,
-    CreateOrganizationAtomicRequest, CreateOrganizationError, CreateOrganizationEventContext,
-    CreateOrganizationEventsBuilder, EventReference, LastOrganizationAdminGuardError,
-    ListOrganizationsPage, ListedOrganizationRecord,
+    ActiveOrganizationError, ConsumeInvitationError, ConsumedInvitation,
+    CreateOrganizationAtomicOutput, CreateOrganizationAtomicRequest, CreateOrganizationError,
+    CreateOrganizationEventContext, CreateOrganizationEventsBuilder, EventReference,
+    LastOrganizationAdminGuardError, ListOrganizationsPage, ListProjectsPage,
+    ListedOrganizationRecord,
 };
 
 use async_trait::async_trait;
@@ -45,20 +44,16 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
     AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
-    OrganizationName, OrganizationPermission, SessionToken, ValidationError,
+    OrganizationName, OrganizationPermission, ProjectId, ProjectName, SessionToken,
+    ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
 
-/// A connected handle to Tanren's canonical event store.
+/// Connected handle to Tanren's event store. Cheap to clone.
 ///
-/// Construct via [`Store::connect`]; apply pending migrations via
-/// [`Store::migrate`]. The handle is cheap to clone — under the hood
-/// `SeaORM` pools connections.
-///
-/// All account-flow methods are exposed via the [`AccountStore`] trait
-/// impl below; handlers depend on `&dyn AccountStore`, not on `Store`
-/// directly.
+/// Construct via [`Store::connect`]; apply migrations via [`Store::migrate`].
+/// Account-flow methods live on the [`AccountStore`] trait impl.
 pub struct Store {
     conn: DatabaseConnection,
 }
@@ -78,45 +73,27 @@ impl Clone for Store {
 }
 
 /// A row in Tanren's canonical event log.
-///
-/// Per architecture, payloads are JSON-serialised typed events. F-0001 ships
-/// only the envelope shape; concrete event types arrive with later behavior
-/// slices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEnvelope {
-    /// UUID v7 — globally unique, time-ordered.
     pub id: Uuid,
-    /// Wall-clock time the event was appended.
     pub occurred_at: DateTime<Utc>,
-    /// Opaque JSON payload.
     pub payload: serde_json::Value,
 }
 
 impl Store {
-    /// Connect to a database by URL (e.g. `postgres://...`).
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the underlying `SeaORM` connect call
-    /// fails.
+    /// Connect to a database by URL.
     pub async fn connect(url: &str) -> Result<Self, StoreError> {
         let conn = Database::connect(url).await?;
         Ok(Self { conn })
     }
 
-    /// Reference to the underlying `SeaORM` connection. Provided so app-services
-    /// can run cross-cutting transactions; row-shape entity types remain
-    /// crate-private.
+    /// Underlying `SeaORM` connection reference.
     #[must_use]
     pub fn connection(&self) -> &DatabaseConnection {
         &self.conn
     }
 
     /// Apply all pending migrations.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if migration execution fails.
     pub async fn migrate(&self) -> Result<(), StoreError> {
         Migrator::up(&self.conn, None).await?;
         Ok(())
@@ -301,6 +278,7 @@ impl AccountStore for Store {
             account_id: Set(account_id.as_uuid()),
             created_at: Set(now),
             expires_at: Set(expires_at),
+            active_org_id: Set(None),
         };
         model.insert(&self.conn).await?;
         Ok(SessionRecord {
@@ -308,6 +286,7 @@ impl AccountStore for Store {
             account_id,
             created_at: now,
             expires_at,
+            active_org_id: None,
         })
     }
 
@@ -349,10 +328,6 @@ impl AccountStore for Store {
     }
 
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError> {
-        // Order by `occurred_at` first, then by `id` (UUIDv7) as a stable
-        // tie-breaker. Without the secondary key, events landing inside the
-        // same timestamp bucket can come back in different orders across
-        // reads — replay correctness demands a total order.
         let rows = entity::events::Entity::find()
             .order_by_desc(entity::events::Column::OccurredAt)
             .order_by_desc(entity::events::Column::Id)
@@ -361,20 +336,61 @@ impl AccountStore for Store {
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
+
+    async fn set_active_organization(
+        &self,
+        session_token: &SessionToken,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), ActiveOrganizationError> {
+        active_organization::set_active_organization_with_membership_check(
+            &self.conn,
+            session_token,
+            account_id,
+            org_id,
+        )
+        .await
+    }
+
+    async fn clear_active_organization(
+        &self,
+        session_token: &SessionToken,
+        account_id: AccountId,
+    ) -> Result<(), ActiveOrganizationError> {
+        active_organization::clear_active_organization(&self.conn, session_token, account_id)
+            .await
+            .map_err(ActiveOrganizationError::from)
+    }
+
+    async fn read_active_organization(
+        &self,
+        session_token: &SessionToken,
+    ) -> Result<Option<OrgId>, StoreError> {
+        active_organization::read_active_organization(&self.conn, session_token).await
+    }
+
+    async fn list_projects_for_active_organization(
+        &self,
+        session_token: &SessionToken,
+        limit: u64,
+        cursor: Option<ProjectId>,
+    ) -> Result<ListProjectsPage, StoreError> {
+        active_organization::list_projects_for_active_org(&self.conn, session_token, limit, cursor)
+            .await
+    }
+
+    async fn list_projects_for_organization(
+        &self,
+        org_id: OrgId,
+        limit: u64,
+        cursor: Option<ProjectId>,
+    ) -> Result<ListProjectsPage, StoreError> {
+        active_organization::list_projects_for_org(&self.conn, org_id, limit, cursor).await
+    }
 }
 
-/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
-/// so production binaries cannot accidentally seed test data; the testkit
-/// (and only the testkit) enables the feature.
 #[cfg(feature = "test-hooks")]
 impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
     pub async fn seed_invitation(
         &self,
         new: NewInvitation,
@@ -388,13 +404,25 @@ impl Store {
         let inserted = model.insert(&self.conn).await?;
         InvitationRecord::try_from(inserted)
     }
+
+    pub async fn seed_project(
+        &self,
+        project_id: ProjectId,
+        org_id: OrgId,
+        name: &ProjectName,
+        created_at: DateTime<Utc>,
+    ) -> Result<ProjectRecord, StoreError> {
+        active_organization::insert_project(
+            &self.conn,
+            project_id.as_uuid(),
+            org_id.as_uuid(),
+            name.as_str(),
+            created_at,
+        )
+        .await
+    }
 }
 
-/// Convert a DB-stored identifier string into an [`Identifier`]. Any
-/// failure is a DB-invariant violation (we wrote the row through our
-/// own validated path), so it surfaces as a distinct
-/// [`StoreError::DataInvariant`] for triage rather than masquerading as
-/// a query failure.
 pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
     Identifier::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "identifier",
@@ -402,7 +430,6 @@ pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
     })
 }
 
-/// Convert a DB-stored invitation token into an [`InvitationToken`].
 pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, StoreError> {
     InvitationToken::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "invitation_token",
@@ -410,8 +437,6 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
     })
 }
 
-/// Convert a DB-stored organization-name key into an
-/// [`OrganizationName`].
 pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, StoreError> {
     OrganizationName::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "organization_name",
@@ -419,7 +444,6 @@ pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, 
     })
 }
 
-/// Convert a DB-stored idempotency key into an [`IdempotencyKey`].
 pub(crate) fn parse_db_idempotency_key(raw: &str) -> Result<IdempotencyKey, StoreError> {
     IdempotencyKey::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "idempotency_key",
@@ -427,8 +451,6 @@ pub(crate) fn parse_db_idempotency_key(raw: &str) -> Result<IdempotencyKey, Stor
     })
 }
 
-/// Convert a DB-stored permission key into an
-/// [`OrganizationPermission`].
 pub(crate) fn parse_db_organization_permission(
     raw: &str,
 ) -> Result<OrganizationPermission, StoreError> {
@@ -439,9 +461,13 @@ pub(crate) fn parse_db_organization_permission(
         })
 }
 
-/// Wrap a raw string into a [`SecretString`]. Re-exported so callers
-/// can build a [`SecretString`] without taking a direct `secrecy`
-/// dependency.
+pub(crate) fn parse_db_project_name(raw: &str) -> Result<ProjectName, StoreError> {
+    ProjectName::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "project_name",
+        cause: err,
+    })
+}
+
 #[must_use]
 pub fn secret_from_string(value: String) -> SecretString {
     SecretString::from(value)
@@ -451,12 +477,8 @@ pub fn secret_from_string(value: String) -> SecretString {
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum StoreError {
-    /// The underlying `SeaORM` call failed.
     #[error("database error: {0}")]
     Database(#[from] DbErr),
-    /// A row read out of the database failed validation against a
-    /// domain newtype's invariants. Indicates DB-side corruption — we
-    /// only ever write rows through validated newtype constructors.
     #[error("data invariant violation in column `{column}`: {cause}")]
     DataInvariant {
         /// The column whose value failed to validate.
@@ -465,7 +487,6 @@ pub enum StoreError {
         #[source]
         cause: ValidationError,
     },
-    /// A row contained an unknown permission key value.
     #[error("unknown permission key in column `{column}`: {value}")]
     InvalidPermissionKey {
         /// Column that contained the unknown value.
@@ -473,4 +494,7 @@ pub enum StoreError {
         /// Raw unknown key.
         value: String,
     },
+    /// A session was not found or has expired.
+    #[error("session not found")]
+    SessionNotFound,
 }

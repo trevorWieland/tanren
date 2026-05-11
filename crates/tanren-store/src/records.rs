@@ -10,13 +10,13 @@ use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
     AccountId, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
-    OrganizationPermission, SessionToken,
+    OrganizationPermission, ProjectId, ProjectName, SessionToken,
 };
 
 use crate::entity;
 use crate::{
     StoreError, parse_db_idempotency_key, parse_db_identifier, parse_db_invitation_token,
-    parse_db_organization_name, parse_db_organization_permission,
+    parse_db_organization_name, parse_db_organization_permission, parse_db_project_name,
 };
 
 /// Persisted account row, exposed as a typed envelope so other crates
@@ -218,6 +218,9 @@ pub struct SessionRecord {
     pub created_at: DateTime<Utc>,
     /// Wall-clock time the session expires.
     pub expires_at: DateTime<Utc>,
+    /// Currently active organization for this session. `None` means no
+    /// active organization (personal account or not yet switched).
+    pub active_org_id: Option<OrgId>,
 }
 
 impl From<entity::account_sessions::Model> for SessionRecord {
@@ -227,6 +230,7 @@ impl From<entity::account_sessions::Model> for SessionRecord {
             account_id: AccountId::new(model.account_id),
             created_at: model.created_at,
             expires_at: model.expires_at,
+            active_org_id: model.active_org_id.map(OrgId::new),
         }
     }
 }
@@ -259,4 +263,31 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted project row — minimal read-model fixture for project
+/// listings scoped to an organization.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    /// Stable project id.
+    pub id: ProjectId,
+    /// Owning organization.
+    pub org_id: OrgId,
+    /// Project display name.
+    pub name: ProjectName,
+    /// Wall-clock time the project was registered.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::projects::Model> for ProjectRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::projects::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: ProjectId::new(model.id),
+            org_id: OrgId::new(model.org_id),
+            name: parse_db_project_name(&model.name)?,
+            created_at: model.created_at,
+        })
+    }
 }

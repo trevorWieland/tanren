@@ -10,3 +10,4 @@ pub(crate) mod memberships;
 pub(crate) mod organization_create_idempotency;
 pub(crate) mod organization_permission_grants;
 pub(crate) mod organizations;
+pub(crate) mod projects;

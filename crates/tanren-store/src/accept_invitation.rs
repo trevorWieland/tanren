@@ -190,6 +190,7 @@ async fn insert_session_in_txn(
         account_id: Set(account_uuid),
         created_at: Set(now),
         expires_at: Set(expires_at),
+        active_org_id: Set(None),
     };
     model.insert(txn).await.map_err(StoreError::from)?;
     Ok(SessionRecord {
@@ -197,6 +198,7 @@ async fn insert_session_in_txn(
         account_id: tanren_identity_policy::AccountId::new(account_uuid),
         created_at: now,
         expires_at,
+        active_org_id: None,
     })
 }
 

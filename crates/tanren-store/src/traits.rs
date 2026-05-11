@@ -1,46 +1,22 @@
 //! Port for Tanren's account-flow persistence.
 //!
-//! `AccountStore` is the **port** that `tanren-app-services` consumes;
-//! [`crate::Store`] is the SeaORM-backed adapter implementation. The trait
-//! lives here so handlers can take `&dyn AccountStore` without knowing
-//! about `SeaORM`, and so test/wire harnesses can substitute alternative
-//! implementations without touching handler code.
-//!
-//! Design notes
-//!
-//! - **Sign-up and accept-invitation each touch 4-5 store operations as
-//!   one unit.** Splitting into per-aggregate traits would force every
-//!   handler to take a fistful of trait objects. R-0001 ships exactly one
-//!   port; the worked example in
-//!   `profiles/rust-cargo/architecture/trait-based-abstraction.md`
-//!   reflects that decision.
-//! - **No clock methods.** Every write that needs the current time takes
-//!   `now: DateTime<Utc>` as a parameter; callers thread it from an
-//!   injected [`crate::Clock`] equivalent. The store does not read time
-//!   directly. Enforced workspace-wide for `tanren-store` by the
-//!   `chrono::Utc::now` clippy denial in `clippy.toml`.
-//! - **Atomic invitation consume.** The trait's `consume_invitation`
-//!   contract is single-call; implementations are expected to use a
-//!   single conditional UPDATE (filtered on `consumed_at IS NULL` and
-//!   `expires_at > now`) so concurrent acceptances of the same token
-//!   serialize to exactly one success.
+//! `AccountStore` is the port that `tanren-app-services` consumes.
+//! Handlers depend on `&dyn AccountStore`, not on `Store` directly,
+//! so test/wire harnesses can substitute alternative implementations.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
     AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
-    OrganizationName, OrganizationPermission, SessionToken,
+    OrganizationName, OrganizationPermission, ProjectId, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, SessionRecord,
-    StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, ProjectRecord,
+    SessionRecord, StoreError,
 };
 
-/// Context the store passes back to the caller's event-builder so
-/// the caller can stamp the inviting org id (only known after the
-/// in-transaction `consume_invitation` step) into the success-path
-/// event payloads it owns.
+/// Event-builder context for invitation acceptance.
 #[derive(Debug, Clone)]
 pub struct AcceptInvitationEventContext {
     /// The id of the freshly inserted account row.
@@ -57,42 +33,18 @@ pub struct AcceptInvitationEventContext {
     pub now: DateTime<Utc>,
 }
 
-/// Closure the store invokes inside the transaction to build the
-/// success-path event envelopes. The store crate does not know the
-/// concrete event payload shape — that lives in `tanren-app-services`
-/// — so the caller hands in an event-builder closure and the store
-/// invokes it once it has computed the inviting-org id.
+/// Event-builder closure invoked inside the acceptance transaction.
 pub type AcceptInvitationEventsBuilder =
     Box<dyn FnOnce(&AcceptInvitationEventContext) -> Vec<serde_json::Value> + Send>;
 
-/// Input shape for [`AccountStore::accept_invitation_atomic`]. Bundles
-/// every input the atomic flow needs so the trait method runs as a
-/// single unit. The caller pre-derives the password PHC and the
-/// session token because the verifier and the CSPRNG live in the
-/// app-service layer, not in the store.
+/// Input shape for [`AccountStore::accept_invitation_atomic`].
 pub struct AcceptInvitationAtomicRequest {
-    /// The invitation token the caller is trying to consume.
     pub token: InvitationToken,
-    /// Wall-clock instant the flow runs at. Used for the consume
-    /// predicate, the membership row, the session row, and every
-    /// emitted event envelope.
     pub now: DateTime<Utc>,
-    /// New account row to insert. The caller has already derived the
-    /// password PHC and validated the identifier. The `org_id` field
-    /// is ignored by the atomic call — the inviting org id from the
-    /// consumed invitation row is the source of truth.
     pub account: NewAccount,
-    /// Stable membership id the caller pre-allocates so the success
-    /// path of the atomic call does not need to thread an id back
-    /// out for any subsequent step.
     pub membership_id: MembershipId,
-    /// Session token the caller pre-generated.
     pub session_token: SessionToken,
-    /// Wall-clock time the session expires (`now + lifetime`).
     pub session_expires_at: DateTime<Utc>,
-    /// Closure the store invokes inside the transaction to build the
-    /// success-path event envelopes. See
-    /// [`AcceptInvitationEventsBuilder`].
     pub events_builder: AcceptInvitationEventsBuilder,
 }
 
@@ -123,13 +75,7 @@ pub struct AcceptInvitationAtomicOutput {
     pub joined_org: OrgId,
 }
 
-/// Failure taxonomy for [`AccountStore::accept_invitation_atomic`]. The
-/// app-service layer maps each variant to the matching
-/// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB
-/// errors through unchanged. Mirrors [`ConsumeInvitationError`] but
-/// adds [`AcceptInvitationError::DuplicateIdentifier`] for the
-/// race-safe duplicate-account check that runs inside the
-/// transaction.
+/// Failure taxonomy for [`AccountStore::accept_invitation_atomic`].
 #[derive(Debug, thiserror::Error)]
 pub enum AcceptInvitationError {
     /// No invitation matches the supplied token.
@@ -437,6 +383,49 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    // ── active organization ───────────────────────────────────
+
+    /// Set the active organization for a session. The implementation
+    /// must verify that the account holds an active membership in the
+    /// target organization before writing.
+    async fn set_active_organization(
+        &self,
+        session_token: &SessionToken,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), ActiveOrganizationError>;
+
+    /// Clear the active organization for a session (set to `NULL`).
+    async fn clear_active_organization(
+        &self,
+        session_token: &SessionToken,
+        account_id: AccountId,
+    ) -> Result<(), ActiveOrganizationError>;
+
+    /// Read the active organization for a session. Returns `None`
+    /// when no active org is set.
+    async fn read_active_organization(
+        &self,
+        session_token: &SessionToken,
+    ) -> Result<Option<OrgId>, StoreError>;
+
+    /// List projects for the active organization of a session.
+    /// Returns an empty page when no active organization is set.
+    async fn list_projects_for_active_organization(
+        &self,
+        session_token: &SessionToken,
+        limit: u64,
+        cursor: Option<ProjectId>,
+    ) -> Result<ListProjectsPage, StoreError>;
+
+    /// List projects for a specific organization.
+    async fn list_projects_for_organization(
+        &self,
+        org_id: OrgId,
+        limit: u64,
+        cursor: Option<ProjectId>,
+    ) -> Result<ListProjectsPage, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].
@@ -468,4 +457,35 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// A page of projects listed for an organization.
+#[derive(Debug, Clone)]
+pub struct ListProjectsPage {
+    /// Projects in this page.
+    pub projects: Vec<ProjectRecord>,
+    /// Cursor to fetch the next page.
+    pub next_cursor: Option<ProjectId>,
+}
+
+/// Failure taxonomy for active-organization store operations.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
+pub enum ActiveOrganizationError {
+    #[error("session not found")]
+    SessionNotFound,
+    #[error("account is not a member of the target organization")]
+    NotAMember,
+    #[error("target organization does not exist")]
+    OrganizationNotFound,
+    #[error("database error")]
+    Store,
+}
+
+impl From<StoreError> for ActiveOrganizationError {
+    fn from(err: StoreError) -> Self {
+        match err {
+            StoreError::SessionNotFound => Self::SessionNotFound,
+            _ => Self::Store,
+        }
+    }
 }
