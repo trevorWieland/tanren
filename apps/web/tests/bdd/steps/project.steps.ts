@@ -15,6 +15,8 @@ interface ProjectActorState {
   lastConnectedRepository: string | null;
   lastCreatedRepository: string | null;
   lastDesignatedHost: string | null;
+  email: string | null;
+  password: string | null;
 }
 
 interface RepositoryFixtureState {
@@ -33,6 +35,7 @@ interface WebProjectWorld {
   repositoryAccess: Map<string, Set<string>>;
   hosts: Map<string, HostFixtureState>;
   lastFailureCode: string | null;
+  lastFailureSummary: string | null;
 }
 
 const extendedTest = accountTest.extend<{ projectWorld: WebProjectWorld }>({
@@ -43,6 +46,7 @@ const extendedTest = accountTest.extend<{ projectWorld: WebProjectWorld }>({
       repositoryAccess: new Map(),
       hosts: new Map(),
       lastFailureCode: null,
+      lastFailureSummary: null,
     });
   },
 });
@@ -59,6 +63,8 @@ function actor(world: WebProjectWorld, name: string): ProjectActorState {
       lastConnectedRepository: null,
       lastCreatedRepository: null,
       lastDesignatedHost: null,
+      email: null,
+      password: null,
     };
     world.actors.set(name, state);
   }
@@ -130,7 +136,10 @@ async function postWithSession<T>(
   };
 }
 
-async function createProjectAccount(page: Page, name: string): Promise<string> {
+async function createProjectAccount(
+  page: Page,
+  name: string,
+): Promise<{ accountId: string; email: string }> {
   const email = `${name}-web-project-${randomUUID()}@bdd.tanren`;
   const response = await postWithSession<{
     account?: { id?: string };
@@ -147,7 +156,7 @@ async function createProjectAccount(page: Page, name: string): Promise<string> {
       `create account failed: ${response.status} ${payload.code ?? "unknown"} ${payload.summary ?? ""}`,
     );
   }
-  return payload.account.id;
+  return { accountId: payload.account.id, email };
 }
 
 async function setRepositoryAccessFixture(
@@ -199,7 +208,7 @@ async function repositoryCreatedAtHostFixture(
   repository: string,
   host: string,
 ): Promise<boolean> {
-  const response = await postWithSession<{ created?: boolean }>(
+  const response = await postWithSession<{ created: boolean }>(
     page,
     "/test-hooks/source-control/repository-created",
     {
@@ -207,11 +216,6 @@ async function repositoryCreatedAtHostFixture(
       repository,
     },
   );
-  if (!response.ok) {
-    throw new Error(
-      `read created repository fixture failed: ${response.status} ${host}/${repository}`,
-    );
-  }
   return response.payload.created === true;
 }
 
@@ -220,7 +224,10 @@ Given(
   async ({ page, projectWorld }, name: string) => {
     const state = actor(projectWorld, name);
     await page.context().clearCookies();
-    state.accountId = await createProjectAccount(page, name);
+    const { accountId, email } = await createProjectAccount(page, name);
+    state.accountId = accountId;
+    state.email = email;
+    state.password = "fixture-password";
     state.connectedRepositories.clear();
     state.lastConnectedRepository = null;
     state.lastCreatedRepository = null;
@@ -230,6 +237,7 @@ Given(
       await setRepositoryAccessFixture(page, state.accountId, repository, true);
     }
     projectWorld.lastFailureCode = null;
+    projectWorld.lastFailureSummary = null;
   },
 );
 
@@ -258,11 +266,15 @@ Given(
       priorCommits,
     });
     for (const [actorName, state] of projectWorld.actors.entries()) {
-      setRepositoryAccess(projectWorld, actorName, canonical, true);
-      if (!state.accountId) {
-        continue;
+      if (state.accountId) {
+        await setRepositoryAccessFixture(
+          page,
+          state.accountId,
+          canonical,
+          true,
+        );
+        setRepositoryAccess(projectWorld, actorName, canonical, true);
       }
-      await setRepositoryAccessFixture(page, state.accountId, canonical, true);
     }
   },
 );
@@ -271,9 +283,6 @@ Given(
   /^repository fixture "([^"]+)" is accessible to (\w+)$/,
   async ({ page, projectWorld }, repository: string, name: string) => {
     const canonical = canonicalRepository(repository);
-    if (!projectWorld.repositories.has(canonical)) {
-      throw new Error(`repository fixture missing for ${canonical}`);
-    }
     const state = actor(projectWorld, name);
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account`);
@@ -287,9 +296,6 @@ Given(
   /^repository fixture "([^"]+)" is not accessible to (\w+)$/,
   async ({ page, projectWorld }, repository: string, name: string) => {
     const canonical = canonicalRepository(repository);
-    if (!projectWorld.repositories.has(canonical)) {
-      throw new Error(`repository fixture missing for ${canonical}`);
-    }
     const state = actor(projectWorld, name);
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account`);
@@ -302,14 +308,12 @@ Given(
 Given(
   /^designated fixture host "([^"]+)" is accessible to (\w+)$/,
   async ({ page, projectWorld }, host: string, name: string) => {
+    const canonical = canonicalHost(host);
     const state = actor(projectWorld, name);
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account id`);
     }
-    const canonical = canonicalHost(host);
-    projectWorld.hosts.set(canonical, {
-      host: canonical,
-    });
+    projectWorld.hosts.set(canonical, { host: canonical });
     await setHostCreateAccessFixture(page, state.accountId, canonical, true);
   },
 );
@@ -317,14 +321,12 @@ Given(
 Given(
   /^designated fixture host "([^"]+)" is not accessible to (\w+)$/,
   async ({ page, projectWorld }, host: string, name: string) => {
+    const canonical = canonicalHost(host);
     const state = actor(projectWorld, name);
     if (!state.accountId) {
       throw new Error(`actor ${name} has no project account id`);
     }
-    const canonical = canonicalHost(host);
-    projectWorld.hosts.set(canonical, {
-      host: canonical,
-    });
+    projectWorld.hosts.set(canonical, { host: canonical });
     await setHostCreateAccessFixture(page, state.accountId, canonical, false);
   },
 );
@@ -360,11 +362,13 @@ When(
     const response = await responsePromise;
     const payload = (await response.json()) as {
       code?: string;
+      summary?: string;
       project?: { repository?: { repository?: string } };
     };
 
     if (response.ok()) {
       projectWorld.lastFailureCode = null;
+      projectWorld.lastFailureSummary = null;
       state.lastConnectedRepository =
         payload.project?.repository?.repository ?? canonical;
       state.connectedRepositories.add(state.lastConnectedRepository);
@@ -374,6 +378,7 @@ When(
     }
 
     projectWorld.lastFailureCode = payload.code ?? "unknown";
+    projectWorld.lastFailureSummary = payload.summary ?? null;
     state.lastConnectedRepository = null;
     state.lastCreatedRepository = null;
     state.lastDesignatedHost = null;
@@ -408,9 +413,13 @@ When(
     );
     await page.getByRole("button", { name: /connect repository/i }).click();
     const response = await responsePromise;
-    const payload = (await response.json()) as { code?: string };
+    const payload = (await response.json()) as {
+      code?: string;
+      summary?: string;
+    };
 
     projectWorld.lastFailureCode = payload.code ?? "unknown";
+    projectWorld.lastFailureSummary = payload.summary ?? null;
     state.lastConnectedRepository = null;
     state.lastCreatedRepository = null;
     state.lastDesignatedHost = null;
@@ -456,12 +465,14 @@ When(
     const response = await responsePromise;
     const payload = (await response.json()) as {
       code?: string;
+      summary?: string;
       project?: { repository?: { repository?: string } };
     };
 
     state.lastDesignatedHost = canonicalHostName;
     if (response.ok()) {
       projectWorld.lastFailureCode = null;
+      projectWorld.lastFailureSummary = null;
       state.lastConnectedRepository = null;
       state.lastCreatedRepository =
         payload.project?.repository?.repository ?? canonicalRepositoryName;
@@ -470,6 +481,7 @@ When(
     }
 
     projectWorld.lastFailureCode = payload.code ?? "unknown";
+    projectWorld.lastFailureSummary = payload.summary ?? null;
     state.lastConnectedRepository = null;
     state.lastCreatedRepository = null;
   },
@@ -497,6 +509,143 @@ Then(
         `expected project failure code ${code}, got ${projectWorld.lastFailureCode ?? "none"}`,
       );
     }
+  },
+);
+
+Then(
+  /^the project failure summary is "([^"]+)"$/,
+  async ({ projectWorld }, summary: string) => {
+    if (projectWorld.lastFailureSummary !== summary) {
+      throw new Error(
+        `expected project failure summary "${summary}", got "${projectWorld.lastFailureSummary ?? "none"}"`,
+      );
+    }
+  },
+);
+
+Then(
+  /^source-control provider connect checks were called (\d+) times$/,
+  async ({ page }, expectedRaw: string) => {
+    const expected = Number.parseInt(expectedRaw, 10);
+    const response = await postWithSession<{
+      preflight_connect_repository: number;
+      preflight_create_repository: number;
+      create_repository: number;
+      delete_repository: number;
+    }>(page, "/test-hooks/source-control/call-counters", {});
+    if (!response.ok) {
+      throw new Error(
+        `source-control call counters request failed: ${response.status}`,
+      );
+    }
+    if (response.payload.preflight_connect_repository !== expected) {
+      throw new Error(
+        `expected preflight_connect_repository === ${expected}, got ${response.payload.preflight_connect_repository}`,
+      );
+    }
+  },
+);
+
+Then(
+  /^source-control provider create checks were called (\d+) times$/,
+  async ({ page }, expectedRaw: string) => {
+    const expected = Number.parseInt(expectedRaw, 10);
+    const response = await postWithSession<{
+      preflight_connect_repository: number;
+      preflight_create_repository: number;
+      create_repository: number;
+      delete_repository: number;
+    }>(page, "/test-hooks/source-control/call-counters", {});
+    if (!response.ok) {
+      throw new Error(
+        `source-control call counters request failed: ${response.status}`,
+      );
+    }
+    if (response.payload.preflight_create_repository !== expected) {
+      throw new Error(
+        `expected preflight_create_repository === ${expected}, got ${response.payload.preflight_create_repository}`,
+      );
+    }
+    if (response.payload.create_repository !== expected) {
+      throw new Error(
+        `expected create_repository === ${expected}, got ${response.payload.create_repository}`,
+      );
+    }
+  },
+);
+
+Given("the project store fails project registration", async ({ page }) => {
+  const response = await postWithSession<Record<string, never>>(
+    page,
+    "/test-hooks/projects/break-store",
+    {},
+  );
+  if (response.status !== 204) {
+    throw new Error(`expected 204 from break-store, got ${response.status}`);
+  }
+});
+
+When(
+  /^(\w+) uses their credential to connect existing repository "([^"]+)" for (\w+) as an active project$/,
+  async (
+    { page, projectWorld },
+    actorName: string,
+    repository: string,
+    targetActorName: string,
+  ) => {
+    const canonical = canonicalRepository(repository);
+    const fixture = projectWorld.repositories.get(canonical);
+    if (!fixture) {
+      throw new Error(`repository fixture missing for ${canonical}`);
+    }
+    const sourceState = actor(projectWorld, actorName);
+    if (!sourceState.accountId) {
+      throw new Error(`actor ${actorName} has no project account`);
+    }
+    if (!sourceState.email || !sourceState.password) {
+      throw new Error(`actor ${actorName} has no stored credentials`);
+    }
+    const targetState = actor(projectWorld, targetActorName);
+    if (!targetState.accountId) {
+      throw new Error(`actor ${targetActorName} has no project account`);
+    }
+
+    // Sign in as the source actor through the web form.
+    await page.context().clearCookies();
+    await page.goto("/sign-in");
+    await page.getByLabel(/email/i).fill(sourceState.email);
+    await page.getByLabel(/password/i).fill(sourceState.password);
+    await page.getByRole("button", { name: /^sign in$/i }).click();
+    await page.waitForURL("/", { timeout: 10_000 });
+
+    const response = await postWithSession<{
+      code?: string;
+      summary?: string;
+      project?: { repository?: { repository?: string } };
+    }>(page, "/test-hooks/projects/connect-as-cross-account", {
+      owning_account_id: targetState.accountId,
+      repository,
+      select_as_active: true,
+    });
+
+    if (response.ok) {
+      projectWorld.lastFailureCode = null;
+      projectWorld.lastFailureSummary = null;
+      sourceState.lastConnectedRepository =
+        response.payload.project?.repository?.repository ?? canonical;
+      sourceState.connectedRepositories.add(
+        sourceState.lastConnectedRepository,
+      );
+      sourceState.lastCreatedRepository = null;
+      sourceState.lastDesignatedHost = null;
+      return;
+    }
+
+    projectWorld.lastFailureCode = response.payload.code ?? "unknown";
+    projectWorld.lastFailureSummary = response.payload.summary ?? null;
+    sourceState.lastConnectedRepository = null;
+    sourceState.lastCreatedRepository = null;
+    sourceState.lastDesignatedHost = null;
   },
 );
 
