@@ -4,7 +4,7 @@ id: B-0038
 title: Manage roles as permission templates
 area: governance
 personas: [team-builder]
-interfaces: [api, mcp, cli, tui]
+interfaces: [api, mcp, cli, tui, web]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
