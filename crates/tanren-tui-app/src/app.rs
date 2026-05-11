@@ -15,14 +15,17 @@ use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{Handlers, Store};
+use tanren_contract::RoleActor;
 use tokio::runtime::Runtime;
 
 use crate::draw;
 use crate::ui::{
-    accept_invitation_fields, accept_invitation_outcome, parse_accept_invitation, parse_sign_in,
-    parse_sign_up, render_error, sign_in_fields, sign_in_outcome, sign_up_fields, sign_up_outcome,
+    accept_invitation_fields, apply_role_fields, create_role_fields, delete_role_fields,
+    edit_role_fields, permission_check_fields, sign_in_fields, sign_up_fields,
 };
 use crate::{FormState, MenuChoice};
+
+mod submit;
 
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 
@@ -32,6 +35,11 @@ pub(crate) enum Screen {
     SignUp(FormState),
     SignIn(FormState),
     AcceptInvitation(FormState),
+    CreateRole(FormState),
+    EditRole(FormState),
+    DeleteRole(FormState),
+    ApplyRole(FormState),
+    CheckPermission(FormState),
     Outcome(OutcomeView),
 }
 
@@ -47,6 +55,7 @@ pub(crate) struct App {
     handlers: Handlers,
     store: Option<Arc<Store>>,
     store_error: Option<String>,
+    authenticated_actor: Option<RoleActor>,
     screen: Screen,
 }
 
@@ -71,6 +80,7 @@ impl App {
             handlers: Handlers::new(),
             store,
             store_error,
+            authenticated_actor: None,
             screen: Screen::Menu { selected: 0 },
         })
     }
@@ -134,6 +144,26 @@ impl App {
                 Some(action) => Effect::Form(action, FormKind::AcceptInvitation),
                 None => Effect::None,
             },
+            Screen::CreateRole(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CreateRole),
+                None => Effect::None,
+            },
+            Screen::EditRole(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::EditRole),
+                None => Effect::None,
+            },
+            Screen::DeleteRole(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::DeleteRole),
+                None => Effect::None,
+            },
+            Screen::ApplyRole(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ApplyRole),
+                None => Effect::None,
+            },
+            Screen::CheckPermission(state) => match handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::CheckPermission),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -149,124 +179,6 @@ impl App {
         }
     }
 
-    fn dispatch_form_action(&mut self, action: FormAction, kind: FormKind) {
-        match action {
-            FormAction::Cancel => {
-                self.screen = Screen::Menu { selected: 0 };
-            }
-            FormAction::Submit => self.submit(kind),
-        }
-    }
-
-    fn submit(&mut self, kind: FormKind) {
-        let Some(store) = self.store.clone() else {
-            let message = self
-                .store_error
-                .clone()
-                .unwrap_or_else(|| "store unavailable".to_owned());
-            if let Some(state) = self.active_form_mut() {
-                state.error = Some(message);
-            }
-            return;
-        };
-        let handlers = &self.handlers;
-        match kind {
-            FormKind::SignUp => {
-                let parsed = {
-                    let Screen::SignUp(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_up(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_up(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_up_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignUp(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::SignIn => {
-                let parsed = {
-                    let Screen::SignIn(state) = &self.screen else {
-                        return;
-                    };
-                    parse_sign_in(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.sign_in(store.as_ref(), request));
-                match result {
-                    Ok(response) => self.screen = Screen::Outcome(sign_in_outcome(&response)),
-                    Err(reason) => {
-                        if let Screen::SignIn(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-            FormKind::AcceptInvitation => {
-                let parsed = {
-                    let Screen::AcceptInvitation(state) = &self.screen else {
-                        return;
-                    };
-                    parse_accept_invitation(state)
-                };
-                let request = match parsed {
-                    Ok(req) => req,
-                    Err(message) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(message);
-                        }
-                        return;
-                    }
-                };
-                let result = self
-                    .runtime
-                    .block_on(handlers.accept_invitation(store.as_ref(), request));
-                match result {
-                    Ok(response) => {
-                        self.screen = Screen::Outcome(accept_invitation_outcome(&response));
-                    }
-                    Err(reason) => {
-                        if let Screen::AcceptInvitation(state) = &mut self.screen {
-                            state.error = Some(render_error(reason));
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    fn active_form_mut(&mut self) -> Option<&mut FormState> {
-        match &mut self.screen {
-            Screen::SignUp(s) | Screen::SignIn(s) | Screen::AcceptInvitation(s) => Some(s),
-            _ => None,
-        }
-    }
-
     fn draw(&self, frame: &mut ratatui::Frame<'_>) {
         let area = frame.area();
         match &self.screen {
@@ -275,6 +187,13 @@ impl App {
             Screen::SignIn(state) => draw::draw_form(frame, area, "Sign in", state),
             Screen::AcceptInvitation(state) => {
                 draw::draw_form(frame, area, "Accept invitation", state);
+            }
+            Screen::CreateRole(state) => draw::draw_form(frame, area, "Create role", state),
+            Screen::EditRole(state) => draw::draw_form(frame, area, "Edit role", state),
+            Screen::DeleteRole(state) => draw::draw_form(frame, area, "Delete role", state),
+            Screen::ApplyRole(state) => draw::draw_form(frame, area, "Apply role", state),
+            Screen::CheckPermission(state) => {
+                draw::draw_form(frame, area, "Check permission", state);
             }
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
@@ -286,6 +205,11 @@ enum FormKind {
     SignUp,
     SignIn,
     AcceptInvitation,
+    CreateRole,
+    EditRole,
+    DeleteRole,
+    ApplyRole,
+    CheckPermission,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -322,6 +246,13 @@ fn handle_menu_key(selected: &mut usize, key: KeyEvent, next: &mut Option<Screen
                 MenuChoice::SignIn => Screen::SignIn(FormState::new(sign_in_fields())),
                 MenuChoice::AcceptInvitation => {
                     Screen::AcceptInvitation(FormState::new(accept_invitation_fields()))
+                }
+                MenuChoice::CreateRole => Screen::CreateRole(FormState::new(create_role_fields())),
+                MenuChoice::EditRole => Screen::EditRole(FormState::new(edit_role_fields())),
+                MenuChoice::DeleteRole => Screen::DeleteRole(FormState::new(delete_role_fields())),
+                MenuChoice::ApplyRole => Screen::ApplyRole(FormState::new(apply_role_fields())),
+                MenuChoice::CheckPermission => {
+                    Screen::CheckPermission(FormState::new(permission_check_fields()))
                 }
             });
         }

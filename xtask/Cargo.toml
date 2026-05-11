@@ -25,3 +25,4 @@ walkdir = "2"
 syn = { version = "2", features = ["full", "extra-traits", "visit"] }
 quote = "1"
 regex = "1"
+tanren-contract = { path = "../crates/tanren-contract" }

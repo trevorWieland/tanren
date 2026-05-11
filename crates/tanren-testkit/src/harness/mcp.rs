@@ -15,15 +15,22 @@ use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
 use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountView, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
+    CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantView, RoleTemplateView,
+    SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::AccountId;
+use tanren_store::{AccountStore, EventEnvelope, NewInvitation, NewRole, RoleStore};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_reason, role_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessRoleTemplate, HarnessSession, RoleHarness, RoleHarnessError, RoleHarnessResult,
+    permission_grant_view, role_template_view, seed_role_admin_grants,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -32,6 +39,7 @@ const TEST_API_KEY: &str = "bdd-test-key";
 pub struct McpHarness {
     store: Arc<Store>,
     db_path: PathBuf,
+    role_actor: Option<AccountId>,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
 }
@@ -94,6 +102,7 @@ impl McpHarness {
         Ok(Self {
             store,
             db_path,
+            role_actor: None,
             client: Some(client),
             server: Some(server),
         })
@@ -119,10 +128,42 @@ impl McpHarness {
         let text = first_text(&result.content).ok_or_else(|| {
             HarnessError::Transport(format!("tool {name} returned no text content"))
         })?;
-        let payload: Value = serde_json::from_str(&text)
+        let payload: Value = serde_json::from_str(text)
             .map_err(|e| HarnessError::Transport(format!("decode tool result: {e}")))?;
         if result.is_error == Some(true) {
             return Err(failure_from_payload(&payload));
+        }
+        Ok(payload)
+    }
+
+    async fn call_role_tool(
+        &mut self,
+        name: &'static str,
+        body: Value,
+    ) -> RoleHarnessResult<Value> {
+        let client = self
+            .client
+            .as_ref()
+            .ok_or_else(|| RoleHarnessError::Transport("rmcp client gone".to_owned()))?;
+        let args: serde_json::Map<String, Value> = match body {
+            Value::Object(map) => map,
+            other => {
+                return Err(RoleHarnessError::Transport(format!(
+                    "tool args must be a JSON object, got {other}"
+                )));
+            }
+        };
+        let result: CallToolResult = client
+            .call_tool(CallToolRequestParams::new(name).with_arguments(args))
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("call_tool {name}: {e}")))?;
+        let text = first_text(&result.content).ok_or_else(|| {
+            RoleHarnessError::Transport(format!("tool {name} returned no text content"))
+        })?;
+        let payload: Value = serde_json::from_str(text)
+            .map_err(|e| RoleHarnessError::Transport(format!("decode tool result: {e}")))?;
+        if result.is_error == Some(true) {
+            return Err(role_failure_from_payload(&payload));
         }
         Ok(payload)
     }
@@ -153,7 +194,9 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.role_actor = Some(session.account_id);
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +205,9 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.role_actor = Some(session.account_id);
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -177,6 +222,7 @@ impl AccountHarness for McpHarness {
         });
         let payload = self.call_tool("account.accept_invitation", body).await?;
         let session = decode_session(&payload)?;
+        self.role_actor = Some(session.account_id);
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
         Ok(HarnessAcceptance {
@@ -202,12 +248,118 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn drain(&mut self) {
+        // Close the rmcp client gracefully.
+        if let Some(client) = self.client.as_mut() {
+            let _ = client.close().await;
+        }
+        self.client.take();
+        // Abort the MCP server and await its shutdown.
+        if let Some(handle) = self.server.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
 }
 
-fn first_text(content: &[Content]) -> Option<String> {
+#[async_trait]
+impl RoleHarness for McpHarness {
+    async fn create_role(
+        &mut self,
+        req: CreateRoleRequest,
+    ) -> RoleHarnessResult<CreateRoleResponse> {
+        let payload = self
+            .call_role_tool("role.create", serde_json::json!(req))
+            .await?;
+        decode_role_payload(payload, "role.create")
+    }
+
+    async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse> {
+        let payload = self
+            .call_role_tool("role.edit", serde_json::json!(req))
+            .await?;
+        decode_role_payload(payload, "role.edit")
+    }
+
+    async fn delete_role(
+        &mut self,
+        req: DeleteRoleRequest,
+    ) -> RoleHarnessResult<DeleteRoleResponse> {
+        let payload = self
+            .call_role_tool("role.delete", serde_json::json!(req))
+            .await?;
+        decode_role_payload(payload, "role.delete")
+    }
+
+    async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse> {
+        let payload = self
+            .call_role_tool("role.apply", serde_json::json!(req))
+            .await?;
+        decode_role_payload(payload, "role.apply")
+    }
+
+    async fn check_permission(
+        &mut self,
+        req: PermissionCheckRequest,
+    ) -> RoleHarnessResult<PermissionCheckResponse> {
+        let payload = self
+            .call_role_tool("permission.check", serde_json::json!(req))
+            .await?;
+        decode_role_payload(payload, "permission.check")
+    }
+
+    async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()> {
+        self.store
+            .create_role(NewRole {
+                id: fixture.id,
+                scope: fixture.scope,
+                name: fixture.name,
+                permissions: fixture.permissions,
+                created_at: fixture.created_at,
+                updated_at: fixture.updated_at,
+            })
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("seed_role_template: {e}")))?;
+        Ok(())
+    }
+
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: tanren_identity_policy::RoleScope,
+        permissions: Vec<tanren_identity_policy::PermissionName>,
+    ) -> RoleHarnessResult<()> {
+        let actor = self
+            .role_actor
+            .ok_or_else(|| RoleHarnessError::Transport("missing role actor".to_owned()))?;
+        seed_role_admin_grants(self.store.as_ref(), actor, scope, permissions).await
+    }
+
+    async fn read_role_template(
+        &self,
+        role: tanren_identity_policy::ScopedRole,
+    ) -> RoleHarnessResult<Option<RoleTemplateView>> {
+        let maybe = self
+            .store
+            .find_role(role)
+            .await
+            .map_err(|e| RoleHarnessError::Transport(format!("read_role_template: {e}")))?;
+        Ok(maybe.map(role_template_view))
+    }
+
+    async fn read_direct_grants(
+        &self,
+        principal: tanren_identity_policy::PrincipalRef,
+    ) -> RoleHarnessResult<Vec<PermissionGrantView>> {
+        let grants = super::read_all_direct_grants(self.store.as_ref(), principal).await?;
+        Ok(grants.into_iter().map(permission_grant_view).collect())
+    }
+}
+
+fn first_text(content: &[Content]) -> Option<&str> {
     for item in content {
         if let RawContent::Text(text) = &item.raw {
-            return Some(text.text.clone());
+            return Some(text.text.as_str());
         }
     }
     None
@@ -248,4 +400,31 @@ fn failure_from_payload(payload: &Value) -> HarnessError {
     } else {
         HarnessError::Transport(format!("{code}: {summary}"))
     }
+}
+
+fn role_failure_from_payload(payload: &Value) -> RoleHarnessError {
+    let code = payload
+        .get("code")
+        .and_then(Value::as_str)
+        .unwrap_or("transport_error")
+        .to_owned();
+    let summary = payload
+        .get("summary")
+        .and_then(Value::as_str)
+        .unwrap_or("unknown failure")
+        .to_owned();
+    if let Some(reason) = role_code_to_reason(&code) {
+        RoleHarnessError::Role(reason, summary)
+    } else {
+        RoleHarnessError::Transport(format!("{code}: {summary}"))
+    }
+}
+
+fn decode_role_payload<T: serde::de::DeserializeOwned>(
+    payload: Value,
+    tool_name: &str,
+) -> RoleHarnessResult<T> {
+    serde_json::from_value(payload).map_err(|e| {
+        RoleHarnessError::Transport(format!("decode tool result for {tool_name}: {e}"))
+    })
 }

@@ -1,4 +1,4 @@
-//! Port for Tanren's account-flow persistence.
+//! Ports for Tanren's persistence layer.
 //!
 //! `AccountStore` is the **port** that `tanren-app-services` consumes;
 //! [`crate::Store`] is the SeaORM-backed adapter implementation. The trait
@@ -28,11 +28,14 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, PermissionGrantId,
+    PermissionName, PermissionScope, PrincipalRef, RoleId, RoleScope, ScopedRole, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, ApplyRole, CursorPage, EditRole, EventEnvelope, InvitationRecord, NewAccount,
+    NewRole, PermissionGrantListCursor, PermissionGrantRecord, RoleListCursor, RoleRecord,
+    SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -283,4 +286,186 @@ pub enum ConsumeInvitationError {
     /// Unexpected database failure.
     #[error(transparent)]
     Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`RoleStore::create_role`].
+#[derive(Debug, thiserror::Error)]
+pub enum CreateRoleError {
+    /// The role name is already in use within this scope.
+    #[error("role name already exists in scope")]
+    DuplicateRoleName,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`RoleStore::edit_role`].
+#[derive(Debug, thiserror::Error)]
+pub enum EditRoleError {
+    /// No role template matches the requested scoped id.
+    #[error("role not found")]
+    RoleNotFound,
+    /// The requested replacement name conflicts with another role in the scope.
+    #[error("role name already exists in scope")]
+    DuplicateRoleName,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Failure taxonomy for [`RoleStore::apply_role`].
+#[derive(Debug, thiserror::Error)]
+pub enum ApplyRoleError {
+    /// No role template matches the requested scoped id.
+    #[error("role not found")]
+    RoleNotFound,
+    /// Role identifiers are rejected as grant principals.
+    #[error("role principal rejected")]
+    RoleAsPrincipalRejected,
+    /// Principal referenced by the request does not exist.
+    #[error("principal not found")]
+    PrincipalNotFound,
+    /// Grant scope referenced by the request does not exist.
+    #[error("grant scope not found")]
+    GrantScopeNotFound,
+    /// Grant scope is incompatible with the role template scope.
+    #[error("grant scope is incompatible with role scope")]
+    IncompatibleGrantScope,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// Closure used by atomic role mutation store calls to build the event
+/// payload from the committed role row.
+pub type RoleRecordEventBuilder = Box<dyn FnOnce(&RoleRecord) -> serde_json::Value + Send>;
+
+/// Closure used by atomic apply-role store calls to build the event
+/// payload from the committed direct-grant rows.
+pub type RoleApplyEventBuilder =
+    Box<dyn FnOnce(&[PermissionGrantRecord]) -> serde_json::Value + Send>;
+
+/// Closure used by atomic delete-role store calls to build the event
+/// payload after the role row has been removed.
+pub type RoleDeleteEventBuilder = Box<dyn FnOnce() -> serde_json::Value + Send>;
+
+/// Port for role-template persistence and direct permission grants.
+#[async_trait]
+pub trait RoleStore: Send + Sync + std::fmt::Debug {
+    /// Insert a role template with its initial permission bundle.
+    async fn create_role(&self, new: NewRole) -> Result<RoleRecord, CreateRoleError>;
+
+    /// Insert a role template and append its audit event in one DB
+    /// transaction. If event append fails the role insert rolls back.
+    async fn create_role_atomic(
+        &self,
+        new: NewRole,
+        event_builder: RoleRecordEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<RoleRecord, CreateRoleError>;
+
+    /// Replace role metadata and permission bundle.
+    async fn edit_role(&self, edit: EditRole) -> Result<RoleRecord, EditRoleError>;
+
+    /// Replace role metadata + permission bundle and append the
+    /// matching audit event in one DB transaction.
+    async fn edit_role_atomic(
+        &self,
+        edit: EditRole,
+        event_builder: RoleRecordEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<RoleRecord, EditRoleError>;
+
+    /// Delete a role template and its template-permission rows.
+    ///
+    /// Returns `true` when a role was removed, `false` when no matching
+    /// role exists.
+    async fn delete_role(&self, role: ScopedRole) -> Result<bool, StoreError>;
+
+    /// Delete a role template and append the matching audit event in
+    /// one DB transaction. No event is appended when no role row is
+    /// removed.
+    async fn delete_role_atomic(
+        &self,
+        role: ScopedRole,
+        event_builder: RoleDeleteEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<bool, StoreError>;
+
+    /// List role templates in one scope with cursor pagination.
+    async fn list_roles_page(
+        &self,
+        scope: RoleScope,
+        cursor: Option<RoleListCursor>,
+        limit: u64,
+    ) -> Result<CursorPage<RoleRecord, RoleListCursor>, StoreError>;
+
+    /// Resolve one role template by id + scope.
+    async fn find_role(&self, role: ScopedRole) -> Result<Option<RoleRecord>, StoreError>;
+
+    /// Whether the supplied role scope reference exists.
+    async fn role_scope_exists(&self, scope: RoleScope) -> Result<bool, StoreError>;
+
+    /// Whether the supplied permission scope reference exists.
+    async fn permission_scope_exists(&self, scope: PermissionScope) -> Result<bool, StoreError>;
+
+    /// Whether the supplied principal reference exists.
+    async fn principal_exists(&self, principal: PrincipalRef) -> Result<bool, StoreError>;
+
+    /// Apply a role template to a principal in one transaction by
+    /// inserting direct permission grants for the template's current
+    /// permission bundle.
+    async fn apply_role(
+        &self,
+        request: ApplyRole,
+    ) -> Result<Vec<PermissionGrantRecord>, ApplyRoleError>;
+
+    /// Apply a role template and append the matching audit event in
+    /// one DB transaction.
+    async fn apply_role_atomic(
+        &self,
+        request: ApplyRole,
+        event_builder: RoleApplyEventBuilder,
+        now: DateTime<Utc>,
+    ) -> Result<Vec<PermissionGrantRecord>, ApplyRoleError>;
+
+    /// Check whether one direct grant exists for the principal/scope/permission.
+    async fn has_direct_grant(
+        &self,
+        principal: PrincipalRef,
+        scope: PermissionScope,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError>;
+
+    /// Check whether one direct grant exists for the principal and permission
+    /// across any scope.
+    async fn has_any_direct_grant(
+        &self,
+        principal: PrincipalRef,
+        permission: &PermissionName,
+    ) -> Result<bool, StoreError>;
+
+    /// List direct grants for one principal, optionally filtered by scope,
+    /// with cursor pagination.
+    async fn list_direct_grants_page(
+        &self,
+        principal: PrincipalRef,
+        scope: Option<PermissionScope>,
+        cursor: Option<PermissionGrantListCursor>,
+        limit: u64,
+    ) -> Result<CursorPage<PermissionGrantRecord, PermissionGrantListCursor>, StoreError>;
+
+    /// Read matching direct-grant ids for principal + scope + permission.
+    async fn find_direct_grant_ids(
+        &self,
+        principal: PrincipalRef,
+        scope: PermissionScope,
+        permission: &PermissionName,
+    ) -> Result<Vec<PermissionGrantId>, StoreError>;
+
+    /// List the role template's current permission names.
+    async fn list_role_permissions(
+        &self,
+        role_id: RoleId,
+    ) -> Result<Vec<PermissionName>, StoreError>;
 }

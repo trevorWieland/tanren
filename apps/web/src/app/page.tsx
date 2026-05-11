@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import type { ReactNode } from "react";
 
+import { RoleWorkbench } from "@/components/role/RoleWorkbench";
 import * as m from "@/i18n/paraglide/messages";
 
 interface HealthReport {
@@ -42,10 +43,10 @@ export default function Home(): ReactNode {
   }, []);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-6 p-8">
+    <main className="flex min-h-screen flex-col gap-6 p-8">
       <h1 className="text-3xl font-semibold">{m.app_title()}</h1>
       <p className="text-[--color-fg-muted]">{m.app_placeholder()}</p>
-      <section className="min-w-[20rem] rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
+      <section className="max-w-3xl rounded-md border border-[--color-border] bg-[--color-bg-surface] px-6 py-4 font-mono">
         {report !== null ? (
           <pre className="m-0">{JSON.stringify(report, null, 2)}</pre>
         ) : error !== null ? (
@@ -58,6 +59,8 @@ export default function Home(): ReactNode {
           </span>
         )}
       </section>
+
+      <RoleWorkbench />
     </main>
   );
 }

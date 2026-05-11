@@ -7,7 +7,7 @@
 //! spawns a `tanren-cli account ...` subprocess and parses the
 //! `account_id=... session=...` line from stdout.
 
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 
@@ -28,12 +28,16 @@ use super::{
     HarnessSession,
 };
 
+mod role;
+
 /// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
     db_url: String,
+    session_path: PathBuf,
     binary: PathBuf,
+    role_actor: Option<AccountId>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -66,13 +70,15 @@ impl CliHarness {
             .map_err(|e| HarnessError::Transport(format!("migrate store: {e}")))?;
         let store = Arc::new(store);
 
-        let binary = locate_workspace_binary("tanren-cli")?;
+        let binary = locate_or_build_workspace_binary("tanren-cli").await?;
 
         Ok(Self {
             store,
             db_path,
             db_url,
+            session_path: scenario_db_path("cli-session"),
             binary,
+            role_actor: None,
         })
     }
 }
@@ -80,6 +86,7 @@ impl CliHarness {
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_path);
     }
 }
 
@@ -103,6 +110,7 @@ impl AccountHarness for CliHarness {
                 "--display-name",
                 &req.display_name,
             ])
+            .env("TANREN_SESSION_FILE", &self.session_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -114,6 +122,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
+            self.role_actor = Some(account.id);
             HarnessSession {
                 account_id: account.id,
                 account,
@@ -135,6 +144,7 @@ impl AccountHarness for CliHarness {
                 "--password",
                 req.password.expose_secret(),
             ])
+            .env("TANREN_SESSION_FILE", &self.session_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -145,11 +155,14 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| {
+            self.role_actor = Some(account.id);
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -172,6 +185,7 @@ impl AccountHarness for CliHarness {
                 "--invitation",
                 req.invitation_token.as_str(),
             ])
+            .env("TANREN_SESSION_FILE", &self.session_path)
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -183,6 +197,7 @@ impl AccountHarness for CliHarness {
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        self.role_actor = Some(account.id);
         let joined_org = parse_joined_org(&stdout)?;
         // The CLI binary returns the AccountView reconstituted from
         // the row; re-decorate it with `org = Some(joined_org)` to
@@ -266,6 +281,46 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
         "binary `{name}` not found alongside test executable {} — run `cargo build --workspace`",
         exe.display()
     )))
+}
+
+async fn locate_or_build_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
+    match locate_workspace_binary(name) {
+        Ok(path) => Ok(path),
+        Err(initial) => {
+            build_workspace_binary(name).await?;
+            locate_workspace_binary(name).map_err(|final_err| {
+                HarnessError::Transport(format!(
+                    "{initial}; attempted `cargo build --bin {name}` but binary is still missing: {final_err}"
+                ))
+            })
+        }
+    }
+}
+
+async fn build_workspace_binary(name: &str) -> HarnessResult<()> {
+    let output = Command::new("cargo")
+        .args(["build", "-q", "--locked", "--bin", name])
+        .current_dir(workspace_root())
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .output()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("spawn cargo build for `{name}`: {e}")))?;
+    if output.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    Err(HarnessError::Transport(format!(
+        "cargo build --bin {name} failed: {stderr}"
+    )))
+}
+
+fn workspace_root() -> &'static Path {
+    Path::new(env!("CARGO_MANIFEST_DIR"))
+        .ancestors()
+        .nth(2)
+        .expect("workspace root must exist")
 }
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {

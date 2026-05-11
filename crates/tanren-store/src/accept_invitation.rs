@@ -17,6 +17,7 @@ use tanren_identity_policy::{MembershipId, OrgId, SessionToken, ValidationError}
 use uuid::Uuid;
 
 use crate::entity;
+use crate::role_store_util::is_unique_violation;
 use crate::traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder,
@@ -151,8 +152,7 @@ async fn insert_account_in_txn(
     let inserted = match account_model.insert(txn).await {
         Ok(a) => a,
         Err(err) => {
-            let lower = err.to_string().to_lowercase();
-            if lower.contains("unique") || lower.contains("duplicate") {
+            if is_unique_violation(&err) {
                 return Err(AcceptInvitationError::DuplicateIdentifier);
             }
             return Err(StoreError::from(err).into());

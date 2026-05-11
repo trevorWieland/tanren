@@ -7,15 +7,20 @@
 
 pub mod account;
 pub mod events;
+pub mod role;
+mod role_authorization;
+mod role_read_model;
+pub mod role_view_mapper;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    RoleActor, RoleAdminCapabilities, RoleFailureReason, RoleReadModelRequest,
+    RoleReadModelResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
-pub use tanren_store::{AccountStore, Store};
+pub use tanren_store::{AccountStore, RoleStore, Store};
 
 use std::sync::Arc;
 use tanren_store::StoreError;
@@ -199,6 +204,137 @@ impl Handlers {
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
     }
+
+    /// Create a role template and emit a typed role event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] for taxonomy failures
+    /// (conflict), or [`RoleServiceError::Store`] for unexpected
+    /// database failures.
+    pub async fn create_role<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: tanren_contract::CreateRoleRequest,
+    ) -> Result<tanren_contract::CreateRoleResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role::create_role(store, &self.clock, actor, request).await
+    }
+
+    /// Edit a role template and emit a typed role event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] for taxonomy failures
+    /// (not found, conflict), or [`RoleServiceError::Store`] for
+    /// unexpected database failures.
+    pub async fn edit_role<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: tanren_contract::EditRoleRequest,
+    ) -> Result<tanren_contract::EditRoleResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role::edit_role(store, &self.clock, actor, request).await
+    }
+
+    /// Delete a role template and emit a typed role event.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] with
+    /// [`RoleFailureReason::NotFound`] when no role matches; or
+    /// [`RoleServiceError::Store`] for unexpected database failures.
+    pub async fn delete_role<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: tanren_contract::DeleteRoleRequest,
+    ) -> Result<tanren_contract::DeleteRoleResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role::delete_role(store, &self.clock, actor, request).await
+    }
+
+    /// Apply a role template to a principal, creating direct grants
+    /// from the role's current permission snapshot.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] for taxonomy failures
+    /// (not found, role-as-principal rejected), or
+    /// [`RoleServiceError::Store`] for unexpected database failures.
+    pub async fn apply_role<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: tanren_contract::ApplyRoleRequest,
+    ) -> Result<tanren_contract::ApplyRoleResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role::apply_role(store, &self.clock, actor, request).await
+    }
+
+    /// Check whether a principal has a direct permission grant.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] with
+    /// [`RoleFailureReason::RoleAsPrincipalRejected`] when the
+    /// principal is a role identifier; or [`RoleServiceError::Store`]
+    /// for unexpected database failures.
+    pub async fn check_permission<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: tanren_contract::PermissionCheckRequest,
+    ) -> Result<tanren_contract::PermissionCheckResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role::check_permission(store, &self.clock, actor, request).await
+    }
+
+    /// Discover role administration capabilities for the supplied actor.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Store`] for unexpected database failures.
+    pub async fn role_admin_capabilities<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+    ) -> Result<RoleAdminCapabilities, RoleServiceError>
+    where
+        S: RoleStore + ?Sized,
+    {
+        role::role_admin_capabilities(store, actor).await
+    }
+
+    /// Read paged role-template and direct-grant state with freshness metadata.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RoleServiceError::Role`] for taxonomy failures, or
+    /// [`RoleServiceError::Store`] for unexpected database failures.
+    pub async fn read_role_model<S>(
+        &self,
+        store: &S,
+        actor: RoleActor,
+        request: RoleReadModelRequest,
+    ) -> Result<RoleReadModelResponse, RoleServiceError>
+    where
+        S: RoleStore + AccountStore + ?Sized,
+    {
+        role_read_model::read_role_model(store, &self.clock, actor, request).await
+    }
 }
 
 /// Errors raised by app-service handlers.
@@ -215,4 +351,20 @@ pub enum AppServiceError {
     /// error body.
     #[error("account: {}", .0.code())]
     Account(AccountFailureReason),
+}
+
+/// Errors raised by role handlers.
+#[derive(Debug, Error)]
+#[non_exhaustive]
+pub enum RoleServiceError {
+    /// A handler input failed validation.
+    #[error("invalid input: {0}")]
+    InvalidInput(String),
+    /// The underlying store layer raised an error.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+    /// A taxonomy failure interface binaries map to a `{code, summary}`
+    /// error body.
+    #[error("role: {}", .0.code())]
+    Role(RoleFailureReason),
 }

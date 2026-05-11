@@ -10,6 +10,7 @@ mod check_profiles;
 mod check_secrets;
 mod check_test_hooks;
 mod check_tracing_init;
+mod web_role_contract;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -123,6 +124,13 @@ enum Command {
     /// `profiles/rust-cargo/architecture/openapi-generation.md`.
     #[command(name = "check-openapi-handcraft")]
     OpenapiHandcraft(RootArg),
+    /// Regenerate web role wire contracts consumed by the web UI and
+    /// Playwright-BDD role harness.
+    #[command(name = "generate-web-role-contracts")]
+    GenerateWebRoleContracts(RootArg),
+    /// Validate that the generated web role wire contract is current.
+    #[command(name = "check-web-role-contracts")]
+    CheckWebRoleContracts(RootArg),
 }
 
 fn main() -> Result<()> {
@@ -140,6 +148,8 @@ fn main() -> Result<()> {
         Command::Profiles(r) => check_profiles::run(&r.resolve()?),
         Command::OrphanTraits(r) => check_orphan_traits::run(&r.resolve()?),
         Command::OpenapiHandcraft(r) => check_openapi_handcraft::run(&r.resolve()?),
+        Command::GenerateWebRoleContracts(r) => web_role_contract::generate(&r.resolve()?),
+        Command::CheckWebRoleContracts(r) => web_role_contract::check(&r.resolve()?),
     }
 }
 

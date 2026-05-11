@@ -59,7 +59,7 @@ use tower_http::cors::CorsLayer;
 
 #[cfg(any(test, feature = "test-hooks"))]
 use crate::cookies::session_layer_with_secure;
-use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
+use crate::cookies::{CSRF_HEADER_NAME, SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
 
 pub use crate::errors::AccountFailureBody;
@@ -172,7 +172,11 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
             axum::http::Method::POST,
             axum::http::Method::OPTIONS,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::HeaderName::from_static(CSRF_HEADER_NAME),
+        ])
         .allow_credentials(true);
 
     let (router, api) = build_router(state).split_for_parts();
@@ -252,7 +256,11 @@ pub async fn build_app_with_store(
             axum::http::Method::POST,
             axum::http::Method::OPTIONS,
         ])
-        .allow_headers([header::CONTENT_TYPE, header::AUTHORIZATION])
+        .allow_headers([
+            header::CONTENT_TYPE,
+            header::AUTHORIZATION,
+            header::HeaderName::from_static(CSRF_HEADER_NAME),
+        ])
         .allow_credentials(true);
 
     let (router, api) = build_router(state).split_for_parts();

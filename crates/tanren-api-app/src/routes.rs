@@ -11,9 +11,15 @@ use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use std::sync::LazyLock;
 use tanren_app_services::Handlers;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountView, ApplyRoleRequest, ApplyRoleResponse, CreateRoleRequest,
+    CreateRoleResponse, DeleteRoleRequest, DeleteRoleResponse, EditRoleRequest, EditRoleResponse,
+    PermissionCheckRequest, PermissionCheckResponse, PermissionGrantCursorView,
+    PermissionGrantView, RoleAdminCapabilities, RoleFailureBody, RoleFailureReason,
+    RoleReadModelFreshness, RoleReadModelRequest, RoleReadModelResponse, RoleTemplateCursorView,
+    RoleTemplateView, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -24,6 +30,8 @@ use utoipa_axum::routes;
 use crate::AppState;
 use crate::cookies::{SessionWrite, install_cookie_session};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
+#[path = "routes_role.rs"]
+mod routes_role;
 
 /// Liveness response.
 #[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
@@ -46,6 +54,8 @@ pub struct SignUpResponseCookie {
     pub account: AccountView,
     /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
+    /// Double-submit CSRF token bound to this session.
+    pub csrf_token: String,
 }
 
 /// Cookie-transport projection of a sign-in response.
@@ -55,6 +65,8 @@ pub struct SignInResponseCookie {
     pub account: AccountView,
     /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
+    /// Double-submit CSRF token bound to this session.
+    pub csrf_token: String,
 }
 
 /// Cookie-transport projection of an invitation-acceptance response.
@@ -64,8 +76,19 @@ pub struct AcceptInvitationResponseCookie {
     pub account: AccountView,
     /// Cookie-projected session envelope.
     pub session: SessionEnvelope,
+    /// Double-submit CSRF token bound to this session.
+    pub csrf_token: String,
     /// Organization the new account joined.
     pub joined_org: OrgId,
+}
+
+/// Role capability metadata plus CSRF material for browser requests.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub(crate) struct RoleCapabilitiesResponse {
+    /// Capability snapshot for the authenticated actor.
+    pub capabilities: RoleAdminCapabilities,
+    /// CSRF token to echo in `x-csrf-token` on role-mutation POSTs.
+    pub csrf_token: String,
 }
 
 /// Path body for `POST /invitations/{token}/accept`. Splits the password
@@ -98,6 +121,13 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        routes_role::create_role_route,
+        routes_role::edit_role_route,
+        routes_role::delete_role_route,
+        routes_role::apply_role_route,
+        routes_role::permission_check_route,
+        routes_role::role_read_model_route,
+        routes_role::role_capabilities_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,13 +139,42 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        CreateRoleRequest,
+        CreateRoleResponse,
+        EditRoleRequest,
+        EditRoleResponse,
+        DeleteRoleRequest,
+        DeleteRoleResponse,
+        ApplyRoleRequest,
+        ApplyRoleResponse,
+        PermissionCheckRequest,
+        PermissionCheckResponse,
+        RoleReadModelRequest,
+        RoleReadModelResponse,
+        RoleReadModelFreshness,
+        RoleTemplateCursorView,
+        PermissionGrantCursorView,
+        RoleAdminCapabilities,
+        RoleCapabilitiesResponse,
+        RoleTemplateView,
+        PermissionGrantView,
+        RoleFailureBody,
+        RoleFailureReason,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "roles", description = "Role templates and permission checks."),
     )
 )]
 pub(crate) struct ApiDoc;
+
+/// Cached `OpenAPI` document for this process.
+///
+/// Building the document walks every registered path/schema and is
+/// startup-only work; caching avoids rebuilding it on each app bootstrap
+/// in test harnesses that repeatedly construct routers.
+static OPENAPI_DOC: LazyLock<utoipa::openapi::OpenApi> = LazyLock::new(ApiDoc::openapi);
 
 /// Liveness probe.
 #[utoipa::path(
@@ -161,11 +220,12 @@ pub(crate) async fn sign_up_route(
                 expires_at: response.session.expires_at,
             };
             match install_cookie_session(&session, &write).await {
-                Ok(()) => (
+                Ok(csrf_token) => (
                     StatusCode::CREATED,
                     Json(SignUpResponseCookie {
                         account: response.account,
                         session: SessionEnvelope::cookie(&response.session),
+                        csrf_token,
                     }),
                 )
                     .into_response(),
@@ -200,11 +260,12 @@ pub(crate) async fn sign_in_route(
                 expires_at: response.session.expires_at,
             };
             match install_cookie_session(&session, &write).await {
-                Ok(()) => (
+                Ok(csrf_token) => (
                     StatusCode::OK,
                     Json(SignInResponseCookie {
                         account: response.account,
                         session: SessionEnvelope::cookie(&response.session),
+                        csrf_token,
                     }),
                 )
                     .into_response(),
@@ -267,11 +328,12 @@ pub(crate) async fn accept_invitation_route(
                 expires_at: response.session.expires_at,
             };
             match install_cookie_session(&session, &write).await {
-                Ok(()) => (
+                Ok(csrf_token) => (
                     StatusCode::CREATED,
                     Json(AcceptInvitationResponseCookie {
                         account: response.account,
                         session: SessionEnvelope::cookie(&response.session),
+                        csrf_token,
                         joined_org: response.joined_org,
                     }),
                 )
@@ -314,11 +376,18 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
 /// same module as the `#[utoipa::path]`-annotated handlers, so the
 /// router constructor lives here too.
 pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
-    OpenApiRouter::with_openapi(ApiDoc::openapi())
+    OpenApiRouter::with_openapi(OPENAPI_DOC.clone())
         .routes(routes!(health_route))
         .routes(routes!(sign_up_route))
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(routes_role::create_role_route))
+        .routes(routes!(routes_role::edit_role_route))
+        .routes(routes!(routes_role::delete_role_route))
+        .routes(routes!(routes_role::apply_role_route))
+        .routes(routes!(routes_role::permission_check_route))
+        .routes(routes!(routes_role::role_read_model_route))
+        .routes(routes!(routes_role::role_capabilities_route))
         .with_state(state)
 }

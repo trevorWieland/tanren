@@ -65,6 +65,11 @@ pedantic = { level = "warn", priority = -1 }
 unwrap_used = "deny"
 panic = "deny"
 todo = "deny"
+
+# Test-infra overrides: PTY harness needs many parameters and
+# retains self for future per-driver state expansion.
+unused_self = "allow"
+too_many_arguments = "allow"
 dbg_macro = "deny"
 print_stdout = "deny"
 print_stderr = "deny"
@@ -276,4 +281,5 @@ utoipa-axum = "0.2"
 # version. Currently consumed only by `tanren-testkit` behind the
 # `test-hooks` feature.
 expectrl = "0.7"
+portable-pty = "0.8"
 regex = "1"

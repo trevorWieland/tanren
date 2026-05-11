@@ -18,8 +18,10 @@ use reqwest::Client;
 use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, RoleFailureReason, SignInRequest,
+    SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -29,11 +31,15 @@ use super::{
     HarnessSession,
 };
 
+mod role;
+
 /// `@api` wire harness.
 pub struct ApiHarness {
     base_url: String,
     client: Client,
     store: Arc<Store>,
+    role_actor: Option<AccountId>,
+    csrf_token: Option<String>,
     server: Option<JoinHandle<()>>,
     /// `SQLite` file path; deleted on drop.
     db_path: PathBuf,
@@ -103,6 +109,8 @@ impl ApiHarness {
             base_url,
             client,
             store,
+            role_actor: None,
+            csrf_token: None,
             server: Some(server),
             db_path,
         })
@@ -153,6 +161,10 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
+        self.csrf_token = json
+            .get("csrf_token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
         let expires_at = json["session"]["expires_at"]
@@ -166,6 +178,7 @@ impl AccountHarness for ApiHarness {
             expires_at,
             has_token: cookies_set,
         })
+        .inspect(|session| self.role_actor = Some(session.account_id))
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -195,6 +208,10 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
+        self.csrf_token = json
+            .get("csrf_token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
         let expires_at = json["session"]["expires_at"]
@@ -208,6 +225,7 @@ impl AccountHarness for ApiHarness {
             expires_at,
             has_token: cookies_set,
         })
+        .inspect(|session| self.role_actor = Some(session.account_id))
     }
 
     async fn accept_invitation(
@@ -243,6 +261,10 @@ impl AccountHarness for ApiHarness {
         if !status.is_success() {
             return Err(failure_from_body(&json));
         }
+        self.csrf_token = json
+            .get("csrf_token")
+            .and_then(Value::as_str)
+            .map(ToOwned::to_owned);
         let account: AccountView = serde_json::from_value(json["account"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode account: {e}")))?;
         let expires_at = json["session"]["expires_at"]
@@ -261,6 +283,7 @@ impl AccountHarness for ApiHarness {
             },
             joined_org,
         })
+        .inspect(|acceptance| self.role_actor = Some(acceptance.session.account_id))
     }
 
     async fn accept_invitations_concurrent(
@@ -370,6 +393,16 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn drain(&mut self) {
+        // Abort the spawned API server and await its shutdown so
+        // the axum app (holding an Arc<Store> clone) drops before
+        // the next scenario's migration runs.
+        if let Some(handle) = self.server.take() {
+            handle.abort();
+            let _ = handle.await;
+        }
+    }
 }
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
@@ -386,7 +419,7 @@ pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
     format!("sqlite://{}?mode=rwc", path.display())
 }
 
-fn sign_up_body(req: &SignUpRequest) -> Value {
+pub(crate) fn sign_up_body(req: &SignUpRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -395,7 +428,7 @@ fn sign_up_body(req: &SignUpRequest) -> Value {
     })
 }
 
-fn sign_in_body(req: &SignInRequest) -> Value {
+pub(crate) fn sign_in_body(req: &SignInRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -403,7 +436,7 @@ fn sign_in_body(req: &SignInRequest) -> Value {
     })
 }
 
-fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
+pub(crate) fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -438,6 +471,17 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_not_found" => AccountFailureReason::InvitationNotFound,
         "invitation_expired" => AccountFailureReason::InvitationExpired,
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
+        _ => return None,
+    })
+}
+
+pub(crate) fn role_code_to_reason(code: &str) -> Option<RoleFailureReason> {
+    Some(match code {
+        "validation_failed" => RoleFailureReason::ValidationFailed,
+        "not_found" => RoleFailureReason::NotFound,
+        "conflict" => RoleFailureReason::Conflict,
+        "permission_denied" => RoleFailureReason::PermissionDenied,
+        "role_as_principal_rejected" => RoleFailureReason::RoleAsPrincipalRejected,
         _ => return None,
     })
 }

@@ -23,9 +23,16 @@ use clap::{Parser, Subcommand};
 use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store};
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{Email, InvitationToken};
+use tanren_identity_policy::{AccountId, Email, InvitationToken};
 
 const SESSION_FILE_ENV: &str = "TANREN_SESSION_FILE";
+mod role;
+
+#[derive(Debug, serde::Serialize, serde::Deserialize)]
+struct PersistedSession {
+    account_id: AccountId,
+    token: String,
+}
 
 /// Top-level CLI shape. Equivalent to the historical `Cli` struct in
 /// `bin/tanren-cli/src/main.rs`; renamed to `Config` so it lines up with
@@ -63,6 +70,11 @@ enum Command {
     Account {
         #[command(subcommand)]
         action: AccountAction,
+    },
+    /// Role-template and permission-evaluation flow.
+    Role {
+        #[command(subcommand)]
+        action: role::RoleAction,
     },
 }
 
@@ -122,6 +134,7 @@ pub fn run(config: Config) -> ExitCode {
             action: MigrateAction::Up { database_url },
         }) => run_migrate_up(&database_url),
         Some(Command::Account { action }) => dispatch_account(action),
+        Some(Command::Role { action }) => role::dispatch(action),
     };
     match result {
         Ok(()) => ExitCode::SUCCESS,
@@ -202,7 +215,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
                         )
                         .await
                         .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
+                    persist_session(response.account.id, response.session.token.expose_secret())?;
                     let stdout = std::io::stdout();
                     let mut handle = stdout.lock();
                     writeln!(
@@ -228,7 +241,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
                         )
                         .await
                         .map_err(account_error)?;
-                    persist_session(response.session.token.expose_secret())?;
+                    persist_session(response.account.id, response.session.token.expose_secret())?;
                     let stdout = std::io::stdout();
                     let mut handle = stdout.lock();
                     writeln!(
@@ -256,7 +269,7 @@ async fn run_account(action: AccountAction) -> Result<()> {
                 .sign_in(&store, SignInRequest { email, password })
                 .await
                 .map_err(account_error)?;
-            persist_session(response.session.token.expose_secret())?;
+            persist_session(response.account.id, response.session.token.expose_secret())?;
             let stdout = std::io::stdout();
             let mut handle = stdout.lock();
             writeln!(
@@ -307,12 +320,30 @@ fn session_path() -> PathBuf {
     base.join("tanren").join("session")
 }
 
-fn persist_session(token: &str) -> Result<()> {
+fn persist_session(account_id: AccountId, token: &str) -> Result<()> {
     let path = session_path();
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent)
             .with_context(|| format!("create session dir {}", parent.display()))?;
     }
-    fs::write(&path, token).with_context(|| format!("write session to {}", path.display()))?;
+    let encoded = serde_json::to_vec(&PersistedSession {
+        account_id,
+        token: token.to_owned(),
+    })
+    .context("encode session file payload")?;
+    fs::write(&path, encoded).with_context(|| format!("write session to {}", path.display()))?;
     Ok(())
+}
+
+pub(crate) fn read_authenticated_actor() -> Result<AccountId> {
+    let path = session_path();
+    let contents = fs::read_to_string(&path)
+        .with_context(|| format!("read session file {}", path.display()))?;
+    if let Ok(decoded) = serde_json::from_str::<PersistedSession>(&contents) {
+        return Ok(decoded.account_id);
+    }
+    Err(anyhow::anyhow!(
+        "session file {} is missing authenticated actor context; sign in again",
+        path.display()
+    ))
 }

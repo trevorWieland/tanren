@@ -14,11 +14,14 @@ use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, Session, SessionManagerLayer};
 use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
+use uuid::Uuid;
 
 const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
+const SESSION_KEY_CSRF: &str = "csrf_token";
+pub(crate) const CSRF_HEADER_NAME: &str = "x-csrf-token";
 
 /// `(account_id, expires_at)` projection of a freshly minted session.
 /// All three account-flow handlers pass this into
@@ -32,7 +35,11 @@ pub(crate) struct SessionWrite {
 /// Insert the account id and expiry into the tower-sessions row backing
 /// this request. The cookie carrying the opaque session id is set by
 /// the middleware on response — we just write the data.
-pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWrite) -> Result<()> {
+pub(crate) async fn install_cookie_session(
+    session: &Session,
+    write: &SessionWrite,
+) -> Result<String> {
+    let csrf_token = Uuid::new_v4().to_string();
     session
         .insert(SESSION_KEY_ACCOUNT, write.account_id)
         .await
@@ -41,7 +48,25 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .insert(SESSION_KEY_EXPIRES, write.expires_at)
         .await
         .context("insert expires_at into session")?;
-    Ok(())
+    session
+        .insert(SESSION_KEY_CSRF, csrf_token.clone())
+        .await
+        .context("insert csrf token into session")?;
+    Ok(csrf_token)
+}
+
+pub(crate) async fn session_account_id(session: &Session) -> Result<Option<AccountId>> {
+    session
+        .get(SESSION_KEY_ACCOUNT)
+        .await
+        .context("read account_id from session")
+}
+
+pub(crate) async fn session_csrf_token(session: &Session) -> Result<Option<String>> {
+    session
+        .get(SESSION_KEY_CSRF)
+        .await
+        .context("read csrf token from session")
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships

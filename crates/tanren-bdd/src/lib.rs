@@ -13,12 +13,14 @@
 pub mod steps;
 
 use cucumber::World as CucumberWorld;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::PermissionCheckResponse;
+use tanren_identity_policy::{AccountId, PermissionGrantId, RoleScope, ScopedRole};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    InProcessHarness, McpHarness, RoleHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -61,11 +63,13 @@ impl TanrenWorld {
 /// state lives inside the harness implementation.
 pub struct AccountContext {
     /// Active wire harness for the current scenario.
-    pub harness: Box<dyn AccountHarness>,
+    pub harness: Box<dyn ScenarioHarness>,
     /// Registry of actors by display name.
     pub actors: HashMap<String, ActorState>,
     /// The most recent action's outcome.
     pub last_outcome: Option<HarnessOutcome>,
+    /// Role-proof scenario state.
+    pub role: RoleScenarioState,
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
@@ -76,6 +80,7 @@ impl std::fmt::Debug for AccountContext {
         f.debug_struct("AccountContext")
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
+            .field("role_active", &self.role.active_role.is_some())
             .field("invitations", &self.invitations)
             .field(
                 "last_outcome",
@@ -99,7 +104,7 @@ impl AccountContext {
     /// so it surfaces during the first step rather than blocking
     /// scenario discovery.
     pub async fn new_for(kind: HarnessKind) -> Self {
-        let harness: Box<dyn AccountHarness> = match kind {
+        let harness: Box<dyn ScenarioHarness> = match kind {
             HarnessKind::InProcess => Box::new(
                 InProcessHarness::new(kind)
                     .await
@@ -109,18 +114,49 @@ impl AccountContext {
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
+            // WebHarness drives real HTTP against the API server (cookie session + CSRF).
+            // Full browser-rendering verification lives in the Playwright suite.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
             harness,
             actors: HashMap::new(),
             last_outcome: None,
+            role: RoleScenarioState::default(),
             invitations: HashSet::new(),
         }
     }
+}
+
+/// Combined BDD harness trait for scenarios that exercise both account
+/// and role flows.
+pub trait ScenarioHarness: AccountHarness + RoleHarness {}
+
+impl<T> ScenarioHarness for T where T: AccountHarness + RoleHarness {}
+
+/// Mutable role-proof state tracked per scenario.
+#[derive(Debug, Default)]
+pub struct RoleScenarioState {
+    /// Scope used for role-template operations in this scenario.
+    pub scope: Option<RoleScope>,
+    /// Active role template under test.
+    pub active_role: Option<ScopedRole>,
+    /// Stable account principals keyed by scenario alias.
+    pub principals: HashMap<String, AccountId>,
+    /// Last role failure code observed.
+    pub last_error_code: Option<String>,
+    /// Last permission-check response observed.
+    pub last_permission_check: Option<PermissionCheckResponse>,
+    /// Direct-grant ids observed for each principal alias by permission.
+    pub grant_ids_by_alias: HashMap<String, BTreeMap<String, PermissionGrantId>>,
+    /// Apply snapshots observed per principal alias.
+    pub apply_grant_snapshots: HashMap<String, Vec<BTreeMap<String, PermissionGrantId>>>,
+    /// Raw transcript text from the most recent TUI role operation.
+    /// Populated only for `@tui` scenarios; `None` for all other
+    /// interfaces.  BDD steps assert against this to verify
+    /// transport-boundary output rather than relying only on
+    /// in-memory harness state.
+    pub last_role_transcript: Option<String>,
 }
 
 fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
@@ -142,6 +178,16 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
             let tags = scenario.tags.clone();
             Box::pin(async move {
                 world.install_harness_for_tags(tags).await;
+            })
+        })
+        .after(|_feature, _rule, _scenario, _event, world| {
+            Box::pin(async move {
+                if let Some(world) = world {
+                    if let Some(mut account) = world.account.take() {
+                        account.harness.drain().await;
+                        drop(account);
+                    }
+                }
             })
         })
         .fail_on_skipped()
@@ -169,5 +215,14 @@ mod tests {
             account: None,
         };
         assert_eq!(world.seed.value(), 42);
+    }
+
+    #[tokio::test]
+    async fn store_rejects_role_principal_for_direct_apply_paths() {
+        let result = tanren_testkit::verify_store_rejects_role_principal_apply().await;
+        assert!(
+            result.is_ok(),
+            "store regression witness failed: {result:?}"
+        );
     }
 }

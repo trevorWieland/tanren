@@ -25,8 +25,11 @@ use axum::http::StatusCode;
 use axum::routing::post;
 use chrono::{DateTime, Utc};
 use serde::Deserialize;
-use tanren_identity_policy::{InvitationToken, OrgId};
-use tanren_store::{NewInvitation, Store};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleId,
+    RoleName, RoleScope,
+};
+use tanren_store::{ApplyRole, NewInvitation, NewRole, RoleStore, Store};
 use uuid::Uuid;
 
 /// Request body for `POST /test-hooks/invitations`.
@@ -44,6 +47,17 @@ pub(crate) struct SeedInvitationBody {
     /// Wall-clock expiry instant in ISO 8601. May be in the past for
     /// expired-invitation falsification scenarios.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Request body for `POST /test-hooks/role-admin-grants`.
+#[derive(Debug, Deserialize)]
+pub(crate) struct SeedRoleAdminGrantsBody {
+    /// Authenticated actor account id receiving seeded role-admin grants.
+    pub actor_account_id: AccountId,
+    /// Role scope used for the temporary bootstrap role.
+    pub scope: RoleScope,
+    /// Permission names to include in the bootstrap role.
+    pub permissions: Vec<String>,
 }
 
 pub(crate) async fn seed_invitation_route(
@@ -64,10 +78,62 @@ pub(crate) async fn seed_invitation_route(
     Ok(StatusCode::CREATED)
 }
 
+pub(crate) async fn seed_role_admin_grants_route(
+    State(store): State<Arc<Store>>,
+    Json(body): Json<SeedRoleAdminGrantsBody>,
+) -> Result<StatusCode, (StatusCode, String)> {
+    if body.permissions.is_empty() {
+        return Ok(StatusCode::CREATED);
+    }
+    let permissions = body
+        .permissions
+        .into_iter()
+        .map(|permission| PermissionName::parse(&permission).map_err(|err| err.to_string()))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(|err| (StatusCode::BAD_REQUEST, err))?;
+    let now = Utc::now();
+    let role = store
+        .create_role(NewRole {
+            id: RoleId::fresh(),
+            scope: body.scope,
+            name: RoleName::parse("bdd-role-admin-bootstrap")
+                .expect("test-hook role name literal must parse"),
+            permissions,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    let grant_scope = match role.scope {
+        RoleScope::Account { account_id } => PermissionScope::Account { account_id },
+        RoleScope::Organization { org_id } => PermissionScope::Organization { org_id },
+        RoleScope::Project { project_id } => PermissionScope::Project { project_id },
+    };
+    store
+        .apply_role(ApplyRole {
+            role: role.scoped_role(),
+            principal: PrincipalRef::Account {
+                account_id: body.actor_account_id,
+            },
+            grant_scope,
+            granted_by: PrincipalRef::Account {
+                account_id: body.actor_account_id,
+            },
+            granted_at: now,
+        })
+        .await
+        .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
+    Ok(StatusCode::CREATED)
+}
+
 /// Build the `/test-hooks/*` router. The state is the shared
 /// `Arc<Store>` already constructed by `build_app` / `build_app_with_store`.
 pub(crate) fn router(store: Arc<Store>) -> Router {
     Router::new()
         .route("/test-hooks/invitations", post(seed_invitation_route))
+        .route(
+            "/test-hooks/role-admin-grants",
+            post(seed_role_admin_grants_route),
+        )
         .with_state(store)
 }

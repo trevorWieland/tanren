@@ -4,7 +4,7 @@ id: B-0038
 title: Manage roles as permission templates
 area: governance
 personas: [team-builder]
-interfaces: [web, api, mcp, cli, tui]
+interfaces: [api, mcp, cli, tui]
 contexts: [personal, organizational]
 product_status: accepted
 verification_status: unimplemented
@@ -26,6 +26,9 @@ each time.
 ## Observable outcomes
 
 - The user can define a role with a name and a set of permissions it bundles.
+- A role template permission bundle accepts at most 64 permissions; larger
+  bundles are rejected with `validation_failed`.
+- Empty role-template bundles are rejected with `validation_failed`.
 - Roles can exist at the project level (scoped to one project) or at the
   organization level (available across all projects in the organization).
 - Applying a role to a person grants the role's permissions as individual

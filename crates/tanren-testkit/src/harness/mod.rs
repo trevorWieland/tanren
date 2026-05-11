@@ -16,56 +16,43 @@
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
 //!
-//! ## Status of each harness (PR 9)
-//!
-//! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
-//!   on an ephemeral port, drives via `reqwest::Client` with
-//!   `cookie_store(true)`. The "session token received" check passes
-//!   when the cookie jar contains a `tanren_session` cookie OR the
-//!   response body returned a bearer token.
-//! - `@cli` — full impl. Spawns the `tanren-cli` binary via
-//!   `tokio::process::Command` against a shared `SQLite` file. Parses
-//!   the `account_id=... session=...` stdout shape.
-//! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
-//!   on an ephemeral port and drives the three account-flow tools via
-//!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
-//!   parallel Node-side Playwright harness for the same `@web` Gherkin
-//!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
-//! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
-//!   dispatch on an ephemeral `SQLite` store).
-
 mod api;
 mod cli;
 mod in_process;
 mod mcp;
+mod role_utils;
 mod tui;
+mod tui_binary;
+mod tui_codec;
+mod tui_driver;
+mod tui_errors;
+mod tui_screen;
 mod web;
-
-use std::collections::HashMap;
-use std::time::Duration;
 
 use anyhow::Result;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
+use std::collections::HashMap;
+use std::time::Duration;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView, ApplyRoleRequest,
+    ApplyRoleResponse, CreateRoleRequest, CreateRoleResponse, DeleteRoleRequest,
+    DeleteRoleResponse, EditRoleRequest, EditRoleResponse, PermissionCheckRequest,
+    PermissionCheckResponse, PermissionGrantView, RoleFailureReason, RoleTemplateView,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
-use tanren_store::EventEnvelope;
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionName, PermissionScope, PrincipalRef, RoleId,
+    RoleName, RoleScope, ScopedRole,
+};
+use tanren_store::{ApplyRole, EventEnvelope, NewRole, RoleStore};
 
 pub use api::ApiHarness;
 pub use cli::CliHarness;
 pub use in_process::InProcessHarness;
 pub use mcp::McpHarness;
+pub(crate) use role_utils::{permission_grant_view, read_all_direct_grants, role_template_view};
 pub use tui::TuiHarness;
 pub use web::WebHarness;
 
@@ -84,8 +71,7 @@ pub enum HarnessKind {
     /// Spawns the `tanren-mcp` server on an ephemeral port; rmcp
     /// streamable-HTTP client.
     Mcp,
-    /// Drives the `tanren-tui` binary inside a pty (deferred — falls
-    /// back to in-process for PR 9).
+    /// Drives the `tanren-tui` binary inside a pseudo-terminal.
     Tui,
     /// Drives the web frontend via Playwright (deferred to PR 11 —
     /// falls back to in-process).
@@ -174,6 +160,117 @@ impl HarnessError {
 /// Convenient alias for harness fallibility.
 pub type HarnessResult<T> = Result<T, HarnessError>;
 
+/// Role-harness failure surface.
+#[derive(Debug, thiserror::Error)]
+pub enum RoleHarnessError {
+    /// Role taxonomy failure with stable `code`.
+    #[error("{0:?}: {1}")]
+    Role(RoleFailureReason, String),
+    /// Non-taxonomy failure (transport, parse, connection, etc.).
+    #[error("transport: {0}")]
+    Transport(String),
+}
+
+impl RoleHarnessError {
+    /// Project wire `code` for this role failure.
+    #[must_use]
+    pub fn code(&self) -> String {
+        match self {
+            Self::Role(reason, _) => reason.code().to_owned(),
+            Self::Transport(_) => "transport_error".to_owned(),
+        }
+    }
+}
+
+/// Convenient alias for role-harness fallibility.
+pub type RoleHarnessResult<T> = Result<T, RoleHarnessError>;
+
+/// Seed fixture for inserting role templates directly into harness
+/// proof-state storage.
+#[derive(Debug, Clone)]
+pub struct HarnessRoleTemplate {
+    /// Stable role id to insert.
+    pub id: RoleId,
+    /// Role scope.
+    pub scope: RoleScope,
+    /// Role display name.
+    pub name: RoleName,
+    /// Permission bundle.
+    pub permissions: Vec<PermissionName>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last-updated timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl HarnessRoleTemplate {
+    /// Projection for request-driven interfaces that require a scoped role id.
+    #[must_use]
+    pub fn scoped_role(&self) -> ScopedRole {
+        ScopedRole {
+            role_id: self.id,
+            scope: self.scope,
+        }
+    }
+}
+
+/// Role methods available on wire harnesses.
+#[async_trait]
+pub trait RoleHarness: Send + std::fmt::Debug {
+    /// Create a role template.
+    async fn create_role(
+        &mut self,
+        req: CreateRoleRequest,
+    ) -> RoleHarnessResult<CreateRoleResponse>;
+    /// Edit a role template.
+    async fn edit_role(&mut self, req: EditRoleRequest) -> RoleHarnessResult<EditRoleResponse>;
+    /// Delete a role template.
+    async fn delete_role(
+        &mut self,
+        req: DeleteRoleRequest,
+    ) -> RoleHarnessResult<DeleteRoleResponse>;
+    /// Apply a role template.
+    async fn apply_role(&mut self, req: ApplyRoleRequest) -> RoleHarnessResult<ApplyRoleResponse>;
+    /// Check permission.
+    async fn check_permission(
+        &mut self,
+        req: PermissionCheckRequest,
+    ) -> RoleHarnessResult<PermissionCheckResponse>;
+    /// Seed a role-template fixture.
+    async fn seed_role_template(&mut self, fixture: HarnessRoleTemplate) -> RoleHarnessResult<()>;
+    /// Seed role-admin grants for the authenticated actor.
+    async fn seed_role_admin_for_authenticated_actor(
+        &mut self,
+        scope: RoleScope,
+        permissions: Vec<PermissionName>,
+    ) -> RoleHarnessResult<()>;
+    /// Read one role-template snapshot.
+    async fn read_role_template(
+        &self,
+        role: ScopedRole,
+    ) -> RoleHarnessResult<Option<RoleTemplateView>>;
+    /// Read all direct grants for a principal.
+    async fn read_direct_grants(
+        &self,
+        principal: PrincipalRef,
+    ) -> RoleHarnessResult<Vec<PermissionGrantView>>;
+    /// Apply the same role request `count` times concurrently (default serial).
+    async fn apply_role_concurrent(
+        &mut self,
+        req: ApplyRoleRequest,
+        count: usize,
+    ) -> Vec<RoleHarnessResult<ApplyRoleResponse>> {
+        let mut v = Vec::with_capacity(count);
+        for _ in 0..count {
+            v.push(self.apply_role(req.clone()).await);
+        }
+        v
+    }
+    #[must_use]
+    fn last_transcript_text(&self) -> Option<String> {
+        None
+    }
+}
 /// Specification for an invitation seeded into the harness's backing
 /// store. Per-harness implementations translate this into the shape
 /// their underlying `Store` requires.
@@ -186,7 +283,6 @@ pub struct HarnessInvitation {
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
 }
-
 /// Per-interface seam used by the BDD step-definition crate. Every
 /// implementation drives the matching real surface end-to-end: api
 /// scenarios go through reqwest, cli scenarios through subprocess,
@@ -198,10 +294,8 @@ pub struct HarnessInvitation {
 pub trait AccountHarness: Send + std::fmt::Debug {
     /// Identifier for diagnostic output.
     fn kind(&self) -> HarnessKind;
-
     /// Self-signup against the underlying surface.
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession>;
-
     /// Sign-in against the underlying surface.
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession>;
 
@@ -232,14 +326,16 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         }
         out
     }
-
     /// Seed a fresh invitation into the harness's backing store.
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()>;
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
-}
 
+    /// Release spawned servers, terminal children, and store handles
+    /// before the next scenario starts. Called from the `After` hook.
+    async fn drain(&mut self) {}
+}
 /// Default short-window timeout used by the wire harnesses.
 pub(crate) const HARNESS_DEFAULT_TIMEOUT: Duration = Duration::from_secs(15);
 
@@ -313,6 +409,49 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
     }
 }
 
+pub(crate) async fn seed_role_admin_grants<S>(
+    store: &S,
+    actor: AccountId,
+    scope: RoleScope,
+    permissions: Vec<PermissionName>,
+) -> RoleHarnessResult<()>
+where
+    S: RoleStore + ?Sized,
+{
+    if permissions.is_empty() {
+        return Ok(());
+    }
+    let now = Utc::now();
+    let role = store
+        .create_role(NewRole {
+            id: RoleId::fresh(),
+            scope,
+            name: RoleName::parse("bdd-role-admin-bootstrap")
+                .expect("bdd bootstrap role name literal must parse"),
+            permissions,
+            created_at: now,
+            updated_at: now,
+        })
+        .await
+        .map_err(|e| RoleHarnessError::Transport(format!("seed_role_admin/create_role: {e}")))?;
+    let grant_scope = match role.scope {
+        RoleScope::Account { account_id } => PermissionScope::Account { account_id },
+        RoleScope::Organization { org_id } => PermissionScope::Organization { org_id },
+        RoleScope::Project { project_id } => PermissionScope::Project { project_id },
+    };
+    store
+        .apply_role(ApplyRole {
+            role: role.scoped_role(),
+            principal: PrincipalRef::Account { account_id: actor },
+            grant_scope,
+            granted_by: PrincipalRef::Account { account_id: actor },
+            granted_at: now,
+        })
+        .await
+        .map_err(|e| RoleHarnessError::Transport(format!("seed_role_admin/apply_role: {e}")))?;
+    Ok(())
+}
+
 /// Filter `recent_events` rows by their `payload.kind` field — the
 /// shape the existing `Then a "<kind>" event is recorded` step
 /// asserts on.
@@ -353,7 +492,6 @@ impl ConcurrentAcceptanceTally {
             Err(HarnessError::Transport(msg)) => self.other.push(msg),
         }
     }
-
     /// Number of failures matching `code`.
     #[must_use]
     pub fn failures_with_code(&self, code: &str) -> usize {

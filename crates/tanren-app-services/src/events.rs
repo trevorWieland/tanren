@@ -9,12 +9,22 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_contract::{AccountFailureReason, RoleFailureReason};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, PermissionGrantId, PermissionName, PermissionScope,
+    PrincipalRef, RoleName, ScopedRole,
+};
+use tanren_store::{
+    PermissionGrantRecord, RoleApplyEventBuilder, RoleDeleteEventBuilder, RoleRecord,
+    RoleRecordEventBuilder,
+};
 
 /// Tag on the JSON envelope that disambiguates account events from
 /// future event families.
 pub const EVENT_FAMILY: &str = "account";
+/// Tag on the JSON envelope that disambiguates role events from other
+/// event families.
+pub const ROLE_EVENT_FAMILY: &str = "role";
 
 /// Closed taxonomy of account-flow event kinds.
 ///
@@ -131,9 +141,200 @@ pub struct InvitationAcceptFailed {
 /// Encode a typed event as the JSON envelope persisted in the event log.
 #[must_use]
 pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json::Value {
+    envelope_with_family(EVENT_FAMILY, kind.as_str(), payload)
+}
+
+/// Role lifecycle event labels.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RoleKind {
+    /// A new role template was created.
+    Created,
+    /// An existing role template was edited.
+    Edited,
+    /// A role template was deleted.
+    Deleted,
+    /// A role template was applied to a principal.
+    Applied,
+    /// A direct permission grant was revoked.
+    GrantRevoked,
+    /// Authorization check rejected because principal was a role id.
+    AuthorizationPrincipalRejected,
+}
+
+impl RoleKind {
+    /// Stable wire `kind` string.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Created => "role_created",
+            Self::Edited => "role_edited",
+            Self::Deleted => "role_deleted",
+            Self::Applied => "role_applied",
+            Self::GrantRevoked => "permission_grant_revoked",
+            Self::AuthorizationPrincipalRejected => "authorization_principal_rejected",
+        }
+    }
+}
+
+/// A role template was created.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleCreated {
+    /// Role identifier and scope.
+    pub role: ScopedRole,
+    /// Role template name.
+    pub name: RoleName,
+    /// Permission bundle captured at creation.
+    pub permissions: Vec<PermissionName>,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// A role template was edited.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleEdited {
+    /// Role identifier and scope.
+    pub role: ScopedRole,
+    /// Replacement role template name.
+    pub name: RoleName,
+    /// Replacement permission bundle.
+    pub permissions: Vec<PermissionName>,
+    /// Wall-clock edit time.
+    pub edited_at: DateTime<Utc>,
+}
+
+/// A role template was deleted.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleDeleted {
+    /// Deleted role identifier and scope.
+    pub role: ScopedRole,
+    /// Wall-clock deletion time.
+    pub deleted_at: DateTime<Utc>,
+}
+
+/// A role template was applied to a principal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RoleApplied {
+    /// Applied role identifier and scope.
+    pub role: ScopedRole,
+    /// Principal that received direct grants.
+    pub principal: PrincipalRef,
+    /// Scope where direct grants were written.
+    pub grant_scope: PermissionScope,
+    /// Stable ids of grants returned by apply-role.
+    pub grant_ids: Vec<PermissionGrantId>,
+    /// Permissions snapshot applied during this operation.
+    pub permissions: Vec<PermissionName>,
+    /// Wall-clock apply time.
+    pub applied_at: DateTime<Utc>,
+}
+
+/// A direct permission grant was revoked.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionGrantRevoked {
+    /// Stable grant identifier.
+    pub grant_id: PermissionGrantId,
+    /// Principal the grant belongs to.
+    pub principal: PrincipalRef,
+    /// Scope the grant was evaluated in.
+    pub grant_scope: PermissionScope,
+    /// Permission that was revoked.
+    pub permission: PermissionName,
+    /// Actor that revoked the grant.
+    pub revoked_by: PrincipalRef,
+    /// Wall-clock revocation time.
+    pub revoked_at: DateTime<Utc>,
+}
+
+/// An authorization check was rejected for role-as-principal.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuthorizationPrincipalRejected {
+    /// Rejected principal.
+    pub principal: PrincipalRef,
+    /// Permission that was requested.
+    pub permission: PermissionName,
+    /// Scope where permission was requested.
+    pub scope: PermissionScope,
+    /// Rejection reason.
+    pub reason: RoleFailureReason,
+    /// Wall-clock rejection time.
+    pub at: DateTime<Utc>,
+}
+
+/// Encode a typed role event as the JSON envelope persisted in the event log.
+#[must_use]
+pub fn role_envelope<T: Serialize>(kind: RoleKind, payload: &T) -> serde_json::Value {
+    envelope_with_family(ROLE_EVENT_FAMILY, kind.as_str(), payload)
+}
+
+pub fn role_created_event_builder() -> RoleRecordEventBuilder {
+    Box::new(|role: &RoleRecord| {
+        role_envelope(
+            RoleKind::Created,
+            &RoleCreated {
+                role: role.scoped_role(),
+                name: role.name.clone(),
+                permissions: role.permissions.clone(),
+                created_at: role.created_at,
+            },
+        )
+    })
+}
+
+pub fn role_edited_event_builder() -> RoleRecordEventBuilder {
+    Box::new(|role: &RoleRecord| {
+        role_envelope(
+            RoleKind::Edited,
+            &RoleEdited {
+                role: role.scoped_role(),
+                name: role.name.clone(),
+                permissions: role.permissions.clone(),
+                edited_at: role.updated_at,
+            },
+        )
+    })
+}
+
+pub fn role_deleted_event_builder(role: ScopedRole, now: DateTime<Utc>) -> RoleDeleteEventBuilder {
+    Box::new(move || {
+        role_envelope(
+            RoleKind::Deleted,
+            &RoleDeleted {
+                role,
+                deleted_at: now,
+            },
+        )
+    })
+}
+
+pub fn role_applied_event_builder(
+    role: ScopedRole,
+    principal: PrincipalRef,
+    grant_scope: PermissionScope,
+    now: DateTime<Utc>,
+) -> RoleApplyEventBuilder {
+    Box::new(move |grants: &[PermissionGrantRecord]| {
+        role_envelope(
+            RoleKind::Applied,
+            &RoleApplied {
+                role,
+                principal,
+                grant_scope,
+                grant_ids: grants.iter().map(|grant| grant.id).collect::<Vec<_>>(),
+                permissions: grants
+                    .iter()
+                    .map(|grant| grant.permission.clone())
+                    .collect::<Vec<_>>(),
+                applied_at: now,
+            },
+        )
+    })
+}
+
+fn envelope_with_family<T: Serialize>(family: &str, kind: &str, payload: &T) -> serde_json::Value {
     serde_json::json!({
-        "family": EVENT_FAMILY,
-        "kind": kind.as_str(),
+        "family": family,
+        "kind": kind,
         "payload": payload,
     })
 }

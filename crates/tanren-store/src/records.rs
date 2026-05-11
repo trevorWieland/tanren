@@ -9,11 +9,18 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Identifier, InvitationToken, MembershipId, OrgId, PermissionGrantId,
+    PermissionGrantRevocation, PermissionGrantSource, PermissionName, PermissionScope,
+    PrincipalRef, RoleId, RoleName, RoleScope, ScopedRole, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{
+    StoreError, parse_db_identifier, parse_db_invitation_token,
+    parse_db_permission_grant_revocation, parse_db_permission_grant_source,
+    parse_db_permission_name, parse_db_permission_scope, parse_db_principal_ref,
+    parse_db_role_name, parse_db_role_scope,
+};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -136,6 +143,162 @@ impl From<entity::account_sessions::Model> for SessionRecord {
     }
 }
 
+/// Persisted role-template row with its permission bundle.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleRecord {
+    /// Stable role-template id.
+    pub id: RoleId,
+    /// Scope where the template is defined.
+    pub scope: RoleScope,
+    /// Human-readable template name.
+    pub name: RoleName,
+    /// Permissions bundled by this template.
+    pub permissions: Vec<PermissionName>,
+    /// Wall-clock time the role was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the role was last updated.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl RoleRecord {
+    pub(crate) fn from_parts(
+        role: entity::roles::Model,
+        permissions: Vec<PermissionName>,
+    ) -> Result<Self, StoreError> {
+        let mut record = Self::try_from(role)?;
+        record.permissions = permissions;
+        Ok(record)
+    }
+
+    /// Role identity paired with scope.
+    #[must_use]
+    pub fn scoped_role(&self) -> ScopedRole {
+        ScopedRole {
+            role_id: self.id,
+            scope: self.scope,
+        }
+    }
+}
+
+impl TryFrom<entity::roles::Model> for RoleRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::roles::Model) -> Result<Self, Self::Error> {
+        let scope = parse_db_role_scope(&model.scope_kind, model.scope_ref)?;
+        let name = parse_db_role_name(&model.name)?;
+        Ok(Self {
+            id: RoleId::new(model.id),
+            scope,
+            name,
+            permissions: Vec::new(),
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
+/// Persisted role-template permission row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RolePermissionRecord {
+    /// Role template id this permission belongs to.
+    pub role_id: RoleId,
+    /// Granted permission in the role template bundle.
+    pub permission: PermissionName,
+    /// Wall-clock time the permission row was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::role_permissions::Model> for RolePermissionRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::role_permissions::Model) -> Result<Self, Self::Error> {
+        let permission = parse_db_permission_name(&model.permission_name)?;
+        Ok(Self {
+            role_id: RoleId::new(model.role_id),
+            permission,
+            created_at: model.created_at,
+        })
+    }
+}
+
+/// Persisted direct permission grant.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionGrantRecord {
+    /// Stable grant id.
+    pub id: PermissionGrantId,
+    /// Principal receiving this grant.
+    pub principal: PrincipalRef,
+    /// Scope where this grant applies.
+    pub scope: PermissionScope,
+    /// Granted permission.
+    pub permission: PermissionName,
+    /// Provenance for how this grant was created.
+    pub source: PermissionGrantSource,
+    /// Actor that granted this permission.
+    pub granted_by: PrincipalRef,
+    /// Wall-clock time the grant was created.
+    pub granted_at: DateTime<Utc>,
+    /// Revocation metadata when this grant is no longer effective.
+    pub revocation: Option<PermissionGrantRevocation>,
+}
+
+impl TryFrom<entity::permission_grants::Model> for PermissionGrantRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::permission_grants::Model) -> Result<Self, Self::Error> {
+        let principal = parse_db_principal_ref(&model.grantee_kind, model.grantee_ref)?;
+        let scope = parse_db_permission_scope(&model.scope_kind, model.scope_ref)?;
+        let permission = parse_db_permission_name(&model.permission_name)?;
+        let source = parse_db_permission_grant_source(&model.source_kind, model.source_ref)?;
+        let granted_by = parse_db_principal_ref(&model.granted_by_kind, model.granted_by_ref)?;
+        let revocation = parse_db_permission_grant_revocation(
+            model.revoked_by_kind.as_deref(),
+            model.revoked_by_ref,
+            model.revoked_at,
+        )?;
+        Ok(Self {
+            id: PermissionGrantId::new(model.id),
+            principal,
+            scope,
+            permission,
+            source,
+            granted_by,
+            granted_at: model.granted_at,
+            revocation,
+        })
+    }
+}
+
+/// Maximum page size for role-template and direct-grant listing ports.
+pub const ROLE_GRANT_LIST_PAGE_MAX: u64 = 200;
+
+/// Cursor for role-template listing (`name`, then `id`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RoleListCursor {
+    /// Last-seen role name.
+    pub name: RoleName,
+    /// Last-seen role id (tie-breaker for duplicate names).
+    pub id: RoleId,
+}
+
+/// Cursor for direct-grant listing (`granted_at`, then `id`).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PermissionGrantListCursor {
+    /// Last-seen grant timestamp.
+    pub granted_at: DateTime<Utc>,
+    /// Last-seen grant id (tie-breaker for equal timestamps).
+    pub id: PermissionGrantId,
+}
+
+/// Generic cursor page envelope for store listing ports.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CursorPage<T, C> {
+    /// Items for this page.
+    pub items: Vec<T>,
+    /// Cursor for the next page; `None` means end of list.
+    pub next_cursor: Option<C>,
+}
+
 /// Input shape for [`crate::AccountStore::insert_account`].
 #[derive(Debug, Clone)]
 pub struct NewAccount {
@@ -164,4 +327,49 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::RoleStore::create_role`].
+#[derive(Debug, Clone)]
+pub struct NewRole {
+    /// Stable role id allocated by the caller.
+    pub id: RoleId,
+    /// Role scope.
+    pub scope: RoleScope,
+    /// Human-readable role name.
+    pub name: RoleName,
+    /// Permission bundle for this role.
+    pub permissions: Vec<PermissionName>,
+    /// Creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last-update timestamp (same as `created_at` for initial insert).
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::RoleStore::edit_role`].
+#[derive(Debug, Clone)]
+pub struct EditRole {
+    /// Role identifier + scope.
+    pub role: ScopedRole,
+    /// Replacement name.
+    pub name: RoleName,
+    /// Replacement permission bundle.
+    pub permissions: Vec<PermissionName>,
+    /// Mutation timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::RoleStore::apply_role`].
+#[derive(Debug, Clone)]
+pub struct ApplyRole {
+    /// Role to apply as the source template.
+    pub role: ScopedRole,
+    /// Principal receiving the direct grants.
+    pub principal: PrincipalRef,
+    /// Scope where grants are created.
+    pub grant_scope: PermissionScope,
+    /// Actor that performed the grant.
+    pub granted_by: PrincipalRef,
+    /// Wall-clock grant timestamp.
+    pub granted_at: DateTime<Utc>,
 }
