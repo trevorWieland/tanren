@@ -12,6 +12,9 @@ description = "Configuration and Secrets subsystem: configuration tiers, inherit
 workspace = true
 
 [dependencies]
+base64 = { workspace = true }
+getrandom = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
+sha2 = { workspace = true }
 thiserror = { workspace = true }

@@ -4,10 +4,22 @@
 //! deterministic inheritance. Secret values are encrypted at rest and never
 //! recorded in event payloads, projection files, or proof artifacts; only
 //! non-secret metadata is event-replayable.
+//!
+//! Credential sealing uses an installation-unique salt persisted in the
+//! `store_metadata` table. All RNG calls in the sealing path use
+//! `getrandom::fill` (fallible OS CSPRNG) rather than `rand::random`
+//! (which panics on entropy exhaustion).
+
+pub mod secret_store;
 
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+
+pub use secret_store::{
+    INSTALLATION_SEAL_SALT_LEN, InstallationSealSalt, METADATA_KEY_INSTALLATION_SEAL_SALT,
+    seal_sync, unseal_sync,
+};
 
 /// Configuration tiers in inheritance order, from most-specific to most-general.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -53,4 +65,13 @@ pub enum ConfigSecretsError {
     /// Lookup found no value at any tier.
     #[error("no value found for key '{0}'")]
     NotFound(String),
+    /// The operating system CSPRNG could not provide entropy. Indicates a
+    /// degraded runtime (e.g. missing `/dev/urandom`, exhausted entropy pool,
+    /// or sandbox `getrandom` unavailable).
+    #[error("OS entropy source unavailable")]
+    EntropySourceUnavailable,
+    /// A sealed envelope could not be decoded (malformed base64, truncated
+    /// nonce, or invalid UTF-8 after decryption).
+    #[error("failed to decode sealed credential")]
+    SealDecodeFailed,
 }

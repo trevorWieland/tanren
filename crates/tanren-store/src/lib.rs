@@ -32,6 +32,7 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::METADATA_KEY_INSTALLATION_SEAL_SALT;
 use tanren_identity_policy::{
     AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
     ValidationError,
@@ -109,6 +110,20 @@ impl Store {
     pub async fn migrate(&self) -> Result<(), StoreError> {
         Migrator::up(&self.conn, None).await?;
         Ok(())
+    }
+
+    /// Read the installation-unique seal salt from the `store_metadata` table.
+    /// Returns `None` if the salt row does not exist (e.g. migrations have not
+    /// yet been applied).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`StoreError::Database`] if the query fails.
+    pub async fn read_seal_salt(&self) -> Result<Option<Vec<u8>>, StoreError> {
+        let row = entity::store_metadata::Entity::find_by_id(METADATA_KEY_INSTALLATION_SEAL_SALT)
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(|r| r.value))
     }
 }
 

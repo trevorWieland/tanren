@@ -228,6 +228,11 @@ email-validator-rfc5322 = "0.1"
 # CSPRNG (for opaque session/credential tokens; never used as a record id).
 rand = "0.9"
 
+# Fallible OS-backed CSPRNG for credential sealing entropy. Preferred over
+# `rand::random` in the sealing path so OS RNG failure surfaces as a typed
+# error rather than a panic.
+getrandom = "0.3"
+
 # Base64 URL-safe-no-pad encoding (paired with `rand` for opaque tokens).
 base64 = "0.22"
 
