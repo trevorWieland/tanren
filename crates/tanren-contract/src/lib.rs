@@ -6,11 +6,26 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod invitation;
+pub mod invitation_failure;
 pub mod organization;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use invitation::{
+    CreateInvitationApiRequest, CreateInvitationRequest, CreateInvitationResponse,
+    INVITATION_CREATE_BEHAVIOR_ID, INVITATION_CREATED_EVENT_KIND, INVITATION_EVENT_FAMILY,
+    INVITATION_REVOKED_EVENT_KIND, InvitationBehaviorId, InvitationEventReference,
+    InvitationProofLink, InvitationSourceLink, InvitationStatus, InvitationView,
+    LIST_INVITATIONS_DEFAULT_LIMIT, LIST_INVITATIONS_MAX_LIMIT, ListInvitationsApiQuery,
+    ListInvitationsRequest, ListInvitationsResponse, LookupInvitationRequest,
+    LookupInvitationResponse, RevokeInvitationApiRequest, RevokeInvitationRequest,
+    RevokeInvitationResponse, invitation_permission_options,
+};
+pub use invitation_failure::{
+    InvitationFailureBody, InvitationFailureCode, InvitationFailureReason,
 };
 pub use organization::{
     CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionRequest,
@@ -25,8 +40,8 @@ pub use organization::{
     organization_capability_projection, organization_permission_options,
 };
 pub use tanren_identity_policy::{
-    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
-    SessionToken,
+    AccountId, IdempotencyKey, InvitationId, InvitationToken, MembershipId, OrgId,
+    OrganizationName, OrganizationPermission, SessionToken,
 };
 pub use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 

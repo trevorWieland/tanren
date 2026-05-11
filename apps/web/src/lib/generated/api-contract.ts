@@ -320,11 +320,12 @@ export interface components {
     /**
      * Format: uuid
      * @description Stable identifier for a membership row (links an account to an org).
+     *     `UUIDv7` — sortable + unique.
      */
     MembershipId: string;
     /**
      * Format: uuid
-     * @description Stable identifier for a Tanren organization.
+     * @description Stable identifier for a Tanren organization. `UUIDv7` — sortable + unique.
      */
     OrgId: string;
     /**
