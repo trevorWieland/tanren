@@ -4,6 +4,7 @@ use std::collections::BTreeSet;
 use std::path::Path;
 use std::str::FromStr;
 
+mod apply_lock;
 mod catalog;
 #[cfg(feature = "test-hooks")]
 pub mod contract;

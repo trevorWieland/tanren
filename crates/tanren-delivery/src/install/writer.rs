@@ -1,5 +1,9 @@
 //! Filesystem writer for manifest-driven install plans.
 
+use std::collections::BTreeSet;
+use std::path::PathBuf;
+
+use crate::install::apply_lock::acquire_apply_lock;
 use crate::install::error::InstallError;
 use crate::install::manifest::RepoRelativePath;
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
@@ -7,6 +11,7 @@ use crate::install::writer_tx::{
     ManifestChange, cleanup_rollback_scratch_files, cleanup_staged_payloads,
     commit_staged_replacement, prepare_apply, remove_prepared_file, resolve_apply_failure,
 };
+use crate::install::writer_tx_support::fsync_touched_parents;
 
 /// Install apply report grouped by observable outcome.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -29,23 +34,30 @@ impl InstallReport {
 }
 
 /// Apply a previously validated install plan.
+///
+/// Acquires an exclusive repo-local lock before reading the manifest for
+/// apply planning and holds it through prepare, commit, rollback cleanup,
+/// manifest write, and parent directory sync completion.
 pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, InstallError> {
+    let _lock = acquire_apply_lock(plan.repository_root())?;
+
     let prepared = prepare_apply(plan)?;
     let mut report = InstallReport {
         preserved: plan.preserved().to_vec(),
         ..InstallReport::default()
     };
     let mut changed_paths = Vec::new();
+    let mut touched_parents = BTreeSet::<PathBuf>::new();
 
     let apply_result: Result<(), InstallError> = (|| {
         for removal in &prepared.removals {
-            remove_prepared_file(plan, &removal.path, &removal.absolute)?;
+            remove_prepared_file(plan, &removal.path, &removal.absolute, &mut touched_parents)?;
             report.removed.push(removal.path.clone());
             changed_paths.push(removal.path.clone());
         }
 
         for write in &prepared.writes {
-            commit_staged_replacement(plan, &write.staged)?;
+            commit_staged_replacement(plan, &write.staged, &mut touched_parents)?;
             match write.kind {
                 PlannedWriteKind::Created => report.created.push(write.staged.path.clone()),
                 PlannedWriteKind::Updated => report.updated.push(write.staged.path.clone()),
@@ -55,7 +67,7 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
         }
 
         if let Some(manifest) = &prepared.manifest.staged {
-            commit_staged_replacement(plan, manifest)?;
+            commit_staged_replacement(plan, manifest, &mut touched_parents)?;
             match prepared.manifest.change {
                 ManifestChange::Created => report.created.push(manifest.path.clone()),
                 ManifestChange::Updated => report.updated.push(manifest.path.clone()),
@@ -64,6 +76,7 @@ pub(super) fn apply_install_plan(plan: &InstallPlan) -> Result<InstallReport, In
             changed_paths.push(manifest.path.clone());
         }
 
+        fsync_touched_parents(&touched_parents)?;
         Ok(())
     })();
 

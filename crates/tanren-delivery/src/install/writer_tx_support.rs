@@ -1,3 +1,6 @@
+//! Low-level filesystem primitives for install apply transactions.
+
+use std::collections::BTreeSet;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
@@ -113,6 +116,185 @@ pub(super) fn create_temp_file(
 pub(super) fn cleanup_temporary_file(path: &Path) {
     if path.exists() {
         let _ = fs::remove_file(path);
+    }
+}
+
+/// Rename a staged temp file to its final destination with pre/post metadata
+/// verification. Records the parent directory for batched fsync.
+///
+/// Before renaming, verifies the destination parent metadata. After renaming,
+/// verifies the new file metadata matches expectations. This provides a
+/// directory-handle/no-follow style guarantee with a fallback that verifies
+/// parent and destination metadata immediately before and after the rename.
+pub(super) fn rename_with_verification(
+    path: &RepoRelativePath,
+    temp_path: &Path,
+    destination: &Path,
+    parent: &Path,
+    touched_parents: &mut BTreeSet<PathBuf>,
+) -> Result<(), InstallError> {
+    verify_parent_metadata(path, parent)?;
+
+    let pre_dest_metadata = fs::symlink_metadata(destination);
+    fs::rename(temp_path, destination).map_err(|err| {
+        cleanup_temporary_file(temp_path);
+        InstallError::WriteFailure {
+            path: path.as_str().to_owned(),
+            message: err.to_string(),
+        }
+    })?;
+
+    verify_post_rename_metadata(path, destination, &pre_dest_metadata)?;
+
+    touched_parents.insert(parent.to_path_buf());
+    Ok(())
+}
+
+/// Remove a file with pre/post metadata verification. Records the parent
+/// directory for batched fsync.
+///
+/// Before removing, verifies the target exists and is a regular file (not a
+/// symlink or directory). After removing, verifies the file no longer exists.
+pub(super) fn remove_with_verification(
+    path: &RepoRelativePath,
+    target: &Path,
+    parent: &Path,
+    touched_parents: &mut BTreeSet<PathBuf>,
+) -> Result<(), InstallError> {
+    verify_removal_target(path, target)?;
+
+    fs::remove_file(target).map_err(|err| InstallError::RemoveFailure {
+        path: path.as_str().to_owned(),
+        message: err.to_string(),
+    })?;
+
+    verify_post_removal_metadata(path, target)?;
+
+    touched_parents.insert(parent.to_path_buf());
+    Ok(())
+}
+
+/// Execute batched fsync for all touched parent directories.
+///
+/// Each unique parent directory is fsynced exactly once per apply transaction,
+/// ensuring directory entries are durably persisted without redundant I/O.
+pub(super) fn fsync_touched_parents(
+    touched_parents: &BTreeSet<PathBuf>,
+) -> Result<(), InstallError> {
+    for parent in touched_parents {
+        fsync_parent_directory(parent)?;
+    }
+    Ok(())
+}
+
+fn fsync_parent_directory(parent: &Path) -> Result<(), InstallError> {
+    let file = fs::File::open(parent).map_err(|err| InstallError::WriteFailure {
+        path: parent.to_string_lossy().into_owned(),
+        message: err.to_string(),
+    })?;
+    file.sync_all().map_err(|err| InstallError::WriteFailure {
+        path: parent.to_string_lossy().into_owned(),
+        message: err.to_string(),
+    })
+}
+
+fn verify_parent_metadata(path: &RepoRelativePath, parent: &Path) -> Result<(), InstallError> {
+    let metadata = fs::symlink_metadata(parent).map_err(|err| InstallError::ReadFailure {
+        path: path.as_str().to_owned(),
+        message: format!("parent directory metadata check failed: {err}"),
+    })?;
+
+    if metadata.file_type().is_symlink() {
+        return Err(InstallError::UnsafeRepositoryPath {
+            path: path.as_str().to_owned(),
+            message: "parent directory is a symbolic link at rename time".to_owned(),
+        });
+    }
+
+    if !metadata.is_dir() {
+        return Err(InstallError::UnsafeRepositoryPath {
+            path: path.as_str().to_owned(),
+            message: "parent is not a directory at rename time".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn verify_post_rename_metadata(
+    path: &RepoRelativePath,
+    destination: &Path,
+    pre_dest_metadata: &Result<fs::Metadata, std::io::Error>,
+) -> Result<(), InstallError> {
+    let post_metadata =
+        fs::symlink_metadata(destination).map_err(|err| InstallError::WriteFailure {
+            path: path.as_str().to_owned(),
+            message: format!("post-rename metadata check failed: {err}"),
+        })?;
+
+    if post_metadata.file_type().is_symlink() {
+        return Err(InstallError::UnsafeRepositoryPath {
+            path: path.as_str().to_owned(),
+            message: "post-rename destination is a symbolic link".to_owned(),
+        });
+    }
+
+    if pre_dest_metadata.is_ok() && !post_metadata.is_file() {
+        return Err(InstallError::UnsafeRepositoryPath {
+            path: path.as_str().to_owned(),
+            message: "post-rename destination is not a regular file".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn verify_removal_target(path: &RepoRelativePath, target: &Path) -> Result<(), InstallError> {
+    let metadata = fs::symlink_metadata(target).map_err(|err| {
+        if err.kind() == ErrorKind::NotFound {
+            InstallError::RemoveFailure {
+                path: path.as_str().to_owned(),
+                message: "file to remove not found".to_owned(),
+            }
+        } else {
+            InstallError::ReadFailure {
+                path: path.as_str().to_owned(),
+                message: format!("pre-remove metadata check failed: {err}"),
+            }
+        }
+    })?;
+
+    if metadata.file_type().is_symlink() {
+        return Err(InstallError::UnsafeRepositoryPath {
+            path: path.as_str().to_owned(),
+            message: "refusing to remove symbolic link".to_owned(),
+        });
+    }
+
+    if !metadata.is_file() {
+        return Err(InstallError::UnsafeRepositoryPath {
+            path: path.as_str().to_owned(),
+            message: "refusing to remove non-file entry".to_owned(),
+        });
+    }
+
+    Ok(())
+}
+
+fn verify_post_removal_metadata(
+    path: &RepoRelativePath,
+    target: &Path,
+) -> Result<(), InstallError> {
+    match fs::symlink_metadata(target) {
+        Ok(_) => Err(InstallError::WriteFailure {
+            path: path.as_str().to_owned(),
+            message: "file still exists after removal".to_owned(),
+        }),
+        Err(err) if err.kind() == ErrorKind::NotFound => Ok(()),
+        Err(err) => Err(InstallError::ReadFailure {
+            path: path.as_str().to_owned(),
+            message: format!("post-remove verification failed: {err}"),
+        }),
     }
 }
 

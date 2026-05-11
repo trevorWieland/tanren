@@ -1,4 +1,6 @@
-use std::collections::BTreeMap;
+//! Transactional install apply: prepare, commit, and rollback primitives.
+
+use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
 use std::io::{ErrorKind, Read, Write};
 use std::path::{Path, PathBuf};
@@ -8,7 +10,7 @@ use crate::install::manifest::RepoRelativePath;
 use crate::install::plan::{InstallPlan, PlannedWriteKind};
 use crate::install::writer_tx_support::{
     cleanup_temporary_file, create_temp_file, ensure_parent_directory,
-    guard_destination_for_mutation,
+    guard_destination_for_mutation, remove_with_verification, rename_with_verification,
 };
 
 #[derive(Debug)]
@@ -49,6 +51,7 @@ pub(super) struct StagedReplacement {
     pub(super) path: RepoRelativePath,
     pub(super) absolute: PathBuf,
     pub(super) temp_path: PathBuf,
+    pub(super) parent: PathBuf,
 }
 
 #[derive(Debug)]
@@ -228,6 +231,9 @@ fn file_contents_match(
     Ok(offset == expected.len())
 }
 
+/// Snapshot the prior state of a destination path by streaming its content
+/// to a scratch file. The file is copied using streaming I/O to avoid
+/// retaining large file contents in memory.
 fn snapshot_prior_state(
     plan: &InstallPlan,
     path: &RepoRelativePath,
@@ -238,7 +244,7 @@ fn snapshot_prior_state(
         return Ok(PriorState::Missing);
     }
 
-    let scratch = create_rollback_scratch(path, &guard.parent, &guard.absolute)?;
+    let scratch = stream_to_rollback_scratch(path, &guard.parent, &guard.absolute)?;
     Ok(PriorState::Scratch(scratch))
 }
 
@@ -257,6 +263,7 @@ fn stage_replacement_payload(
         path: path.clone(),
         absolute: guard.absolute,
         temp_path,
+        parent: guard.parent,
     })
 }
 
@@ -289,12 +296,19 @@ fn create_staged_temporary_payload(
     Ok(temp.path)
 }
 
-fn create_rollback_scratch(
+/// Stream prior file content to a scratch file for rollback.
+///
+/// Uses `fs::copy` which performs streaming I/O internally (`copy_file_range`
+/// on Linux), avoiding loading the entire file into heap memory. The scratch
+/// file is fsynced before returning to ensure durability.
+fn stream_to_rollback_scratch(
     path: &RepoRelativePath,
     parent: &Path,
     source: &Path,
 ) -> Result<PathBuf, InstallError> {
-    let temp_path = create_temp_file(path, parent, source)?.path;
+    let temp = create_temp_file(path, parent, source)?;
+    let temp_path = temp.path;
+
     fs::copy(source, &temp_path).map_err(|err| {
         cleanup_temporary_file(&temp_path);
         InstallError::ReadFailure {
@@ -316,30 +330,35 @@ fn create_rollback_scratch(
     Ok(temp_path)
 }
 
+/// Commit a staged replacement using hardened rename-with-verification.
+///
+/// Tracks the parent directory in `touched_parents` for batched fsync.
 pub(super) fn commit_staged_replacement(
     plan: &InstallPlan,
     staged: &StagedReplacement,
+    touched_parents: &mut BTreeSet<PathBuf>,
 ) -> Result<(), InstallError> {
     let _ = guard_destination_for_mutation(plan, &staged.path, &staged.absolute)?;
-    fs::rename(&staged.temp_path, &staged.absolute).map_err(|err| {
-        cleanup_temporary_file(&staged.temp_path);
-        InstallError::WriteFailure {
-            path: staged.path.as_str().to_owned(),
-            message: err.to_string(),
-        }
-    })
+    rename_with_verification(
+        &staged.path,
+        &staged.temp_path,
+        &staged.absolute,
+        &staged.parent,
+        touched_parents,
+    )
 }
 
+/// Remove a prepared file using hardened remove-with-verification.
+///
+/// Tracks the parent directory in `touched_parents` for batched fsync.
 pub(super) fn remove_prepared_file(
     plan: &InstallPlan,
     path: &RepoRelativePath,
     planned_absolute: &Path,
+    touched_parents: &mut BTreeSet<PathBuf>,
 ) -> Result<(), InstallError> {
     let guard = guard_destination_for_mutation(plan, path, planned_absolute)?;
-    fs::remove_file(&guard.absolute).map_err(|err| InstallError::RemoveFailure {
-        path: path.as_str().to_owned(),
-        message: err.to_string(),
-    })
+    remove_with_verification(path, &guard.absolute, &guard.parent, touched_parents)
 }
 
 pub(super) fn cleanup_staged_payloads(prepared: &PreparedApply) {
@@ -351,6 +370,10 @@ pub(super) fn cleanup_staged_payloads(prepared: &PreparedApply) {
     }
 }
 
+/// Clean up rollback scratch files on both success and rollback failure paths.
+///
+/// Scratch files hold streamed prior content and must be removed regardless
+/// of whether the apply succeeded or rollback completed.
 pub(super) fn cleanup_rollback_scratch_files(
     rollback_records: &BTreeMap<RepoRelativePath, RollbackRecord>,
 ) {
