@@ -241,10 +241,15 @@ pub(super) fn build_manifest_entries(assets: &[InstallAssetProjection]) -> Vec<M
 
 /// Hash bytes as lowercase SHA-256 hex.
 #[must_use]
-pub(super) fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
-    let digest = Sha256::digest(bytes);
+pub(crate) fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
+    encode_digest_hex(&Sha256::digest(bytes))
+}
+
+/// Encode a pre-computed SHA-256 digest as lowercase hex.
+#[must_use]
+pub(crate) fn encode_digest_hex(digest: &sha2::digest::Output<Sha256>) -> Sha256Hex {
     let mut hex = String::with_capacity(digest.len() * 2);
-    for byte in digest {
+    for &byte in digest {
         hex.push(char::from(NIBBLES[(byte >> 4) as usize]));
         hex.push(char::from(NIBBLES[(byte & 0x0f) as usize]));
     }

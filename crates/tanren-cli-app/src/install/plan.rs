@@ -2,7 +2,10 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs;
+use std::io::Read;
 use std::path::{Path, PathBuf};
+
+use sha2::{Digest, Sha256};
 
 use crate::install::catalog::{
     build_install_asset_catalog, build_trusted_generated_asset_registry,
@@ -11,7 +14,7 @@ use crate::install::error::InstallError;
 use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallAssetProjection, InstallManifest,
     ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries,
-    sha256_hex,
+    encode_digest_hex,
 };
 use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallIntegration, InstallProfile};
@@ -220,7 +223,6 @@ impl PlannedAssetAction {
         }
     }
 }
-
 fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
     let canonical =
         repository
@@ -237,7 +239,6 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
 
     Ok(canonical)
 }
-
 fn load_previous_manifest(
     manifest_absolute_path: &Path,
 ) -> Result<Option<InstallManifest>, InstallError> {
@@ -258,7 +259,6 @@ fn load_previous_manifest(
             message: err.to_string(),
         })
 }
-
 fn validate_manifest_version(
     _manifest_absolute_path: &Path,
     manifest: Option<&InstallManifest>,
@@ -276,7 +276,6 @@ fn validate_manifest_version(
     }
     Ok(())
 }
-
 fn build_previous_entry_map<'a>(
     _manifest_absolute_path: &Path,
     manifest: Option<&'a InstallManifest>,
@@ -434,12 +433,31 @@ fn build_removals(
 }
 
 fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, InstallError> {
-    let current = fs::read(path).map_err(|err| InstallError::ReadFailure {
+    let file = fs::File::open(path).map_err(|e| InstallError::ReadFailure {
         path: display_path.to_owned(),
-        message: err.to_string(),
+        message: e.to_string(),
     })?;
-    Ok(sha256_hex(&current))
+    let mut reader = std::io::BufReader::new(file);
+    let mut hasher = Sha256::new();
+    let mut buf = [0u8; 8192];
+    loop {
+        let n = reader
+            .read(&mut buf)
+            .map_err(|e| InstallError::ReadFailure {
+                path: display_path.to_owned(),
+                message: e.to_string(),
+            })?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    Ok(encode_digest_hex(&hasher.finalize()))
 }
+
+/// Compile-time assertion that the streaming read buffer stays bounded.
+/// This ensures no whole-file allocation regardless of input size.
+const _: () = assert!(size_of::<[u8; 8192]>() < 16 * 1024);
 
 fn ensure_removals_unique(
     removals: &[PlannedRemoval],
