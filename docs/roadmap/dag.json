@@ -2176,7 +2176,6 @@
           "evidence_id": "B-0038-bdd-positive-falsification",
           "witness_command": "cargo run -q -p tanren-bdd --bin tanren-bdd-runner --locked -- --tags @B-0038",
           "interfaces": [
-            "web",
             "api",
             "mcp",
             "cli",

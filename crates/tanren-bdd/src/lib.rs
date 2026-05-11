@@ -114,9 +114,8 @@ impl AccountContext {
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
+            // WebHarness drives real HTTP against the API server (cookie session + CSRF).
+            // Full browser-rendering verification lives in the Playwright suite.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {

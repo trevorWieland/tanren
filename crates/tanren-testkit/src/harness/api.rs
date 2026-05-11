@@ -419,7 +419,7 @@ pub(crate) fn sqlite_url(path: &std::path::Path) -> String {
     format!("sqlite://{}?mode=rwc", path.display())
 }
 
-fn sign_up_body(req: &SignUpRequest) -> Value {
+pub(crate) fn sign_up_body(req: &SignUpRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -428,7 +428,7 @@ fn sign_up_body(req: &SignUpRequest) -> Value {
     })
 }
 
-fn sign_in_body(req: &SignInRequest) -> Value {
+pub(crate) fn sign_in_body(req: &SignInRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
@@ -436,7 +436,7 @@ fn sign_in_body(req: &SignInRequest) -> Value {
     })
 }
 
-fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
+pub(crate) fn accept_invitation_body(req: &AcceptInvitationRequest) -> Value {
     use secrecy::ExposeSecret;
     serde_json::json!({
         "email": req.email.as_str(),
