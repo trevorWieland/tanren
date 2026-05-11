@@ -11,7 +11,7 @@ use crate::install::error::InstallError;
 use crate::install::manifest::{
     INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallAssetProjection, InstallManifest,
     ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries,
-    sha256_hex,
+    sha256_file_streaming,
 };
 use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallIntegration, InstallProfile};
@@ -435,11 +435,10 @@ fn build_removals(
 }
 
 fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, InstallError> {
-    let current = fs::read(path).map_err(|err| InstallError::ReadFailure {
+    sha256_file_streaming(path).map_err(|err| InstallError::ReadFailure {
         path: display_path.to_owned(),
         message: err.to_string(),
-    })?;
-    Ok(sha256_hex(&current))
+    })
 }
 
 fn ensure_manifest_entries_unique(entries: &[ManifestEntry]) -> Result<(), InstallError> {

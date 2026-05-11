@@ -6,7 +6,8 @@
 
 pub(crate) use tanren_contract::install::{
     AssetClass, INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallManifest,
-    ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, sha256_hex,
+    ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, sha256_file_streaming,
+    sha256_hex,
 };
 
 use crate::install::InstallIntegration;

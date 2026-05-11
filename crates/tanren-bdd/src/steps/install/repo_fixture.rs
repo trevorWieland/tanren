@@ -9,6 +9,7 @@ use super::context::InstallContext;
 use super::manifest_helpers;
 use super::manifest_helpers::RepositoryRelativePath;
 use super::{InstallStepError, InstallStepResult};
+use tanren_contract::install::sha256_file_streaming;
 
 static SCENARIO_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -72,12 +73,13 @@ impl InstallContext {
             });
         }
         let stale_path = self.repository_path(relative_path);
-        let stale_bytes = fs::read(&stale_path).map_err(|source| InstallStepError::ReadFile {
-            path: stale_path,
-            action: "read stale generated file for manifest hash",
-            source,
-        })?;
-        let stale_hash = manifest_helpers::sha256_hex_string(&stale_bytes);
+        let stale_hash = sha256_file_streaming(&stale_path)
+            .map_err(|source| InstallStepError::ReadFile {
+                path: stale_path,
+                action: "streaming-hash stale generated file for manifest hash",
+                source,
+            })?
+            .to_string();
         manifest_helpers::append_stale_generated_manifest_entry(
             &mut manifest,
             relative_path,

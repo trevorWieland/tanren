@@ -1,5 +1,4 @@
 mod fixture_manifest;
-mod hash;
 mod paths;
 mod proof_contract;
 mod workspace;
@@ -7,7 +6,6 @@ mod workspace;
 pub(crate) use fixture_manifest::{
     append_stale_generated_manifest_entry, tamper_manifest_with_raw_generated_entry,
 };
-pub(crate) use hash::sha256_hex_string;
 pub(crate) use paths::{RepositoryRelativePath, io_error};
 pub(crate) use proof_contract::{
     assert_manifest_rust_cargo_defaults, assert_rust_cargo_default_assets_installed,

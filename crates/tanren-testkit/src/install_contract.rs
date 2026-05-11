@@ -13,7 +13,7 @@ use thiserror::Error;
 pub use tanren_contract::install::{
     AssetClass as InstallProofAssetClass, InstallContractError as InstallProofContractError,
     InstallIntegration as InstallProofIntegration, InstallProfile as InstallProofProfile,
-    RepoRelativePath as InstallProofRepoRelativePath, Sha256Hex, sha256_hex,
+    RepoRelativePath as InstallProofRepoRelativePath, Sha256Hex, sha256_file_streaming, sha256_hex,
 };
 
 /// Install manifest schema version asserted by the BDD install proofs.

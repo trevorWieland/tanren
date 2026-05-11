@@ -12,6 +12,8 @@
 
 use std::collections::BTreeSet;
 use std::fmt;
+use std::fs::File;
+use std::io::Read as _;
 use std::path::{Component, Path};
 use std::str::FromStr;
 
@@ -400,6 +402,30 @@ pub fn sha256_hex(bytes: &[u8]) -> Sha256Hex {
         hex.push(char::from(NIBBLES[(byte & 0x0f) as usize]));
     }
     Sha256Hex(hex)
+}
+
+/// Streaming SHA-256 hash of a file using a fixed-size 64 KiB buffer.
+///
+/// Memory usage is independent of file size. Produces the same hex digest
+/// as [`sha256_hex`] on identical byte content.
+pub fn sha256_file_streaming(path: &Path) -> std::io::Result<Sha256Hex> {
+    let mut reader = File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buffer = vec![0u8; 64 * 1024];
+    loop {
+        let bytes_read = reader.read(&mut buffer)?;
+        if bytes_read == 0 {
+            break;
+        }
+        hasher.update(&buffer[..bytes_read]);
+    }
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        hex.push(char::from(NIBBLES[(byte >> 4) as usize]));
+        hex.push(char::from(NIBBLES[(byte & 0x0f) as usize]));
+    }
+    Ok(Sha256Hex(hex))
 }
 
 /// Errors raised during install contract validation.

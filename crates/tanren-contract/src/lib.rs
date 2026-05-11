@@ -23,7 +23,7 @@ pub use cli_output::{
 pub use install::{
     AssetClass, InstallContractError, InstallIntegration, InstallManifest, InstallProfile,
     InstallSelection, ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex,
-    Sha256HexParseError, parse_integration_selection, sha256_hex,
+    Sha256HexParseError, parse_integration_selection, sha256_file_streaming, sha256_hex,
 };
 
 use serde::{Deserialize, Serialize};
