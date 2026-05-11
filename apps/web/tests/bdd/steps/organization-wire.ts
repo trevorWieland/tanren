@@ -5,14 +5,17 @@ import {
   decodeOrganizationApiResponse,
   isCheckOrganizationPermissionResponse,
   isCreateOrganizationResponse,
+  isListOrganizationMembersResponse,
   isListOrganizationsResponse,
   type CheckOrganizationPermissionResponse,
   type CreateOrganizationResponse,
+  type ListOrganizationMembersResponse,
   type ListOrganizationsResponse,
   type OrganizationApiResponse,
 } from "@/lib/organization-api";
 import {
   ORGANIZATION_API_ROUTES,
+  ORGANIZATION_MEMBERS_WIRE_TEST_IDS,
   ORGANIZATION_WEB_HARNESS_ROUTE,
   ORGANIZATION_WIRE_TEST_IDS,
   buildCheckOrganizationPermissionApiRequest,
@@ -50,6 +53,11 @@ export interface ListOrganizationsOperation {
 export interface CheckPermissionOperation {
   outcome: WireOutcome;
   response: DecodedWireResponse<CheckOrganizationPermissionResponse>;
+}
+
+export interface ListOrganizationMembersOperation {
+  outcome: WireOutcome;
+  response: DecodedWireResponse<ListOrganizationMembersResponse>;
 }
 
 export async function openOrganizationWireSurface(page: Page): Promise<void> {
@@ -312,6 +320,43 @@ async function checkOrganizationPermissionRequestViaWire(
       response,
       isCheckOrganizationPermissionResponse,
       "check organization permission",
+    ),
+  };
+}
+
+export async function listOrganizationMembersViaWire(
+  page: Page,
+  orgId: string,
+): Promise<ListOrganizationMembersOperation> {
+  await openOrganizationWireSurface(page);
+
+  const previousSequence = await readWireSequence(page);
+  const responsePromise = page.waitForResponse(
+    (response) => {
+      if (response.request().method() !== "GET") return false;
+      try {
+        const pathname = new URL(response.url()).pathname;
+        return pathname === `/organizations/${orgId}/members`;
+      } catch {
+        return false;
+      }
+    },
+    { timeout: 30_000 },
+  );
+
+  await page.getByTestId(ORGANIZATION_MEMBERS_WIRE_TEST_IDS.listSubmit).click();
+
+  const [outcome, response] = await Promise.all([
+    waitForWireOutcome(page, previousSequence),
+    responsePromise,
+  ]);
+
+  return {
+    outcome,
+    response: await decodeWireResponse(
+      response,
+      isListOrganizationMembersResponse,
+      "list organization members",
     ),
   };
 }

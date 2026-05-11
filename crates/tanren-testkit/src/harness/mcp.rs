@@ -18,7 +18,8 @@ use serde_json::Value;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
+    CreateOrganizationResponse, LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationMembersResponse, ListOrganizationsResponse,
     SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
@@ -251,6 +252,28 @@ impl AccountHarness for McpHarness {
         let payload = self.call_tool("organization.list", body).await?;
         serde_json::from_value(payload)
             .map_err(|e| HarnessError::Transport(format!("decode organization.list: {e}")))
+    }
+
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse> {
+        let request = tanren_contract::ListOrganizationMembersRequest::from_api_query(
+            self.session_token(account_id)?,
+            account_id,
+            &tanren_contract::ListOrganizationMembersApiPath { org_id },
+            &tanren_contract::ListOrganizationMembersApiQuery {
+                limit: Some(LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT),
+                cursor: None,
+            },
+        );
+        let body = serde_json::to_value(&request).map_err(|e| {
+            HarnessError::Transport(format!("encode organization.list_members body: {e}"))
+        })?;
+        let payload = self.call_tool("organization.list_members", body).await?;
+        serde_json::from_value(payload)
+            .map_err(|e| HarnessError::Transport(format!("decode organization.list_members: {e}")))
     }
 
     async fn check_organization_admin_permission(

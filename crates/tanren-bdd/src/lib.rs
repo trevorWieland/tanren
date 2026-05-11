@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use tanren_contract::{
     CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
-    ORGANIZATION_CREATE_BEHAVIOR_ID,
+    ORGANIZATION_CREATE_BEHAVIOR_ID, ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID,
 };
 use tanren_identity_policy::{OrgId, OrganizationName};
 use tanren_testkit::{
@@ -200,6 +200,10 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
                 let normalized = tag.trim_start_matches('@');
                 normalized == ORGANIZATION_CREATE_BEHAVIOR_ID
             });
+            let is_b0065 = feature.tags.iter().any(|tag| {
+                let normalized = tag.trim_start_matches('@');
+                normalized == ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID
+            });
             let is_web = scenario.tags.iter().any(|tag| {
                 let normalized = tag.trim_start_matches('@');
                 normalized == "web"
@@ -212,7 +216,7 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
                 .iter()
                 .any(|tag| tag.trim_start_matches('@') == "web");
 
-            !(is_b0066 && is_web)
+            !((is_b0066 || is_b0065) && is_web)
         })
         .await;
 }

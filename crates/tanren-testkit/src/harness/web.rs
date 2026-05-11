@@ -9,7 +9,7 @@
 use async_trait::async_trait;
 use tanren_contract::{
     AcceptInvitationRequest, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
-    ListOrganizationsResponse, SignInRequest, SignUpRequest,
+    ListOrganizationMembersResponse, ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::EventEnvelope;
@@ -76,6 +76,16 @@ impl AccountHarness for WebHarness {
         account_id: AccountId,
     ) -> HarnessResult<ListOrganizationsResponse> {
         self.inner.list_organizations(account_id).await
+    }
+
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse> {
+        self.inner
+            .list_organization_members(account_id, org_id)
+            .await
     }
 
     async fn check_organization_admin_permission(

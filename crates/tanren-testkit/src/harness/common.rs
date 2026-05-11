@@ -161,3 +161,29 @@ pub(crate) async fn spawn_api_server(
     wait_for_http_ready(&base_url, Duration::from_secs(2)).await?;
     Ok((base_url, server))
 }
+
+/// Execute an authenticated GET request and decode the JSON response.
+/// Returns a taxonomy failure for non-success status codes.
+pub(crate) async fn authenticated_get<T: serde::de::DeserializeOwned>(
+    client: &reqwest::Client,
+    base_url: &str,
+    path: &str,
+    context: &str,
+) -> HarnessResult<T> {
+    let url = format!("{base_url}{path}");
+    let response = client
+        .get(&url)
+        .send()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("GET {path}: {e}")))?;
+    let status = response.status();
+    let json: Value = response
+        .json()
+        .await
+        .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+    if !status.is_success() {
+        return Err(failure_from_error_body(&json));
+    }
+    serde_json::from_value(json)
+        .map_err(|e| HarnessError::Transport(format!("decode {context}: {e}")))
+}

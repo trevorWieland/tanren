@@ -1,6 +1,7 @@
 import {
   type CheckOrganizationPermissionResponse,
   type CreateOrganizationResponse,
+  type ListOrganizationMembersResponse,
   type ListOrganizationsResponse,
   type OrganizationAdminPermission,
   type OrganizationProofLink,
@@ -30,6 +31,7 @@ export interface OrganizationWorldState {
   lastCreateResponse: CreateOrganizationResponse | null;
   lastListResponse: ListOrganizationsResponse | null;
   lastCheckResponse: CheckOrganizationPermissionResponse | null;
+  lastListedMembersResponse: ListOrganizationMembersResponse | null;
   lastReplayExpectedOrganizationId: string | null;
   lastReplayObservedOrganizationId: string | null;
 }
@@ -74,6 +76,7 @@ export function orgState(world: OrganizationWorld): OrganizationWorldState {
       lastCreateResponse: null,
       lastListResponse: null,
       lastCheckResponse: null,
+      lastListedMembersResponse: null,
       lastReplayExpectedOrganizationId: null,
       lastReplayObservedOrganizationId: null,
     };

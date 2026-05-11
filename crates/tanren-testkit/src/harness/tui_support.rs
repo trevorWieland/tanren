@@ -5,9 +5,11 @@ use expectrl::Regex;
 use secrecy::{ExposeSecret, SecretString};
 use tanren_contract::AccountFailureReason;
 use tanren_contract::{
-    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationBehaviorId,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    ReadModelFreshness, organization_capability_projection,
+    CreateOrganizationResponse, GrantSource, ListOrganizationMembersResponse,
+    ListOrganizationsResponse, OrganizationBehaviorId, OrganizationMemberPermissionGrant,
+    OrganizationMemberView, OrganizationProjectSummary, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView, ReadModelFreshness,
+    organization_capability_projection,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
@@ -27,6 +29,11 @@ pub(super) const RE_LIST_SUCCESS: &str =
 pub(super) const RE_LIST_ROW: &str =
     r#"tui_witness op=list_organizations kind=row organization_id=([0-9a-fA-F-]+) name="([^"]*)""#;
 pub(super) const RE_CHECK_SUCCESS: &str = r"tui_witness op=check_organization_permission kind=success account_id=([0-9a-fA-F-]+) org_id=([0-9a-fA-F-]+) permission=([a-z_]+)";
+pub(super) const RE_LIST_MEMBERS_SUCCESS: &str =
+    r"tui_witness op=list_organization_members kind=success count=(\d+)";
+pub(super) const RE_LIST_MEMBERS_ROW: &str = r"tui_witness op=list_organization_members kind=row account_id=([0-9a-fA-F-]+) identifier=([^\s]+) permissions=(.*)";
+pub(super) const RE_ERROR_LIST_MEMBERS: &str =
+    r"tui_witness op=list_organization_members kind=error code=([a-z_]+)";
 pub(super) const RE_ERROR_SIGN_UP: &str = r"tui_witness op=sign_up kind=error code=([a-z_]+)";
 pub(super) const RE_ERROR_SIGN_IN: &str = r"tui_witness op=sign_in kind=error code=([a-z_]+)";
 pub(super) const RE_ERROR_ACCEPT: &str =
@@ -140,6 +147,76 @@ pub(super) fn build_list_organization_view(
         name,
         capabilities: Vec::new(),
     })
+}
+
+pub(super) fn build_list_organization_members_response(
+    members: Vec<OrganizationMemberView>,
+    next_cursor: Option<tanren_identity_policy::MembershipId>,
+) -> ListOrganizationMembersResponse {
+    use chrono::Utc;
+    use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
+    ListOrganizationMembersResponse {
+        members,
+        next_cursor,
+        source_link: OrganizationSourceLink {
+            event_family: "organization".to_owned(),
+            event_kind: "organization_member_joined".to_owned(),
+        },
+        freshness: ReadModelFreshness {
+            projection: "organization_members_by_org".to_owned(),
+            checkpoint: None,
+            generated_at: Utc::now(),
+            cursor: next_cursor.map(|c| c.to_string()),
+            source: "organization_member_store".to_owned(),
+            value_kind: ClaimValueKind::Measured,
+            completeness: CompletenessState::Complete,
+            freshness_state: FreshnessState::Fresh,
+            visibility: VisibilityState::Visible,
+        },
+        proof_link: OrganizationProofLink {
+            behavior_id: OrganizationBehaviorId::B0065ListOrganizationMembers,
+        },
+    }
+}
+
+pub(super) fn parse_member_permissions(
+    raw: &str,
+) -> HarnessResult<Vec<OrganizationMemberPermissionGrant>> {
+    use std::str::FromStr;
+    use tanren_identity_policy::AccountId;
+    use uuid::Uuid;
+    let mut out = Vec::new();
+    if raw.is_empty() {
+        return Ok(out);
+    }
+    for grant_str in raw.split(',').filter(|s| !s.is_empty()) {
+        let parts: Vec<&str> = grant_str.splitn(3, ':').collect();
+        if parts.len() < 3 {
+            continue;
+        }
+        let permission = OrganizationPermission::from_str(parts[0]).map_err(|_| {
+            HarnessError::Transport(format!(
+                "unknown permission in tui member output: {}",
+                parts[0]
+            ))
+        })?;
+        let grant_source = GrantSource::from_str(parts[1]).map_err(|_| {
+            HarnessError::Transport(format!(
+                "unknown grant source in tui member output: {}",
+                parts[1]
+            ))
+        })?;
+        let granted_by =
+            AccountId::from(Uuid::parse_str(parts[2]).map_err(|e| {
+                HarnessError::Transport(format!("parse granted_by_account_id: {e}"))
+            })?);
+        out.push(OrganizationMemberPermissionGrant {
+            permission,
+            grant_source,
+            granted_by_account_id: granted_by,
+        });
+    }
+    Ok(out)
 }
 
 pub(super) fn build_list_organizations_response(
@@ -355,4 +432,53 @@ pub(super) fn close_session(session: &mut expectrl::Session) -> HarnessResult<()
         .expect(expectrl::Eof)
         .map_err(|e| HarnessError::Transport(format!("expect eof while closing session: {e}")))?;
     Ok(())
+}
+
+/// Drive the list-organization-members TUI form and parse the result.
+pub(super) fn drive_list_organization_members(
+    session: &mut expectrl::Session,
+    org_id_str: &str,
+) -> HarnessResult<ListOrganizationMembersResponse> {
+    use super::HarnessError;
+    open_form(session, 6, "open list-org-members form")?;
+    send(session, org_id_str, "fill list-org-members org id")?;
+    send(session, "\r", "submit list-org-members form")?;
+    match expect_regex_capture(
+        session,
+        RE_LIST_MEMBERS_SUCCESS,
+        1,
+        "list-org-members success",
+    ) {
+        Ok(count_raw) => {
+            let count = parse_count(&count_raw)?;
+            let mut members = Vec::with_capacity(count);
+            for idx in 0..count {
+                let (aid, ident, perms) = expect_three_regex_captures(
+                    session,
+                    RE_LIST_MEMBERS_ROW,
+                    1,
+                    2,
+                    3,
+                    &format!("list-org-members row #{idx}"),
+                )?;
+                members.push(OrganizationMemberView {
+                    account_id: parse_account_id(&aid, "list-org-members")?,
+                    identifier: ident.trim().to_owned(),
+                    joined_at: chrono::Utc::now(),
+                    granted_permissions: parse_member_permissions(perms.trim())?,
+                });
+            }
+            Ok(build_list_organization_members_response(members, None))
+        }
+        Err(se) => {
+            match expect_regex_capture(session, RE_ERROR_LIST_MEMBERS, 1, "list-org-members error")
+            {
+                Ok(code) => {
+                    let reason = parse_reason_code(&code)?;
+                    Err(HarnessError::Account(reason, reason.summary().to_owned()))
+                }
+                Err(_) => Err(se),
+            }
+        }
+    }
 }

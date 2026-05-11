@@ -19,19 +19,19 @@ use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse,
-    OrganizationBehaviorId, OrganizationProjectSummary, OrganizationProofLink,
-    OrganizationSourceLink, OrganizationView, ReadModelFreshness, SignInRequest, SignUpRequest,
+    CreateOrganizationResponse, LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationMembersResponse,
+    ListOrganizationsResponse, OrganizationBehaviorId, OrganizationProjectSummary,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView, SignInRequest, SignUpRequest,
     organization_capability_projection,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
-use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
 use super::cli_support::{
-    compile_regex, locate_workspace_binary, parse_joined_org, parse_session, translate_cli_error,
+    compile_regex, locate_workspace_binary, parse_joined_org, parse_member_list_output,
+    parse_organization_list_output, parse_session, translate_cli_error,
 };
 use super::common::{scenario_db_path, sqlite_url};
 use super::{
@@ -58,14 +58,11 @@ impl std::fmt::Debug for CliHarness {
 }
 
 impl CliHarness {
-    /// Construct a fresh CLI harness. Connects + migrates a per-
-    /// scenario `SQLite` database and locates the `tanren-cli` binary
-    /// alongside the running BDD executable.
+    /// Construct a fresh CLI harness.
     ///
     /// # Errors
     ///
-    /// Returns an error if the database cannot be initialized or the
-    /// binary is missing from the expected target directory.
+    /// Returns an error if the database cannot be initialized or the binary is missing.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("cli");
         let db_url = sqlite_url(&db_path);
@@ -371,71 +368,37 @@ impl AccountHarness for CliHarness {
         if !output.status.success() {
             return Err(translate_cli_error(&output.stderr));
         }
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let summary_re = compile_regex(
-            r"organizations=\d+\s+next_cursor=([0-9a-fA-F-]+|<none>)",
-            "organization list summary output",
-        )?;
-        let row_re = compile_regex(
-            r"organization_id=([0-9a-fA-F-]+)\s+name=([^\s]+)",
-            "organization list row output",
-        )?;
-        let next_cursor = stdout
-            .lines()
-            .find_map(|line| summary_re.captures(line))
-            .and_then(|captures| captures.get(1).map(|value| value.as_str()))
-            .and_then(|raw| {
-                if raw == "<none>" {
-                    return Some(None);
-                }
-                Uuid::parse_str(raw)
-                    .ok()
-                    .map(tanren_identity_policy::MembershipId::from)
-                    .map(Some)
-            })
-            .unwrap_or(None);
-        let mut organizations = Vec::new();
-        for line in stdout.lines() {
-            if line.starts_with("organizations=") {
-                continue;
-            }
-            let Some(captures) = row_re.captures(line) else {
-                continue;
-            };
-            let id_raw = captures.get(1).map_or("", |m| m.as_str());
-            let name_raw = captures.get(2).map_or("", |m| m.as_str());
-            let id = OrgId::from(
-                Uuid::parse_str(id_raw)
-                    .map_err(|e| HarnessError::Transport(format!("parse organization id: {e}")))?,
-            );
-            let name = OrganizationName::parse(name_raw).map_err(|e| {
-                HarnessError::Transport(format!("parse organization name from cli output: {e}"))
-            })?;
-            organizations.push(OrganizationView {
-                id,
-                name,
-                capabilities: Vec::new(),
-            });
+        parse_organization_list_output(&String::from_utf8_lossy(&output.stdout))
+    }
+
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse> {
+        let sf = self.session_file_for(account_id)?;
+        let out = Command::new(&self.binary)
+            .args([
+                "organization",
+                "members",
+                "--database-url",
+                &self.db_url,
+                "--account-id",
+                &account_id.to_string(),
+                "--org-id",
+                &org_id.to_string(),
+            ])
+            .env("TANREN_SESSION_FILE", sf)
+            .stdin(Stdio::null())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .output()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("spawn tanren-cli: {e}")))?;
+        if !out.status.success() {
+            return Err(translate_cli_error(&out.stderr));
         }
-        Ok(ListOrganizationsResponse {
-            organizations,
-            next_cursor,
-            source_link: OrganizationSourceLink {
-                event_family: "organization".to_owned(),
-                event_kind: "organization_created".to_owned(),
-            },
-            freshness: ReadModelFreshness {
-                projection: "organizations_by_account_membership".to_owned(),
-                checkpoint: None,
-                generated_at: Utc::now(),
-                cursor: next_cursor.map(|value| value.to_string()),
-                source: "organization_membership_store".to_owned(),
-                value_kind: ClaimValueKind::Measured,
-                completeness: CompletenessState::Complete,
-                freshness_state: FreshnessState::Fresh,
-                visibility: VisibilityState::Visible,
-            },
-        })
+        parse_member_list_output(&String::from_utf8_lossy(&out.stdout))
     }
 
     async fn check_organization_admin_permission(

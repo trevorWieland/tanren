@@ -17,7 +17,8 @@ use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView,
     CheckOrganizationPermissionResponse, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse, SignInRequest, SignUpRequest,
+    LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_DEFAULT_LIMIT,
+    ListOrganizationMembersResponse, ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, OrgId, OrganizationName, OrganizationPermission};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
@@ -25,10 +26,10 @@ use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::common::{
-    accept_invitation_body, check_configure_permission_api_request, check_permission_api_request,
-    check_permission_body, create_organization_api_request, create_organization_body,
-    failure_from_error_body, scenario_db_path, sign_in_body, sign_up_body, sqlite_url,
-    wait_for_http_ready,
+    accept_invitation_body, authenticated_get, check_configure_permission_api_request,
+    check_permission_api_request, check_permission_body, create_organization_api_request,
+    create_organization_body, failure_from_error_body, scenario_db_path, sign_in_body,
+    sign_up_body, sqlite_url, wait_for_http_ready,
 };
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
@@ -313,26 +314,31 @@ impl AccountHarness for ApiHarness {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<ListOrganizationsResponse> {
-        let url = format!(
-            "{}/organizations?limit={}",
-            self.base_url, LIST_ORGANIZATIONS_DEFAULT_LIMIT
+        let path = format!("/organizations?limit={LIST_ORGANIZATIONS_DEFAULT_LIMIT}");
+        authenticated_get(
+            self.session_client(account_id)?,
+            &self.base_url,
+            &path,
+            "list_organizations",
+        )
+        .await
+    }
+
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse> {
+        let path = format!(
+            "/organizations/{org_id}/members?limit={LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT}"
         );
-        let response = self
-            .session_client(account_id)?
-            .get(&url)
-            .send()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("GET /organizations: {e}")))?;
-        let status = response.status();
-        let json: Value = response
-            .json()
-            .await
-            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
-        if !status.is_success() {
-            return Err(failure_from_error_body(&json));
-        }
-        serde_json::from_value(json)
-            .map_err(|e| HarnessError::Transport(format!("decode list_organizations: {e}")))
+        authenticated_get(
+            self.session_client(account_id)?,
+            &self.base_url,
+            &path,
+            "list_organization_members",
+        )
+        .await
     }
 
     async fn check_organization_admin_permission(

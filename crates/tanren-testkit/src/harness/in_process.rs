@@ -13,11 +13,12 @@ use tanren_app_services::{Clock, Handlers, Store};
 use tanren_contract::{
     AcceptInvitationRequest, CheckOrganizationPermissionRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationRequest, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsRequest, ListOrganizationsResponse,
-    SignInRequest, SignUpRequest,
+    LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_DEFAULT_LIMIT,
+    ListOrganizationMembersRequest, ListOrganizationMembersResponse, ListOrganizationsRequest,
+    ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
-    AccountId, Argon2idVerifier, OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, Argon2idVerifier, OrgId, OrganizationName, OrganizationPermission, SessionToken,
 };
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
@@ -192,10 +193,35 @@ impl AccountHarness for InProcessHarness {
             .map_err(translate_app_error)
     }
 
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse> {
+        let Some(session_token) = self.sessions.get(&account_id).cloned() else {
+            return Err(super::auth_required_failure());
+        };
+        self.handlers
+            .list_organization_members(
+                &self.store,
+                ListOrganizationMembersRequest::from_api_query(
+                    session_token,
+                    account_id,
+                    &tanren_contract::ListOrganizationMembersApiPath { org_id },
+                    &tanren_contract::ListOrganizationMembersApiQuery {
+                        limit: Some(LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT),
+                        cursor: None,
+                    },
+                ),
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
     async fn check_organization_admin_permission(
         &mut self,
         account_id: AccountId,
-        org_id: tanren_identity_policy::OrgId,
+        org_id: OrgId,
         permission: OrganizationPermission,
     ) -> HarnessResult<CheckOrganizationPermissionResponse> {
         let Some(session_token) = self.sessions.get(&account_id).cloned() else {

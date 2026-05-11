@@ -1,6 +1,7 @@
 //! `@tui` harness — drives the real `tanren-tui` binary over a pty.
 use super::cli_support::locate_workspace_binary;
 use super::common::{scenario_db_path, spawn_api_server, sqlite_url};
+
 use super::tui_support::{
     AccountCredentials, RE_ACCEPT_SUCCESS, RE_CHECK_SUCCESS, RE_CREATE_SUCCESS, RE_ERROR_ACCEPT,
     RE_ERROR_CHECK, RE_ERROR_CREATE, RE_ERROR_LIST, RE_ERROR_SIGN_IN, RE_ERROR_SIGN_UP,
@@ -26,8 +27,8 @@ use std::sync::Arc;
 use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse, OrganizationBehaviorId, SignInRequest,
-    SignUpRequest,
+    CreateOrganizationResponse, ListOrganizationMembersResponse, ListOrganizationsResponse,
+    OrganizationBehaviorId, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, Identifier, OrgId, OrganizationName, OrganizationPermission,
@@ -75,11 +76,10 @@ impl TuiHarness {
         })
     }
     fn spawn_session(&self) -> HarnessResult<expectrl::Session> {
-        let _pty_system = portable_pty::native_pty_system();
-        let mut command = Command::new(&self.binary);
-        command.env("TANREN_API_BASE_URL", &self.api_base_url);
-        command.env("RUST_LOG", "info");
-        let mut session = expectrl::Session::spawn(command)
+        let mut cmd = Command::new(&self.binary);
+        cmd.env("TANREN_API_BASE_URL", &self.api_base_url)
+            .env("RUST_LOG", "info");
+        let mut session = expectrl::Session::spawn(cmd)
             .map_err(|e| HarnessError::Transport(format!("spawn tui: {e}")))?;
         session.set_expect_timeout(Some(TUI_EXPECT_TIMEOUT));
         expect_literal(&mut session, READY_MARKER, "startup readiness marker")?;
@@ -88,8 +88,8 @@ impl TuiHarness {
 }
 impl Drop for TuiHarness {
     fn drop(&mut self) {
-        if let Some(handle) = self.server.take() {
-            handle.abort();
+        if let Some(h) = self.server.take() {
+            h.abort();
         }
         let _ = std::fs::remove_file(&self.db_path);
     }
@@ -400,6 +400,21 @@ impl AccountHarness for TuiHarness {
         let _ = close_session(&mut session);
         result
     }
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse> {
+        let mut session = self.spawn_session()?;
+        if let Some(creds) = self.credentials_by_account.get(&account_id) {
+            sign_in_in_session(&mut session, creds)?;
+        }
+        let result =
+            super::tui_support::drive_list_organization_members(&mut session, &org_id.to_string());
+        let _ = close_session(&mut session);
+        result
+    }
+
     async fn check_organization_admin_permission(
         &mut self,
         account_id: AccountId,

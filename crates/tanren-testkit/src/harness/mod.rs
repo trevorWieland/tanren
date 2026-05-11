@@ -58,8 +58,8 @@ use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView,
-    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
-    SignInRequest, SignUpRequest,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse,
+    ListOrganizationMembersResponse, ListOrganizationsResponse, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{
     AccountId, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
@@ -226,6 +226,13 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         &mut self,
         account_id: AccountId,
     ) -> HarnessResult<ListOrganizationsResponse>;
+
+    /// List members visible within the requested organization.
+    async fn list_organization_members(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<ListOrganizationMembersResponse>;
 
     /// Check whether a signed-in account has the supplied organization
     /// admin permission. Surfaces `permission_denied` as a stable
