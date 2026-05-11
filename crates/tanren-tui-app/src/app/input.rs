@@ -2,7 +2,7 @@ use crossterm::event::{KeyCode, KeyEvent};
 
 use crate::ui::{
     accept_invitation_fields, check_organization_permission_fields, create_organization_fields,
-    list_organizations_fields, sign_in_fields, sign_up_fields,
+    list_organization_members_fields, list_organizations_fields, sign_in_fields, sign_up_fields,
 };
 use crate::{FormState, MenuChoice};
 
@@ -41,6 +41,9 @@ pub(super) fn handle_menu_key(
                 }
                 MenuChoice::CheckOrganizationPermission => Screen::CheckOrganizationPermission(
                     FormState::new(check_organization_permission_fields()),
+                ),
+                MenuChoice::ListOrganizationMembers => Screen::ListOrganizationMembers(
+                    FormState::new(list_organization_members_fields()),
                 ),
             });
         }

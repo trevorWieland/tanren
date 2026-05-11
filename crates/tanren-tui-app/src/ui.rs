@@ -3,13 +3,13 @@
 //! workspace 500-line budget.
 
 use crate::app::api::{
-    AcceptInvitationInput, CheckOrganizationPermissionInput, CreateOrganizationInput, SignInInput,
-    SignUpInput,
+    AcceptInvitationInput, CheckOrganizationPermissionInput, CreateOrganizationInput,
+    ListOrganizationMembersInput, SignInInput, SignUpInput,
 };
 use secrecy::SecretString;
 use tanren_contract::{
     AccountFailureReason, AccountView, CheckOrganizationPermissionResponse,
-    CreateOrganizationResponse, ListOrganizationsResponse,
+    CreateOrganizationResponse, ListOrganizationMembersResponse, ListOrganizationsResponse,
 };
 
 use crate::{FormField, FormState, OutcomeView};
@@ -84,6 +84,14 @@ pub(crate) fn create_organization_fields() -> Vec<FormField> {
 
 pub(crate) fn list_organizations_fields() -> Vec<FormField> {
     Vec::new()
+}
+
+pub(crate) fn list_organization_members_fields() -> Vec<FormField> {
+    vec![FormField {
+        label: "Organization ID",
+        secret: false,
+        value: String::new(),
+    }]
 }
 
 pub(crate) fn check_organization_permission_fields() -> Vec<FormField> {
@@ -233,6 +241,34 @@ pub(crate) fn list_organizations_outcome(response: &ListOrganizationsResponse) -
     }
 }
 
+pub(crate) fn list_organization_members_outcome(
+    response: &ListOrganizationMembersResponse,
+) -> OutcomeView {
+    let next_cursor = response
+        .next_cursor
+        .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
+    let mut lines = vec![
+        format!("count: {}", response.members.len()),
+        format!("next_cursor: {next_cursor}"),
+    ];
+    for member in &response.members {
+        let permissions = member
+            .granted_permissions
+            .iter()
+            .map(|g| format!("{}:{}", g.permission, g.grant_source))
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!(
+            "account_id: {} identifier: {} permissions: {permissions}",
+            member.account_id, member.identifier,
+        ));
+    }
+    OutcomeView {
+        title: "Organization Members",
+        lines,
+    }
+}
+
 pub(crate) fn check_organization_permission_outcome(
     response: &CheckOrganizationPermissionResponse,
 ) -> OutcomeView {
@@ -296,6 +332,17 @@ pub(crate) fn parse_create_organization(
 ) -> Result<CreateOrganizationInput, String> {
     let name = required_field("organization_name", state.value(0))?;
     Ok(CreateOrganizationInput { name })
+}
+
+pub(crate) fn parse_list_organization_members(
+    state: &FormState,
+) -> Result<ListOrganizationMembersInput, String> {
+    let org_id = required_field("org_id", state.value(0))?;
+    Ok(ListOrganizationMembersInput {
+        org_id,
+        limit: None,
+        cursor: None,
+    })
 }
 
 pub(crate) fn parse_check_organization_permission(

@@ -1,7 +1,7 @@
 use super::api::AcceptInvitationCookieResponse;
 use tanren_contract::{
     AccountView, CheckOrganizationPermissionResponse, CreateOrganizationResponse,
-    ListOrganizationsResponse,
+    ListOrganizationMembersResponse, ListOrganizationsResponse,
 };
 
 pub(super) fn app_ready() {
@@ -113,6 +113,31 @@ pub(super) fn list_organizations_success(response: &ListOrganizationsResponse) {
             org.id,
             org.name.as_str(),
             capabilities
+        );
+    }
+}
+
+pub(super) fn list_organization_members_success(response: &ListOrganizationMembersResponse) {
+    let next_cursor = response
+        .next_cursor
+        .map_or_else(|| "<none>".to_owned(), |cursor| cursor.to_string());
+    tracing::info!(
+        "tui_witness op=list_organization_members kind=success count={} next_cursor={}",
+        response.members.len(),
+        next_cursor,
+    );
+    for member in &response.members {
+        let permissions = member
+            .granted_permissions
+            .iter()
+            .map(|g| format!("{}:{}", g.permission, g.grant_source))
+            .collect::<Vec<_>>()
+            .join(",");
+        tracing::info!(
+            "tui_witness op=list_organization_members kind=row account_id={} identifier={} permissions={}",
+            member.account_id,
+            member.identifier,
+            permissions,
         );
     }
 }

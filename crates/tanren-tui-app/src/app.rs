@@ -1,15 +1,14 @@
-//! TUI screen state machine and submit dispatch.
 pub(crate) mod api;
+mod draw;
 mod input;
 mod witness;
-
 use crate::FormState;
-use crate::draw;
 use crate::ui::{
     accept_invitation_outcome, auth_required_message, check_organization_permission_outcome,
-    create_organization_outcome, list_organizations_outcome, parse_accept_invitation,
-    parse_check_organization_permission, parse_create_organization, parse_sign_in, parse_sign_up,
-    permission_denied_message, sign_in_outcome, sign_up_outcome,
+    create_organization_outcome, list_organization_members_outcome, list_organizations_outcome,
+    parse_accept_invitation, parse_check_organization_permission, parse_create_organization,
+    parse_list_organization_members, parse_sign_in, parse_sign_up, permission_denied_message,
+    sign_in_outcome, sign_up_outcome,
 };
 use api::{ActiveSession, ApiClient, ApiClientState, ApiError};
 use crossterm::event::{self, Event, KeyCode, KeyEvent, KeyModifiers};
@@ -21,9 +20,9 @@ use thiserror::Error;
 use tokio::runtime::Runtime;
 use witness::{
     accept_invitation_success, app_ready, check_permission_success, create_organization_success,
-    list_organizations_success, operation_error, sign_in_success, sign_up_success,
+    list_organization_members_success, list_organizations_success, operation_error,
+    sign_in_success, sign_up_success,
 };
-
 #[derive(Debug)]
 pub(crate) enum Screen {
     Menu { selected: usize },
@@ -33,15 +32,14 @@ pub(crate) enum Screen {
     CreateOrganization(FormState),
     ListOrganizations(FormState),
     CheckOrganizationPermission(FormState),
+    ListOrganizationMembers(FormState),
     Outcome(OutcomeView),
 }
-
 #[derive(Debug)]
 pub(crate) struct OutcomeView {
     pub(crate) title: &'static str,
     pub(crate) lines: Vec<String>,
 }
-
 #[derive(Debug, Error)]
 pub(crate) enum AppError {
     #[error("{context}: {source}")]
@@ -51,9 +49,7 @@ pub(crate) enum AppError {
         source: std::io::Error,
     },
 }
-
 pub(crate) type AppResult<T> = Result<T, AppError>;
-
 #[derive(Debug)]
 pub(crate) struct App {
     runtime: Runtime,
@@ -61,7 +57,6 @@ pub(crate) struct App {
     active_session: Option<ActiveSession>,
     screen: Screen,
 }
-
 impl App {
     pub(crate) fn new() -> AppResult<Self> {
         let runtime = tokio::runtime::Builder::new_current_thread()
@@ -79,7 +74,6 @@ impl App {
             screen: Screen::Menu { selected: 0 },
         })
     }
-
     pub(crate) fn run(
         &mut self,
         terminal: &mut Terminal<CrosstermBackend<Stdout>>,
@@ -112,7 +106,6 @@ impl App {
             }
         }
     }
-
     fn handle_key(&mut self, key: KeyEvent) -> bool {
         if key.modifiers.contains(KeyModifiers::CONTROL) && matches!(key.code, KeyCode::Char('c')) {
             return true;
@@ -165,6 +158,10 @@ impl App {
                     None => Effect::None,
                 }
             }
+            Screen::ListOrganizationMembers(state) => match input::handle_form_key(state, key) {
+                Some(action) => Effect::Form(action, FormKind::ListOrganizationMembers),
+                None => Effect::None,
+            },
         };
         match effect {
             Effect::None => false,
@@ -179,7 +176,6 @@ impl App {
             }
         }
     }
-
     fn dispatch_form_action(&mut self, action: FormAction, kind: FormKind) {
         match action {
             FormAction::Cancel => {
@@ -188,7 +184,6 @@ impl App {
             FormAction::Submit => self.submit(kind),
         }
     }
-
     fn submit(&mut self, kind: FormKind) {
         let Some(client) = self.client_state.as_client().cloned() else {
             let message = self
@@ -210,9 +205,11 @@ impl App {
             FormKind::CheckOrganizationPermission => {
                 self.submit_check_organization_permission(&client);
             }
+            FormKind::ListOrganizationMembers => {
+                self.submit_list_organization_members(&client);
+            }
         }
     }
-
     fn submit_sign_up(&mut self, client: &ApiClient) {
         let parsed = {
             let Screen::SignUp(state) = &self.screen else {
@@ -229,8 +226,7 @@ impl App {
                 return;
             }
         };
-        let result = self.runtime.block_on(client.sign_up(request));
-        match result {
+        match self.runtime.block_on(client.sign_up(request)) {
             Ok(response) => {
                 sign_up_success(&response.account, response.has_token);
                 self.active_session = Some(ActiveSession {
@@ -241,13 +237,11 @@ impl App {
             }
             Err(err) => {
                 if let Screen::SignUp(state) = &mut self.screen {
-                    let message = Self::api_error_message("sign_up", &err);
-                    state.error = Some(message);
+                    state.error = Some(Self::api_error_message("sign_up", &err));
                 }
             }
         }
     }
-
     fn submit_sign_in(&mut self, client: &ApiClient) {
         let parsed = {
             let Screen::SignIn(state) = &self.screen else {
@@ -264,8 +258,7 @@ impl App {
                 return;
             }
         };
-        let result = self.runtime.block_on(client.sign_in(request));
-        match result {
+        match self.runtime.block_on(client.sign_in(request)) {
             Ok(response) => {
                 sign_in_success(&response.account, response.has_token);
                 self.active_session = Some(ActiveSession {
@@ -276,13 +269,11 @@ impl App {
             }
             Err(err) => {
                 if let Screen::SignIn(state) = &mut self.screen {
-                    let message = Self::api_error_message("sign_in", &err);
-                    state.error = Some(message);
+                    state.error = Some(Self::api_error_message("sign_in", &err));
                 }
             }
         }
     }
-
     fn submit_accept_invitation(&mut self, client: &ApiClient) {
         let parsed = {
             let Screen::AcceptInvitation(state) = &self.screen else {
@@ -299,8 +290,7 @@ impl App {
                 return;
             }
         };
-        let result = self.runtime.block_on(client.accept_invitation(request));
-        match result {
+        match self.runtime.block_on(client.accept_invitation(request)) {
             Ok(response) => {
                 accept_invitation_success(&response);
                 self.active_session = Some(ActiveSession {
@@ -314,13 +304,11 @@ impl App {
             }
             Err(err) => {
                 if let Screen::AcceptInvitation(state) = &mut self.screen {
-                    let message = Self::api_error_message("accept_invitation", &err);
-                    state.error = Some(message);
+                    state.error = Some(Self::api_error_message("accept_invitation", &err));
                 }
             }
         }
     }
-
     fn submit_create_organization(&mut self, client: &ApiClient) {
         if !self.require_authenticated_session("create_organization") {
             return;
@@ -340,51 +328,42 @@ impl App {
                 return;
             }
         };
-        let result = self.runtime.block_on(client.create_organization(request));
-        match result {
+        match self.runtime.block_on(client.create_organization(request)) {
             Ok(response) => {
                 create_organization_success(&response);
                 self.screen = Screen::Outcome(create_organization_outcome(&response));
             }
             Err(err) => {
                 if let Screen::CreateOrganization(state) = &mut self.screen {
-                    let message = Self::api_error_message("create_organization", &err);
-                    state.error = Some(message);
+                    state.error = Some(Self::api_error_message("create_organization", &err));
                 }
             }
         }
     }
-
     fn submit_list_organizations(&mut self, client: &ApiClient) {
         if !self.require_authenticated_session("list_organizations") {
             return;
         }
-        let result = self.runtime.block_on(client.list_organizations());
-        match result {
+        match self.runtime.block_on(client.list_organizations()) {
             Ok(response) => {
                 list_organizations_success(&response);
                 self.screen = Screen::Outcome(list_organizations_outcome(&response));
             }
             Err(err) => {
                 if let Screen::ListOrganizations(state) = &mut self.screen {
-                    let message = Self::api_error_message("list_organizations", &err);
-                    state.error = Some(message);
+                    state.error = Some(Self::api_error_message("list_organizations", &err));
                 }
             }
         }
     }
-
     fn submit_check_organization_permission(&mut self, client: &ApiClient) {
         if !self.require_authenticated_session("check_organization_permission") {
             return;
         }
-        let parsed = {
-            let Screen::CheckOrganizationPermission(state) = &self.screen else {
-                return;
-            };
-            parse_check_organization_permission(state)
+        let Screen::CheckOrganizationPermission(state) = &self.screen else {
+            return;
         };
-        let request = match parsed {
+        let request = match parse_check_organization_permission(state) {
             Ok(req) => req,
             Err(message) => {
                 if let Screen::CheckOrganizationPermission(state) = &mut self.screen {
@@ -393,10 +372,10 @@ impl App {
                 return;
             }
         };
-        let result = self
+        match self
             .runtime
-            .block_on(client.check_organization_permission(request));
-        match result {
+            .block_on(client.check_organization_permission(request))
+        {
             Ok(response) if response.allowed => {
                 check_permission_success(&response);
                 self.screen = Screen::Outcome(check_organization_permission_outcome(&response));
@@ -410,19 +389,50 @@ impl App {
             }
             Err(err) => {
                 if let Screen::CheckOrganizationPermission(state) = &mut self.screen {
-                    let message = Self::api_error_message("check_organization_permission", &err);
-                    state.error = Some(message);
+                    state.error = Some(Self::api_error_message(
+                        "check_organization_permission",
+                        &err,
+                    ));
                 }
             }
         }
     }
-
+    fn submit_list_organization_members(&mut self, client: &ApiClient) {
+        if !self.require_authenticated_session("list_organization_members") {
+            return;
+        }
+        let Screen::ListOrganizationMembers(state) = &self.screen else {
+            return;
+        };
+        let request = match parse_list_organization_members(state) {
+            Ok(req) => req,
+            Err(message) => {
+                if let Screen::ListOrganizationMembers(state) = &mut self.screen {
+                    state.error = Some(message);
+                }
+                return;
+            }
+        };
+        match self
+            .runtime
+            .block_on(client.list_organization_members(request))
+        {
+            Ok(response) => {
+                list_organization_members_success(&response);
+                self.screen = Screen::Outcome(list_organization_members_outcome(&response));
+            }
+            Err(err) => {
+                if let Screen::ListOrganizationMembers(state) = &mut self.screen {
+                    state.error = Some(Self::api_error_message("list_organization_members", &err));
+                }
+            }
+        }
+    }
     fn api_error_message(operation: &'static str, err: &ApiError) -> String {
         let message = err.message();
         operation_error(operation, &message);
         message
     }
-
     fn require_authenticated_session(&mut self, operation: &'static str) -> bool {
         let has_token = self
             .active_session
@@ -438,7 +448,6 @@ impl App {
         }
         false
     }
-
     fn active_form_mut(&mut self) -> Option<&mut FormState> {
         match &mut self.screen {
             Screen::SignUp(s)
@@ -446,34 +455,15 @@ impl App {
             | Screen::AcceptInvitation(s)
             | Screen::CreateOrganization(s)
             | Screen::ListOrganizations(s)
-            | Screen::CheckOrganizationPermission(s) => Some(s),
+            | Screen::CheckOrganizationPermission(s)
+            | Screen::ListOrganizationMembers(s) => Some(s),
             _ => None,
         }
     }
-
     fn draw(&self, frame: &mut ratatui::Frame<'_>) {
-        let area = frame.area();
-        match &self.screen {
-            Screen::Menu { selected } => draw::draw_menu(frame, area, *selected),
-            Screen::SignUp(state) => draw::draw_form(frame, area, "Sign up", state),
-            Screen::SignIn(state) => draw::draw_form(frame, area, "Sign in", state),
-            Screen::AcceptInvitation(state) => {
-                draw::draw_form(frame, area, "Accept invitation", state);
-            }
-            Screen::CreateOrganization(state) => {
-                draw::draw_form(frame, area, "Create organization", state);
-            }
-            Screen::ListOrganizations(state) => {
-                draw::draw_form(frame, area, "List organizations", state);
-            }
-            Screen::CheckOrganizationPermission(state) => {
-                draw::draw_form(frame, area, "Check org permission", state);
-            }
-            Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
-        }
+        draw::draw_screen(frame, &self.screen);
     }
 }
-
 #[derive(Debug, Clone, Copy)]
 enum FormKind {
     SignUp,
@@ -482,14 +472,13 @@ enum FormKind {
     CreateOrganization,
     ListOrganizations,
     CheckOrganizationPermission,
+    ListOrganizationMembers,
 }
-
 #[derive(Debug, Clone, Copy)]
 enum FormAction {
     Submit,
     Cancel,
 }
-
 #[derive(Debug)]
 enum Effect {
     None,

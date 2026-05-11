@@ -19,7 +19,6 @@
 //! client boundary in `app::api`.
 
 mod app;
-mod draw;
 mod ui;
 
 use std::io::{Stdout, stdout};
@@ -130,16 +129,18 @@ pub(crate) enum MenuChoice {
     CreateOrganization,
     ListOrganizations,
     CheckOrganizationPermission,
+    ListOrganizationMembers,
 }
 
 impl MenuChoice {
-    pub(crate) const ALL: [Self; 6] = [
+    pub(crate) const ALL: [Self; 7] = [
         Self::SignUp,
         Self::SignIn,
         Self::AcceptInvitation,
         Self::CreateOrganization,
         Self::ListOrganizations,
         Self::CheckOrganizationPermission,
+        Self::ListOrganizationMembers,
     ];
 
     pub(crate) fn label(self) -> &'static str {
@@ -150,6 +151,7 @@ impl MenuChoice {
             Self::CreateOrganization => "Create organization",
             Self::ListOrganizations => "List organizations",
             Self::CheckOrganizationPermission => "Check org permission",
+            Self::ListOrganizationMembers => "List org members",
         }
     }
 }

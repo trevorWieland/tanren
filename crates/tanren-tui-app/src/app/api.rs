@@ -8,7 +8,8 @@ use serde::Deserialize;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
+    LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_DEFAULT_LIMIT,
+    ListOrganizationMembersResponse, ListOrganizationsResponse, SessionEnvelope, SignInRequest,
     SignUpRequest, organization_permission_options,
 };
 use tanren_identity_policy::{
@@ -60,6 +61,13 @@ pub(crate) struct CreateOrganizationInput {
 pub(crate) struct CheckOrganizationPermissionInput {
     pub(crate) org_id: String,
     pub(crate) permission: String,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ListOrganizationMembersInput {
+    pub(crate) org_id: String,
+    pub(crate) limit: Option<u64>,
+    pub(crate) cursor: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -247,6 +255,32 @@ impl ApiClient {
             .await
             .map_err(|e| ApiError::Internal(format!("GET /organizations: {e}")))?;
         decode_response(response, "GET /organizations").await
+    }
+
+    pub(super) async fn list_organization_members(
+        &self,
+        input: ListOrganizationMembersInput,
+    ) -> Result<ListOrganizationMembersResponse, ApiError> {
+        let org_id = parse_org_id(&input.org_id)?;
+        let mut url = format!(
+            "{}/organizations/{}/members?limit={}",
+            self.base_url,
+            org_id,
+            input
+                .limit
+                .unwrap_or(LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT)
+        );
+        if let Some(cursor) = &input.cursor {
+            let trimmed = cursor.trim();
+            if !trimmed.is_empty() {
+                url.push_str("&cursor=");
+                url.push_str(trimmed);
+            }
+        }
+        let response = self.http.get(url).send().await.map_err(|e| {
+            ApiError::Internal(format!("GET /organizations/{{org_id}}/members: {e}"))
+        })?;
+        decode_response(response, "GET /organizations/{org_id}/members").await
     }
 
     pub(super) async fn check_organization_permission(

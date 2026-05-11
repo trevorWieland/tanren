@@ -7,7 +7,8 @@ use secrecy::SecretString;
 use tanren_app_services::{AppServiceError, Handlers, Store, map_organization_error};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CreateOrganizationRequest,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, ListOrganizationsRequest,
+    LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_DEFAULT_LIMIT,
+    ListOrganizationMembersRequest, ListOrganizationsRequest,
 };
 use tanren_identity_policy::{
     AccountId, MembershipId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
@@ -66,6 +67,24 @@ pub(crate) enum OrganizationAction {
         #[arg(long)]
         cursor: Option<String>,
     },
+    /// List members of an organization.
+    Members {
+        /// Database URL.
+        #[arg(long, env = "DATABASE_URL")]
+        database_url: String,
+        /// Signed-in account id.
+        #[arg(long)]
+        account_id: String,
+        /// Organization id.
+        #[arg(long)]
+        org_id: String,
+        /// Page size for member listing.
+        #[arg(long, default_value_t = LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT)]
+        limit: u64,
+        /// Opaque pagination cursor from a prior list call.
+        #[arg(long)]
+        cursor: Option<String>,
+    },
     /// Check an admin permission inside an organization.
     CheckPermission {
         /// Database URL.
@@ -103,6 +122,23 @@ pub(crate) async fn run_organization(
                 handlers,
                 &database_url,
                 &account_id,
+                limit,
+                cursor.as_deref(),
+            )
+            .await?;
+        }
+        OrganizationAction::Members {
+            database_url,
+            account_id,
+            org_id,
+            limit,
+            cursor,
+        } => {
+            list_organization_members(
+                handlers,
+                &database_url,
+                &account_id,
+                &org_id,
                 limit,
                 cursor.as_deref(),
             )
@@ -275,6 +311,69 @@ async fn list_organizations(
                 OrganizationCliError::Message(format!("write organization-list row: {e}"))
             })?;
         }
+    }
+    Ok(())
+}
+
+async fn list_organization_members(
+    handlers: &Handlers,
+    database_url: &str,
+    account_id_raw: &str,
+    org_id_raw: &str,
+    limit: u64,
+    cursor: Option<&str>,
+) -> OrganizationResult<()> {
+    let store = Store::connect(database_url)
+        .await
+        .map_err(|e| OrganizationCliError::Message(format!("connect to store: {e}")))?;
+    let account_id = parse_account_id(account_id_raw)?;
+    let org_id = parse_org_id(org_id_raw)?;
+    let session_token = read_session_token()?;
+    let membership_cursor = parse_cursor(cursor)?;
+    let response = handlers
+        .list_organization_members(
+            &store,
+            ListOrganizationMembersRequest::from_api_query(
+                session_token,
+                account_id,
+                &tanren_contract::ListOrganizationMembersApiPath { org_id },
+                &tanren_contract::ListOrganizationMembersApiQuery {
+                    limit: Some(limit),
+                    cursor: membership_cursor,
+                },
+            ),
+        )
+        .await
+        .map_err(|err| OrganizationCliError::from_app_service(&err))?;
+    let stdout = std::io::stdout();
+    let mut handle = stdout.lock();
+    let next_cursor = response
+        .next_cursor
+        .map_or_else(|| "<none>".to_owned(), |c| c.to_string());
+    writeln!(
+        handle,
+        "members={} next_cursor={next_cursor}",
+        response.members.len(),
+    )
+    .map_err(|e| OrganizationCliError::Message(format!("write member-list count: {e}")))?;
+    for member in response.members {
+        let permissions = member
+            .granted_permissions
+            .iter()
+            .map(|g| {
+                format!(
+                    "{}:{}:{}",
+                    g.permission, g.grant_source, g.granted_by_account_id
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(",");
+        writeln!(
+            handle,
+            "account_id={} identifier={} permissions={permissions}",
+            member.account_id, member.identifier,
+        )
+        .map_err(|e| OrganizationCliError::Message(format!("write member-list row: {e}")))?;
     }
     Ok(())
 }

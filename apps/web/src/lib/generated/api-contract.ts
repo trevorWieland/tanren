@@ -88,6 +88,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  "/organizations/{org_id}/members": {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations["list_organization_members_route"];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   "/sessions": {
     parameters: {
       query?: never;
@@ -266,6 +282,14 @@ export interface components {
      * @enum {string}
      */
     FreshnessState: "fresh" | "stale" | "unknown";
+    /**
+     * @description Origin of a permission grant.
+     *
+     *     `Direct` is the default emitted by the store today. `RoleTemplate` is
+     *     reserved for the role-template flow (not yet wired).
+     * @enum {string}
+     */
+    GrantSource: "direct" | "role_template";
     /** @description Liveness response. */
     HealthResponse: {
       /**
@@ -298,6 +322,32 @@ export interface components {
      *     BDD-only test surface policy there are no Rust unit or doc-tests
      *     for these rules. */
     Identifier: string;
+    /** @description Path parameters for `GET /organizations/{org_id}/members`. */
+    ListOrganizationMembersApiPath: {
+      /** @description Organization whose members are requested. */
+      org_id: components["schemas"]["OrgId"];
+    };
+    /** @description Query parameters for `GET /organizations/{org_id}/members`. */
+    ListOrganizationMembersApiQuery: {
+      cursor?: null | components["schemas"]["MembershipId"];
+      /**
+       * Format: int64
+       * @description Maximum page size the caller asks for.
+       */
+      limit?: number | null;
+    };
+    /** @description List-organization-members response. */
+    ListOrganizationMembersResponse: {
+      /** @description Read-model freshness metadata for this response. */
+      freshness: components["schemas"]["ReadModelFreshness"];
+      /** @description Members visible within the requested organization. */
+      members: components["schemas"]["OrganizationMemberView"][];
+      next_cursor?: null | components["schemas"]["MembershipId"];
+      /** @description Stable proof reference clients can render without event-log probing. */
+      proof_link: components["schemas"]["OrganizationProofLink"];
+      /** @description Canonical source link for organization-member lifecycle events. */
+      source_link: components["schemas"]["OrganizationSourceLink"];
+    };
     /** @description Query parameters for `GET /organizations`. */
     ListOrganizationsApiQuery: {
       cursor?: null | components["schemas"]["MembershipId"];
@@ -378,6 +428,29 @@ export interface components {
       | "auth_required"
       | "permission_denied"
       | "internal_error";
+    /** @description A single permission grant for an organization member. */
+    OrganizationMemberPermissionGrant: {
+      /** @description How this grant was sourced — directly assigned or via a role template. */
+      grant_source: components["schemas"]["GrantSource"];
+      /** @description Account that created this grant. */
+      granted_by_account_id: components["schemas"]["AccountId"];
+      /** @description The organization-level permission that was granted. */
+      permission: components["schemas"]["OrganizationPermission"];
+    };
+    /** @description Contract projection of a single organization member. */
+    OrganizationMemberView: {
+      /** @description Account id of the organization member. */
+      account_id: components["schemas"]["AccountId"];
+      /** @description Permission grants active for this member in the organization. */
+      granted_permissions: components["schemas"]["OrganizationMemberPermissionGrant"][];
+      /** @description Identifier (derived from email) for display purposes. */
+      identifier: string;
+      /**
+       * Format: date-time
+       * @description Wall-clock time the membership was created.
+       */
+      joined_at: string;
+    };
     /** @description Validated organization name.
      *
      *     Organization names are canonicalized to a global uniqueness key:
@@ -817,6 +890,61 @@ export interface operations {
         };
         content: {
           "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+      /** @description auth_required */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+      /** @description permission_denied */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+      /** @description internal_error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["OrganizationFailureBody"];
+        };
+      };
+    };
+  };
+  list_organization_members_route: {
+    parameters: {
+      query?: {
+        /** @description Maximum page size the caller asks for. */
+        limit?: number | null;
+        /** @description Opaque page cursor returned by a previous list call. */
+        cursor?: null | components["schemas"]["MembershipId"];
+      };
+      header?: never;
+      path: {
+        /** @description Organization whose members are requested. */
+        org_id: components["schemas"]["OrgId"];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description Member list */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          "application/json": components["schemas"]["ListOrganizationMembersResponse"];
         };
       };
       /** @description auth_required */

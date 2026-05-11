@@ -1,4 +1,5 @@
 //! Axum route handlers + `#[utoipa::path(...)]` annotations + `ApiDoc`; wiring lives in `lib.rs::build_app`.
+mod members;
 use crate::AppState;
 use crate::auth::require_authoritative_auth;
 use crate::cookies::{SessionWrite, install_cookie_session};
@@ -20,8 +21,9 @@ use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, CheckOrganizationPermissionApiRequest,
     CheckOrganizationPermissionResponse, CreateOrganizationApiRequest, CreateOrganizationResponse,
-    ListOrganizationsApiQuery, ListOrganizationsResponse, OrganizationFailureBody, SessionEnvelope,
-    SignInRequest, SignUpRequest,
+    ListOrganizationMembersApiPath, ListOrganizationMembersApiQuery,
+    ListOrganizationMembersResponse, ListOrganizationsApiQuery, ListOrganizationsResponse,
+    OrganizationFailureBody, SessionEnvelope, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{Email, InvitationToken, OrgId};
 use tower_sessions::Session;
@@ -99,6 +101,7 @@ pub struct AcceptInvitationBody {
         create_organization_route,
         list_organizations_route,
         check_organization_permission_route,
+        members::list_organization_members_route,
         revoke_route,
     ),
     components(schemas(
@@ -114,6 +117,9 @@ pub struct AcceptInvitationBody {
         ListOrganizationsApiQuery,
         CreateOrganizationResponse,
         ListOrganizationsResponse,
+        ListOrganizationMembersResponse,
+        ListOrganizationMembersApiPath,
+        ListOrganizationMembersApiQuery,
         CheckOrganizationPermissionResponse,
         AccountFailureBody,
         OrganizationFailureBody,
@@ -122,7 +128,7 @@ pub struct AcceptInvitationBody {
     tags(
         (name = "health", description = "Liveness probe."),
         (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
-        (name = "organizations", description = "Organization create/list/permission-check operations."),
+        (name = "organizations", description = "Organization create/list/permission-check/member-list operations."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -477,6 +483,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(create_organization_route))
         .routes(routes!(list_organizations_route))
         .routes(routes!(check_organization_permission_route))
+        .routes(routes!(members::list_organization_members_route))
         .routes(routes!(revoke_route))
         .with_state(state)
 }
