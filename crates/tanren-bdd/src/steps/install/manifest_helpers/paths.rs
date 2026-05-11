@@ -10,7 +10,16 @@ pub(crate) struct RepositoryRelativePath(String);
 impl RepositoryRelativePath {
     pub(crate) fn parse(raw: String) -> Result<Self, InstallStepError> {
         validate_relative_path(raw.as_str())?;
-        Ok(Self(raw))
+        let normalized: String = Path::new(&raw)
+            .components()
+            .filter_map(|component| match component {
+                Component::Normal(segment) => Some(segment.to_string_lossy().into_owned()),
+                _ => None,
+            })
+            .collect::<Vec<_>>()
+            .join("/");
+        drop(raw);
+        Ok(Self(normalized))
     }
 
     pub(crate) fn as_str(&self) -> &str {
@@ -36,13 +45,19 @@ pub(crate) fn validate_relative_path(path: &str) -> Result<(), InstallStepError>
             path: path.to_owned(),
         });
     }
-    let is_valid = candidate
+    let has_only_normal_or_curdir = candidate
         .components()
         .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-    if !is_valid {
+    if !has_only_normal_or_curdir {
         return Err(InstallStepError::TraversalRepositoryRelativePath {
             path: path.to_owned(),
         });
+    }
+    let has_normal = candidate
+        .components()
+        .any(|component| matches!(component, Component::Normal(_)));
+    if !has_normal {
+        return Err(InstallStepError::EmptyRepositoryRelativePath);
     }
     Ok(())
 }

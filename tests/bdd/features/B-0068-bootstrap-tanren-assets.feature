@@ -172,3 +172,24 @@ Feature: Bootstrap Tanren assets into an existing repository
       When tanren-cli install runs with profile "rust-cargo"
       Then the install command succeeds
       And repository file ".codex/skills/retired-command.md" preserves its baseline content
+    @falsification @cli
+    Scenario: Install rejects manifest with CurDir-aliased duplicate entry paths
+      Given a clean repository
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given previous install manifest is tampered with raw generated path "./.codex/skills/plan-product.md"
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command exits nonzero
+      And the install output reports why install was blocked
+      And the repository remains unchanged
+
+    @falsification @cli
+    Scenario: Install rejects manifest entry with only CurDir segments
+      Given a clean repository
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command succeeds
+      Given previous install manifest is tampered with raw generated path "././."
+      When tanren-cli install runs with profile "rust-cargo"
+      Then the install command exits nonzero
+      And the install output reports why install was blocked
+      And the repository remains unchanged

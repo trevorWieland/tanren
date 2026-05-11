@@ -152,6 +152,7 @@ pub(super) fn build_install_plan(
 
     let mut manifest_entries = build_manifest_entries(&assets);
     manifest_entries.sort_by(|left, right| left.path.as_str().cmp(right.path.as_str()));
+    ensure_manifest_entries_unique(&manifest_entries)?;
 
     let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
     let manifest_absolute_path = resolve_repo_path(&repository_root, &manifest_path)?;
@@ -439,6 +440,19 @@ fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, Insta
         message: err.to_string(),
     })?;
     Ok(sha256_hex(&current))
+}
+
+fn ensure_manifest_entries_unique(entries: &[ManifestEntry]) -> Result<(), InstallError> {
+    let mut seen = BTreeSet::new();
+    for entry in entries {
+        if !seen.insert(entry.path.as_str()) {
+            return Err(InstallError::InvalidInstallManifest {
+                path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
+                message: format!("duplicate manifest entry path '{}'", entry.path.as_str()),
+            });
+        }
+    }
+    Ok(())
 }
 
 fn ensure_removals_unique(

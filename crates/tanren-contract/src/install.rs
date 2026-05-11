@@ -139,11 +139,19 @@ pub enum PreservationPolicy {
 }
 
 /// Strict repository-relative path (no absolute roots, no `..` traversal).
+///
+/// `CurDir` (`.`) segments are stripped during parsing so that paths like
+/// `./.codex/skills/x.md` and `.codex/skills/x.md` produce the same
+/// canonical value.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoRelativePath(String);
 
 impl RepoRelativePath {
-    /// Validate and construct a repository-relative path.
+    /// Validate and construct a normalized repository-relative path.
+    ///
+    /// `CurDir` (`.`) segments are stripped so that every accepted input
+    /// produces a canonical string. The normalized form contains only
+    /// `Component::Normal` segments joined by `/`.
     pub fn parse(path: &str) -> Result<Self, InstallContractError> {
         if path.is_empty() {
             return Err(InstallContractError::InvalidRepoRelativePath {
@@ -158,16 +166,32 @@ impl RepoRelativePath {
             });
         }
 
-        let is_valid = candidate
-            .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-        if !is_valid {
+        let mut normal_segments: Vec<&std::ffi::OsStr> = Vec::new();
+        for component in candidate.components() {
+            match component {
+                Component::Normal(segment) => normal_segments.push(segment),
+                Component::CurDir => {}
+                _ => {
+                    return Err(InstallContractError::InvalidRepoRelativePath {
+                        path: path.to_owned(),
+                    });
+                }
+            }
+        }
+
+        if normal_segments.is_empty() {
             return Err(InstallContractError::InvalidRepoRelativePath {
                 path: path.to_owned(),
             });
         }
 
-        Ok(Self(path.to_owned()))
+        let normalized = normal_segments
+            .iter()
+            .map(|segment| segment.to_string_lossy())
+            .collect::<Vec<_>>()
+            .join("/");
+
+        Ok(Self(normalized))
     }
 
     /// Borrow the validated path string.
