@@ -39,13 +39,11 @@ impl AccountId {
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
-
     /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
-
     /// The underlying UUID.
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
@@ -70,7 +68,6 @@ impl std::fmt::Display for AccountId {
         self.0.fmt(f)
     }
 }
-
 /// Stable identifier for a Tanren organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
@@ -497,4 +494,7 @@ pub enum ValidationError {
     /// The supplied organization name did not satisfy naming rules.
     #[error("organization name is malformed")]
     OrganizationNameMalformed,
+    /// The stored `grant_source` value is not a recognized variant.
+    #[error("organization permission grant source is invalid")]
+    OrganizationPermissionGrantSourceInvalid,
 }

@@ -18,9 +18,9 @@ mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
-    OrganizationCreateIdempotencyRecord, OrganizationPermissionGrantRecord, OrganizationRecord,
-    SessionRecord,
+    AccountRecord, GrantSource, InvitationRecord, ListOrganizationMembersPage, MembershipRecord,
+    NewAccount, NewInvitation, OrganizationCreateIdempotencyRecord, OrganizationMemberRecord,
+    OrganizationPermissionGrantRecord, OrganizationRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
@@ -327,6 +327,24 @@ impl AccountStore for Store {
     ) -> Result<ListOrganizationsPage, StoreError> {
         account_queries::list_organizations_for_account(&self.conn, account_id, limit, cursor, now)
             .await
+    }
+
+    async fn has_organization_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<bool, StoreError> {
+        account_queries::has_organization_membership(&self.conn, account_id, org_id).await
+    }
+
+    async fn list_organization_members(
+        &self,
+        org_id: OrgId,
+        limit: u64,
+        cursor: Option<MembershipId>,
+        now: DateTime<Utc>,
+    ) -> Result<ListOrganizationMembersPage, StoreError> {
+        account_queries::list_organization_members(&self.conn, org_id, limit, cursor, now).await
     }
 
     async fn append_event(

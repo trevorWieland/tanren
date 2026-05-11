@@ -12,6 +12,8 @@ pub struct Model {
     /// Snake-case permission key (`invite`, `manage_access`, ...).
     pub permission: String,
     pub granted_by_account_id: Uuid,
+    /// Origin of this grant: `"direct"` or `"role_template"`.
+    pub grant_source: String,
     pub created_at: DateTimeUtc,
 }
 

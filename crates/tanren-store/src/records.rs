@@ -183,6 +183,8 @@ pub struct OrganizationPermissionGrantRecord {
     pub permission: OrganizationPermission,
     /// Account that granted this permission.
     pub granted_by_account_id: AccountId,
+    /// Origin of this grant.
+    pub grant_source: GrantSource,
     /// Wall-clock time the grant was created.
     pub created_at: DateTime<Utc>,
 }
@@ -196,6 +198,7 @@ impl TryFrom<entity::organization_permission_grants::Model> for OrganizationPerm
             account_id: AccountId::new(model.account_id),
             permission: parse_db_organization_permission(&model.permission)?,
             granted_by_account_id: AccountId::new(model.granted_by_account_id),
+            grant_source: GrantSource::from_db(&model.grant_source)?,
             created_at: model.created_at,
         })
     }
@@ -259,4 +262,76 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Origin of a permission grant.
+///
+/// `Direct` is the default emitted by the store today. `RoleTemplate` is
+/// reserved for the role-template flow (not yet wired).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GrantSource {
+    /// Permission was assigned directly to the member.
+    Direct,
+    /// Permission was inherited from a role template.
+    RoleTemplate,
+}
+
+impl GrantSource {
+    /// Canonical wire/storage key for this grant source.
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Direct => "direct",
+            Self::RoleTemplate => "role_template",
+        }
+    }
+
+    /// Parse a DB-stored grant source string.
+    pub fn from_db(raw: &str) -> Result<Self, StoreError> {
+        match raw {
+            "direct" => Ok(Self::Direct),
+            "role_template" => Ok(Self::RoleTemplate),
+            _ => Err(StoreError::DataInvariant {
+                column: "grant_source",
+                cause: tanren_identity_policy::ValidationError::OrganizationPermissionGrantSourceInvalid,
+            }),
+        }
+    }
+}
+
+impl std::fmt::Display for GrantSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.as_str())
+    }
+}
+
+/// A single organization member with associated permission grants,
+/// produced by the `list_organization_members` paginated read query.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationMemberRecord {
+    /// Account id of the organization member.
+    pub account_id: AccountId,
+    /// User-facing identifier (email-derived).
+    pub identifier: Identifier,
+    /// Wall-clock time the membership was created.
+    pub joined_at: DateTime<Utc>,
+    /// Permission grants active for this member in the organization.
+    pub grants: Vec<OrganizationPermissionGrantRecord>,
+}
+
+/// One page of organization members returned by
+/// [`crate::AccountStore::list_organization_members`].
+#[derive(Debug, Clone)]
+pub struct ListOrganizationMembersPage {
+    /// Members in this page.
+    pub members: Vec<OrganizationMemberRecord>,
+    /// Opaque cursor for the next page, if more rows remain.
+    pub next_cursor: Option<MembershipId>,
+    /// Response-generation timestamp from this read path.
+    pub generated_at: DateTime<Utc>,
+    /// Optional projection checkpoint identifier when available.
+    pub checkpoint: Option<String>,
+    /// Optional store-level cursor for this read page.
+    pub cursor: Option<String>,
 }

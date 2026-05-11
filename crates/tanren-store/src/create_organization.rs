@@ -300,6 +300,7 @@ async fn insert_creator_admin_grants_in_txn(
                     account_id: Set(creator_account_id.as_uuid()),
                     permission: Set(permission.as_str().to_owned()),
                     granted_by_account_id: Set(creator_account_id.as_uuid()),
+                    grant_source: Set("direct".to_owned()),
                     created_at: Set(now),
                 },
             )

@@ -33,8 +33,8 @@ use tanren_identity_policy::{
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, SessionRecord,
-    StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, ListOrganizationMembersPage, NewAccount,
+    OrganizationRecord, SessionRecord, StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -426,6 +426,24 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         cursor: Option<MembershipId>,
         now: DateTime<Utc>,
     ) -> Result<ListOrganizationsPage, StoreError>;
+
+    /// Check whether an account is currently a member of the
+    /// specified organization.
+    async fn has_organization_membership(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<bool, StoreError>;
+
+    /// List members of an organization with their permission grants.
+    /// Returns a cursor-paginated page ordered by membership id.
+    async fn list_organization_members(
+        &self,
+        org_id: OrgId,
+        limit: u64,
+        cursor: Option<MembershipId>,
+        now: DateTime<Utc>,
+    ) -> Result<ListOrganizationMembersPage, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied
     /// instant.
