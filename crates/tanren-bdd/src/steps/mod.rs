@@ -3,3 +3,5 @@
 //! here and the macros register globally.
 
 pub mod account;
+#[cfg(test)]
+mod passphrase;

@@ -10,12 +10,14 @@
 //! `getrandom::fill` (fallible OS CSPRNG) rather than `rand::random`
 //! (which panics on entropy exhaustion).
 
+pub mod passphrase;
 pub mod secret_store;
 
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
+pub use passphrase::CredentialSealPassphrase;
 pub use secret_store::{
     INSTALLATION_SEAL_SALT_LEN, InstallationSealSalt, METADATA_KEY_INSTALLATION_SEAL_SALT,
     seal_sync, unseal_sync,
@@ -74,4 +76,13 @@ pub enum ConfigSecretsError {
     /// nonce, or invalid UTF-8 after decryption).
     #[error("failed to decode sealed credential")]
     SealDecodeFailed,
+    /// The supplied passphrase did not meet the minimum entropy threshold
+    /// as measured by the zxcvbn strength estimator. Patterned strings
+    /// like "aaaaaaaaaaaa" or "passwordpassword" trigger this error.
+    #[error("passphrase does not meet minimum entropy requirements")]
+    PassphraseTooWeak,
+    /// The zxcvbn estimator could not evaluate the passphrase (e.g. empty
+    /// string or internal failure).
+    #[error("passphrase strength validation failed")]
+    PassphraseValidationFailed,
 }

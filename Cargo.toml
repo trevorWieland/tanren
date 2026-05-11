@@ -247,6 +247,14 @@ password-hash = { version = "0.5", default-features = false, features = [
   "alloc",
 ] }
 
+
+# Password strength estimation — zxcvbn is a well-vetted entropy-based
+# estimator (Dropbox-originated, Rust port maintained since 2017). Used by
+# `CredentialSealPassphrase::parse` to reject patterned passphrases that a
+# unique-byte heuristic would mistakenly accept (e.g. "aaaaaaaaaaaa",
+# "passwordpassword").
+zxcvbn = "3"
+
 # Cookie sessions for the API surface (R-0001 sub-8). `tower-sessions`
 # provides the SameSite=Strict + Secure + HttpOnly cookie middleware;
 # `tower-sessions-sqlx-store` provides a sqlite-backed `SessionStore`
