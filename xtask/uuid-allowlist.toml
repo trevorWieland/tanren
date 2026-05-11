@@ -18,4 +18,6 @@ allowed_files = [
   "crates/tanren-store/src/entity/organization_create_idempotency.rs",
   "crates/tanren-store/src/entity/organization_permission_grants.rs",
   "crates/tanren-store/src/entity/organizations.rs",
+  "crates/tanren-store/src/entity/organization_secrets.rs",
+  "crates/tanren-store/src/entity/organization_secret_values.rs",
 ]

@@ -278,3 +278,9 @@ utoipa-axum = "0.2"
 expectrl = "0.7"
 portable-pty = "0.8"
 regex = "1"
+
+# AEAD encryption for organization secret values at rest.
+# AES-256-GCM provides authenticated encryption; the key material is
+# managed outside the database (installation-level configuration).
+# R-0011 S-02-store.
+aes-gcm = { version = "0.10", features = ["std"] }

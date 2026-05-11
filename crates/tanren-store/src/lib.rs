@@ -1,11 +1,9 @@
 //! Database access layer for Tanren.
 //!
-//! This crate is the **only** place in the workspace that owns SQL and
-//! row-shape entities. Other crates consume typed envelopes through the
-//! [`AccountStore`] port and the concrete [`Store`] adapter; the
-//! underlying `SeaORM` entity types are intentionally crate-private
-//! (`entity/` is a private module) so that row shape changes never leak
-//! across the dependency boundary.
+//! This crate is the only place that owns SQL and row-shape entities.
+//! Other crates consume typed envelopes through the [`AccountStore`] port
+//! and the [`Store`] adapter; `SeaORM` entity types are crate-private
+//! so row-shape changes never leak across the dependency boundary.
 
 mod accept_invitation;
 mod account_queries;
@@ -13,14 +11,24 @@ mod create_organization;
 mod entity;
 mod migration;
 mod organization_constraints;
+pub(crate) mod organization_secret_types;
+mod organization_secrets;
 mod records;
 mod traits;
 
+pub use crate::organization_secrets::SecretEncryptionKey;
 pub use migration::Migrator;
+pub use organization_secret_types::{
+    CreateOrganizationSecretError, CreateOrganizationSecretInput, CreateOrganizationSecretOutput,
+    ListOrganizationSecretsPage, ListOrganizationSecretsRequest, OrganizationSecretLookupError,
+    RemoveOrganizationSecretError, RemoveOrganizationSecretInput, RemoveOrganizationSecretOutput,
+    ResolveOrganizationSecretError, ResolveOrganizationSecretOutput, UpdateOrganizationSecretError,
+    UpdateOrganizationSecretInput, UpdateOrganizationSecretOutput,
+};
 pub use records::{
     AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
     OrganizationCreateIdempotencyRecord, OrganizationPermissionGrantRecord, OrganizationRecord,
-    SessionRecord,
+    OrganizationSecretRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
@@ -43,6 +51,7 @@ use sea_orm::{
 use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::OrganizationSecretId;
 use tanren_identity_policy::{
     AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
     OrganizationName, OrganizationPermission, SessionToken, ValidationError,
@@ -50,17 +59,9 @@ use tanren_identity_policy::{
 use thiserror::Error;
 use uuid::Uuid;
 
-/// A connected handle to Tanren's canonical event store.
-///
-/// Construct via [`Store::connect`]; apply pending migrations via
-/// [`Store::migrate`]. The handle is cheap to clone — under the hood
-/// `SeaORM` pools connections.
-///
-/// All account-flow methods are exposed via the [`AccountStore`] trait
-/// impl below; handlers depend on `&dyn AccountStore`, not on `Store`
-/// directly.
 pub struct Store {
     conn: DatabaseConnection,
+    encryption_key: Option<SecretEncryptionKey>,
 }
 
 impl std::fmt::Debug for Store {
@@ -73,15 +74,13 @@ impl Clone for Store {
     fn clone(&self) -> Self {
         Self {
             conn: self.conn.clone(),
+            encryption_key: self.encryption_key.clone(),
         }
     }
 }
 
-/// A row in Tanren's canonical event log.
-///
-/// Per architecture, payloads are JSON-serialised typed events. F-0001 ships
-/// only the envelope shape; concrete event types arrive with later behavior
-/// slices.
+/// A row in Tanren's canonical event log. Payloads are JSON-serialised typed
+/// events; concrete event types arrive with later behavior slices.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EventEnvelope {
     /// UUID v7 — globally unique, time-ordered.
@@ -95,28 +94,33 @@ pub struct EventEnvelope {
 impl Store {
     /// Connect to a database by URL (e.g. `postgres://...`).
     ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the underlying `SeaORM` connect call
-    /// fails.
     pub async fn connect(url: &str) -> Result<Self, StoreError> {
         let conn = Database::connect(url).await?;
-        Ok(Self { conn })
+        Ok(Self {
+            conn,
+            encryption_key: None,
+        })
     }
 
-    /// Reference to the underlying `SeaORM` connection. Provided so app-services
-    /// can run cross-cutting transactions; row-shape entity types remain
-    /// crate-private.
-    #[must_use]
+    /// Set the encryption key for organization-secret value encryption.
+    /// Must be called before any secret operations.
+    pub fn set_encryption_key(&mut self, key: SecretEncryptionKey) {
+        self.encryption_key = Some(key);
+    }
+
+    /// Borrow the encryption key. Returns `SecretStoreUnavailable` if not set.
+    fn encryption_key(&self) -> Result<&SecretEncryptionKey, StoreError> {
+        self.encryption_key
+            .as_ref()
+            .ok_or(StoreError::SecretStoreUnavailable)
+    }
+    /// Reference to the underlying `SeaORM` connection for cross-cutting
+    /// transactions; entity types remain crate-private.
     pub fn connection(&self) -> &DatabaseConnection {
         &self.conn
     }
 
-    /// Apply all pending migrations.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if migration execution fails.
+    /// Apply all pending migrations. Returns [`StoreError::Database`] on failure.
     pub async fn migrate(&self) -> Result<(), StoreError> {
         Migrator::up(&self.conn, None).await?;
         Ok(())
@@ -361,20 +365,71 @@ impl AccountStore for Store {
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
+
+    async fn create_organization_secret(
+        &self,
+        input: CreateOrganizationSecretInput,
+    ) -> Result<CreateOrganizationSecretOutput, CreateOrganizationSecretError> {
+        let key = self
+            .encryption_key()
+            .map_err(CreateOrganizationSecretError::Store)?;
+        organization_secrets::create(&self.conn, key, input).await
+    }
+
+    async fn update_organization_secret(
+        &self,
+        input: UpdateOrganizationSecretInput,
+    ) -> Result<UpdateOrganizationSecretOutput, UpdateOrganizationSecretError> {
+        let key = self
+            .encryption_key()
+            .map_err(UpdateOrganizationSecretError::Store)?;
+        organization_secrets::update(&self.conn, key, input).await
+    }
+
+    async fn remove_organization_secret(
+        &self,
+        input: RemoveOrganizationSecretInput,
+    ) -> Result<RemoveOrganizationSecretOutput, RemoveOrganizationSecretError> {
+        organization_secrets::remove(&self.conn, input).await
+    }
+
+    async fn list_organization_secrets(
+        &self,
+        request: ListOrganizationSecretsRequest,
+    ) -> Result<ListOrganizationSecretsPage, StoreError> {
+        organization_secrets::list(&self.conn, request).await
+    }
+
+    async fn get_organization_secret(
+        &self,
+        org_id: OrgId,
+        secret_id: OrganizationSecretId,
+    ) -> Result<Option<OrganizationSecretRecord>, StoreError> {
+        organization_secrets::get_metadata(&self.conn, org_id, secret_id).await
+    }
+
+    async fn resolve_organization_secret(
+        &self,
+        org_id: OrgId,
+        secret_id: OrganizationSecretId,
+    ) -> Result<ResolveOrganizationSecretOutput, ResolveOrganizationSecretError> {
+        let key = self
+            .encryption_key()
+            .map_err(ResolveOrganizationSecretError::Store)?;
+        organization_secrets::resolve_value(&self.conn, key, org_id, secret_id).await
+    }
+
+    async fn find_organization_secret_by_name(
+        &self,
+        org_id: OrgId,
+        name: &tanren_configuration_secrets::OrganizationSecretName,
+    ) -> Result<Option<OrganizationSecretRecord>, OrganizationSecretLookupError> {
+        organization_secrets::find_by_org_and_name(&self.conn, org_id, name).await
+    }
 }
 
-/// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
-/// so production binaries cannot accidentally seed test data; the testkit
-/// (and only the testkit) enables the feature.
 #[cfg(feature = "test-hooks")]
 impl Store {
-    /// Seed a fixture invitation row directly. Bypasses the (currently
-    /// non-existent) invitation-creation flow so BDD scenarios can stage
-    /// pending invitations without an inviting handler.
-    ///
-    /// # Errors
-    ///
-    /// Returns [`StoreError::Database`] if the insert fails.
     pub async fn seed_invitation(
         &self,
         new: NewInvitation,
@@ -389,46 +444,30 @@ impl Store {
         InvitationRecord::try_from(inserted)
     }
 }
-
-/// Convert a DB-stored identifier string into an [`Identifier`]. Any
-/// failure is a DB-invariant violation (we wrote the row through our
-/// own validated path), so it surfaces as a distinct
-/// [`StoreError::DataInvariant`] for triage rather than masquerading as
-/// a query failure.
 pub(crate) fn parse_db_identifier(raw: &str) -> Result<Identifier, StoreError> {
     Identifier::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "identifier",
         cause: err,
     })
 }
-
-/// Convert a DB-stored invitation token into an [`InvitationToken`].
 pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, StoreError> {
     InvitationToken::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "invitation_token",
         cause: err,
     })
 }
-
-/// Convert a DB-stored organization-name key into an
-/// [`OrganizationName`].
 pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, StoreError> {
     OrganizationName::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "organization_name",
         cause: err,
     })
 }
-
-/// Convert a DB-stored idempotency key into an [`IdempotencyKey`].
 pub(crate) fn parse_db_idempotency_key(raw: &str) -> Result<IdempotencyKey, StoreError> {
     IdempotencyKey::parse(raw).map_err(|err| StoreError::DataInvariant {
         column: "idempotency_key",
         cause: err,
     })
 }
-
-/// Convert a DB-stored permission key into an
-/// [`OrganizationPermission`].
 pub(crate) fn parse_db_organization_permission(
     raw: &str,
 ) -> Result<OrganizationPermission, StoreError> {
@@ -438,39 +477,23 @@ pub(crate) fn parse_db_organization_permission(
             value: raw.to_owned(),
         })
 }
-
-/// Wrap a raw string into a [`SecretString`]. Re-exported so callers
-/// can build a [`SecretString`] without taking a direct `secrecy`
-/// dependency.
-#[must_use]
 pub fn secret_from_string(value: String) -> SecretString {
     SecretString::from(value)
 }
-
 /// Errors raised by the store layer.
 #[derive(Debug, Error)]
 #[non_exhaustive]
 pub enum StoreError {
-    /// The underlying `SeaORM` call failed.
     #[error("database error: {0}")]
     Database(#[from] DbErr),
-    /// A row read out of the database failed validation against a
-    /// domain newtype's invariants. Indicates DB-side corruption — we
-    /// only ever write rows through validated newtype constructors.
     #[error("data invariant violation in column `{column}`: {cause}")]
     DataInvariant {
-        /// The column whose value failed to validate.
         column: &'static str,
-        /// The underlying validation error.
         #[source]
         cause: ValidationError,
     },
-    /// A row contained an unknown permission key value.
     #[error("unknown permission key in column `{column}`: {value}")]
-    InvalidPermissionKey {
-        /// Column that contained the unknown value.
-        column: &'static str,
-        /// Raw unknown key.
-        value: String,
-    },
+    InvalidPermissionKey { column: &'static str, value: String },
+    #[error("secret store unavailable")]
+    SecretStoreUnavailable,
 }

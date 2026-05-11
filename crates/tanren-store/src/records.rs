@@ -8,6 +8,10 @@
 use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
+use tanren_configuration_secrets::{
+    BaselineUsePolicy, OrganizationSecretId, OrganizationSecretName, SecretLifecycleStatus,
+    SecretOwnerScope, SecretVersion,
+};
 use tanren_identity_policy::{
     AccountId, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
     OrganizationPermission, SessionToken,
@@ -259,4 +263,65 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted organization-secret metadata row. No secret value.
+///
+/// Maps from the `organization_secrets` table. The encrypted value lives in
+/// `organization_secret_values` and is accessed only through the resolve path.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct OrganizationSecretRecord {
+    /// Stable secret identifier.
+    pub id: OrganizationSecretId,
+    /// Owning organization.
+    pub org_id: OrgId,
+    /// Validated secret name (unique within the organization).
+    pub name: OrganizationSecretName,
+    /// Owner scope discriminator.
+    pub owner_scope: SecretOwnerScope,
+    /// Current lifecycle status.
+    pub status: SecretLifecycleStatus,
+    /// Baseline use policy.
+    pub use_policy: BaselineUsePolicy,
+    /// Monotonically increasing version of the stored value.
+    pub version: SecretVersion,
+    /// Optional description.
+    pub description: Option<String>,
+    /// Optional provider.
+    pub provider: Option<String>,
+    /// Account that created this secret.
+    pub created_by_account_id: AccountId,
+    /// When the secret was created.
+    pub created_at: DateTime<Utc>,
+    /// When the metadata was last updated.
+    pub updated_at: DateTime<Utc>,
+    /// When the secret was soft-deleted.
+    pub deleted_at: Option<DateTime<Utc>>,
+}
+
+impl TryFrom<entity::organization_secrets::Model> for OrganizationSecretRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::organization_secrets::Model) -> Result<Self, Self::Error> {
+        use crate::organization_secrets::{
+            parse_db_lifecycle_status, parse_db_owner_scope, parse_db_secret_name,
+            parse_db_secret_version, parse_db_use_policy,
+        };
+
+        Ok(Self {
+            id: OrganizationSecretId::new(model.id),
+            org_id: OrgId::new(model.org_id),
+            name: parse_db_secret_name(&model.name)?,
+            owner_scope: parse_db_owner_scope(&model.owner_scope)?,
+            status: parse_db_lifecycle_status(&model.status)?,
+            use_policy: parse_db_use_policy(&model.use_policy)?,
+            version: parse_db_secret_version(model.version)?,
+            description: model.description,
+            provider: model.provider,
+            created_by_account_id: AccountId::new(model.created_by_account_id),
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+            deleted_at: model.deleted_at,
+        })
+    }
 }

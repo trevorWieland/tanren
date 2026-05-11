@@ -1,29 +1,19 @@
 //! Port for Tanren's account-flow persistence.
 //!
 //! `AccountStore` is the **port** that `tanren-app-services` consumes;
-//! [`crate::Store`] is the SeaORM-backed adapter implementation. The trait
-//! lives here so handlers can take `&dyn AccountStore` without knowing
-//! about `SeaORM`, and so test/wire harnesses can substitute alternative
-//! implementations without touching handler code.
+//! [`crate::Store`] is the SeaORM-backed adapter. The trait lives here so
+//! handlers take `&dyn AccountStore` without knowing about `SeaORM`, and
+//! test harnesses substitute alternative implementations without touching
+//! handler code.
 //!
-//! Design notes
+//! Design notes:
 //!
-//! - **Sign-up and accept-invitation each touch 4-5 store operations as
-//!   one unit.** Splitting into per-aggregate traits would force every
-//!   handler to take a fistful of trait objects. R-0001 ships exactly one
-//!   port; the worked example in
-//!   `profiles/rust-cargo/architecture/trait-based-abstraction.md`
-//!   reflects that decision.
-//! - **No clock methods.** Every write that needs the current time takes
-//!   `now: DateTime<Utc>` as a parameter; callers thread it from an
-//!   injected [`crate::Clock`] equivalent. The store does not read time
-//!   directly. Enforced workspace-wide for `tanren-store` by the
-//!   `chrono::Utc::now` clippy denial in `clippy.toml`.
-//! - **Atomic invitation consume.** The trait's `consume_invitation`
-//!   contract is single-call; implementations are expected to use a
-//!   single conditional UPDATE (filtered on `consumed_at IS NULL` and
-//!   `expires_at > now`) so concurrent acceptances of the same token
-//!   serialize to exactly one success.
+//! - Sign-up and accept-invitation each touch 4-5 store operations as one
+//!   unit. R-0001 ships exactly one port.
+//! - No clock methods. Every write takes `now: DateTime<Utc>` as a
+//!   parameter; the store does not read time directly.
+//! - Atomic invitation consume: single conditional UPDATE so concurrent
+//!   acceptances serialize to exactly one success.
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
@@ -32,15 +22,21 @@ use tanren_identity_policy::{
     OrganizationName, OrganizationPermission, SessionToken,
 };
 
-use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, SessionRecord,
-    StoreError,
+use crate::organization_secret_types::{
+    CreateOrganizationSecretError, CreateOrganizationSecretInput, CreateOrganizationSecretOutput,
+    ListOrganizationSecretsPage, ListOrganizationSecretsRequest, OrganizationSecretLookupError,
+    RemoveOrganizationSecretError, RemoveOrganizationSecretInput, RemoveOrganizationSecretOutput,
+    ResolveOrganizationSecretError, ResolveOrganizationSecretOutput, UpdateOrganizationSecretError,
+    UpdateOrganizationSecretInput, UpdateOrganizationSecretOutput,
 };
+use crate::{
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord,
+    OrganizationSecretRecord, SessionRecord, StoreError,
+};
+use tanren_configuration_secrets::{OrganizationSecretId, OrganizationSecretName};
 
-/// Context the store passes back to the caller's event-builder so
-/// the caller can stamp the inviting org id (only known after the
-/// in-transaction `consume_invitation` step) into the success-path
-/// event payloads it owns.
+/// Context the store passes back to the caller's event-builder so the
+/// caller can stamp the inviting org id into success-path event payloads.
 #[derive(Debug, Clone)]
 pub struct AcceptInvitationEventContext {
     /// The id of the freshly inserted account row.
@@ -57,11 +53,9 @@ pub struct AcceptInvitationEventContext {
     pub now: DateTime<Utc>,
 }
 
-/// Closure the store invokes inside the transaction to build the
-/// success-path event envelopes. The store crate does not know the
-/// concrete event payload shape — that lives in `tanren-app-services`
-/// — so the caller hands in an event-builder closure and the store
-/// invokes it once it has computed the inviting-org id.
+/// Closure the store invokes inside the transaction to build success-path
+/// event envelopes. The store crate does not know the concrete event payload
+/// shape — that lives in `tanren-app-services`.
 pub type AcceptInvitationEventsBuilder =
     Box<dyn FnOnce(&AcceptInvitationEventContext) -> Vec<serde_json::Value> + Send>;
 
@@ -132,13 +126,10 @@ pub struct AcceptInvitationAtomicOutput {
 /// transaction.
 #[derive(Debug, thiserror::Error)]
 pub enum AcceptInvitationError {
-    /// No invitation matches the supplied token.
     #[error("invitation not found")]
     InvitationNotFound,
-    /// The invitation exists but `consumed_at` was already set.
     #[error("invitation already consumed")]
     InvitationAlreadyConsumed,
-    /// The invitation exists but `expires_at <= now`.
     #[error("invitation expired")]
     InvitationExpired,
     /// The supplied identifier collides with an existing account
@@ -437,32 +428,66 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    // Organization-secret persistence (types in organization_secret_types).
+
+    async fn create_organization_secret(
+        &self,
+        input: CreateOrganizationSecretInput,
+    ) -> Result<CreateOrganizationSecretOutput, CreateOrganizationSecretError>;
+
+    async fn update_organization_secret(
+        &self,
+        input: UpdateOrganizationSecretInput,
+    ) -> Result<UpdateOrganizationSecretOutput, UpdateOrganizationSecretError>;
+
+    async fn remove_organization_secret(
+        &self,
+        input: RemoveOrganizationSecretInput,
+    ) -> Result<RemoveOrganizationSecretOutput, RemoveOrganizationSecretError>;
+
+    /// Bounded cursor-based pagination; metadata only (no values).
+    async fn list_organization_secrets(
+        &self,
+        request: ListOrganizationSecretsRequest,
+    ) -> Result<ListOrganizationSecretsPage, StoreError>;
+
+    /// Single secret metadata by org + id. No value access.
+    async fn get_organization_secret(
+        &self,
+        org_id: OrgId,
+        secret_id: OrganizationSecretId,
+    ) -> Result<Option<OrganizationSecretRecord>, StoreError>;
+
+    /// Decrypt a secret value for authorized use (callers enforce policy).
+    async fn resolve_organization_secret(
+        &self,
+        org_id: OrgId,
+        secret_id: OrganizationSecretId,
+    ) -> Result<ResolveOrganizationSecretOutput, ResolveOrganizationSecretError>;
+
+    /// Lookup by org + name (duplicate checks, name-based resolution).
+    async fn find_organization_secret_by_name(
+        &self,
+        org_id: OrgId,
+        name: &OrganizationSecretName,
+    ) -> Result<Option<OrganizationSecretRecord>, OrganizationSecretLookupError>;
 }
 
-/// Successful return from [`AccountStore::consume_invitation`].
 #[derive(Debug, Clone)]
 pub struct ConsumedInvitation {
-    /// Organization the new account joins on acceptance.
     pub inviting_org_id: OrgId,
-    /// Wall-clock time the invitation was set to expire.
     pub expires_at: DateTime<Utc>,
-    /// Wall-clock time the invitation was consumed (the `now` passed in).
     pub consumed_at: DateTime<Utc>,
 }
 
-/// Failure taxonomy for [`AccountStore::consume_invitation`]. The
-/// app-service layer maps each variant to the matching
-/// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB
-/// errors through unchanged.
+/// Failure taxonomy for [`AccountStore::consume_invitation`].
 #[derive(Debug, thiserror::Error)]
 pub enum ConsumeInvitationError {
-    /// No invitation matches the supplied token.
     #[error("invitation not found")]
     NotFound,
-    /// The invitation exists but `consumed_at` was already set.
     #[error("invitation already consumed")]
     AlreadyConsumed,
-    /// The invitation exists but `expires_at <= now`.
     #[error("invitation expired")]
     Expired,
     /// Unexpected database failure.

@@ -9,6 +9,7 @@ mod m20260503_000002_account_sessions_expires_at;
 mod m20260503_000003_password_phc;
 mod m20260504_000001_organizations;
 mod m20260509_000001_organization_create_idempotency;
+mod m20260510_000001_organization_secrets;
 
 /// Tanren's migration runner. Applied via [`Store::migrate`](crate::Store::migrate).
 pub struct Migrator;
@@ -29,6 +30,7 @@ impl MigratorTrait for Migrator {
             Box::new(m20260503_000003_password_phc::Migration),
             Box::new(m20260504_000001_organizations::Migration),
             Box::new(m20260509_000001_organization_create_idempotency::Migration),
+            Box::new(m20260510_000001_organization_secrets::Migration),
         ]
     }
 }

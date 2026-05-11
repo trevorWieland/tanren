@@ -167,6 +167,27 @@ pub enum SecretOwnerScope {
     Organization,
 }
 
+impl SecretOwnerScope {
+    /// Serialize to the snake-case string stored in the database.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Organization => "organization",
+        }
+    }
+}
+
+impl std::str::FromStr for SecretOwnerScope {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "organization" => Ok(Self::Organization),
+            _ => Err(()),
+        }
+    }
+}
+
 /// Lifecycle status of an organization secret.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -178,6 +199,31 @@ pub enum SecretLifecycleStatus {
     Retired,
     /// A rotation is in progress; the old value is still valid.
     Rotating,
+}
+
+impl SecretLifecycleStatus {
+    /// Serialize to the snake-case string stored in the database.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Active => "active",
+            Self::Retired => "retired",
+            Self::Rotating => "rotating",
+        }
+    }
+}
+
+impl std::str::FromStr for SecretLifecycleStatus {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "active" => Ok(Self::Active),
+            "retired" => Ok(Self::Retired),
+            "rotating" => Ok(Self::Rotating),
+            _ => Err(()),
+        }
+    }
 }
 
 /// Baseline use policy governing which actors may use a secret's value.
@@ -194,6 +240,29 @@ pub enum BaselineUsePolicy {
     MemberUse,
     /// Only actors with organization admin-level permission may use it.
     AdminOnly,
+}
+
+impl BaselineUsePolicy {
+    /// Serialize to the snake-case string stored in the database.
+    #[must_use]
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::MemberUse => "member_use",
+            Self::AdminOnly => "admin_only",
+        }
+    }
+}
+
+impl std::str::FromStr for BaselineUsePolicy {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "member_use" => Ok(Self::MemberUse),
+            "admin_only" => Ok(Self::AdminOnly),
+            _ => Err(()),
+        }
+    }
 }
 
 /// Monotonically increasing version number for a secret's value.
