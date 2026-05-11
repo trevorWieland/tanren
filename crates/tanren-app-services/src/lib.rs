@@ -21,8 +21,8 @@ use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason,
     CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse, ContractVersion,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
-    ListOrganizationsRequest, ListOrganizationsResponse, SignInRequest, SignInResponse,
-    SignUpRequest, SignUpResponse,
+    ListOrganizationMembersRequest, ListOrganizationMembersResponse, ListOrganizationsRequest,
+    ListOrganizationsResponse, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
 use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
 use tanren_identity_policy::{OrganizationCapability, OrganizationPermissionGate};
@@ -250,6 +250,24 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         organization::list_organizations(store, &self.clock, request).await
+    }
+
+    /// List members of an organization the authenticated account belongs to.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with [`AccountFailureReason::AuthRequired`]
+    /// when authentication is missing/expired or [`AccountFailureReason::PermissionDenied`]
+    /// when the caller is not a member. Returns [`AppServiceError::Store`] for store failures.
+    pub async fn list_organization_members<S>(
+        &self,
+        store: &S,
+        request: ListOrganizationMembersRequest,
+    ) -> Result<ListOrganizationMembersResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        organization::list_organization_members(store, &self.clock, request).await
     }
 
     /// Check whether an authenticated account currently holds a given

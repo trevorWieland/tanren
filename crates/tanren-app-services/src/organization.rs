@@ -4,11 +4,14 @@ use chrono::{DateTime, Utc};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
-    ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
-    OrganizationBehaviorId, OrganizationCreatedEvent, OrganizationEventReference,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    ReadModelFreshness, organization_capability_projection, organization_permission_options,
+    GrantSource, LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT, LIST_ORGANIZATION_MEMBERS_MAX_LIMIT,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationMembersRequest,
+    ListOrganizationMembersResponse, ListOrganizationsRequest, ListOrganizationsResponse,
+    ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY, OrganizationBehaviorId,
+    OrganizationCreatedEvent, OrganizationEventReference, OrganizationMemberPermissionGrant,
+    OrganizationMemberView, OrganizationProjectSummary, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView, ReadModelFreshness,
+    organization_capability_projection, organization_permission_options,
 };
 use tanren_identity_policy::{
     AccountId, OrgId, OrganizationPermission, OrganizationPermissionDecision,
@@ -18,6 +21,7 @@ use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, Visi
 use tanren_store::{
     AccountStore, CreateOrganizationAtomicRequest, CreateOrganizationError, SessionRecord,
 };
+use tanren_store::{GrantSource as StoreGrantSource, OrganizationPermissionGrantRecord};
 
 use crate::{AppServiceError, Clock, events::organization_created_envelope};
 
@@ -117,6 +121,57 @@ where
             completeness: CompletenessState::Complete,
             freshness_state: FreshnessState::Fresh,
             visibility: VisibilityState::Visible,
+        },
+    })
+}
+
+pub(crate) async fn list_organization_members<S>(
+    store: &S,
+    clock: &Clock,
+    request: ListOrganizationMembersRequest,
+) -> Result<ListOrganizationMembersResponse, AppServiceError>
+where
+    S: AccountStore + ?Sized,
+{
+    let now = clock.now();
+    resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
+
+    let is_member = store
+        .has_organization_membership(request.account_id, request.org_id)
+        .await?;
+    if !is_member {
+        return Err(AppServiceError::Account(
+            AccountFailureReason::PermissionDenied,
+        ));
+    }
+
+    let limit = normalize_member_list_limit(request.limit);
+    let page = store
+        .list_organization_members(request.org_id, limit, request.cursor, now)
+        .await?;
+
+    let members = page.members.into_iter().map(project_member_view).collect();
+
+    Ok(ListOrganizationMembersResponse {
+        members,
+        next_cursor: page.next_cursor,
+        source_link: OrganizationSourceLink {
+            event_family: ORGANIZATION_EVENT_FAMILY.to_owned(),
+            event_kind: ORGANIZATION_CREATED_EVENT_KIND.to_owned(),
+        },
+        freshness: ReadModelFreshness {
+            projection: "organization_members_by_org".to_owned(),
+            checkpoint: page.checkpoint,
+            generated_at: page.generated_at,
+            cursor: page.cursor,
+            source: "organization_membership_store".to_owned(),
+            value_kind: ClaimValueKind::Measured,
+            completeness: CompletenessState::Complete,
+            freshness_state: FreshnessState::Fresh,
+            visibility: VisibilityState::Visible,
+        },
+        proof_link: OrganizationProofLink {
+            behavior_id: OrganizationBehaviorId::B0065ListOrganizationMembers,
         },
     })
 }
@@ -281,6 +336,41 @@ fn map_create_organization_error(err: CreateOrganizationError) -> AppServiceErro
             CreateOrganizationFailureReason::IdempotencyConflict,
         ),
         CreateOrganizationError::Store(err) => AppServiceError::Store(err),
+    }
+}
+
+fn normalize_member_list_limit(limit: Option<u64>) -> u64 {
+    let requested = limit.unwrap_or(LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT);
+    requested.clamp(1, LIST_ORGANIZATION_MEMBERS_MAX_LIMIT)
+}
+
+fn project_member_view(record: tanren_store::OrganizationMemberRecord) -> OrganizationMemberView {
+    OrganizationMemberView {
+        account_id: record.account_id,
+        identifier: record.identifier.to_string(),
+        joined_at: record.joined_at,
+        granted_permissions: record
+            .grants
+            .into_iter()
+            .map(|g| project_permission_grant(&g))
+            .collect(),
+    }
+}
+
+fn project_permission_grant(
+    record: &OrganizationPermissionGrantRecord,
+) -> OrganizationMemberPermissionGrant {
+    OrganizationMemberPermissionGrant {
+        permission: record.permission,
+        grant_source: map_store_grant_source(record.grant_source),
+        granted_by_account_id: record.granted_by_account_id,
+    }
+}
+
+fn map_store_grant_source(source: StoreGrantSource) -> GrantSource {
+    match source {
+        StoreGrantSource::Direct => GrantSource::Direct,
+        StoreGrantSource::RoleTemplate => GrantSource::RoleTemplate,
     }
 }
 
