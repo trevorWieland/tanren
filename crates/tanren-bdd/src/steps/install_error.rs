@@ -64,14 +64,8 @@ pub(crate) enum InstallStepError {
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository file to be absent: {path}")]
     ExpectedFileToBeAbsent { path: PathBuf },
-    #[error("repository-relative path cannot be empty")]
-    EmptyRepositoryRelativePath,
-    #[error("repository-relative path must not be absolute: {path}")]
-    AbsoluteRepositoryRelativePath { path: String },
-    #[error("repository-relative path must not contain traversal components: {path}")]
-    TraversalRepositoryRelativePath { path: String },
-    #[error("repository-relative path failed delivery path contract validation: {path}")]
-    InstallPathContractRejected { path: String },
+    #[error("repository-relative path rejected by canonical validation: {path}")]
+    RepositoryRelativePathRejected { path: String },
     #[error("delivery-owned install proof assertion failed: {source}")]
     InstallProofFailure { source: InstallProofError },
     #[error("failed to read directory `{path}`: {source}")]

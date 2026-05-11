@@ -39,12 +39,17 @@ pub enum PreservationPolicy {
     PreserveUserEdits,
 }
 
-/// Strict repository-relative path (no absolute roots, no `..` traversal).
+/// Canonical repository-relative path stored as slash-joined normal segments.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RepoRelativePath(String);
 
 impl RepoRelativePath {
-    /// Validate and construct a repository-relative path.
+    /// Validate and construct a canonical repository-relative path.
+    ///
+    /// Rejects empty paths, absolute paths, `..` traversal, and `.` current-dir
+    /// components. Stores only a slash-joined list of normal segments, so
+    /// `a/./b`, `a//b`, and `a/b/` all produce the same canonical form `a/b`.
+    /// The bare path `.` is rejected because it normalizes to the repository root.
     pub fn parse(path: &str) -> Result<Self, InstallError> {
         if path.is_empty() {
             return Err(InstallError::InvalidRepoRelativePath {
@@ -59,16 +64,30 @@ impl RepoRelativePath {
             });
         }
 
-        let is_valid = candidate
-            .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-        if !is_valid {
+        let mut normal_segments = Vec::new();
+        for component in candidate.components() {
+            match component {
+                Component::Normal(segment) => {
+                    normal_segments.push(segment.to_string_lossy().into_owned());
+                }
+                Component::CurDir
+                | Component::ParentDir
+                | Component::Prefix(..)
+                | Component::RootDir => {
+                    return Err(InstallError::InvalidRepoRelativePath {
+                        path: path.to_owned(),
+                    });
+                }
+            }
+        }
+
+        if normal_segments.is_empty() {
             return Err(InstallError::InvalidRepoRelativePath {
                 path: path.to_owned(),
             });
         }
 
-        Ok(Self(path.to_owned()))
+        Ok(Self(normal_segments.join("/")))
     }
 
     /// Borrow the validated path string.

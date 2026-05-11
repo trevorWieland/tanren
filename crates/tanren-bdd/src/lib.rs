@@ -233,6 +233,7 @@ mod tests {
 
     use super::TanrenWorld;
     use tanren_testkit::FixtureSeed;
+    use tanren_testkit::InstallProofRepoRelativePath;
 
     #[test]
     fn world_default_is_constructible() {
@@ -248,5 +249,73 @@ mod tests {
             install_setup_error: None,
         };
         assert_eq!(world.seed.value(), 42);
+    }
+
+    #[test]
+    fn repo_relative_path_normalizes_double_slash() {
+        let canonical = InstallProofRepoRelativePath::parse("a//b").expect("a//b must parse");
+        assert_eq!(canonical.as_str(), "a/b");
+    }
+
+    #[test]
+    fn repo_relative_path_normalizes_dot_segments() {
+        let canonical = InstallProofRepoRelativePath::parse("a/./b").expect("a/./b must parse");
+        assert_eq!(canonical.as_str(), "a/b");
+    }
+
+    #[test]
+    fn repo_relative_path_normalizes_trailing_slash() {
+        let canonical = InstallProofRepoRelativePath::parse("a/b/").expect("a/b/ must parse");
+        assert_eq!(canonical.as_str(), "a/b");
+    }
+
+    #[test]
+    fn repo_relative_path_rejects_bare_dot() {
+        assert!(
+            InstallProofRepoRelativePath::parse(".").is_err(),
+            "bare '.' must be rejected as it normalizes to the repository root"
+        );
+    }
+
+    #[test]
+    fn repo_relative_path_rejects_empty() {
+        assert!(
+            InstallProofRepoRelativePath::parse("").is_err(),
+            "empty string must be rejected"
+        );
+    }
+
+    #[test]
+    fn repo_relative_path_rejects_absolute() {
+        assert!(
+            InstallProofRepoRelativePath::parse("/a/b").is_err(),
+            "absolute paths must be rejected"
+        );
+    }
+
+    #[test]
+    fn repo_relative_path_rejects_traversal() {
+        assert!(
+            InstallProofRepoRelativePath::parse("a/../b").is_err(),
+            "parent traversal must be rejected"
+        );
+    }
+
+    #[test]
+    fn repo_relative_path_round_trip_variants() {
+        let variants = ["a/b", "a/./b", "a//b", "a/b/"];
+        let results: Vec<_> = variants
+            .iter()
+            .map(|v| {
+                InstallProofRepoRelativePath::parse(v)
+                    .expect("must parse")
+                    .as_str()
+                    .to_owned()
+            })
+            .collect();
+        assert!(
+            results.iter().all(|s| s == "a/b"),
+            "all variants must normalize to 'a/b': {results:?}"
+        );
     }
 }

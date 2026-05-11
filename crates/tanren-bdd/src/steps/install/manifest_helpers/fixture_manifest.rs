@@ -13,13 +13,12 @@ pub(crate) fn append_stale_generated_manifest_entry(
     manifest: &mut String,
     relative_path: &RepositoryRelativePath,
     content_hash: &str,
-) -> Result<(), InstallStepError> {
+) {
     contract_append_stale_generated_manifest_entry(
         manifest,
-        &relative_path.as_install_path()?,
+        &relative_path.as_install_path(),
         content_hash,
     );
-    Ok(())
 }
 
 pub(crate) fn tamper_manifest_with_raw_generated_entry(

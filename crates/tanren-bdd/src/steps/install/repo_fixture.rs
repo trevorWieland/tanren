@@ -80,7 +80,7 @@ impl InstallContext {
             &mut manifest,
             relative_path,
             stale_hash.as_str(),
-        )?;
+        );
         fs::write(&manifest_path, manifest).map_err(|source| InstallStepError::WriteFile {
             path: manifest_path,
             action: "write install manifest with stale entry",
