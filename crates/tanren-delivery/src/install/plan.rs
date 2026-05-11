@@ -7,12 +7,15 @@ use std::path::{Path, PathBuf};
 use crate::install::catalog::{build_install_asset_catalog, trusted_generated_asset_registry};
 use crate::install::error::InstallError;
 use crate::install::manifest::{
-    INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallAssetProjection, InstallManifest,
-    ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries,
-    sha256_hex_file,
+    INSTALL_MANIFEST_REPO_PATH, InstallAssetProjection, InstallManifest, ManifestEntry,
+    PreservationPolicy, RepoRelativePath, Sha256Hex, build_manifest_entries, sha256_hex_file,
 };
 use crate::install::manifest_entry_contract::{
     ManifestEntryKind, ValidatedManifestEntry, validate_manifest_entry_contract,
+};
+use crate::install::manifest_migration::{
+    ManifestLoadOutcome, ManifestMigrationOutcome, ValidatedInstallManifest, migrate_manifest,
+    validate_migrated_manifest,
 };
 use crate::install::path_guard::resolve_repo_path;
 use crate::install::{InstallIntegration, InstallProfile};
@@ -91,21 +94,16 @@ pub(super) struct RepositoryInstallState {
     repository_root: PathBuf,
     manifest_path: RepoRelativePath,
     manifest_absolute_path: PathBuf,
-    previous_manifest: Option<InstallManifest>,
+    previous_manifest: Option<ValidatedInstallManifest>,
 }
-
 impl RepositoryInstallState {
     #[must_use]
-    pub(super) fn manifest_path(&self) -> &RepoRelativePath {
-        &self.manifest_path
-    }
-
-    #[must_use]
     pub(super) fn previous_manifest(&self) -> Option<&InstallManifest> {
-        self.previous_manifest.as_ref()
+        self.previous_manifest
+            .as_ref()
+            .map(ValidatedInstallManifest::inner)
     }
 }
-
 impl InstallPlan {
     #[must_use]
     pub(crate) fn repository_root(&self) -> &Path {
@@ -151,15 +149,15 @@ pub(super) fn build_install_plan(
     let state = load_repository_install_state(repository)?;
     build_install_plan_from_state(state, profile, integrations)
 }
-
 pub(super) fn load_repository_install_state(
     repository: &Path,
 ) -> Result<RepositoryInstallState, InstallError> {
     let repository_root = validate_repository_root(repository)?;
     let manifest_path = RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
     let manifest_absolute_path = resolve_repo_path(&repository_root, &manifest_path)?;
-    let previous_manifest = load_previous_manifest(&manifest_path, &manifest_absolute_path)?;
-    validate_manifest_version(previous_manifest.as_ref())?;
+    let load_outcome =
+        load_and_validate_previous_manifest(&manifest_path, &manifest_absolute_path)?;
+    let previous_manifest = load_outcome.require_validated(manifest_path.as_str())?;
 
     Ok(RepositoryInstallState {
         repository_root,
@@ -168,7 +166,6 @@ pub(super) fn load_repository_install_state(
         previous_manifest,
     })
 }
-
 pub(super) fn build_install_plan_from_state(
     state: RepositoryInstallState,
     profile: InstallProfile,
@@ -191,8 +188,12 @@ pub(super) fn build_install_plan_from_state(
     let mut manifest_entries = build_manifest_entries(&assets);
     manifest_entries.sort_by(|left, right| left.path.as_str().cmp(right.path.as_str()));
 
-    let previous_entries_by_path =
-        build_previous_entry_map(&manifest_path, previous_manifest.as_ref())?;
+    let previous_entries_by_path = build_previous_entry_map(
+        &manifest_path,
+        previous_manifest
+            .as_ref()
+            .map(ValidatedInstallManifest::inner),
+    )?;
     let desired_generated_paths = manifest_entries
         .iter()
         .filter(|entry| entry.preservation == PreservationPolicy::ReplaceGenerated)
@@ -241,8 +242,7 @@ enum PlannedAssetAction {
     Preserve(RepoRelativePath),
     Unchanged,
 }
-
-fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
+pub(super) fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> {
     let canonical =
         repository
             .canonicalize()
@@ -258,13 +258,12 @@ fn validate_repository_root(repository: &Path) -> Result<PathBuf, InstallError> 
 
     Ok(canonical)
 }
-
-fn load_previous_manifest(
+fn load_and_validate_previous_manifest(
     manifest_path: &RepoRelativePath,
     manifest_absolute_path: &Path,
-) -> Result<Option<InstallManifest>, InstallError> {
+) -> Result<ManifestLoadOutcome, InstallError> {
     if !manifest_absolute_path.exists() {
-        return Ok(None);
+        return Ok(ManifestLoadOutcome::NoManifest);
     }
 
     let raw_manifest =
@@ -273,29 +272,29 @@ fn load_previous_manifest(
             message: err.to_string(),
         })?;
 
-    toml::from_str(&raw_manifest)
-        .map(Some)
-        .map_err(|err| InstallError::InvalidInstallManifest {
+    let manifest: InstallManifest =
+        toml::from_str(&raw_manifest).map_err(|err| InstallError::InvalidInstallManifest {
             path: manifest_path.as_str().to_owned(),
             message: err.to_string(),
-        })
-}
-
-fn validate_manifest_version(manifest: Option<&InstallManifest>) -> Result<(), InstallError> {
-    if let Some(previous_manifest) = manifest
-        && previous_manifest.manifest_version != INSTALL_MANIFEST_VERSION
-    {
-        return Err(InstallError::InvalidInstallManifest {
-            path: INSTALL_MANIFEST_REPO_PATH.to_owned(),
-            message: format!(
-                "unsupported manifest version {}",
-                previous_manifest.manifest_version
-            ),
-        });
+        })?;
+    let migration_outcome = migrate_manifest(manifest);
+    match migration_outcome {
+        ManifestMigrationOutcome::CurrentVersion { manifest }
+        | ManifestMigrationOutcome::Migrated { manifest, .. } => {
+            let validated = validate_migrated_manifest(manifest, manifest_path.as_str())?;
+            Ok(ManifestLoadOutcome::Validated(validated))
+        }
+        ManifestMigrationOutcome::UnsupportedVersion {
+            detected,
+            min_supported,
+            current,
+        } => Ok(ManifestLoadOutcome::UnsupportedVersion {
+            detected,
+            min_supported,
+            current,
+        }),
     }
-    Ok(())
 }
-
 fn build_previous_entry_map<'a>(
     manifest_path: &RepoRelativePath,
     manifest: Option<&'a InstallManifest>,
@@ -325,7 +324,6 @@ fn build_previous_entry_map<'a>(
 
     Ok(entries)
 }
-
 fn build_write_plan(
     repository_root: &Path,
     assets: &[InstallAssetProjection],
@@ -345,7 +343,6 @@ fn build_write_plan(
 
     Ok(actions)
 }
-
 fn plan_asset_write(
     absolute_path: PathBuf,
     asset: &InstallAssetProjection,
@@ -388,7 +385,6 @@ fn plan_asset_write(
         kind: PlannedWriteKind::Updated,
     }))
 }
-
 fn split_planned_asset_actions(
     actions: Vec<PlannedAssetAction>,
 ) -> (Vec<PlannedWrite>, Vec<RepoRelativePath>) {
@@ -409,7 +405,6 @@ struct StaleRemovalPlan {
     removals: Vec<PlannedRemoval>,
     preserved_paths: Vec<RepoRelativePath>,
 }
-
 fn build_removals(
     repository_root: &Path,
     desired_generated_paths: &BTreeSet<&str>,
@@ -465,14 +460,12 @@ fn build_removals(
         preserved_paths,
     })
 }
-
 fn hash_current_file(path: &Path, display_path: &str) -> Result<Sha256Hex, InstallError> {
     sha256_hex_file(path).map_err(|err| InstallError::ReadFailure {
         path: display_path.to_owned(),
         message: err.to_string(),
     })
 }
-
 fn ensure_removals_unique(
     removals: &[PlannedRemoval],
     manifest_path: &RepoRelativePath,
@@ -488,7 +481,6 @@ fn ensure_removals_unique(
     }
     Ok(())
 }
-
 fn display_repository_argument(path: &Path) -> String {
     if path.is_absolute() {
         "<redacted-absolute-path>".to_owned()

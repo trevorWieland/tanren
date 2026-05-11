@@ -6,6 +6,10 @@ use std::path::Path;
 mod report;
 
 use crate::install::error::InstallError;
+use crate::install::manifest::InstallManifest;
+use crate::install::manifest_migration::{
+    ManifestLoadOutcome, ManifestMigrationOutcome, migrate_manifest, validate_migrated_manifest,
+};
 use crate::install::plan::{build_install_plan_from_state, load_repository_install_state};
 use crate::install::{InstallIntegration, InstallPlan, InstallReport};
 
@@ -17,32 +21,92 @@ pub use report::{
 #[derive(Debug, Clone, Copy, Default)]
 struct UpgradePlanner;
 
+/// Load the previous manifest with migration awareness for upgrade preview.
+///
+/// Unlike [`load_repository_install_state`], this returns
+/// [`ManifestLoadOutcome::UnsupportedVersion`] instead of erroring,
+/// so the preview can surface the compatibility concern.
+fn preview_load_manifest(repository: &Path) -> Result<ManifestLoadOutcome, InstallError> {
+    use crate::install::manifest::INSTALL_MANIFEST_REPO_PATH;
+    use crate::install::path_guard::resolve_repo_path;
+    use crate::install::plan::validate_repository_root;
+
+    let repository_root = validate_repository_root(repository)?;
+    let manifest_path =
+        crate::install::manifest::RepoRelativePath::parse(INSTALL_MANIFEST_REPO_PATH)?;
+    let manifest_absolute_path = resolve_repo_path(&repository_root, &manifest_path)?;
+    if !manifest_absolute_path.exists() {
+        return Ok(ManifestLoadOutcome::NoManifest);
+    }
+    let raw = std::fs::read_to_string(&manifest_absolute_path).map_err(|err| {
+        InstallError::ReadFailure {
+            path: manifest_path.as_str().to_owned(),
+            message: err.to_string(),
+        }
+    })?;
+    let manifest: InstallManifest =
+        toml::from_str(&raw).map_err(|err| InstallError::InvalidInstallManifest {
+            path: manifest_path.as_str().to_owned(),
+            message: err.to_string(),
+        })?;
+    let migration_outcome = migrate_manifest(manifest);
+    match migration_outcome {
+        ManifestMigrationOutcome::CurrentVersion { manifest }
+        | ManifestMigrationOutcome::Migrated { manifest, .. } => {
+            let validated = validate_migrated_manifest(manifest, manifest_path.as_str())?;
+            Ok(ManifestLoadOutcome::Validated(validated))
+        }
+        ManifestMigrationOutcome::UnsupportedVersion {
+            detected,
+            min_supported,
+            current,
+        } => Ok(ManifestLoadOutcome::UnsupportedVersion {
+            detected,
+            min_supported,
+            current,
+        }),
+    }
+}
+
 impl UpgradePlanner {
     fn preview(repository: &Path) -> Result<UpgradePreview, InstallError> {
-        let state = load_repository_install_state(repository)?;
-        let Some(previous_manifest) = state.previous_manifest().cloned() else {
-            return Ok(UpgradePreview::NoInstallManifest {
+        let load_result = preview_load_manifest(repository)?;
+        match load_result {
+            ManifestLoadOutcome::NoManifest => Ok(UpgradePreview::NoInstallManifest {
                 report: UpgradePreviewReport::no_install_manifest(),
-            });
-        };
-        if previous_manifest.integrations.is_empty() {
-            return Err(InstallError::InvalidInstallManifest {
-                path: state.manifest_path().as_str().to_owned(),
-                message: "manifest integrations list cannot be empty".to_owned(),
-            });
+            }),
+            ManifestLoadOutcome::Validated(_) => {
+                let state = load_repository_install_state(repository)?;
+                let Some(previous_manifest) = state.previous_manifest().cloned() else {
+                    return Ok(UpgradePreview::NoInstallManifest {
+                        report: UpgradePreviewReport::no_install_manifest(),
+                    });
+                };
+                let integrations = previous_manifest
+                    .integrations
+                    .iter()
+                    .copied()
+                    .collect::<BTreeSet<InstallIntegration>>();
+                let plan =
+                    build_install_plan_from_state(state, previous_manifest.profile, &integrations)?;
+                let report = UpgradePreviewReport::from_plan(&plan);
+                Ok(UpgradePreview::Planned {
+                    plan: Box::new(plan),
+                    report,
+                })
+            }
+            ManifestLoadOutcome::UnsupportedVersion {
+                detected,
+                min_supported,
+                current,
+            } => Ok(UpgradePreview::UnsupportedManifestVersion {
+                report: UpgradePreviewReport::unsupported_manifest_version(
+                    detected,
+                    min_supported,
+                    current,
+                ),
+            }),
         }
-
-        let integrations = previous_manifest
-            .integrations
-            .iter()
-            .copied()
-            .collect::<BTreeSet<InstallIntegration>>();
-        let plan = build_install_plan_from_state(state, previous_manifest.profile, &integrations)?;
-        let report = UpgradePreviewReport::from_plan(&plan);
-        Ok(UpgradePreview::Planned {
-            plan: Box::new(plan),
-            report,
-        })
     }
 }
 
@@ -56,6 +120,8 @@ pub enum UpgradePreview {
         plan: Box<InstallPlan>,
         report: UpgradePreviewReport,
     },
+    /// Manifest version is not supported for migration.
+    UnsupportedManifestVersion { report: UpgradePreviewReport },
 }
 
 impl UpgradePreview {
@@ -63,7 +129,9 @@ impl UpgradePreview {
     #[must_use]
     pub fn report(&self) -> &UpgradePreviewReport {
         match self {
-            Self::NoInstallManifest { report } | Self::Planned { report, .. } => report,
+            Self::NoInstallManifest { report }
+            | Self::Planned { report, .. }
+            | Self::UnsupportedManifestVersion { report } => report,
         }
     }
 

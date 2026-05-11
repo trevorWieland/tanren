@@ -677,6 +677,61 @@ It is **recommended** for any cross-cutting refactor (clock injection,
 secrets sweep, error taxonomy migration, etc.) even when the area count
 is lower, because the enforcement-first ordering still applies.
 
+## Install Manifest Versioning and Migration
+
+The install manifest (`.tanren/install-manifest.toml`) carries a
+`manifest_version` field that governs forward and backward compatibility
+for repository-local asset upgrades.
+
+### Version contract
+
+1. **Current version is 1.** Every manifest written by the current
+   Tanren release uses `manifest_version = 1`.
+2. **Minimum supported version is 1.** Manifests older than the
+   minimum supported version cannot be migrated and produce a typed
+   compatibility concern (`unsupported-manifest-version`) in the
+   upgrade preview.
+3. **Future versions migrate through named steps.** When a new schema
+   version ships, each migration step is a named enum variant in
+   `ManifestMigrationStep`. Steps are applied in order from the
+   detected version up to the current version.
+4. **Unsupported future versions produce concerns, not errors.** If a
+   repository was installed by a newer Tanren release, the older
+   release detects the unsupported version and surfaces an
+   `UnsupportedManifestVersion` compatibility concern in the preview
+   report before any destructive action proceeds.
+5. **Validation is explicit.** A `ValidatedInstallManifest` is
+   constructed only after checking version, profile, integrations,
+   duplicate entry paths, entry kind, preservation policy, and hash
+   formats. The install and upgrade paths receive the validated type,
+   not the raw deserialized manifest.
+
+### Migration flow
+
+```
+raw TOML → InstallManifest → migrate_manifest() → ManifestMigrationOutcome
+         → validate_migrated_manifest() → ValidatedInstallManifest
+```
+
+- `migrate_manifest` returns `CurrentVersion` (already current),
+  `Migrated` (steps applied), or `UnsupportedVersion` (outside the
+  supported range).
+- `validate_migrated_manifest` checks structural invariants that
+  apply regardless of version: non-empty integrations, no duplicate
+  entry paths, and per-entry contract constraints (entry kind,
+  preservation policy, hash format).
+
+### Compatibility concerns
+
+The `UpgradeCompatibilityConcern` enum carries data-bearing variants
+that feed the structured preview report:
+
+- `NoInstallManifest` — no prior manifest found.
+- `DestructiveAssetChanges(paths)` — generated assets will be replaced
+  or removed.
+- `UnsupportedManifestVersion { detected, min_supported, current }` —
+  manifest version is outside the supported migration range.
+
 ## Accepted Decisions
 
 - Delivery owns installation, packaging, generated assets, upgrades, uninstall,

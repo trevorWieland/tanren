@@ -11,6 +11,7 @@ pub mod contract;
 mod error;
 mod manifest;
 mod manifest_entry_contract;
+mod manifest_migration;
 mod path_guard;
 mod plan;
 pub(crate) mod upgrade;
@@ -19,7 +20,7 @@ mod writer_tx;
 mod writer_tx_support;
 
 pub use error::InstallError;
-pub use manifest::RepoRelativePath;
+pub use manifest::{ManifestVersion, RepoRelativePath};
 pub use plan::InstallPlan;
 pub use upgrade::{
     ApplyReportSummary, UpgradeApplyBlockedReason, UpgradeApplyConfirmation, UpgradeApplyOutcome,

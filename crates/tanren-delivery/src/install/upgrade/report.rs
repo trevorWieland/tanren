@@ -1,7 +1,7 @@
 //! Upgrade preview report formatting and structured output encoding.
 
 use crate::install::InstallPlan;
-use crate::install::manifest::RepoRelativePath;
+use crate::install::manifest::{ManifestVersion, RepoRelativePath};
 use crate::install::plan::PlannedWriteKind;
 
 /// Typed upgrade compatibility concern emitted in previews.
@@ -9,12 +9,18 @@ use crate::install::plan::PlannedWriteKind;
 /// Each variant carries the data that motivated the concern. No synthetic
 /// `None` variant exists — an empty concern list signals no concerns.
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
-#[serde(tag = "code", content = "paths", rename_all = "kebab-case")]
+#[serde(tag = "code", rename_all = "kebab-case")]
 pub enum UpgradeCompatibilityConcern {
     /// Repository has no prior Tanren install manifest.
     NoInstallManifest,
     /// One or more generated assets will be replaced or removed.
     DestructiveAssetChanges(Vec<RepoRelativePath>),
+    /// Manifest version is not supported for migration.
+    UnsupportedManifestVersion {
+        detected: ManifestVersion,
+        min_supported: ManifestVersion,
+        current: ManifestVersion,
+    },
 }
 
 impl UpgradeCompatibilityConcern {
@@ -24,6 +30,7 @@ impl UpgradeCompatibilityConcern {
         match self {
             Self::NoInstallManifest => "no-install-manifest",
             Self::DestructiveAssetChanges(_) => "destructive-asset-changes",
+            Self::UnsupportedManifestVersion { .. } => "unsupported-manifest-version",
         }
     }
 }
@@ -50,6 +57,27 @@ impl UpgradePreviewReport {
             removed: Vec::new(),
             preserved: Vec::new(),
             compatibility_concerns: vec![UpgradeCompatibilityConcern::NoInstallManifest],
+        }
+    }
+
+    /// Preview report for manifest versions that cannot be migrated.
+    #[must_use]
+    pub fn unsupported_manifest_version(
+        detected: ManifestVersion,
+        min_supported: ManifestVersion,
+        current: ManifestVersion,
+    ) -> Self {
+        Self {
+            changed: Vec::new(),
+            destructive: Vec::new(),
+            restored: Vec::new(),
+            removed: Vec::new(),
+            preserved: Vec::new(),
+            compatibility_concerns: vec![UpgradeCompatibilityConcern::UnsupportedManifestVersion {
+                detected,
+                min_supported,
+                current,
+            }],
         }
     }
 
