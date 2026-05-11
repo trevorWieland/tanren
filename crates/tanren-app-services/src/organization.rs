@@ -4,11 +4,11 @@ use chrono::{DateTime, Utc};
 use tanren_contract::{
     AccountFailureReason, CheckOrganizationPermissionRequest, CheckOrganizationPermissionResponse,
     CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
-    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsRequest,
-    ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
-    OrganizationBehaviorId, OrganizationCreatedEvent, OrganizationEventReference,
-    OrganizationProjectSummary, OrganizationProofLink, OrganizationSourceLink, OrganizationView,
-    ReadModelFreshness, organization_capability_projection, organization_permission_options,
+    ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATED_EVENT_KIND,
+    ORGANIZATION_EVENT_FAMILY, OrganizationBehaviorId, OrganizationCreatedEvent,
+    OrganizationEventReference, OrganizationProjectSummary, OrganizationProofLink,
+    OrganizationSourceLink, OrganizationView, ReadModelFreshness,
+    organization_capability_projection, organization_permission_options,
 };
 use tanren_identity_policy::{
     AccountId, OrgId, OrganizationPermission, OrganizationPermissionDecision,
@@ -87,7 +87,7 @@ where
 {
     let now = clock.now();
     resolve_authenticated_account(store, request.account_id, &request.session_token, now).await?;
-    let limit = normalize_list_limit(request.limit);
+    let limit = request.limit.get();
     let page = store
         .list_organizations_for_account(request.account_id, limit, request.cursor, now)
         .await?;
@@ -282,9 +282,4 @@ fn map_create_organization_error(err: CreateOrganizationError) -> AppServiceErro
         ),
         CreateOrganizationError::Store(err) => AppServiceError::Store(err),
     }
-}
-
-fn normalize_list_limit(limit: Option<u64>) -> u64 {
-    let requested = limit.unwrap_or(LIST_ORGANIZATIONS_DEFAULT_LIMIT);
-    requested.clamp(1, LIST_ORGANIZATIONS_MAX_LIMIT)
 }

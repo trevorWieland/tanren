@@ -7,6 +7,7 @@
 
 pub mod account;
 pub mod organization;
+pub mod organization_member;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
@@ -24,13 +25,46 @@ pub use organization::{
     OrganizationProofLink, OrganizationSourceLink, OrganizationView, ReadModelFreshness,
     organization_capability_projection, organization_permission_options,
 };
+pub use organization_member::{
+    LIST_MEMBERS_DEFAULT_LIMIT, LIST_MEMBERS_MAX_LIMIT, ListOrganizationMembersApiPath,
+    ListOrganizationMembersApiQuery, ListOrganizationMembersRequest,
+    ListOrganizationMembersResponse, MEMBER_LIST_BEHAVIOR_ID, OrganizationMemberGrantSource,
+    OrganizationMemberView,
+};
 pub use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
     SessionToken,
 };
 pub use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 
+use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
+use utoipa::ToSchema;
+
+/// Bounded page-size limit for list endpoints.
+///
+/// Prevents unbounded `u64` from crossing public contract boundaries.
+/// Construct via [`ListLimit::new`] which clamps the raw value into the
+/// inclusive range `[1, max]`. The default limit is used when the caller
+/// omits the page-size parameter.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct ListLimit(u64);
+
+impl ListLimit {
+    /// Construct a bounded list limit, clamping `raw` into `[1, max]`.
+    #[must_use]
+    pub fn new(raw: Option<u64>, default: u64, max: u64) -> Self {
+        let requested = raw.unwrap_or(default);
+        Self(requested.clamp(1, max))
+    }
+
+    /// The effective page size.
+    #[must_use]
+    pub const fn get(self) -> u64 {
+        self.0
+    }
+}
+
 use thiserror::Error;
 
 /// Wire-shape version for Tanren's external contract surface.

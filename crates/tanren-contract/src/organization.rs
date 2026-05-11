@@ -16,6 +16,8 @@ use tanren_identity_policy::{
 use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use utoipa::{IntoParams, ToSchema};
 
+use crate::{ListLimit, organization_member::MEMBER_LIST_BEHAVIOR_ID};
+
 /// Create-organization request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationRequest {
@@ -47,7 +49,6 @@ impl CreateOrganizationRequest {
         }
     }
 }
-
 /// Create-organization response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationResponse {
@@ -70,14 +71,12 @@ pub struct CreateOrganizationResponse {
     /// Concrete source event reference from the canonical event log write.
     pub source_event: Option<OrganizationEventReference>,
 }
-
 /// Summary projection of organization project counts.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationProjectSummary {
     /// Total projects currently present in the organization.
     pub total_count: u64,
 }
-
 /// List-organizations request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListOrganizationsRequest {
@@ -85,8 +84,8 @@ pub struct ListOrganizationsRequest {
     pub session_token: SessionToken,
     /// Account whose organization memberships are requested.
     pub account_id: AccountId,
-    /// Maximum page size the caller asks for.
-    pub limit: Option<u64>,
+    /// Bounded page-size limit.
+    pub limit: ListLimit,
     /// Opaque page cursor returned by a previous list call.
     pub cursor: Option<MembershipId>,
 }
@@ -103,12 +102,15 @@ impl ListOrganizationsRequest {
         Self {
             session_token,
             account_id,
-            limit: query.limit,
+            limit: ListLimit::new(
+                query.limit,
+                LIST_ORGANIZATIONS_DEFAULT_LIMIT,
+                LIST_ORGANIZATIONS_MAX_LIMIT,
+            ),
             cursor: query.cursor,
         }
     }
 }
-
 /// List-organizations response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListOrganizationsResponse {
@@ -121,7 +123,6 @@ pub struct ListOrganizationsResponse {
     /// Read-model freshness metadata for this response.
     pub freshness: ReadModelFreshness,
 }
-
 /// Query parameters for `GET /organizations`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, IntoParams)]
 pub struct ListOrganizationsApiQuery {
@@ -130,7 +131,6 @@ pub struct ListOrganizationsApiQuery {
     /// Opaque page cursor returned by a previous list call.
     pub cursor: Option<MembershipId>,
 }
-
 /// Check-organization-permission request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CheckOrganizationPermissionRequest {
@@ -171,7 +171,6 @@ impl CheckOrganizationPermissionRequest {
         }
     }
 }
-
 /// API body for create-organization routes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationApiRequest {
@@ -192,7 +191,6 @@ impl CreateOrganizationApiRequest {
         }
     }
 }
-
 /// API body for check-organization-permission routes.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CheckOrganizationPermissionApiRequest {
@@ -208,7 +206,6 @@ impl CheckOrganizationPermissionApiRequest {
     pub const fn new(org_id: OrgId, permission: OrganizationPermission) -> Self {
         Self { org_id, permission }
     }
-
     /// Build a configure-permission API body.
     #[must_use]
     pub const fn configure(org_id: OrgId) -> Self {
@@ -218,7 +215,6 @@ impl CheckOrganizationPermissionApiRequest {
         }
     }
 }
-
 /// Check-organization-permission response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CheckOrganizationPermissionResponse {
@@ -253,7 +249,6 @@ pub struct OrganizationCapabilityView {
     /// Whether the caller currently holds this capability.
     pub allowed: bool,
 }
-
 /// Shared failure taxonomy for create-organization command handling.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(rename_all = "snake_case")]
@@ -273,13 +268,11 @@ impl CreateOrganizationFailureReason {
             Self::IdempotencyConflict => OrganizationFailureCode::IdempotencyConflict,
         }
     }
-
     /// Stable wire `code` for this failure.
     #[must_use]
     pub const fn code(self) -> &'static str {
         self.failure_code().code()
     }
-
     /// Human-readable summary for this failure.
     #[must_use]
     pub const fn summary(self) -> &'static str {
@@ -290,7 +283,6 @@ impl CreateOrganizationFailureReason {
             }
         }
     }
-
     /// Recommended HTTP status when projected over API/MCP.
     #[must_use]
     pub const fn http_status(self) -> u16 {
@@ -329,7 +321,6 @@ impl OrganizationFailureCode {
             Self::InternalError => "internal_error",
         }
     }
-
     /// Recommended HTTP status for this failure.
     #[must_use]
     pub const fn http_status(self) -> u16 {
@@ -350,14 +341,12 @@ pub struct OrganizationFailureBody {
     /// Human-readable summary.
     pub summary: String,
 }
-
 /// Reference to behavior proof coverage for organization operations.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationProofLink {
     /// Canonical behavior id proving this command contract.
     pub behavior_id: OrganizationBehaviorId,
 }
-
 /// Reference to source evidence for organization events.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationSourceLink {
@@ -366,7 +355,6 @@ pub struct OrganizationSourceLink {
     /// Event kind in the canonical event log.
     pub event_kind: String,
 }
-
 /// Source event reference for organization responses.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationEventReference {
@@ -381,7 +369,6 @@ pub struct OrganizationEventReference {
     /// Event-log append timestamp for this event.
     pub occurred_at: DateTime<Utc>,
 }
-
 /// Freshness and provenance metadata for organization list read models.
 ///
 /// Aligned with the Observation Claim Model (see
@@ -420,6 +407,9 @@ pub enum OrganizationBehaviorId {
     /// `B-0066` — Create an organization.
     #[serde(rename = "B-0066")]
     B0066CreateOrganization,
+    /// `B-0065` — See existing members' access to an organization.
+    #[serde(rename = "B-0065")]
+    B0065ListOrganizationMembers,
 }
 
 impl OrganizationBehaviorId {
@@ -428,6 +418,7 @@ impl OrganizationBehaviorId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::B0066CreateOrganization => ORGANIZATION_CREATE_BEHAVIOR_ID,
+            Self::B0065ListOrganizationMembers => MEMBER_LIST_BEHAVIOR_ID,
         }
     }
 }
@@ -444,6 +435,7 @@ impl FromStr for OrganizationBehaviorId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             ORGANIZATION_CREATE_BEHAVIOR_ID => Ok(Self::B0066CreateOrganization),
+            MEMBER_LIST_BEHAVIOR_ID => Ok(Self::B0065ListOrganizationMembers),
             _ => Err("unknown organization behavior id"),
         }
     }
@@ -458,7 +450,6 @@ pub const LIST_ORGANIZATIONS_MAX_LIMIT: u64 = 100;
 pub fn organization_permission_options() -> Vec<OrganizationPermission> {
     OrganizationPermission::ALL.to_vec()
 }
-
 /// Project capability metadata for organization permissions from the
 /// identity/policy model and currently allowed permission set.
 #[must_use]
