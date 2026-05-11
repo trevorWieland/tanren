@@ -12,9 +12,7 @@ use crate::install::manifest::{
     AssetClass, INSTALL_MANIFEST_REPO_PATH, INSTALL_MANIFEST_VERSION, InstallManifest,
     RepoRelativePath,
 };
-use crate::install::{
-    InstallError, InstallIntegration, InstallProfile, parse_integration_selection,
-};
+use crate::install::{InstallError, InstallIntegration, InstallProfile};
 
 const TAMPERED_ENTRY_SHA256: &str =
     "0000000000000000000000000000000000000000000000000000000000000000";
@@ -117,12 +115,12 @@ pub(crate) fn assert_selected_integration_command_assets(
     repository_root: &Path,
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
-    let selected = parse_integration_selection(Some(selected_integrations)).map_err(|source| {
-        InstallProofError::InvalidIntegrationSelection {
-            selection: selected_integrations.to_owned(),
-            source,
-        }
-    })?;
+    let selected =
+        tanren_contract::install::parse_integration_selection(Some(selected_integrations))
+            .map_err(|source| InstallProofError::InvalidIntegrationSelection {
+                selection: selected_integrations.to_owned(),
+                source,
+            })?;
     let manifest = read_install_manifest(repository_root)?;
     assert_manifest_profile_and_integrations(&manifest, InstallProfile::RustCargo, &selected)?;
     assert_command_assets_for_selected_integrations(repository_root, &manifest, &selected)?;

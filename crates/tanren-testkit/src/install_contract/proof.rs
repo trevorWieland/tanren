@@ -31,12 +31,11 @@ pub(super) fn assert_selected_integration_command_assets_inner(
     selected_integrations: &str,
 ) -> Result<(), InstallProofError> {
     let selected =
-        parse_install_integration_selection(selected_integrations).map_err(|source| {
-            InstallProofError::InvalidIntegrationSelection {
+        tanren_contract::install::parse_integration_selection(Some(selected_integrations))
+            .map_err(|source| InstallProofError::InvalidIntegrationSelection {
                 selection: selected_integrations.to_owned(),
                 source,
-            }
-        })?;
+            })?;
     let manifest = read_install_manifest(repository_root)?;
     assert_manifest_profile_and_integrations(&manifest, InstallProofProfile::RustCargo, &selected)?;
     assert_command_assets_for_selected_integrations(repository_root, &manifest, &selected)?;

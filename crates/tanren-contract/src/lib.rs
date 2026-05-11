@@ -6,10 +6,17 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod install;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+
+pub use install::{
+    AssetClass, InstallContractError, InstallIntegration, InstallManifest, InstallProfile,
+    InstallSelection, ManifestEntry, PreservationPolicy, RepoRelativePath, Sha256Hex,
+    Sha256HexParseError, parse_integration_selection, sha256_hex,
 };
 
 use serde::{Deserialize, Serialize};

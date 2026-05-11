@@ -2,32 +2,9 @@
 
 /// Install proof helpers exposed only when the `test-hooks` feature is on.
 pub mod install {
-    /// Parse failure for test-hook install relative paths.
-    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-    pub struct RepoRelativePathParseError;
-
-    /// Public wrapper over the internal install repo-relative path type.
-    #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-    pub struct RepoRelativePath(crate::install::RepoRelativePath);
-
-    impl RepoRelativePath {
-        /// Validate and construct a repository-relative path.
-        pub fn parse(path: &str) -> Result<Self, RepoRelativePathParseError> {
-            crate::install::RepoRelativePath::parse(path)
-                .map(Self)
-                .map_err(|_| RepoRelativePathParseError)
-        }
-
-        /// Borrow the validated path string.
-        #[must_use]
-        pub fn as_str(&self) -> &str {
-            self.0.as_str()
-        }
-
-        pub(super) fn as_inner(&self) -> &crate::install::RepoRelativePath {
-            &self.0
-        }
-    }
+    // Re-export the canonical RepoRelativePath from the shared contract crate
+    // so there is exactly one struct definition in the workspace.
+    pub use crate::install::RepoRelativePath;
 
     /// Calculate a hex SHA-256 digest for fixture bytes.
     #[must_use]
@@ -113,65 +90,60 @@ pub mod install {
                     crate::install::InstallError::RemoveFailure { path, message } => {
                         Self::RemoveFailure { path, message }
                     }
+                    other => Self::UnsupportedProfile {
+                        name: other.to_string(),
+                    },
                 }
             }
         }
 
-        /// Structured test-hook error surface for install proof assertions.
+        /// Install-proof failures surfaced through the test-hook contract facade.
         #[derive(Debug, Error)]
         #[non_exhaustive]
         pub enum InstallProofError {
             #[error("invalid integration assertion selection '{selection}': {source}")]
             InvalidIntegrationSelection {
                 selection: String,
-                #[source]
-                source: InstallSelectionError,
+                source: crate::install::InstallError,
             },
             #[error("failed to canonicalize workspace root while {action}: {source}")]
             CanonicalizeWorkspaceRoot {
                 action: &'static str,
-                #[source]
                 source: std::io::Error,
             },
             #[error("failed to read file '{path}' while {action}: {source}")]
             ReadFile {
                 path: PathBuf,
                 action: &'static str,
-                #[source]
                 source: std::io::Error,
             },
             #[error("failed to write file '{path}' while {action}: {source}")]
             WriteFile {
                 path: PathBuf,
                 action: &'static str,
-                #[source]
                 source: std::io::Error,
             },
             #[error("failed to read directory '{path}' while {action}: {source}")]
             ReadDirectory {
                 path: PathBuf,
                 action: &'static str,
-                #[source]
                 source: std::io::Error,
             },
             #[error("failed to inspect directory entry under '{path}' while {action}: {source}")]
             ReadDirectoryEntry {
                 path: PathBuf,
                 action: &'static str,
-                #[source]
                 source: std::io::Error,
             },
             #[error("failed to inspect file type for '{path}' while {action}: {source}")]
             InspectFileType {
                 path: PathBuf,
                 action: &'static str,
-                #[source]
                 source: std::io::Error,
             },
             #[error("failed to parse install manifest '{manifest_path}' as TOML: {source}")]
             InstallManifestTomlParse {
                 manifest_path: PathBuf,
-                #[source]
                 source: toml::de::Error,
             },
             #[error("expected repository file to exist: {path}")]
@@ -198,12 +170,15 @@ pub mod install {
                         source,
                     } => Self::InvalidIntegrationSelection {
                         selection,
-                        source: source.into(),
+                        source,
                     },
                     crate::install::contract::InstallProofError::CanonicalizeWorkspaceRoot {
                         action,
                         source,
-                    } => Self::CanonicalizeWorkspaceRoot { action, source },
+                    } => Self::CanonicalizeWorkspaceRoot {
+                        action,
+                        source,
+                    },
                     crate::install::contract::InstallProofError::ReadFile {
                         path,
                         action,
@@ -323,7 +298,7 @@ pub mod install {
         ) {
             crate::install::contract::append_stale_generated_manifest_entry(
                 manifest,
-                relative_path.as_inner(),
+                relative_path,
                 content_hash,
             );
         }
@@ -345,7 +320,7 @@ pub mod install {
         pub fn read_workspace_catalog_file(
             relative_path: &RepoRelativePath,
         ) -> Result<String, InstallProofError> {
-            crate::install::contract::read_workspace_catalog_file(relative_path.as_inner())
+            crate::install::contract::read_workspace_catalog_file(relative_path)
                 .map_err(InstallProofError::from)
         }
     }

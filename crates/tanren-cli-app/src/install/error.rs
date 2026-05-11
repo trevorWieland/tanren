@@ -44,6 +44,25 @@ pub(crate) enum InstallError {
     RemoveFailure { path: String, message: String },
 }
 
+impl From<tanren_contract::install::InstallContractError> for InstallError {
+    fn from(source: tanren_contract::install::InstallContractError) -> Self {
+        match source {
+            tanren_contract::install::InstallContractError::UnsupportedProfile { name } => {
+                Self::UnsupportedProfile { name }
+            }
+            tanren_contract::install::InstallContractError::UnsupportedIntegration { name } => {
+                Self::UnsupportedIntegration { name }
+            }
+            tanren_contract::install::InstallContractError::EmptyIntegrationSelection => {
+                Self::EmptyIntegrationSelection
+            }
+            tanren_contract::install::InstallContractError::InvalidRepoRelativePath { path } => {
+                Self::InvalidRepoRelativePath { path }
+            }
+        }
+    }
+}
+
 /// Typed `tanren-cli install` command failures at the CLI-library boundary.
 #[derive(Debug, Error)]
 #[non_exhaustive]

@@ -4281,6 +4281,7 @@ dependencies = [
  "schemars",
  "secrecy",
  "serde",
+ "sha2",
  "tanren-identity-policy",
  "thiserror 2.0.18",
  "utoipa",

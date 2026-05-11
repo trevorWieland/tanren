@@ -33,12 +33,14 @@ pub use install_contract::{
     InstallProofRepoRelativePath, RUST_CARGO_PROFILE_ROOT, append_stale_generated_manifest_entry,
     assert_manifest_rust_cargo_defaults, assert_rust_cargo_default_assets_installed,
     assert_rust_cargo_standards_installed, assert_selected_integration_command_assets,
-    parse_install_integration_selection, read_workspace_catalog_file, sha256_hex_string,
-    tamper_manifest_with_raw_generated_entry,
+    read_workspace_catalog_file, sha256_hex_string, tamper_manifest_with_raw_generated_entry,
 };
+// Re-export the canonical integration-selection parser from the contract crate
+// so BDD step bodies can call parse_integration_selection(Some("codex,claude")).
 pub use install_output::{
     InstallSummaryOutput, InstallSummaryOutputParseError, parse_install_summary_output,
 };
+pub use tanren_contract::install::parse_integration_selection;
 
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};

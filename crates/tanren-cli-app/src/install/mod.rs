@@ -2,7 +2,6 @@
 
 use std::collections::BTreeSet;
 use std::path::Path;
-use std::str::FromStr;
 
 mod catalog;
 mod cli;
@@ -33,109 +32,10 @@ pub(crate) fn sha256_hex(bytes: &[u8]) -> manifest::Sha256Hex {
     manifest::sha256_hex(bytes)
 }
 
-/// Supported Tanren standards profiles for local repository bootstrap.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum InstallProfile {
-    /// Install the Rust + Cargo standards profile.
-    RustCargo,
-}
-
-impl InstallProfile {
-    /// Canonical profile identifier.
-    #[must_use]
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::RustCargo => "rust-cargo",
-        }
-    }
-}
-
-impl FromStr for InstallProfile {
-    type Err = InstallError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim() {
-            "rust-cargo" => Ok(Self::RustCargo),
-            unknown => Err(InstallError::UnsupportedProfile {
-                name: unknown.to_owned(),
-            }),
-        }
-    }
-}
-
-/// Supported agent integration targets for generated command assets.
-#[derive(
-    Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
-)]
-#[serde(rename_all = "kebab-case")]
-pub(crate) enum InstallIntegration {
-    Claude,
-    Codex,
-    OpenCode,
-}
-
-impl InstallIntegration {
-    /// Canonical integration identifier.
-    #[must_use]
-    pub(crate) const fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::OpenCode => "open-code",
-        }
-    }
-
-    /// Return all supported integrations.
-    #[must_use]
-    pub(crate) fn all() -> BTreeSet<Self> {
-        [Self::Claude, Self::Codex, Self::OpenCode]
-            .into_iter()
-            .collect()
-    }
-}
-
-impl FromStr for InstallIntegration {
-    type Err = InstallError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim() {
-            "claude" => Ok(Self::Claude),
-            "codex" => Ok(Self::Codex),
-            "open-code" | "opencode" => Ok(Self::OpenCode),
-            unknown => Err(InstallError::UnsupportedIntegration {
-                name: unknown.to_owned(),
-            }),
-        }
-    }
-}
-
-/// Parse integration selection from comma-separated CLI values.
-///
-/// The parser validates all names before install planning. `None` means
-/// "install all supported integrations".
-pub(crate) fn parse_integration_selection(
-    selection: Option<&str>,
-) -> Result<BTreeSet<InstallIntegration>, InstallError> {
-    let Some(raw_selection) = selection else {
-        return Ok(InstallIntegration::all());
-    };
-
-    let mut selected = BTreeSet::new();
-    for raw_token in raw_selection.split(',') {
-        let token = raw_token.trim();
-        if token.is_empty() {
-            return Err(InstallError::EmptyIntegrationSelection);
-        }
-        selected.insert(token.parse()?);
-    }
-
-    if selected.is_empty() {
-        return Err(InstallError::EmptyIntegrationSelection);
-    }
-
-    Ok(selected)
-}
+// Re-export canonical install contract types from the shared contract crate.
+// The enums and InstallSelection live in tanren_contract::install so both
+// tanren-cli-app and tanren-testkit share a single definition site.
+pub(crate) use tanren_contract::install::{InstallIntegration, InstallProfile, InstallSelection};
 
 /// Build a validated install plan from raw install inputs.
 pub(crate) fn plan_install(

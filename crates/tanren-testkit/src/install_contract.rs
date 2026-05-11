@@ -3,207 +3,27 @@
 use std::collections::BTreeSet;
 use std::fmt::Write as _;
 use std::fs;
-use std::path::{Component, Path, PathBuf};
-use std::str::FromStr;
+use std::path::{Path, PathBuf};
 
-use serde::{Deserialize, Deserializer, Serialize, Serializer};
-use sha2::{Digest, Sha256};
 use thiserror::Error;
 
+// Re-export canonical types from the shared contract crate.
+// The InstallProof* aliases preserve the public API names used by BDD
+// consumers while pointing to the single definition site.
+pub use tanren_contract::install::{
+    AssetClass as InstallProofAssetClass, InstallContractError as InstallProofContractError,
+    InstallIntegration as InstallProofIntegration, InstallProfile as InstallProofProfile,
+    RepoRelativePath as InstallProofRepoRelativePath, Sha256Hex, sha256_hex,
+};
+
 /// Install manifest schema version asserted by the BDD install proofs.
-pub const INSTALL_MANIFEST_VERSION: u32 = 1;
+pub const INSTALL_MANIFEST_VERSION: u32 = tanren_contract::install::INSTALL_MANIFEST_VERSION;
 /// Repo-relative install manifest location asserted by the BDD install proofs.
-pub const INSTALL_MANIFEST_REPO_PATH: &str = ".tanren/install-manifest.toml";
+pub const INSTALL_MANIFEST_REPO_PATH: &str = tanren_contract::install::INSTALL_MANIFEST_REPO_PATH;
 /// Rust standards profile identifier for install proofs.
 pub const RUST_CARGO_PROFILE_ROOT: &str = "profiles/rust-cargo/";
 
-/// Profile identifiers supported by install proofs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InstallProofProfile {
-    RustCargo,
-}
-
-impl InstallProofProfile {
-    /// Canonical profile identifier.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::RustCargo => "rust-cargo",
-        }
-    }
-}
-
-impl std::fmt::Display for InstallProofProfile {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        f.write_str(self.as_str())
-    }
-}
-
-impl FromStr for InstallProofProfile {
-    type Err = InstallProofContractError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim() {
-            "rust-cargo" => Ok(Self::RustCargo),
-            unknown => Err(InstallProofContractError::UnsupportedProfile {
-                name: unknown.to_owned(),
-            }),
-        }
-    }
-}
-
-/// Integration identifiers supported by install proofs.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InstallProofIntegration {
-    Claude,
-    Codex,
-    OpenCode,
-}
-
-impl InstallProofIntegration {
-    /// Canonical integration identifier.
-    #[must_use]
-    pub const fn as_str(self) -> &'static str {
-        match self {
-            Self::Claude => "claude",
-            Self::Codex => "codex",
-            Self::OpenCode => "open-code",
-        }
-    }
-
-    /// Destination root for generated command assets.
-    #[must_use]
-    pub const fn destination_root(self) -> &'static str {
-        match self {
-            Self::Claude => ".claude/commands/",
-            Self::Codex => ".codex/skills/",
-            Self::OpenCode => ".opencode/commands/",
-        }
-    }
-
-    /// All supported integration identifiers.
-    #[must_use]
-    pub fn all() -> BTreeSet<Self> {
-        [Self::Claude, Self::Codex, Self::OpenCode]
-            .into_iter()
-            .collect()
-    }
-}
-
-impl FromStr for InstallProofIntegration {
-    type Err = InstallProofContractError;
-
-    fn from_str(value: &str) -> Result<Self, Self::Err> {
-        match value.trim() {
-            "claude" => Ok(Self::Claude),
-            "codex" => Ok(Self::Codex),
-            "open-code" | "opencode" => Ok(Self::OpenCode),
-            unknown => Err(InstallProofContractError::UnsupportedIntegration {
-                name: unknown.to_owned(),
-            }),
-        }
-    }
-}
-
-/// Install manifest asset-class identifiers used by BDD assertions.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum InstallProofAssetClass {
-    MethodologyCommand,
-    StandardsProfile,
-}
-
-/// Parse a comma-separated integration selection into typed identifiers.
-pub fn parse_install_integration_selection(
-    selection: &str,
-) -> Result<BTreeSet<InstallProofIntegration>, InstallProofContractError> {
-    let mut selected = BTreeSet::new();
-    for raw_token in selection.split(',') {
-        let token = raw_token.trim();
-        if token.is_empty() {
-            return Err(InstallProofContractError::EmptyIntegrationSelection);
-        }
-        selected.insert(token.parse()?);
-    }
-    if selected.is_empty() {
-        return Err(InstallProofContractError::EmptyIntegrationSelection);
-    }
-    Ok(selected)
-}
-
-/// Errors raised while parsing typed install-proof identifiers.
-#[derive(Debug, Clone, PartialEq, Eq, Error)]
-pub enum InstallProofContractError {
-    #[error("unsupported install proof profile '{name}'")]
-    UnsupportedProfile { name: String },
-    #[error("unsupported install proof integration '{name}'")]
-    UnsupportedIntegration { name: String },
-    #[error("integration selection is empty")]
-    EmptyIntegrationSelection,
-}
-
-/// Parse failure for install proof repository-relative paths.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("install proof path must be a non-empty repository-relative path without traversal")]
-pub struct InstallProofRepoRelativePathParseError;
-
-/// Strict repository-relative path for install-proof fixtures.
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub struct InstallProofRepoRelativePath(String);
-
-impl InstallProofRepoRelativePath {
-    /// Validate and construct a repository-relative path.
-    pub fn parse(path: &str) -> Result<Self, InstallProofRepoRelativePathParseError> {
-        if path.is_empty() {
-            return Err(InstallProofRepoRelativePathParseError);
-        }
-        let candidate = Path::new(path);
-        if candidate.is_absolute() {
-            return Err(InstallProofRepoRelativePathParseError);
-        }
-        let is_valid = candidate
-            .components()
-            .all(|component| matches!(component, Component::Normal(_) | Component::CurDir));
-        if !is_valid {
-            return Err(InstallProofRepoRelativePathParseError);
-        }
-        Ok(Self(path.to_owned()))
-    }
-
-    /// Borrow the validated path string.
-    #[must_use]
-    pub fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-impl Serialize for InstallProofRepoRelativePath {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for InstallProofRepoRelativePath {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        InstallProofRepoRelativePath::parse(raw.as_str()).map_err(serde::de::Error::custom)
-    }
-}
-
-/// Typed parse failure for [`Sha256Hex`].
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Error)]
-#[error("content hash must be exactly 64 lowercase hex characters")]
-struct Sha256HexParseError;
-
-/// Delivery-owned proof failure type surfaced to BDD assertion mapping.
+/// Delivery-owned proof failures surfaced to BDD assertion mapping.
 #[derive(Debug, Error)]
 pub enum InstallProofError {
     #[error("invalid integration assertion selection '{selection}': {source}")]
@@ -267,70 +87,8 @@ pub enum InstallProofError {
     },
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-enum InstallProofPreservation {
-    ReplaceGenerated,
-    PreserveUserEdits,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct Sha256Hex(String);
-
-impl Sha256Hex {
-    const LENGTH: usize = 64;
-
-    fn parse(value: &str) -> Result<Self, Sha256HexParseError> {
-        if value.len() != Self::LENGTH
-            || !value
-                .bytes()
-                .all(|byte| byte.is_ascii_digit() || (b'a'..=b'f').contains(&byte))
-        {
-            return Err(Sha256HexParseError);
-        }
-        Ok(Self(value.to_owned()))
-    }
-
-    fn as_str(&self) -> &str {
-        self.0.as_str()
-    }
-}
-
-impl Serialize for Sha256Hex {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(self.as_str())
-    }
-}
-
-impl<'de> Deserialize<'de> for Sha256Hex {
-    fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        let raw = String::deserialize(deserializer)?;
-        Sha256Hex::parse(raw.as_str()).map_err(serde::de::Error::custom)
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct InstallManifestEntry {
-    path: InstallProofRepoRelativePath,
-    content_hash: Sha256Hex,
-    asset_class: InstallProofAssetClass,
-    integration: Option<InstallProofIntegration>,
-    preservation: InstallProofPreservation,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-struct InstallManifest {
-    manifest_version: u32,
-    profile: InstallProofProfile,
-    integrations: Vec<InstallProofIntegration>,
-    entries: Vec<InstallManifestEntry>,
-}
+/// Install manifest alias matching the canonical contract type.
+pub(crate) use tanren_contract::install::InstallManifest;
 
 #[derive(Debug)]
 struct ObservedInstallManifest {
@@ -405,8 +163,7 @@ pub fn read_workspace_catalog_file(
 #[must_use]
 #[cfg(feature = "test-hooks")]
 pub fn sha256_hex_string(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    format!("{digest:x}")
+    sha256_hex(bytes).to_string()
 }
 
 mod proof;

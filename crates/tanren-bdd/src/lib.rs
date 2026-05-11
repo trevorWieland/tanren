@@ -16,11 +16,11 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 use crate::steps::install::{InstallContext, InstallStepError, InstallStepResult};
-use tanren_testkit::install_contract::{InstallProofProfile, parse_install_integration_selection};
 use tanren_testkit::{
     ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome, InProcessHarness,
     InstallCommandKind, InstallHarness, McpHarness, TuiHarness, WebHarness,
 };
+use tanren_testkit::{install_contract::InstallProofProfile, parse_integration_selection};
 /// Explicit world setup state machine.
 ///
 /// Replaces the previous `Option<AccountContext>` +
@@ -153,7 +153,7 @@ impl TanrenWorld {
     ) -> InstallStepResult<()> {
         let typed_profile = profile.parse::<InstallProofProfile>();
         let typed_integrations = integrations
-            .map(parse_install_integration_selection)
+            .map(|s| parse_integration_selection(Some(s)))
             .transpose();
 
         let raw_profile = if typed_profile.is_err() {
@@ -220,7 +220,7 @@ impl TanrenWorld {
     ) -> InstallStepResult<()> {
         let typed_profile = profile.parse::<InstallProofProfile>();
         let typed_integrations = integrations
-            .map(parse_install_integration_selection)
+            .map(|s| parse_integration_selection(Some(s)))
             .transpose();
 
         let raw_profile = if typed_profile.is_err() {
