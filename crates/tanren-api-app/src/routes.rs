@@ -14,15 +14,20 @@ use serde::{Deserialize, Serialize};
 use tanren_app_services::Handlers;
 use tanren_contract::{
     AcceptInvitationRequest, AccountView, SessionEnvelope, SignInRequest, SignUpRequest,
+    SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
-use tanren_identity_policy::{Email, InvitationToken, OrgId};
+use tanren_identity_policy::{AccountId, Email, InvitationToken, OrgId};
 use tower_sessions::Session;
 use utoipa::OpenApi;
 use utoipa_axum::router::OpenApiRouter;
 use utoipa_axum::routes;
+use uuid::Uuid;
 
 use crate::AppState;
-use crate::cookies::{SessionWrite, install_cookie_session};
+use crate::cookies::{
+    SessionWrite, install_cookie_session, read_active_account, read_signed_in_accounts,
+    write_active_account,
+};
 use crate::errors::{AccountFailureBody, ValidatedJson, map_app_error, session_install_error};
 
 /// Liveness response.
@@ -98,6 +103,8 @@ pub struct AcceptInvitationBody {
         sign_in_route,
         accept_invitation_route,
         revoke_route,
+        switch_active_account_route,
+        get_active_account_route,
     ),
     components(schemas(
         HealthResponse,
@@ -109,10 +116,13 @@ pub struct AcceptInvitationBody {
         AcceptInvitationResponseCookie,
         AccountFailureBody,
         SessionEnvelope,
+        SwitchActiveAccountRequest,
+        SwitchActiveAccountResponse,
+        ActiveAccountResponse,
     )),
     tags(
         (name = "health", description = "Liveness probe."),
-        (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out."),
+        (name = "accounts", description = "Account flow: self-signup, sign-in, accept-invitation, sign-out, switch active."),
     )
 )]
 pub(crate) struct ApiDoc;
@@ -308,6 +318,146 @@ pub(crate) async fn revoke_route(session: Session) -> Response {
     StatusCode::NO_CONTENT.into_response()
 }
 
+/// Response for GET /accounts/active — the currently active account.
+#[derive(Debug, Clone, Serialize, Deserialize, utoipa::ToSchema)]
+pub(crate) struct ActiveAccountResponse {
+    /// The currently active account id.
+    pub active_account_id: Option<AccountId>,
+}
+
+/// Read the currently active account from the session.
+#[utoipa::path(
+    get,
+    path = "/accounts/active",
+    responses(
+        (status = 200, body = ActiveAccountResponse, description = "Active account id"),
+        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+    ),
+    tag = "accounts",
+)]
+pub(crate) async fn get_active_account_route(session: Session) -> Response {
+    let active = read_active_account(&session, None).await;
+    (
+        StatusCode::OK,
+        Json(ActiveAccountResponse {
+            active_account_id: active,
+        }),
+    )
+        .into_response()
+}
+
+/// Switch the active account within an existing session.
+///
+/// Validates `window_id` format (if provided), reads the signed-in
+/// accounts from the session, resolves the `target` ordinal or UUID to
+/// a concrete [`AccountId`], delegates to the app-service handler, and
+/// updates the session with the new active account.
+#[utoipa::path(
+    put,
+    path = "/accounts/active",
+    request_body = SwitchActiveAccountRequest,
+    responses(
+        (status = 200, body = SwitchActiveAccountResponse, description = "Active account switched"),
+        (status = 400, body = AccountFailureBody, description = "validation_failed"),
+        (status = 401, body = AccountFailureBody, description = "invalid_credential"),
+        (status = 422, body = AccountFailureBody, description = "target_account_not_signed_in"),
+    ),
+    tag = "accounts",
+)]
+pub(crate) async fn switch_active_account_route(
+    State(state): State<AppState>,
+    session: Session,
+    ValidatedJson(request): ValidatedJson<SwitchActiveAccountRequest>,
+) -> Response {
+    if let Some(ref wid) = request.window_id {
+        if let Err(summary) = validate_window_id(wid) {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(AccountFailureBody {
+                    code: "validation_failed".to_owned(),
+                    summary,
+                }),
+            )
+                .into_response();
+        }
+    }
+
+    let signed_in = read_signed_in_accounts(&session).await;
+    if signed_in.is_empty() {
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(AccountFailureBody {
+                code: "invalid_credential".to_owned(),
+                summary: tanren_contract::AccountFailureReason::InvalidCredential
+                    .summary()
+                    .to_owned(),
+            }),
+        )
+            .into_response();
+    }
+
+    let Some(target_id) = resolve_target(&request.target, &signed_in) else {
+        return map_app_error(tanren_app_services::AppServiceError::Account(
+            tanren_contract::AccountFailureReason::TargetAccountNotSignedIn,
+        ));
+    };
+
+    match state
+        .handlers
+        .switch_active_account(
+            state.store.as_ref(),
+            &signed_in,
+            target_id,
+            request.window_id.clone(),
+        )
+        .await
+    {
+        Ok(response) => {
+            let wid = request.window_id.as_deref();
+            if let Err(err) = write_active_account(&session, target_id, wid).await {
+                return session_install_error(&err);
+            }
+            (StatusCode::OK, Json(response)).into_response()
+        }
+        Err(err) => map_app_error(err),
+    }
+}
+
+/// Validate a window-id string: non-empty, at most 128 chars, valid UUID.
+fn validate_window_id(window_id: &str) -> Result<(), String> {
+    if window_id.is_empty() {
+        return Err("window_id must not be empty".to_owned());
+    }
+    if window_id.len() > 128 {
+        return Err(format!(
+            "window_id must be at most 128 characters, got {}",
+            window_id.len()
+        ));
+    }
+    if Uuid::parse_str(window_id).is_err() {
+        return Err(format!("window_id must be a valid UUID, got {window_id:?}"));
+    }
+    Ok(())
+}
+
+/// Resolve a target string to a concrete `AccountId` from the ordered
+/// signed-in list. Accepts ordinals (`"first"`, `"second"`, …) and bare
+/// UUID strings that appear in the list.
+fn resolve_target(target: &str, signed_in: &[AccountId]) -> Option<AccountId> {
+    match target {
+        "first" => signed_in.first().copied(),
+        "second" => signed_in.get(1).copied(),
+        "third" => signed_in.get(2).copied(),
+        "fourth" => signed_in.get(3).copied(),
+        "fifth" => signed_in.get(4).copied(),
+        _ => {
+            let uuid = Uuid::parse_str(target).ok()?;
+            let id = AccountId::from(uuid);
+            signed_in.contains(&id).then_some(id)
+        }
+    }
+}
+
 /// Build the `OpenApiRouter` carrying every account-flow route. Called
 /// from `lib.rs::build_app` after the cookie/CORS layers are
 /// constructed; the macros that `routes!()` expands need to live in the
@@ -320,5 +470,7 @@ pub(crate) fn build_router(state: AppState) -> OpenApiRouter {
         .routes(routes!(sign_in_route))
         .routes(routes!(accept_invitation_route))
         .routes(routes!(revoke_route))
+        .routes(routes!(switch_active_account_route))
+        .routes(routes!(get_active_account_route))
         .with_state(state)
 }

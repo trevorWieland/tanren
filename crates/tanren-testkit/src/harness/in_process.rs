@@ -9,13 +9,15 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::Utc;
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
-use tanren_identity_policy::Argon2idVerifier;
+use tanren_contract::{
+    AcceptInvitationRequest, AccountFailureReason, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, HarnessSwitchResult,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -26,6 +28,8 @@ pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
     kind: HarnessKind,
+    signed_in_account_ids: Vec<AccountId>,
+    session_valid: bool,
 }
 
 impl std::fmt::Debug for InProcessHarness {
@@ -63,6 +67,8 @@ impl InProcessHarness {
             store,
             handlers,
             kind,
+            signed_in_account_ids: Vec::new(),
+            session_valid: false,
         })
     }
 
@@ -84,24 +90,34 @@ impl AccountHarness for InProcessHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_up(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                let session = HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                };
+                self.signed_in_account_ids.push(session.account_id);
+                self.session_valid = true;
+                Ok(session)
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         match self.handlers.sign_in(&self.store, req).await {
-            Ok(response) => Ok(HarnessSession {
-                account: response.account.clone(),
-                account_id: response.account.id,
-                expires_at: response.session.expires_at,
-                has_token: !response.session.token.expose_secret().is_empty(),
-            }),
+            Ok(response) => {
+                let session = HarnessSession {
+                    account: response.account.clone(),
+                    account_id: response.account.id,
+                    expires_at: response.session.expires_at,
+                    has_token: !response.session.token.expose_secret().is_empty(),
+                };
+                self.signed_in_account_ids.push(session.account_id);
+                self.session_valid = true;
+                Ok(session)
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -111,15 +127,21 @@ impl AccountHarness for InProcessHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         match self.handlers.accept_invitation(&self.store, req).await {
-            Ok(response) => Ok(HarnessAcceptance {
-                session: HarnessSession {
-                    account: response.account.clone(),
-                    account_id: response.account.id,
-                    expires_at: response.session.expires_at,
-                    has_token: !response.session.token.expose_secret().is_empty(),
-                },
-                joined_org: response.joined_org,
-            }),
+            Ok(response) => {
+                let acceptance = HarnessAcceptance {
+                    session: HarnessSession {
+                        account: response.account.clone(),
+                        account_id: response.account.id,
+                        expires_at: response.session.expires_at,
+                        has_token: !response.session.token.expose_secret().is_empty(),
+                    },
+                    joined_org: response.joined_org,
+                };
+                self.signed_in_account_ids
+                    .push(acceptance.session.account_id);
+                self.session_valid = true;
+                Ok(acceptance)
+            }
             Err(err) => Err(translate_app_error(err)),
         }
     }
@@ -140,6 +162,34 @@ impl AccountHarness for InProcessHarness {
         AccountStore::recent_events(&self.store, limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> HarnessResult<HarnessSwitchResult> {
+        if !self.session_valid || self.signed_in_account_ids.is_empty() {
+            return Err(HarnessError::Account(
+                AccountFailureReason::InvalidCredential,
+                AccountFailureReason::InvalidCredential.summary().to_owned(),
+            ));
+        }
+        match self
+            .handlers
+            .switch_active_account(&self.store, &self.signed_in_account_ids, target, window_id)
+            .await
+        {
+            Ok(response) => Ok(HarnessSwitchResult {
+                active_account: response.active_account,
+            }),
+            Err(err) => Err(translate_app_error(err)),
+        }
+    }
+
+    async fn invalidate_session(&mut self, _mode: &str) -> HarnessResult<()> {
+        self.session_valid = false;
+        Ok(())
     }
 }
 

@@ -186,6 +186,34 @@ impl SessionEnvelope {
     }
 }
 
+/// Request to switch the session's active account.
+///
+/// The `target` field accepts an ordinal string (`"first"`, `"second"`,
+/// …) or a bare UUID string identifying the target [`AccountId`]. The
+/// API resolves ordinals against the session's ordered `signed_in_accounts`
+/// list; any value that does not resolve to a signed-in account causes a
+/// [`AccountFailureReason::TargetAccountNotSignedIn`] rejection.
+///
+/// The optional `window_id` scopes the switch to a specific application
+/// window context. When present it must be a non-empty UUID string of at
+/// most 128 characters; an invalid value produces a
+/// [`AccountFailureReason::ValidationFailed`] rejection before the session
+/// is consulted.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SwitchActiveAccountRequest {
+    /// Target account: an ordinal (`"first"`, `"second"`, …) or a UUID string.
+    pub target: String,
+    /// Optional window-scoped context for per-window active selection.
+    pub window_id: Option<String>,
+}
+
+/// Successful response from the active-account switch endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
+pub struct SwitchActiveAccountResponse {
+    /// The account that is now active.
+    pub active_account: AccountView,
+}
+
 /// Closed taxonomy of account-flow failures.
 ///
 /// Maps onto the shared `{code, summary}` error body documented in
@@ -212,6 +240,9 @@ pub enum AccountFailureReason {
     InvitationExpired,
     /// Invitation token has already been accepted or revoked.
     InvitationAlreadyConsumed,
+    /// The requested switch target is not in the current session's
+    /// signed-in account set.
+    TargetAccountNotSignedIn,
 }
 
 impl AccountFailureReason {
@@ -225,6 +256,7 @@ impl AccountFailureReason {
             Self::InvitationNotFound => "invitation_not_found",
             Self::InvitationExpired => "invitation_expired",
             Self::InvitationAlreadyConsumed => "invitation_already_consumed",
+            Self::TargetAccountNotSignedIn => "target_account_not_signed_in",
         }
     }
 
@@ -244,6 +276,9 @@ impl AccountFailureReason {
             Self::InvitationAlreadyConsumed => {
                 "The invitation has already been accepted or was revoked."
             }
+            Self::TargetAccountNotSignedIn => {
+                "The target account is not present in the current session's signed-in set."
+            }
         }
     }
 
@@ -258,6 +293,7 @@ impl AccountFailureReason {
             Self::ValidationFailed => 400,
             Self::InvitationNotFound => 404,
             Self::InvitationExpired | Self::InvitationAlreadyConsumed => 410,
+            Self::TargetAccountNotSignedIn => 422,
         }
     }
 }

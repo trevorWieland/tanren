@@ -22,12 +22,13 @@
 
 use async_trait::async_trait;
 use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_identity_policy::AccountId;
 use tanren_store::EventEnvelope;
 
 use super::in_process::InProcessHarness;
 use super::{
     AccountHarness, HarnessAcceptance, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, HarnessSwitchResult,
 };
 
 /// `@web` harness — fallback wrapper around [`InProcessHarness`]. The
@@ -79,5 +80,17 @@ impl AccountHarness for WebHarness {
 
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>> {
         self.inner.recent_events(limit).await
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> HarnessResult<HarnessSwitchResult> {
+        self.inner.switch_active_account(target, window_id).await
+    }
+
+    async fn invalidate_session(&mut self, mode: &str) -> HarnessResult<()> {
+        self.inner.invalidate_session(mode).await
     }
 }

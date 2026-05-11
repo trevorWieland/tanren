@@ -15,9 +15,11 @@ use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use regex::Regex;
 use secrecy::ExposeSecret;
-use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_app_services::{Clock, Handlers, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, Identifier, OrgId};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
@@ -25,15 +27,18 @@ use uuid::Uuid;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, HarnessSwitchResult,
 };
 
 /// `@cli` wire harness.
 pub struct CliHarness {
     store: Arc<Store>,
+    handlers: Handlers,
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    signed_in_account_ids: Vec<AccountId>,
+    session_valid: bool,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -67,12 +72,17 @@ impl CliHarness {
         let store = Arc::new(store);
 
         let binary = locate_workspace_binary("tanren-cli")?;
+        let clock = Clock::from_fn(Utc::now);
+        let handlers = Handlers::with_verifier(clock, Arc::new(Argon2idVerifier::fast_for_tests()));
 
         Ok(Self {
             store,
+            handlers,
             db_path,
             db_url,
             binary,
+            signed_in_account_ids: Vec::new(),
+            session_valid: false,
         })
     }
 }
@@ -113,14 +123,17 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
-            HarnessSession {
+        let session = parse_session(&stdout, req.email.as_str(), &req.display_name).map(
+            |(account, has_token)| HarnessSession {
                 account_id: account.id,
                 account,
                 expires_at: Utc::now() + Duration::days(30),
                 has_token,
-            }
-        })
+            },
+        )?;
+        self.signed_in_account_ids.push(session.account_id);
+        self.session_valid = true;
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -145,12 +158,18 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
-        })
+        let session =
+            parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| {
+                HarnessSession {
+                    account_id: account.id,
+                    account,
+                    expires_at: Utc::now() + Duration::days(30),
+                    has_token,
+                }
+            })?;
+        self.signed_in_account_ids.push(session.account_id);
+        self.session_valid = true;
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -184,15 +203,11 @@ impl AccountHarness for CliHarness {
         let stdout = String::from_utf8_lossy(&output.stdout);
         let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
         let joined_org = parse_joined_org(&stdout)?;
-        // The CLI binary returns the AccountView reconstituted from
-        // the row; re-decorate it with `org = Some(joined_org)` to
-        // mirror the api/in-process surface where the account view
-        // already carries the org id.
         let account = AccountView {
             org: Some(joined_org),
             ..account
         };
-        Ok(HarnessAcceptance {
+        let acceptance = HarnessAcceptance {
             session: HarnessSession {
                 account_id: account.id,
                 account,
@@ -200,7 +215,11 @@ impl AccountHarness for CliHarness {
                 has_token,
             },
             joined_org,
-        })
+        };
+        self.signed_in_account_ids
+            .push(acceptance.session.account_id);
+        self.session_valid = true;
+        Ok(acceptance)
     }
 
     async fn seed_invitation(&mut self, fixture: HarnessInvitation) -> HarnessResult<()> {
@@ -219,6 +238,42 @@ impl AccountHarness for CliHarness {
         AccountStore::recent_events(self.store.as_ref(), limit)
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
+    }
+
+    async fn switch_active_account(
+        &mut self,
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> HarnessResult<HarnessSwitchResult> {
+        if !self.session_valid || self.signed_in_account_ids.is_empty() {
+            return Err(HarnessError::Account(
+                AccountFailureReason::InvalidCredential,
+                AccountFailureReason::InvalidCredential.summary().to_owned(),
+            ));
+        }
+        match self
+            .handlers
+            .switch_active_account(
+                self.store.as_ref(),
+                &self.signed_in_account_ids,
+                target,
+                window_id,
+            )
+            .await
+        {
+            Ok(r) => Ok(HarnessSwitchResult {
+                active_account: r.active_account,
+            }),
+            Err(tanren_app_services::AppServiceError::Account(reason)) => {
+                Err(HarnessError::Account(reason, reason.code().to_owned()))
+            }
+            Err(e) => Err(HarnessError::Transport(format!("switch: {e}"))),
+        }
+    }
+
+    async fn invalidate_session(&mut self, _mode: &str) -> HarnessResult<()> {
+        self.session_valid = false;
+        Ok(())
     }
 }
 

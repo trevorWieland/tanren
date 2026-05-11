@@ -18,7 +18,7 @@ use std::path::PathBuf;
 
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
-    InProcessHarness, McpHarness, TuiHarness, WebHarness,
+    HarnessSession, HarnessSwitchResult, InProcessHarness, McpHarness, TuiHarness, WebHarness,
 };
 
 /// Cucumber `World` shared across all Tanren BDD scenarios.
@@ -69,6 +69,15 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Ordered list of signed-in sessions (B-0046 setup steps).
+    pub signed_in_sessions: Vec<HarnessSession>,
+    /// Result of the most recent global (no-window) active-account switch.
+    pub global_switch: Option<HarnessSwitchResult>,
+    /// Per-window switch results keyed by `window_id` (B-0046).
+    pub window_switches: HashMap<String, HarnessSwitchResult>,
+    /// Baseline switch-event count recorded before session-invalidation
+    /// falsification steps; used by the "no mutation" assertion.
+    pub switch_baseline_event_count: Option<usize>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -77,9 +86,16 @@ impl std::fmt::Debug for AccountContext {
             .field("harness_kind", &self.harness.kind())
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
+            .field("signed_in_sessions_count", &self.signed_in_sessions.len())
             .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
+            )
+            .field("global_switch", &self.global_switch.is_some())
+            .field("window_switches_count", &self.window_switches.len())
+            .field(
+                "switch_baseline_event_count",
+                &self.switch_baseline_event_count,
             )
             .finish()
     }
@@ -119,6 +135,10 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            signed_in_sessions: Vec::new(),
+            global_switch: None,
+            window_switches: HashMap::new(),
+            switch_baseline_event_count: None,
         }
     }
 }

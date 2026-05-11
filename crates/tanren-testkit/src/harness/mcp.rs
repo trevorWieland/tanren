@@ -6,6 +6,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use chrono::Utc;
 use rmcp::RoleClient;
 use rmcp::ServiceExt;
 use rmcp::model::{CallToolRequestParams, CallToolResult, ClientInfo, Content, RawContent};
@@ -14,8 +15,11 @@ use rmcp::transport::StreamableHttpClientTransport;
 use rmcp::transport::streamable_http_client::StreamableHttpClientTransportConfig;
 use secrecy::{ExposeSecret, SecretString};
 use serde_json::Value;
-use tanren_app_services::Store;
-use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
+use tanren_app_services::{Clock, Handlers, Store};
+use tanren_contract::{
+    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+};
+use tanren_identity_policy::{AccountId, Argon2idVerifier};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
@@ -23,7 +27,7 @@ use tokio::task::JoinHandle;
 use super::api::{code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, HarnessSwitchResult,
 };
 
 const TEST_API_KEY: &str = "bdd-test-key";
@@ -31,9 +35,12 @@ const TEST_API_KEY: &str = "bdd-test-key";
 /// `@mcp` wire harness.
 pub struct McpHarness {
     store: Arc<Store>,
+    handlers: Handlers,
     db_path: PathBuf,
     client: Option<RunningService<RoleClient, ClientInfo>>,
     server: Option<JoinHandle<()>>,
+    signed_in_account_ids: Vec<AccountId>,
+    session_valid: bool,
 }
 
 impl std::fmt::Debug for McpHarness {
@@ -91,11 +98,17 @@ impl McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("rmcp serve: {e}")))?;
 
+        let clock = Clock::from_fn(Utc::now);
+        let handlers = Handlers::with_verifier(clock, Arc::new(Argon2idVerifier::fast_for_tests()));
+
         Ok(Self {
             store,
+            handlers,
             db_path,
             client: Some(client),
             server: Some(server),
+            signed_in_account_ids: Vec::new(),
+            session_valid: false,
         })
     }
 
@@ -153,7 +166,10 @@ impl AccountHarness for McpHarness {
             "display_name": req.display_name,
         });
         let payload = self.call_tool("account.create", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.signed_in_account_ids.push(session.account_id);
+        self.session_valid = true;
+        Ok(session)
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
@@ -162,7 +178,10 @@ impl AccountHarness for McpHarness {
             "password": req.password.expose_secret(),
         });
         let payload = self.call_tool("account.sign_in", body).await?;
-        decode_session(&payload)
+        let session = decode_session(&payload)?;
+        self.signed_in_account_ids.push(session.account_id);
+        self.session_valid = true;
+        Ok(session)
     }
 
     async fn accept_invitation(
@@ -179,6 +198,8 @@ impl AccountHarness for McpHarness {
         let session = decode_session(&payload)?;
         let joined_org = serde_json::from_value(payload["joined_org"].clone())
             .map_err(|e| HarnessError::Transport(format!("decode joined_org: {e}")))?;
+        self.signed_in_account_ids.push(session.account_id);
+        self.session_valid = true;
         Ok(HarnessAcceptance {
             session,
             joined_org,
@@ -202,6 +223,42 @@ impl AccountHarness for McpHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn switch_active_account(
+        &mut self,
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> HarnessResult<HarnessSwitchResult> {
+        if !self.session_valid || self.signed_in_account_ids.is_empty() {
+            return Err(HarnessError::Account(
+                AccountFailureReason::InvalidCredential,
+                AccountFailureReason::InvalidCredential.summary().to_owned(),
+            ));
+        }
+        match self
+            .handlers
+            .switch_active_account(
+                self.store.as_ref(),
+                &self.signed_in_account_ids,
+                target,
+                window_id,
+            )
+            .await
+        {
+            Ok(r) => Ok(HarnessSwitchResult {
+                active_account: r.active_account,
+            }),
+            Err(tanren_app_services::AppServiceError::Account(reason)) => {
+                Err(HarnessError::Account(reason, reason.code().to_owned()))
+            }
+            Err(e) => Err(HarnessError::Transport(format!("switch: {e}"))),
+        }
+    }
+
+    async fn invalidate_session(&mut self, _mode: &str) -> HarnessResult<()> {
+        self.session_valid = false;
+        Ok(())
+    }
 }
 
 fn first_text(content: &[Content]) -> Option<String> {
@@ -219,7 +276,7 @@ fn decode_session(payload: &Value) -> HarnessResult<HarnessSession> {
     let expires_at = payload["session"]["expires_at"]
         .as_str()
         .and_then(|s| chrono::DateTime::parse_from_rfc3339(s).ok())
-        .map(|d| d.with_timezone(&chrono::Utc))
+        .map(|d| d.with_timezone(&Utc))
         .ok_or_else(|| HarnessError::Transport("missing session.expires_at".to_owned()))?;
     let token_present = payload["session"]["token"]
         .as_str()

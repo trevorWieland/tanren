@@ -10,6 +10,7 @@ pub mod account;
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    SwitchActiveAccountRequest, SwitchActiveAccountResponse,
 };
 
 use serde::{Deserialize, Serialize};

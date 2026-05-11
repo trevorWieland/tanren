@@ -19,6 +19,8 @@ const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
+pub(crate) const SESSION_KEY_SIGNED_IN: &str = "signed_in_accounts";
+pub(crate) const SESSION_KEY_WINDOW_PREFIX: &str = "window_active_";
 
 /// `(account_id, expires_at)` projection of a freshly minted session.
 /// All three account-flow handlers pass this into
@@ -32,6 +34,10 @@ pub(crate) struct SessionWrite {
 /// Insert the account id and expiry into the tower-sessions row backing
 /// this request. The cookie carrying the opaque session id is set by
 /// the middleware on response — we just write the data.
+///
+/// Also accumulates the account into the ordered `signed_in_accounts`
+/// list so the active-account switch endpoint can resolve ordinals
+/// (`"first"`, `"second"`, …) without re-reading the accounts table.
 pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWrite) -> Result<()> {
     session
         .insert(SESSION_KEY_ACCOUNT, write.account_id)
@@ -41,6 +47,66 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .insert(SESSION_KEY_EXPIRES, write.expires_at)
         .await
         .context("insert expires_at into session")?;
+
+    let mut signed_in: Vec<AccountId> = session
+        .get(SESSION_KEY_SIGNED_IN)
+        .await
+        .unwrap_or_default()
+        .unwrap_or_default();
+    if !signed_in.contains(&write.account_id) {
+        signed_in.push(write.account_id);
+    }
+    session
+        .insert(SESSION_KEY_SIGNED_IN, &signed_in)
+        .await
+        .context("insert signed_in_accounts into session")?;
+    Ok(())
+}
+
+/// Read the ordered signed-in accounts list from the session.
+/// Returns an empty vec when no accounts have signed in yet.
+pub(crate) async fn read_signed_in_accounts(session: &Session) -> Vec<AccountId> {
+    session
+        .get(SESSION_KEY_SIGNED_IN)
+        .await
+        .unwrap_or_default()
+        .unwrap_or_default()
+}
+
+/// Read the per-window active account from the session, falling back to
+/// the global active account if no window-specific entry exists.
+pub(crate) async fn read_active_account(
+    session: &Session,
+    window_id: Option<&str>,
+) -> Option<AccountId> {
+    if let Some(wid) = window_id {
+        let key = format!("{SESSION_KEY_WINDOW_PREFIX}{wid}");
+        if let Ok(Some(id)) = session.get::<AccountId>(&key).await {
+            return Some(id);
+        }
+    }
+    session.get(SESSION_KEY_ACCOUNT).await.unwrap_or_default()
+}
+
+/// Write the active account for a given window (or globally if
+/// `window_id` is `None`).
+pub(crate) async fn write_active_account(
+    session: &Session,
+    account_id: AccountId,
+    window_id: Option<&str>,
+) -> Result<()> {
+    if let Some(wid) = window_id {
+        let key = format!("{SESSION_KEY_WINDOW_PREFIX}{wid}");
+        session
+            .insert(&key, account_id)
+            .await
+            .context("insert window active account into session")?;
+    } else {
+        session
+            .insert(SESSION_KEY_ACCOUNT, account_id)
+            .await
+            .context("insert active account_id into session")?;
+    }
     Ok(())
 }
 

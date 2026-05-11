@@ -7,14 +7,16 @@
 
 pub mod account;
 pub mod events;
+pub mod switch_account;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use tanren_contract::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, ContractVersion,
-    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+    SignInRequest, SignInResponse, SignUpRequest, SignUpResponse, SwitchActiveAccountResponse,
 };
-use tanren_identity_policy::{Argon2idVerifier, CredentialVerifier};
+use tanren_identity_policy::{AccountId, Argon2idVerifier, CredentialVerifier};
+
 pub use tanren_store::{AccountStore, Store};
 
 use std::sync::Arc;
@@ -198,6 +200,36 @@ impl Handlers {
         S: AccountStore + ?Sized,
     {
         account::accept_invitation(store, &self.clock, self.verifier.as_ref(), request).await
+    }
+
+    /// Active-account switch command: validate the target is in the
+    /// supplied signed-in set, emit the matching event, and return the
+    /// new active account view.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AppServiceError::Account`] with
+    /// [`AccountFailureReason::TargetAccountNotSignedIn`] when `target`
+    /// is absent from `signed_in_accounts`; [`AppServiceError::Store`]
+    /// for unexpected database failures.
+    pub async fn switch_active_account<S>(
+        &self,
+        store: &S,
+        signed_in_accounts: &[AccountId],
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> Result<SwitchActiveAccountResponse, AppServiceError>
+    where
+        S: AccountStore + ?Sized,
+    {
+        switch_account::switch_active_account(
+            store,
+            &self.clock,
+            signed_in_accounts,
+            target,
+            window_id,
+        )
+        .await
     }
 }
 

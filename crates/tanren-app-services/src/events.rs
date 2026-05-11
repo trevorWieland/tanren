@@ -41,6 +41,10 @@ pub enum AccountEventKind {
     /// An invitation acceptance was rejected — not found / expired /
     /// already consumed / validation failure.
     InvitationAcceptFailed,
+    /// The active account was switched to another signed-in account.
+    ActiveAccountSwitched,
+    /// An active-account switch was rejected (target not signed in).
+    ActiveAccountSwitchRejected,
 }
 
 impl AccountEventKind {
@@ -54,6 +58,8 @@ impl AccountEventKind {
             Self::SignUpRejected => "sign_up_rejected",
             Self::SignInFailed => "sign_in_failed",
             Self::InvitationAcceptFailed => "invitation_accept_failed",
+            Self::ActiveAccountSwitched => "active_account_switched",
+            Self::ActiveAccountSwitchRejected => "active_account_switch_rejected",
         }
     }
 }
@@ -124,6 +130,30 @@ pub struct InvitationAcceptFailed {
     pub reason: AccountFailureReason,
     /// Token the caller submitted.
     pub token: InvitationToken,
+    /// Wall-clock time the rejection was emitted.
+    pub at: DateTime<Utc>,
+}
+
+/// The active account was switched to another signed-in account.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveAccountSwitched {
+    /// Account that is now active.
+    pub switched_to: AccountId,
+    /// Optional window context for the switch.
+    pub window_id: Option<String>,
+    /// Wall-clock time of the switch.
+    pub at: DateTime<Utc>,
+}
+
+/// An active-account switch was rejected.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ActiveAccountSwitchRejected {
+    /// The target account that was requested but rejected.
+    pub requested_target: AccountId,
+    /// Optional window context for the attempted switch.
+    pub window_id: Option<String>,
+    /// Why the switch was rejected.
+    pub reason: AccountFailureReason,
     /// Wall-clock time the rejection was emitted.
     pub at: DateTime<Utc>,
 }

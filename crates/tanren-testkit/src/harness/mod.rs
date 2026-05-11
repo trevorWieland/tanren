@@ -60,6 +60,13 @@ use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
 };
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+
+/// Result of a successful active-account switch.
+#[derive(Debug, Clone)]
+pub struct HarnessSwitchResult {
+    /// The account that is now active.
+    pub active_account: AccountView,
+}
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -238,6 +245,21 @@ pub trait AccountHarness: Send + std::fmt::Debug {
 
     /// Read recent events from the harness's backing store.
     async fn recent_events(&self, limit: u64) -> HarnessResult<Vec<EventEnvelope>>;
+
+    /// Switch the active account to the supplied target within the
+    /// optional window context. Returns the new active account view on
+    /// success, or a [`HarnessError::Account`] taxonomy failure on
+    /// rejection.
+    async fn switch_active_account(
+        &mut self,
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> HarnessResult<HarnessSwitchResult>;
+
+    /// Invalidate the caller session. Used by falsification scenarios to
+    /// simulate session loss, expiry, or revocation before an attempted
+    /// switch. Mode strings: `"missing"`, `"expired"`, `"revoked"`.
+    async fn invalidate_session(&mut self, mode: &str) -> HarnessResult<()>;
 }
 
 /// Default short-window timeout used by the wire harnesses.

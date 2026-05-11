@@ -20,13 +20,14 @@ use tanren_app_services::Store;
 use tanren_contract::{
     AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
 };
+use tanren_identity_policy::AccountId;
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::net::TcpListener;
 use tokio::task::JoinHandle;
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, HarnessSwitchResult,
 };
 
 /// `@api` wire harness.
@@ -370,6 +371,49 @@ impl AccountHarness for ApiHarness {
             .await
             .map_err(|e| HarnessError::Transport(format!("recent_events: {e}")))
     }
+
+    async fn switch_active_account(
+        &mut self,
+        target: AccountId,
+        window_id: Option<String>,
+    ) -> HarnessResult<HarnessSwitchResult> {
+        let url = format!("{}/accounts/active", self.base_url);
+        let mut body = serde_json::json!({ "target": target.to_string() });
+        if let Some(ref wid) = window_id {
+            body["window_id"] = Value::String(wid.clone());
+        }
+        let response = self
+            .client
+            .put(&url)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("PUT /accounts/active: {e}")))?;
+        let status = response.status();
+        let json: Value = response
+            .json()
+            .await
+            .map_err(|e| HarnessError::Transport(format!("decode body: {e}")))?;
+        if !status.is_success() {
+            return Err(failure_from_body(&json));
+        }
+        let active_account: AccountView = serde_json::from_value(json["active_account"].clone())
+            .map_err(|e| HarnessError::Transport(format!("decode active_account: {e}")))?;
+        Ok(HarnessSwitchResult { active_account })
+    }
+
+    async fn invalidate_session(&mut self, mode: &str) -> HarnessResult<()> {
+        if mode == "revoked" {
+            let url = format!("{}/sessions/revoke", self.base_url);
+            let _ = self.client.post(&url).send().await;
+        }
+        self.client = Client::builder()
+            .cookie_store(true)
+            .timeout(super::HARNESS_DEFAULT_TIMEOUT)
+            .build()
+            .map_err(|e| HarnessError::Transport(format!("rebuild client: {e}")))?;
+        Ok(())
+    }
 }
 
 pub(crate) fn scenario_db_path(prefix: &str) -> PathBuf {
@@ -438,6 +482,7 @@ pub(crate) fn code_to_reason(code: &str) -> Option<AccountFailureReason> {
         "invitation_not_found" => AccountFailureReason::InvitationNotFound,
         "invitation_expired" => AccountFailureReason::InvitationExpired,
         "invitation_already_consumed" => AccountFailureReason::InvitationAlreadyConsumed,
+        "target_account_not_signed_in" => AccountFailureReason::TargetAccountNotSignedIn,
         _ => return None,
     })
 }
