@@ -41,6 +41,8 @@ export type FixtureActionName =
   | "assert-preserves-baseline"
   | "assert-replaced-from-baseline"
   | "assert-file-missing"
+  | "assert-file-contains"
+  | "assert-file-not-contains"
   | "last-run";
 
 export interface CommandResult {
@@ -52,4 +54,5 @@ export interface CommandResult {
 
 export interface UpgradeWorld {
   lastRun?: CommandResult;
+  lastPreviewId: string | undefined;
 }

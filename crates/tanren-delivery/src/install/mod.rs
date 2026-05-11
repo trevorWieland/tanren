@@ -23,9 +23,9 @@ pub use error::InstallError;
 pub use manifest::{ManifestVersion, RepoRelativePath};
 pub use plan::InstallPlan;
 pub use upgrade::{
-    ApplyReportSummary, UpgradeApplyBlockedReason, UpgradeApplyConfirmation, UpgradeApplyOutcome,
-    UpgradeCompatibilityConcern, UpgradePreview, UpgradePreviewReport, UpgradeWitnessRun,
-    apply_upgrade, preview_upgrade, run_upgrade_witness,
+    ApplyReportSummary, PreviewId, UpgradeApplyBlockedReason, UpgradeApplyConfirmation,
+    UpgradeApplyOutcome, UpgradeCompatibilityConcern, UpgradePreview, UpgradePreviewReport,
+    UpgradeWitnessRun, apply_upgrade, preview_upgrade, run_upgrade_witness,
 };
 pub use upgrade::{encode_field, format_encoded_path_list};
 pub use writer::InstallReport;

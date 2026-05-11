@@ -34,9 +34,10 @@ impl UpgradeCommand {
             return self.write_confirmation_required(&preview);
         }
 
+        let preview_id = preview.report().preview_id();
         let apply_outcome = apply_upgrade(&preview, UpgradeApplyConfirmation::confirmed())
             .map_err(UpgradeCommandError::from)?;
-        self.write_apply_result(&apply_outcome)
+        self.write_apply_result(&apply_outcome, preview_id)
     }
 
     fn write_preview_report(
@@ -48,8 +49,9 @@ impl UpgradeCommand {
         let mut handle = stdout.lock();
         writeln!(
             handle,
-            "status=preview command=upgrade repo={} changed={} destructive={} preserved={} concerns={}",
+            "status=preview command=upgrade repo={} preview_id={} changed={} destructive={} preserved={} concerns={}",
             repository,
+            report.preview_id(),
             report.changed().len(),
             report.destructive().len(),
             report.preserved().len(),
@@ -77,10 +79,11 @@ impl UpgradeCommand {
         let repository = display_repository_argument(&self.repo);
         let stdout = std::io::stdout();
         let mut handle = stdout.lock();
+        let preview_id = preview.report().preview_id();
         let apply_possible = preview.can_apply();
         writeln!(
             handle,
-            "status=confirmation_required command=upgrade repo={repository} confirm=false applied=false writes=0 removals=0 preserved=0 can_apply={apply_possible}",
+            "status=confirmation_required command=upgrade repo={repository} preview_id={preview_id} confirm=false applied=false writes=0 removals=0 preserved=0 can_apply={apply_possible}",
         )
         .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source })
     }
@@ -88,6 +91,7 @@ impl UpgradeCommand {
     fn write_apply_result(
         &self,
         apply_outcome: &UpgradeApplyOutcome,
+        preview_id: &tanren_delivery::install::PreviewId,
     ) -> Result<(), UpgradeCommandError> {
         let repository = display_repository_argument(&self.repo);
         let stdout = std::io::stdout();
@@ -95,14 +99,15 @@ impl UpgradeCommand {
         match apply_outcome {
             UpgradeApplyOutcome::NoManifestNoop => writeln!(
                 handle,
-                "status=noop command=upgrade repo={repository} confirm=true applied=false outcome=no_manifest_noop created=0 updated=0 removed=0 restored=0 preserved=0",
+                "status=noop command=upgrade repo={repository} preview_id={preview_id} confirm=true applied=false outcome=no_manifest_noop created=0 updated=0 removed=0 restored=0 preserved=0",
             )
             .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source }),
             UpgradeApplyOutcome::Applied { report } => {
                 writeln!(
                     handle,
-                    "status=ok command=upgrade repo={} confirm=true applied=true outcome=applied created={} updated={} removed={} restored={} preserved={}",
+                    "status=ok command=upgrade repo={} preview_id={} confirm=true applied=true outcome=applied created={} updated={} removed={} restored={} preserved={}",
                     repository,
+                    preview_id,
                     report.created.len(),
                     report.updated.len(),
                     report.removed.len(),
@@ -123,8 +128,9 @@ impl UpgradeCommand {
             }
             UpgradeApplyOutcome::Blocked { reason } => writeln!(
                 handle,
-                "status=blocked command=upgrade repo={} confirm=true applied=false outcome=blocked reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
+                "status=blocked command=upgrade repo={} preview_id={} confirm=true applied=false outcome=blocked reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
                 repository,
+                preview_id,
                 reason.as_str(),
             )
             .map_err(|source| UpgradeCommandError::StdoutWriteFailure { source }),

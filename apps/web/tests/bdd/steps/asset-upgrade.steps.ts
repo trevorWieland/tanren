@@ -24,6 +24,9 @@ import {
   assertUpgradePreviewReported,
   assertUpgradePreviewSuccess,
   assertUpgradeRequiresConfirmation,
+  assertUpgradeApplyContainsPath,
+  assertPreviewApplyPreviewIdCorrelation,
+  extractPreviewIdFromStdout,
 } from "../support/upgrade-assertions";
 import { UpgradeDriver } from "../support/upgrade-driver";
 
@@ -36,7 +39,7 @@ type UpgradeTest = TestType<
 
 export const test: UpgradeTest = base.extend<{ world: UpgradeWorld }>({
   world: async ({}, use) => {
-    await use({});
+    await use({ lastPreviewId: undefined });
   },
 });
 
@@ -97,6 +100,10 @@ Given(
 
 When("tanren-cli upgrade preview runs", async ({ page, world }) => {
   await driverFor(page).runUpgradePreview(world);
+  if (world.lastRun) {
+    world.lastPreviewId =
+      extractPreviewIdFromStdout(world.lastRun.stdout) ?? undefined;
+  }
 });
 
 When(
@@ -140,6 +147,13 @@ Then(
   },
 );
 
+Then(
+  /^the upgrade apply lists path "([^"]+)"$/,
+  async ({ world }, path: string) => {
+    assertUpgradeApplyContainsPath(world, path);
+  },
+);
+
 Then("no files are written in the repository fixture", async ({ page }) => {
   await driverFor(page).assertNoWrites();
 });
@@ -169,5 +183,26 @@ Then(
   /^repository file "([^"]+)" does not exist$/,
   async ({ page }, path: string) => {
     await driverFor(page).assertFileMissing(path);
+  },
+);
+
+Then(
+  /^repository file "([^"]+)" includes "([^"]+)"$/,
+  async ({ page }, path: string, content: string) => {
+    await driverFor(page).assertFileContains(path, content);
+  },
+);
+
+Then(
+  /^repository file "([^"]+)" does not include "([^"]+)"$/,
+  async ({ page }, path: string, content: string) => {
+    await driverFor(page).assertFileNotContains(path, content);
+  },
+);
+
+Then(
+  "the upgrade preview and apply share the same preview id",
+  async ({ world }) => {
+    assertPreviewApplyPreviewIdCorrelation(world);
   },
 );

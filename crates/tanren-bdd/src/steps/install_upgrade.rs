@@ -58,7 +58,10 @@ fn given_repository_snapshot_captured(
 
 #[when(expr = "tanren-cli upgrade preview runs")]
 async fn when_upgrade_preview_runs(world: &mut TanrenWorld) -> InstallStepResult<()> {
-    world.run_upgrade(false).await
+    world.run_upgrade(false).await?;
+    let ctx = world.ensure_install_ctx()?;
+    ctx.capture_preview_id_from_stdout();
+    Ok(())
 }
 
 #[when(expr = "tanren-cli upgrade apply runs with confirmation")]
@@ -115,6 +118,13 @@ fn then_upgrade_preview_lists_path(world: &mut TanrenWorld, path: String) -> Ins
     ctx.assert_upgrade_preview_contains_path(&relative_path)
 }
 
+#[then(expr = "the upgrade apply lists path {string}")]
+fn then_upgrade_apply_lists_path(world: &mut TanrenWorld, path: String) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    ctx.assert_upgrade_apply_contains_path(&relative_path)
+}
+
 #[then(expr = "the repository matches snapshot {string}")]
 fn then_repository_matches_snapshot(
     world: &mut TanrenWorld,
@@ -123,4 +133,10 @@ fn then_repository_matches_snapshot(
     let ctx = world.ensure_install_ctx()?;
     let snapshot_label = snapshot_label.into_boxed_str();
     ctx.assert_repository_matches_labeled_snapshot(snapshot_label.as_ref())
+}
+
+#[then(expr = "the upgrade preview and apply share the same preview id")]
+fn then_upgrade_preview_apply_share_preview_id(world: &mut TanrenWorld) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    ctx.assert_preview_apply_preview_id_correlation()
 }

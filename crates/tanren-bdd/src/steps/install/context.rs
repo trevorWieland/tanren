@@ -19,6 +19,7 @@ pub(crate) struct InstallContext {
     pub(super) labeled_snapshots: BTreeMap<String, RepositorySnapshot>,
     pub(super) snapshot_before_last_run: Option<RepositorySnapshot>,
     pub(super) last_run: Option<InstallCommandOutcome>,
+    pub(super) last_preview_id: Option<String>,
 }
 
 impl InstallContext {
@@ -36,6 +37,7 @@ impl InstallContext {
             labeled_snapshots: BTreeMap::new(),
             snapshot_before_last_run: None,
             last_run: None,
+            last_preview_id: None,
         })
     }
 
@@ -107,6 +109,12 @@ impl InstallContext {
         self.capture_labeled_snapshot(snapshot_label)
     }
 
+    pub(crate) fn capture_preview_id_from_stdout(&mut self) {
+        if let Some(ref run) = self.last_run {
+            self.last_preview_id = extract_preview_id_value(&run.stdout);
+        }
+    }
+
     pub(super) fn require_last_run(&self) -> InstallStepResult<&InstallCommandOutcome> {
         self.last_run
             .as_ref()
@@ -120,3 +128,23 @@ impl InstallContext {
 }
 
 pub(super) type InstallCommandOutcome = CliCommandOutcome;
+
+fn extract_preview_id_value(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        if let Some(rest) = line.strip_prefix("status=preview command=upgrade") {
+            for field in rest.split(' ') {
+                if let Some(value) = field.strip_prefix("preview_id=") {
+                    return Some(value.to_owned());
+                }
+            }
+        }
+        if let Some(rest) = line.strip_prefix("status=confirmation_required command=upgrade") {
+            for field in rest.split(' ') {
+                if let Some(value) = field.strip_prefix("preview_id=") {
+                    return Some(value.to_owned());
+                }
+            }
+        }
+    }
+    None
+}

@@ -65,6 +65,8 @@ pub(crate) enum FixtureAction {
     AssertPreservesBaseline,
     AssertReplacedFromBaseline,
     AssertFileMissing,
+    AssertFileContains,
+    AssertFileNotContains,
     LastRun,
 }
 
@@ -85,6 +87,8 @@ impl FromStr for FixtureAction {
             "assert-preserves-baseline" => Ok(Self::AssertPreservesBaseline),
             "assert-replaced-from-baseline" => Ok(Self::AssertReplacedFromBaseline),
             "assert-file-missing" => Ok(Self::AssertFileMissing),
+            "assert-file-contains" => Ok(Self::AssertFileContains),
+            "assert-file-not-contains" => Ok(Self::AssertFileNotContains),
             "last-run" => Ok(Self::LastRun),
             unknown => Err((
                 StatusCode::NOT_FOUND,
@@ -112,6 +116,12 @@ pub(super) struct FileWriteBody {
 #[derive(Debug, serde::Deserialize)]
 pub(super) struct FilePathBody {
     pub(super) path: String,
+}
+
+#[derive(Debug, serde::Deserialize)]
+pub(super) struct FileContainsBody {
+    pub(super) path: String,
+    pub(super) content: String,
 }
 
 #[derive(Debug, serde::Deserialize)]

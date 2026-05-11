@@ -74,6 +74,14 @@ export function assertPreviewContainsPath(
   assertIncludes(run.stdout, path);
 }
 
+export function assertUpgradeApplyContainsPath(
+  world: UpgradeWorld,
+  path: string,
+): void {
+  const run = requireLastRun(world);
+  assertIncludes(run.stdout, path);
+}
+
 function requireLastRun(world: UpgradeWorld): CommandResult {
   if (!world.lastRun) {
     throw new Error("upgrade command has not been executed");
@@ -110,6 +118,64 @@ function assertStructuredApplyOutcome(
   if (run.applyOutcome.outcome !== expected) {
     throw new Error(
       `expected upgrade apply outcome '${expected}' but found '${run.applyOutcome.outcome}'`,
+    );
+  }
+}
+
+export function extractPreviewIdFromStdout(stdout: string): string | undefined {
+  for (const line of stdout.split("\n")) {
+    if (
+      line.startsWith("status=preview command=upgrade") ||
+      line.startsWith("status=confirmation_required command=upgrade")
+    ) {
+      for (const field of line.split(" ")) {
+        if (field.startsWith("preview_id=")) {
+          return field.slice("preview_id=".length);
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+export function extractPreviewIdFromApplyStdout(
+  stdout: string,
+): string | undefined {
+  for (const line of stdout.split("\n")) {
+    if (
+      line.startsWith("status=ok command=upgrade") ||
+      line.startsWith("status=noop command=upgrade") ||
+      line.startsWith("status=blocked command=upgrade")
+    ) {
+      for (const field of line.split(" ")) {
+        if (field.startsWith("preview_id=")) {
+          return field.slice("preview_id=".length);
+        }
+      }
+    }
+  }
+  return undefined;
+}
+
+export function assertPreviewApplyPreviewIdCorrelation(
+  world: UpgradeWorld,
+): void {
+  const run = requireLastRun(world);
+  const previewId = world.lastPreviewId;
+  if (!previewId) {
+    throw new Error("preview_id from prior preview run is not recorded");
+  }
+  const applyPreviewId = extractPreviewIdFromApplyStdout(run.stdout);
+  if (!applyPreviewId) {
+    throw new Error("preview_id from apply run is missing");
+  }
+  if (previewId !== applyPreviewId) {
+    throw new Error(
+      "apply preview_id '" +
+        applyPreviewId +
+        "' does not match preview preview_id '" +
+        previewId +
+        "'",
     );
   }
 }

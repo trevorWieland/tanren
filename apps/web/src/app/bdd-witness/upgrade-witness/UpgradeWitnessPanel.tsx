@@ -17,6 +17,8 @@ const FIXTURE_ACTIONS = [
   "assert-preserves-baseline",
   "assert-replaced-from-baseline",
   "assert-file-missing",
+  "assert-file-contains",
+  "assert-file-not-contains",
   "last-run",
 ] as const;
 

@@ -220,3 +220,27 @@ fn then_stale_generated_file_removed(
     let ctx = world.ensure_install_ctx()?;
     ctx.assert_file_absent(&RepositoryRelativePath::parse(path)?)
 }
+
+#[then(expr = "repository file {string} includes {string}")]
+fn then_repository_file_includes(
+    world: &mut TanrenWorld,
+    path: String,
+    needle: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    let needle = needle.into_boxed_str();
+    ctx.assert_file_includes(&relative_path, needle.as_ref())
+}
+
+#[then(expr = "repository file {string} does not include {string}")]
+fn then_repository_file_not_includes(
+    world: &mut TanrenWorld,
+    path: String,
+    needle: String,
+) -> InstallStepResult<()> {
+    let ctx = world.ensure_install_ctx()?;
+    let relative_path = RepositoryRelativePath::parse(path)?;
+    let needle = needle.into_boxed_str();
+    ctx.assert_file_not_includes(&relative_path, needle.as_ref())
+}

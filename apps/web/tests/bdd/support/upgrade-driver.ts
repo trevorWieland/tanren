@@ -8,7 +8,7 @@ import {
   type UpgradeWorld,
 } from "./asset-fixture";
 
-const WITNESS_PATH = "/__bdd__/upgrade-witness";
+const WITNESS_PATH = "/bdd-witness/upgrade-witness";
 const ACTION_LOCATOR = '[data-testid="upgrade-witness-action"]';
 const PAYLOAD_LOCATOR = '[data-testid="upgrade-witness-payload"]';
 const RUN_LOCATOR = '[data-testid="upgrade-witness-run"]';
@@ -80,6 +80,14 @@ export class UpgradeDriver {
 
   async assertFileMissing(path: string): Promise<void> {
     await this.execute("assert-file-missing", { path });
+  }
+
+  async assertFileContains(path: string, content: string): Promise<void> {
+    await this.execute("assert-file-contains", { path, content });
+  }
+
+  async assertFileNotContains(path: string, content: string): Promise<void> {
+    await this.execute("assert-file-not-contains", { path, content });
   }
 
   async openHarness(): Promise<void> {

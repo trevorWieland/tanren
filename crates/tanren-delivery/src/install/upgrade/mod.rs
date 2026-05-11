@@ -14,7 +14,8 @@ use crate::install::plan::{build_install_plan_from_state, load_repository_instal
 use crate::install::{InstallIntegration, InstallPlan, InstallReport};
 
 pub use report::{
-    UpgradeCompatibilityConcern, UpgradePreviewReport, encode_field, format_encoded_path_list,
+    PreviewId, UpgradeCompatibilityConcern, UpgradePreviewReport, encode_field,
+    format_encoded_path_list,
 };
 
 /// Upgrade planner boundary for manifest-driven upgrade previews.
@@ -319,8 +320,9 @@ pub fn run_upgrade_witness(
     let report = preview.report();
 
     lines.push(format!(
-        "status=preview command=upgrade repo={} changed={} destructive={} preserved={} concerns={}",
+        "status=preview command=upgrade repo={} preview_id={} changed={} destructive={} preserved={} concerns={}",
         display_repository_argument(repository),
+        report.preview_id(),
         report.changed().len(),
         report.destructive().len(),
         report.preserved().len(),
@@ -355,15 +357,17 @@ pub fn run_upgrade_witness(
     match &apply_outcome {
         UpgradeApplyOutcome::NoManifestNoop => {
             lines.push(format!(
-                "status=noop command=upgrade repo={} confirm=true applied=false outcome={} created=0 updated=0 removed=0 restored=0 preserved=0",
+                "status=noop command=upgrade repo={} preview_id={} confirm=true applied=false outcome={} created=0 updated=0 removed=0 restored=0 preserved=0",
                 display_repository_argument(repository),
+                preview.report().preview_id(),
                 UpgradeApplyOutcome::NoManifestNoop.label(),
             ));
         }
         UpgradeApplyOutcome::Applied { report } => {
             lines.push(format!(
-                "status=ok command=upgrade repo={} confirm=true applied=true outcome={} created={} updated={} removed={} restored={} preserved={}",
+                "status=ok command=upgrade repo={} preview_id={} confirm=true applied=true outcome={} created={} updated={} removed={} restored={} preserved={}",
                 display_repository_argument(repository),
+                preview.report().preview_id(),
                 UpgradeApplyOutcome::APPLIED_LABEL,
                 report.created.len(),
                 report.updated.len(),
@@ -382,8 +386,9 @@ pub fn run_upgrade_witness(
         }
         UpgradeApplyOutcome::Blocked { reason } => {
             lines.push(format!(
-                "status=blocked command=upgrade repo={} confirm=true applied=false outcome={} reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
+                "status=blocked command=upgrade repo={} preview_id={} confirm=true applied=false outcome={} reason={} created=0 updated=0 removed=0 restored=0 preserved=0",
                 display_repository_argument(repository),
+                preview.report().preview_id(),
                 UpgradeApplyOutcome::Blocked { reason: *reason }.label(),
                 reason.as_str(),
             ));

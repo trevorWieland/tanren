@@ -1,7 +1,7 @@
 //! Upgrade preview report formatting and structured output encoding.
 
 use crate::install::InstallPlan;
-use crate::install::manifest::{ManifestVersion, RepoRelativePath};
+use crate::install::manifest::{ManifestVersion, RepoRelativePath, sha256_hex};
 use crate::install::plan::PlannedWriteKind;
 
 /// Typed upgrade compatibility concern emitted in previews.
@@ -44,6 +44,7 @@ pub struct UpgradePreviewReport {
     removed: Vec<RepoRelativePath>,
     preserved: Vec<RepoRelativePath>,
     compatibility_concerns: Vec<UpgradeCompatibilityConcern>,
+    preview_id: PreviewId,
 }
 
 impl UpgradePreviewReport {
@@ -57,6 +58,7 @@ impl UpgradePreviewReport {
             removed: Vec::new(),
             preserved: Vec::new(),
             compatibility_concerns: vec![UpgradeCompatibilityConcern::NoInstallManifest],
+            preview_id: PreviewId::for_no_manifest(),
         }
     }
 
@@ -78,6 +80,7 @@ impl UpgradePreviewReport {
                 min_supported,
                 current,
             }],
+            preview_id: PreviewId::for_unsupported_version(detected),
         }
     }
 
@@ -134,6 +137,7 @@ impl UpgradePreviewReport {
             )]
         };
 
+        let preview_id = PreviewId::from_changed_paths(&changed);
         Self {
             changed,
             destructive,
@@ -141,6 +145,7 @@ impl UpgradePreviewReport {
             removed,
             preserved,
             compatibility_concerns,
+            preview_id,
         }
     }
 
@@ -178,6 +183,67 @@ impl UpgradePreviewReport {
     #[must_use]
     pub fn compatibility_concerns(&self) -> &[UpgradeCompatibilityConcern] {
         &self.compatibility_concerns
+    }
+
+    /// Deterministic preview identifier derived from the changed path set.
+    ///
+    /// Two previews of the same repository state produce the same `preview_id`,
+    /// enabling consumers to correlate preview and apply runs on the same
+    /// repository. Apply output echoes this identifier so that apply cannot
+    /// pass using an unrelated preview.
+    #[must_use]
+    pub fn preview_id(&self) -> &PreviewId {
+        &self.preview_id
+    }
+}
+
+/// Deterministic identifier for an upgrade preview, derived from the sorted
+/// set of changed paths. The same repository fixture state always produces
+/// the same preview identifier, enabling correlation between preview and
+/// apply runs. The identifier is stable across CLI, API, and web witness
+/// surfaces.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+pub struct PreviewId(String);
+
+impl PreviewId {
+    const PREFIX: &str = "pv_";
+    const HEX_CHARS: usize = 12;
+
+    /// Derive a preview ID from the sorted changed-path set.
+    #[must_use]
+    pub fn from_changed_paths(paths: &[RepoRelativePath]) -> Self {
+        let mut input = String::new();
+        for path in paths {
+            input.push_str(path.as_str());
+            input.push('\0');
+        }
+        let full_hex = sha256_hex(input.as_bytes());
+        let truncated = &full_hex.to_string()[..Self::HEX_CHARS];
+        Self(format!("{}{}", Self::PREFIX, truncated))
+    }
+
+    /// Preview ID for the no-install-manifest case.
+    #[must_use]
+    pub fn for_no_manifest() -> Self {
+        Self(format!("{}no_manifest", Self::PREFIX))
+    }
+
+    /// Preview ID for the unsupported manifest version case.
+    #[must_use]
+    pub fn for_unsupported_version(detected: ManifestVersion) -> Self {
+        Self(format!("{}unsupported_{}", Self::PREFIX, detected.as_u32()))
+    }
+
+    /// Borrow the preview ID string.
+    #[must_use]
+    pub fn as_str(&self) -> &str {
+        &self.0
+    }
+}
+
+impl std::fmt::Display for PreviewId {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        f.write_str(&self.0)
     }
 }
 

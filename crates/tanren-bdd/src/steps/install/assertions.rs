@@ -125,6 +125,8 @@ impl InstallContext {
         ensure_stdout_contains(run, "preview changed=[")?;
         ensure_stdout_contains(run, "destructive=[")?;
         ensure_stdout_contains(run, "preserved=[")?;
+        ensure_stdout_contains(run, "restored=[")?;
+        ensure_stdout_contains(run, "removed=[")?;
         ensure_stdout_contains(run, "concerns=[")?;
         Ok(())
     }
@@ -173,6 +175,42 @@ impl InstallContext {
         ensure_stdout_contains(run, relative_path.as_str())
     }
 
+    pub(crate) fn assert_upgrade_apply_contains_path(
+        &self,
+        relative_path: &RepositoryRelativePath,
+    ) -> InstallStepResult<()> {
+        let run = self.require_last_run()?;
+        ensure_stdout_contains(run, relative_path.as_str())
+    }
+
+    pub(crate) fn assert_preview_apply_preview_id_correlation(&self) -> InstallStepResult<()> {
+        let preview_id =
+            self.last_preview_id
+                .as_ref()
+                .ok_or(InstallStepError::StdoutMissingExpected {
+                    expected: "preview_id from prior preview run".to_owned(),
+                    stdout: String::new(),
+                })?;
+        let run = self.require_last_run()?;
+        let apply_preview_id = extract_preview_id_from_apply_stdout(&run.stdout);
+        let apply_id =
+            apply_preview_id
+                .as_ref()
+                .ok_or(InstallStepError::StdoutMissingExpected {
+                    expected: "preview_id from apply run".to_owned(),
+                    stdout: run.stdout.clone(),
+                })?;
+        if preview_id != apply_id {
+            return Err(InstallStepError::StdoutMissingExpected {
+                expected: format!(
+                    "apply preview_id '{apply_id}' to match preview preview_id '{preview_id}'"
+                ),
+                stdout: run.stdout.clone(),
+            });
+        }
+        Ok(())
+    }
+
     pub(crate) fn assert_file_exists(
         &self,
         relative_path: &RepositoryRelativePath,
@@ -195,6 +233,47 @@ impl InstallContext {
         Ok(())
     }
 
+    pub(crate) fn assert_file_includes(
+        &self,
+        relative_path: &RepositoryRelativePath,
+        needle: &str,
+    ) -> InstallStepResult<()> {
+        let absolute = self.repository_path(relative_path.as_str())?;
+        let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
+            path: absolute.clone(),
+            action: "read repository fixture file for includes check",
+            source,
+        })?;
+        let content = String::from_utf8_lossy(&bytes);
+        if !content.contains(needle) {
+            return Err(InstallStepError::FileDoesNotInclude {
+                path: absolute,
+                needle: needle.to_owned(),
+            });
+        }
+        Ok(())
+    }
+
+    pub(crate) fn assert_file_not_includes(
+        &self,
+        relative_path: &RepositoryRelativePath,
+        needle: &str,
+    ) -> InstallStepResult<()> {
+        let absolute = self.repository_path(relative_path.as_str())?;
+        let bytes = fs::read(&absolute).map_err(|source| InstallStepError::ReadFile {
+            path: absolute.clone(),
+            action: "read repository fixture file for not-includes check",
+            source,
+        })?;
+        let content = String::from_utf8_lossy(&bytes);
+        if content.contains(needle) {
+            return Err(InstallStepError::FileStillIncludes {
+                path: absolute,
+                needle: needle.to_owned(),
+            });
+        }
+        Ok(())
+    }
     pub(crate) fn assert_exact_file_content(
         &self,
         relative_path: &RepositoryRelativePath,
@@ -287,4 +366,23 @@ fn ensure_stdout_contains(run: &InstallCommandOutcome, expected: &str) -> Instal
         });
     }
     Ok(())
+}
+
+fn extract_preview_id_from_apply_stdout(stdout: &str) -> Option<String> {
+    for line in stdout.lines() {
+        let _prefix = if line.starts_with("status=ok command=upgrade")
+            || line.starts_with("status=noop command=upgrade")
+            || line.starts_with("status=blocked command=upgrade")
+        {
+            true
+        } else {
+            continue;
+        };
+        for field in line.split(' ') {
+            if let Some(value) = field.strip_prefix("preview_id=") {
+                return Some(value.to_owned());
+            }
+        }
+    }
+    None
 }

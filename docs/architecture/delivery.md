@@ -411,6 +411,37 @@ Current behavior:
 - This repository-local command upgrades Tanren-generated assets only. It does
   not upgrade external agent tools and does not perform stack version upgrades.
 
+### Structured upgrade contract
+
+The upgrade preview and apply contract is expressed through typed delivery
+types that are shared between the CLI binary, the API test-hook witness, and
+the BDD harnesses:
+
+- `UpgradePreviewReport` carries changed, destructive, restored, removed,
+  preserved, compatibility-concern path lists, and a deterministic
+  `PreviewId` in deterministic order. The `PreviewId` is derived from the
+  sorted changed-path set so that two previews of the same fixture state
+  always produce the same identifier.
+- `PreviewId` is a short hex identifier prefixed with `pv_` that
+  deterministically identifies an upgrade preview. Both preview and apply
+  output lines include the `preview_id` field so that BDD witnesses can
+  assert apply cannot pass using an unrelated preview.
+- `UpgradeApplyOutcome` is a typed enum with `Applied`, `NoManifestNoop`,
+  and `Blocked` variants. `Applied` carries an `ApplyReportSummary` with
+  created, updated, removed, restored, and preserved path lists.
+- `run_upgrade_witness` produces an `UpgradeWitnessRun` that renders the
+  same machine-readable stdout lines the CLI prints, alongside structured
+  typed fields. The API test-hook route and the web witness panel consume
+  this function to provide consistent observable output across interfaces.
+- Preview and apply on the same fixture correlate through both the shared
+  plan paths and the deterministic `PreviewId`: the preview reports
+  concern paths that match the apply output's updated and removed lists,
+  and both outputs carry the same `preview_id` so that apply cannot pass
+  using an unrelated preview.
+- After confirmed apply, stale manifest entries for migrated-concern paths
+  are removed from the updated install manifest, ensuring the manifest
+  accurately reflects the current repository state.
+
 ## Standards Profiles
 
 Standards profiles are Tanren-owned projections once selected for a project.

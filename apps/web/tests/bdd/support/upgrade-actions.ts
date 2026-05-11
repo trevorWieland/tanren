@@ -18,6 +18,8 @@ export type UpgradeFixtureAction =
   | "assert-preserves-baseline"
   | "assert-replaced-from-baseline"
   | "assert-file-missing"
+  | "assert-file-contains"
+  | "assert-file-not-contains"
   | "last-run";
 
 export const ALL_FIXTURE_ACTIONS: readonly UpgradeFixtureAction[] = [
@@ -34,5 +36,7 @@ export const ALL_FIXTURE_ACTIONS: readonly UpgradeFixtureAction[] = [
   "assert-preserves-baseline",
   "assert-replaced-from-baseline",
   "assert-file-missing",
+  "assert-file-contains",
+  "assert-file-not-contains",
   "last-run",
 ] as const;

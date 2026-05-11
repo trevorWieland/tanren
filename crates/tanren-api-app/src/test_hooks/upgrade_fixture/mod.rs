@@ -16,8 +16,8 @@ use tokio::sync::Mutex;
 
 use self::snapshot::{RepositorySnapshot, capture_scoped_snapshot};
 use self::types::{
-    CommandResult, FilePathBody, FileWriteBody, FixtureAction, FixtureId, InstallSeedBody,
-    SnapshotBody, SnapshotLabel,
+    CommandResult, FileContainsBody, FilePathBody, FileWriteBody, FixtureAction, FixtureId,
+    InstallSeedBody, SnapshotBody, SnapshotLabel,
 };
 use super::TestHooksState;
 use super::limits;
@@ -139,15 +139,23 @@ fn dispatch_action(
             Ok((st, ok()))
         }
         FixtureAction::AssertPreservesBaseline => {
-            action_assert_preserves_baseline(body, &st)?;
+            action_assert_baseline_comparison(body, &st, true)?;
             Ok((st, ok()))
         }
         FixtureAction::AssertReplacedFromBaseline => {
-            action_assert_replaced_from_baseline(body, &st)?;
+            action_assert_baseline_comparison(body, &st, false)?;
             Ok((st, ok()))
         }
         FixtureAction::AssertFileMissing => {
             action_assert_file_missing(body, &st)?;
+            Ok((st, ok()))
+        }
+        FixtureAction::AssertFileContains => {
+            action_assert_file_content_check(body, &st, true)?;
+            Ok((st, ok()))
+        }
+        FixtureAction::AssertFileNotContains => {
+            action_assert_file_content_check(body, &st, false)?;
             Ok((st, ok()))
         }
         FixtureAction::LastRun => {
@@ -163,27 +171,21 @@ fn last_run_json(st: &UpgradeFixtureState) -> Json<Value> {
     };
     let mut obj = serde_json::json!({"ok": true, "stdout": r.stdout, "status": r.status, "success": r.success});
     if let Some(ref outcome) = r.apply_outcome {
-        obj.as_object_mut().expect("json object").insert(
-            "apply_outcome".to_owned(),
-            serde_json::to_value(outcome).expect("serialize outcome"),
-        );
+        obj["apply_outcome"] = serde_json::to_value(outcome)
+            .unwrap_or_else(|err| serde_json::json!({"serialization_error": format!("{err}")}));
     }
     Json(obj)
 }
 
-// -- Action implementations -----------------------------------------------
+// -- Action implementations ------------------------------------------------
 
 fn action_reset(st: &mut UpgradeFixtureState) -> Result<(), (StatusCode, String)> {
-    if let Some(path) = st.repository_root.take() {
-        let _ = fs::remove_dir_all(path);
+    if let Some(old_root) = st.repository_root.take() {
+        let _ = fs::remove_dir_all(&old_root);
     }
+    *st = UpgradeFixtureState::default();
     let root = create_fixture_root()?;
     st.repository_root = Some(root);
-    st.labeled_snapshots.clear();
-    st.file_baselines.clear();
-    st.tracked_snapshot_paths.clear();
-    st.snapshot_before_last_run = None;
-    st.last_run = None;
     Ok(())
 }
 
@@ -192,12 +194,10 @@ fn action_write_file(
     st: &mut UpgradeFixtureState,
 ) -> Result<(), (StatusCode, String)> {
     let p: FileWriteBody = decode_payload(body)?;
-    limits::validate_repo_relative_path_len(&p.path)?;
     limits::validate_content_len(p.content.as_bytes())?;
+    limits::validate_repo_relative_path_len(&p.path)?;
     let root = require_repository_root(st)?.to_path_buf();
     let relative = parse_repository_path(&p.path)?;
-    st.tracked_snapshot_paths
-        .insert(relative.as_str().to_owned());
     let absolute = root.join(relative.as_str());
     if let Some(parent) = absolute.parent() {
         fs::create_dir_all(parent)
@@ -205,6 +205,8 @@ fn action_write_file(
     }
     fs::write(&absolute, p.content.as_bytes())
         .map_err(|source| io_error(&source, &absolute, "write repository fixture file"))?;
+    st.tracked_snapshot_paths
+        .insert(relative.as_str().to_owned());
     Ok(())
 }
 
@@ -217,10 +219,12 @@ fn action_record_baseline(
     let root = require_repository_root(st)?.to_path_buf();
     let relative = parse_repository_path(&p.path)?;
     let absolute = root.join(relative.as_str());
-    let content = fs::read(&absolute)
-        .map_err(|source| io_error(&source, &absolute, "read repository fixture file"))?;
+    let bytes = fs::read(&absolute)
+        .map_err(|source| io_error(&source, &absolute, "read file for baseline"))?;
     st.file_baselines
-        .insert(relative.as_str().to_owned(), content);
+        .insert(relative.as_str().to_owned(), bytes);
+    st.tracked_snapshot_paths
+        .insert(relative.as_str().to_owned());
     Ok(())
 }
 
@@ -230,11 +234,14 @@ fn action_seed_install(
     st: &mut UpgradeFixtureState,
 ) -> Result<(), (StatusCode, String)> {
     let p: InstallSeedBody = decode_payload(body)?;
-    let label = SnapshotLabel::parse(&p.snapshot_label)?;
-    let root = require_repository_root(st)?.to_path_buf();
-    let result = apply_install(&root, &p.profile, Some(&p.integrations))
+    limits::validate_repo_relative_path_len(&p.profile)?;
+    limits::validate_repo_relative_path_len(&p.integrations)?;
+    let root = require_repository_root(st)?;
+    apply_install(root, &p.profile, Some(&p.integrations))
         .map_err(|err| (StatusCode::INTERNAL_SERVER_ERROR, err.to_string()))?;
-    let _ = result;
+    st.tracked_snapshot_paths
+        .insert(INSTALL_MANIFEST_PATH.to_owned());
+    let label = SnapshotLabel::parse(&p.snapshot_label)?;
     capture_labeled_snapshot(workspace_root, st, label)
 }
 
@@ -345,6 +352,32 @@ fn action_assert_matches_snapshot(
     Ok(())
 }
 
+fn action_assert_file_content_check(
+    body: Value,
+    st: &UpgradeFixtureState,
+    expect_present: bool,
+) -> Result<(), (StatusCode, String)> {
+    let p: FileContainsBody = decode_payload(body)?;
+    limits::validate_repo_relative_path_len(&p.path)?;
+    let root = require_repository_root(st)?;
+    let relative = parse_repository_path(&p.path)?;
+    let absolute = root.join(relative.as_str());
+    let bytes = fs::read(&absolute)
+        .map_err(|source| io_error(&source, &absolute, "read file for content check"))?;
+    let found = String::from_utf8_lossy(&bytes).contains(&p.content);
+    if found != expect_present {
+        return Err((
+            StatusCode::CONFLICT,
+            if expect_present {
+                format!("'{}' missing '{}'", relative.as_str(), p.content)
+            } else {
+                format!("'{}' still contains '{}'", relative.as_str(), p.content)
+            },
+        ));
+    }
+    Ok(())
+}
+
 fn read_baseline_for_assert(
     body: Value,
     st: &UpgradeFixtureState,
@@ -360,38 +393,27 @@ fn read_baseline_for_assert(
     Ok((root, relative, baseline))
 }
 
-fn action_assert_preserves_baseline(
+fn action_assert_baseline_comparison(
     body: Value,
     st: &UpgradeFixtureState,
+    expect_preserved: bool,
 ) -> Result<(), (StatusCode, String)> {
     let (root, relative, baseline) = read_baseline_for_assert(body, st)?;
     let absolute = root.join(relative.as_str());
     let current = fs::read(&absolute)
         .map_err(|source| io_error(&source, &absolute, "read repository fixture file"))?;
-    if current != baseline {
+    let preserved = current == baseline;
+    if preserved != expect_preserved {
         return Err((
             StatusCode::CONFLICT,
-            format!(
-                "expected '{}' to preserve baseline content",
-                relative.as_str()
-            ),
-        ));
-    }
-    Ok(())
-}
-
-fn action_assert_replaced_from_baseline(
-    body: Value,
-    st: &UpgradeFixtureState,
-) -> Result<(), (StatusCode, String)> {
-    let (root, relative, baseline) = read_baseline_for_assert(body, st)?;
-    let absolute = root.join(relative.as_str());
-    let current = fs::read(&absolute)
-        .map_err(|source| io_error(&source, &absolute, "read repository fixture file"))?;
-    if current == baseline {
-        return Err((
-            StatusCode::CONFLICT,
-            format!("expected '{}' to differ from baseline", relative.as_str()),
+            if expect_preserved {
+                format!(
+                    "expected '{}' to preserve baseline content",
+                    relative.as_str()
+                )
+            } else {
+                format!("expected '{}' to differ from baseline", relative.as_str())
+            },
         ));
     }
     Ok(())

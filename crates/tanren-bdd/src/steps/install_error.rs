@@ -66,6 +66,10 @@ pub(crate) enum InstallStepError {
     FileContentNotReplaced { path: PathBuf },
     #[error("unexpected repository file content for `{path}`")]
     UnexpectedFileContent { path: PathBuf },
+    #[error("expected repository file to include `{needle}` for `{path}`")]
+    FileDoesNotInclude { path: PathBuf, needle: String },
+    #[error("expected repository file not to include `{needle}` for `{path}`")]
+    FileStillIncludes { path: PathBuf, needle: String },
     #[error("expected repository file to exist: {path}")]
     ExpectedFileToExist { path: PathBuf },
     #[error("expected repository file to be absent: {path}")]

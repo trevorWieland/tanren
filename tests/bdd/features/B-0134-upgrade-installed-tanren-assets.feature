@@ -34,6 +34,7 @@ Feature: Upgrade installed Tanren assets
       Then the upgrade apply command succeeds
       And repository file ".codex/skills/plan-product.md" is replaced from its baseline content
       And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
+      And repository file ".tanren/install-manifest.toml" includes "manifest_version = 1"
 
     # rationale: CLI is the command under proof while mcp-tag evidence shares the same behavior text.
     @positive @cli @mcp
@@ -45,16 +46,51 @@ Feature: Upgrade installed Tanren assets
       Then the upgrade preview command succeeds
       And the upgrade preview is reported
       And the upgrade preview lists compatibility concern "destructive-asset-changes"
+      And the upgrade preview lists path ".codex/skills/retired-command.md"
 
     # rationale: CLI is the command under proof while tui-tag evidence shares the same behavior text.
     @positive @cli @tui
-    Scenario: Confirmed apply can proceed after migration concern preview
+    Scenario: Confirmed apply migrates stale entries and updates manifest
       Given a clean repository fixture
       And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
       And legacy standards path ".codex/skills/retired-command.md" is marked as a migration concern
       When tanren-cli upgrade apply runs with confirmation
       Then the upgrade apply command succeeds
       And repository file ".codex/skills/retired-command.md" does not exist
+      And repository file ".tanren/install-manifest.toml" includes "manifest_version = 1"
+      And repository file ".tanren/install-manifest.toml" does not include "retired-command.md"
+
+    # rationale: CLI is the command under proof while web-tag evidence covers apply through the same harness adapter.
+    @positive @cli @web
+    Scenario: Confirmed apply replaces generated assets and preserves user-owned files for web coverage
+      Given a clean repository fixture
+      And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
+      And repository file ".codex/skills/plan-product.md" contains "legacy generated codex command"
+      And repository file ".codex/skills/plan-product.md" baseline is recorded
+      And repository file "profiles/rust-cargo/global/dependency-management.md" contains "team-owned dependency policy"
+      And repository file "profiles/rust-cargo/global/dependency-management.md" baseline is recorded
+      When tanren-cli upgrade apply runs with confirmation
+      Then the upgrade apply command succeeds
+      And the upgrade apply lists path ".codex/skills/plan-product.md"
+      And repository file ".codex/skills/plan-product.md" is replaced from its baseline content
+      And repository file "profiles/rust-cargo/global/dependency-management.md" preserves its baseline content
+
+    # rationale: CLI is the command under proof while api-tag evidence covers preview-apply correlation through the same harness adapter.
+    @positive @cli @api
+    Scenario: Preview and apply on same fixture correlate concern paths and write updated manifest
+      Given a clean repository fixture
+      And an installed repository fixture snapshot "v1" with profile "rust-cargo" and integrations "codex"
+      And legacy standards path ".codex/skills/retired-command.md" is marked as a migration concern
+      When tanren-cli upgrade preview runs
+      Then the upgrade preview command succeeds
+      And the upgrade preview lists compatibility concern "destructive-asset-changes"
+      And the upgrade preview lists path ".codex/skills/retired-command.md"
+      When tanren-cli upgrade apply runs with confirmation
+      Then the upgrade apply command succeeds
+      And the upgrade preview and apply share the same preview id
+      And the upgrade apply lists path ".codex/skills/retired-command.md"
+      And repository file ".tanren/install-manifest.toml" includes "manifest_version = 1"
+      And repository file ".tanren/install-manifest.toml" does not include "retired-command.md"
 
     # rationale: CLI is the command under proof while web-tag falsification evidence shares the same behavior text.
     @falsification @cli @web
@@ -101,5 +137,6 @@ Feature: Upgrade installed Tanren assets
       Then the upgrade preview command succeeds
       When tanren-cli upgrade apply runs with confirmation
       Then the upgrade apply command reports noop
+      And the upgrade preview and apply share the same preview id
       And no files are written in the repository fixture
       And the repository matches snapshot "empty"
