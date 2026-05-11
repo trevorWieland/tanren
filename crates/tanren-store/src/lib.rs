@@ -8,23 +8,34 @@
 //! across the dependency boundary.
 
 mod accept_invitation;
+mod account_queries;
+mod create_organization;
 mod entity;
 mod migration;
+mod organization_constraints;
 mod records;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation,
+    OrganizationCreateIdempotencyRecord, OrganizationPermissionGrantRecord, OrganizationRecord,
+    SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, CreateOrganizationAtomicOutput,
+    CreateOrganizationAtomicRequest, CreateOrganizationError, CreateOrganizationEventContext,
+    CreateOrganizationEventsBuilder, EventReference, LastOrganizationAdminGuardError,
+    ListOrganizationsPage, ListedOrganizationRecord,
 };
 
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
+pub(crate) use organization_constraints::{
+    OrganizationCreateConstraint, classify_organization_create_constraint,
+};
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, Database, DatabaseConnection, DbErr, EntityTrait, QueryFilter,
     QueryOrder, QuerySelect, Set,
@@ -33,8 +44,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
+    OrganizationName, OrganizationPermission, SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -254,6 +265,30 @@ impl AccountStore for Store {
         accept_invitation::run(&self.conn, request).await
     }
 
+    async fn create_organization_atomic(
+        &self,
+        request: CreateOrganizationAtomicRequest,
+    ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError> {
+        create_organization::run(&self.conn, request).await
+    }
+
+    async fn has_organization_permission(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> Result<bool, StoreError> {
+        create_organization::has_permission(&self.conn, account_id, org_id, permission).await
+    }
+
+    async fn enforce_not_last_organization_admin_holder(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), LastOrganizationAdminGuardError> {
+        create_organization::enforce_not_last_admin_holder(&self.conn, account_id, org_id).await
+    }
+
     async fn insert_session(
         &self,
         token: SessionToken,
@@ -274,6 +309,24 @@ impl AccountStore for Store {
             created_at: now,
             expires_at,
         })
+    }
+
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        account_queries::find_session_by_token(&self.conn, token).await
+    }
+
+    async fn list_organizations_for_account(
+        &self,
+        account_id: AccountId,
+        limit: u64,
+        cursor: Option<MembershipId>,
+        now: DateTime<Utc>,
+    ) -> Result<ListOrganizationsPage, StoreError> {
+        account_queries::list_organizations_for_account(&self.conn, account_id, limit, cursor, now)
+            .await
     }
 
     async fn append_event(
@@ -357,6 +410,35 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
     })
 }
 
+/// Convert a DB-stored organization-name key into an
+/// [`OrganizationName`].
+pub(crate) fn parse_db_organization_name(raw: &str) -> Result<OrganizationName, StoreError> {
+    OrganizationName::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "organization_name",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored idempotency key into an [`IdempotencyKey`].
+pub(crate) fn parse_db_idempotency_key(raw: &str) -> Result<IdempotencyKey, StoreError> {
+    IdempotencyKey::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "idempotency_key",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored permission key into an
+/// [`OrganizationPermission`].
+pub(crate) fn parse_db_organization_permission(
+    raw: &str,
+) -> Result<OrganizationPermission, StoreError> {
+    raw.parse::<OrganizationPermission>()
+        .map_err(|_| StoreError::InvalidPermissionKey {
+            column: "permission",
+            value: raw.to_owned(),
+        })
+}
+
 /// Wrap a raw string into a [`SecretString`]. Re-exported so callers
 /// can build a [`SecretString`] without taking a direct `secrecy`
 /// dependency.
@@ -382,5 +464,13 @@ pub enum StoreError {
         /// The underlying validation error.
         #[source]
         cause: ValidationError,
+    },
+    /// A row contained an unknown permission key value.
+    #[error("unknown permission key in column `{column}`: {value}")]
+    InvalidPermissionKey {
+        /// Column that contained the unknown value.
+        column: &'static str,
+        /// Raw unknown key.
+        value: String,
     },
 }

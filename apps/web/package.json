@@ -17,6 +17,7 @@
     "storybook:build": "storybook build",
     "storybook:test": "vitest run --project=storybook",
     "bddgen": "bddgen",
+    "contract:generate": "../../scripts/contract-generate.sh",
     "e2e": "bddgen && playwright test",
     "e2e:install": "playwright install --with-deps chromium"
   },
@@ -44,6 +45,7 @@
     "concurrently": "catalog:default",
     "vite": "catalog:default",
     "oxlint": "catalog:default",
+    "openapi-typescript": "catalog:default",
     "playwright-bdd": "catalog:default",
     "prettier": "catalog:default",
     "storybook": "catalog:default",

@@ -16,7 +16,7 @@
 //! "Per-interface BDD wire-harness wiring (R-0001)" and
 //! `profiles/rust-cargo/testing/bdd-wire-harness.md`.
 //!
-//! ## Status of each harness (PR 9)
+//! ## Status of each harness
 //!
 //! - `@api` — full impl. Spawns `tanren_api_app::build_app_with_store`
 //!   on an ephemeral port, drives via `reqwest::Client` with
@@ -29,24 +29,24 @@
 //! - `@mcp` — full impl. Spawns `tanren_mcp_app::build_router_with_store`
 //!   on an ephemeral port and drives the three account-flow tools via
 //!   the rmcp streamable-HTTP client.
-//! - `@tui` — falls back to [`InProcessHarness`] for PR 9 with a TODO.
-//!   The `expectrl` driver was tried but the ratatui screen scrape is
-//!   too fragile to commit as a default; PR 11 will revisit alongside
-//!   the Playwright work for `@web`.
-//! - `@web` — falls back to [`InProcessHarness`]. PR 11 stands up a
-//!   parallel Node-side Playwright harness for the same `@web` Gherkin
-//!   scenarios via `playwright-bdd`. The two layers prove themselves
-//!   independently against the same scenario file (shared via the
-//!   `apps/web/tests/bdd/features` symlink). See `harness::web` for the
-//!   dual-coverage note.
+//! - `@tui` — full impl. Spawns the `tanren-tui` binary and drives it
+//!   over a pty via `expectrl`, asserting on rendered screen content
+//!   and form error taxonomy messages.
+//! - `@web` — falls back to [`InProcessHarness`] for fast feedback on
+//!   non-B-0066 scenarios. B-0066 `@web` scenarios are filtered out of
+//!   the Rust runner and witnessed via the Playwright browser path
+//!   (`apps/web/tests/bdd`).
 //! - untagged / fallback — [`InProcessHarness`] (direct-`Handlers`
 //!   dispatch on an ephemeral `SQLite` store).
 
 mod api;
 mod cli;
+mod cli_support;
+mod common;
 mod in_process;
 mod mcp;
 mod tui;
+mod tui_support;
 mod web;
 
 use std::collections::HashMap;
@@ -57,9 +57,13 @@ use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use serde_json::Value;
 use tanren_contract::{
-    AcceptInvitationRequest, AccountFailureReason, AccountView, SignInRequest, SignUpRequest,
+    AcceptInvitationRequest, AccountFailureReason, AccountView,
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+    SignInRequest, SignUpRequest,
 };
-use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
+use tanren_identity_policy::{
+    AccountId, InvitationToken, OrgId, OrganizationName, OrganizationPermission,
+};
 use tanren_store::EventEnvelope;
 
 pub use api::ApiHarness;
@@ -84,11 +88,10 @@ pub enum HarnessKind {
     /// Spawns the `tanren-mcp` server on an ephemeral port; rmcp
     /// streamable-HTTP client.
     Mcp,
-    /// Drives the `tanren-tui` binary inside a pty (deferred — falls
-    /// back to in-process for PR 9).
+    /// Drives the `tanren-tui` binary inside a pty.
     Tui,
-    /// Drives the web frontend via Playwright (deferred to PR 11 —
-    /// falls back to in-process).
+    /// Web-tagged BDD path. Rust uses an in-process fallback harness;
+    /// B-0066 web witness coverage is executed by Playwright.
     Web,
 }
 
@@ -211,6 +214,44 @@ pub trait AccountHarness: Send + std::fmt::Debug {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance>;
 
+    /// Create an organization for the signed-in account.
+    async fn create_organization(
+        &mut self,
+        account_id: AccountId,
+        name: OrganizationName,
+    ) -> HarnessResult<CreateOrganizationResponse>;
+
+    /// List organizations visible to the signed-in account.
+    async fn list_organizations(
+        &mut self,
+        account_id: AccountId,
+    ) -> HarnessResult<ListOrganizationsResponse>;
+
+    /// Check whether a signed-in account has the supplied organization
+    /// admin permission. Surfaces `permission_denied` as a stable
+    /// taxonomy failure for downstream assertions.
+    async fn check_organization_admin_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse>;
+
+    /// Check configure permission through the same organization-admin
+    /// guard path as other admin operations.
+    async fn check_organization_configure_permission(
+        &mut self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> HarnessResult<CheckOrganizationPermissionResponse> {
+        self.check_organization_admin_permission(
+            account_id,
+            org_id,
+            OrganizationPermission::Configure,
+        )
+        .await
+    }
+
     /// Fan out N invitation-acceptance requests in parallel against the
     /// underlying surface. Used by the `@falsification @api` race
     /// scenario to prove `consume_invitation`'s atomicity. The default
@@ -311,6 +352,16 @@ pub fn record_failure(err: HarnessError, entry: &mut ActorState) -> HarnessOutco
         }
         HarnessError::Transport(message) => HarnessOutcome::Other(format!("transport: {message}")),
     }
+}
+
+/// Build the stable `auth_required` failure used when a harness is asked
+/// to execute an authenticated operation without a known actor session.
+#[must_use]
+pub(crate) fn auth_required_failure() -> HarnessError {
+    HarnessError::Account(
+        AccountFailureReason::AuthRequired,
+        AccountFailureReason::AuthRequired.summary().to_owned(),
+    )
 }
 
 /// Filter `recent_events` rows by their `payload.kind` field — the

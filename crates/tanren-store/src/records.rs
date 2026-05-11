@@ -9,11 +9,15 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
+    OrganizationPermission, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{
+    StoreError, parse_db_idempotency_key, parse_db_identifier, parse_db_invitation_token,
+    parse_db_organization_name, parse_db_organization_permission,
+};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -103,6 +107,97 @@ impl From<entity::memberships::Model> for MembershipRecord {
             org_id: OrgId::new(model.org_id),
             created_at: model.created_at,
         }
+    }
+}
+
+/// Persisted organization row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationRecord {
+    /// Stable organization id.
+    pub id: OrgId,
+    /// Normalized organization name uniqueness key.
+    pub name: OrganizationName,
+    /// Account that created this organization row.
+    pub created_by_account_id: AccountId,
+    /// Wall-clock time the organization was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::organizations::Model> for OrganizationRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::organizations::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            id: OrgId::new(model.id),
+            name: parse_db_organization_name(&model.name)?,
+            created_by_account_id: AccountId::new(model.created_by_account_id),
+            created_at: model.created_at,
+        })
+    }
+}
+
+/// Persisted organization-create idempotency record.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationCreateIdempotencyRecord {
+    /// Account that issued the create request.
+    pub account_id: AccountId,
+    /// Stable idempotency key scoped to the account.
+    pub key: IdempotencyKey,
+    /// Organization created by the idempotent request.
+    pub organization_id: OrgId,
+    /// Normalized organization name from the original create request.
+    pub organization_name: OrganizationName,
+    /// Stable request fingerprint used for conflict checks.
+    pub request_fingerprint: String,
+    /// Wall-clock time the idempotency record was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::organization_create_idempotency::Model>
+    for OrganizationCreateIdempotencyRecord
+{
+    type Error = StoreError;
+
+    fn try_from(
+        model: entity::organization_create_idempotency::Model,
+    ) -> Result<Self, Self::Error> {
+        Ok(Self {
+            account_id: AccountId::new(model.account_id),
+            key: parse_db_idempotency_key(&model.key)?,
+            organization_id: OrgId::new(model.organization_id),
+            organization_name: parse_db_organization_name(&model.organization_name)?,
+            request_fingerprint: model.request_fingerprint,
+            created_at: model.created_at,
+        })
+    }
+}
+
+/// Persisted organization-level permission grant row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OrganizationPermissionGrantRecord {
+    /// Organization in which the permission applies.
+    pub org_id: OrgId,
+    /// Account receiving this grant.
+    pub account_id: AccountId,
+    /// Granted organization-level permission.
+    pub permission: OrganizationPermission,
+    /// Account that granted this permission.
+    pub granted_by_account_id: AccountId,
+    /// Wall-clock time the grant was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::organization_permission_grants::Model> for OrganizationPermissionGrantRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::organization_permission_grants::Model) -> Result<Self, Self::Error> {
+        Ok(Self {
+            org_id: OrgId::new(model.org_id),
+            account_id: AccountId::new(model.account_id),
+            permission: parse_db_organization_permission(&model.permission)?,
+            granted_by_account_id: AccountId::new(model.granted_by_account_id),
+            created_at: model.created_at,
+        })
     }
 }
 

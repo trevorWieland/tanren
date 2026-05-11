@@ -9,7 +9,9 @@
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
-use tanren_contract::AccountFailureReason;
+use tanren_contract::{
+    AccountFailureReason, ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY,
+};
 use tanren_identity_policy::{AccountId, InvitationToken, OrgId};
 
 /// Tag on the JSON envelope that disambiguates account events from
@@ -134,6 +136,17 @@ pub fn envelope<T: Serialize>(kind: AccountEventKind, payload: &T) -> serde_json
     serde_json::json!({
         "family": EVENT_FAMILY,
         "kind": kind.as_str(),
+        "payload": payload,
+    })
+}
+
+/// Encode a typed `organization_created` event as the JSON envelope
+/// persisted in the event log.
+#[must_use]
+pub fn organization_created_envelope<T: Serialize>(payload: &T) -> serde_json::Value {
+    serde_json::json!({
+        "family": ORGANIZATION_EVENT_FAMILY,
+        "kind": ORGANIZATION_CREATED_EVENT_KIND,
         "payload": payload,
     })
 }

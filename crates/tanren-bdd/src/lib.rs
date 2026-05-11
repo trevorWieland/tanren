@@ -16,6 +16,11 @@ use cucumber::World as CucumberWorld;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
+use tanren_contract::{
+    CheckOrganizationPermissionResponse, CreateOrganizationResponse, ListOrganizationsResponse,
+    ORGANIZATION_CREATE_BEHAVIOR_ID,
+};
+use tanren_identity_policy::{OrgId, OrganizationName};
 use tanren_testkit::{
     AccountHarness, ActorState, ApiHarness, CliHarness, FixtureSeed, HarnessKind, HarnessOutcome,
     InProcessHarness, McpHarness, TuiHarness, WebHarness,
@@ -69,6 +74,14 @@ pub struct AccountContext {
     /// Per-scenario invitation tokens recorded by `Given a pending
     /// invitation token "..."` style steps.
     pub invitations: HashSet<String>,
+    /// Per-scenario map of normalized organization names to ids.
+    pub organizations_by_name: HashMap<OrganizationName, OrgId>,
+    /// Most recent create-organization success payload.
+    pub last_created_organization: Option<CreateOrganizationResponse>,
+    /// Most recent list-organizations success payload.
+    pub last_listed_organizations: Option<ListOrganizationsResponse>,
+    /// Most recent permission-check success payload.
+    pub last_checked_organization_permission: Option<CheckOrganizationPermissionResponse>,
 }
 
 impl std::fmt::Debug for AccountContext {
@@ -78,8 +91,33 @@ impl std::fmt::Debug for AccountContext {
             .field("actors", &self.actors.keys().collect::<Vec<_>>())
             .field("invitations", &self.invitations)
             .field(
+                "organizations_by_name",
+                &self.organizations_by_name.keys().collect::<Vec<_>>(),
+            )
+            .field(
                 "last_outcome",
                 &self.last_outcome.as_ref().map(short_outcome_label),
+            )
+            .field(
+                "last_created_organization",
+                &self
+                    .last_created_organization
+                    .as_ref()
+                    .map(|r| r.organization.name.as_str()),
+            )
+            .field(
+                "last_listed_organizations_count",
+                &self
+                    .last_listed_organizations
+                    .as_ref()
+                    .map(|r| r.organizations.len()),
+            )
+            .field(
+                "last_checked_organization_permission",
+                &self
+                    .last_checked_organization_permission
+                    .as_ref()
+                    .map(|r| (r.org_id, r.permission, r.allowed)),
             )
             .finish()
     }
@@ -109,9 +147,10 @@ impl AccountContext {
             HarnessKind::Cli => Box::new(CliHarness::spawn().await.expect("CliHarness::spawn")),
             HarnessKind::Mcp => Box::new(McpHarness::spawn().await.expect("McpHarness::spawn")),
             HarnessKind::Tui => Box::new(TuiHarness::spawn().await.expect("TuiHarness::spawn")),
-            // PR 11 ships the real-browser proof on the Node side via
-            // `playwright-bdd`; the Rust path keeps in-process fallback
-            // for fast feedback. See `tanren_testkit::harness::web`.
+            // `@web` scenarios outside B-0066 continue to use the Rust
+            // fallback harness for fast feedback. B-0066 `@web` scenarios
+            // are filtered out in `run_features` and proved by Playwright
+            // only.
             HarnessKind::Web => Box::new(WebHarness::spawn().await.expect("WebHarness::spawn")),
         };
         Self {
@@ -119,6 +158,10 @@ impl AccountContext {
             actors: HashMap::new(),
             last_outcome: None,
             invitations: HashSet::new(),
+            organizations_by_name: HashMap::new(),
+            last_created_organization: None,
+            last_listed_organizations: None,
+            last_checked_organization_permission: None,
         }
     }
 }
@@ -136,8 +179,15 @@ fn short_outcome_label(outcome: &HarnessOutcome) -> &'static str {
 /// Run the cucumber harness against the supplied features directory.
 /// The harness installs a `Before` hook that selects the per-interface
 /// wire harness from the active scenario's tags.
+///
+/// B-0066's `@web` scenarios are intentionally excluded from the Rust
+/// runner: that witness must come from the Playwright browser path.
 pub async fn run_features(features_dir: impl Into<PathBuf>) {
     TanrenWorld::cucumber()
+        // Keep BDD witness runs deterministic across all wire harnesses.
+        // Concurrent scenarios can starve per-scenario SQLite pools and
+        // introduce transport flakes that are unrelated to behavior.
+        .max_concurrent_scenarios(1)
         .before(|_feature, _rule, scenario, world| {
             let tags = scenario.tags.clone();
             Box::pin(async move {
@@ -145,7 +195,25 @@ pub async fn run_features(features_dir: impl Into<PathBuf>) {
             })
         })
         .fail_on_skipped()
-        .run_and_exit(features_dir.into())
+        .filter_run_and_exit(features_dir.into(), |feature, rule, scenario| {
+            let is_b0066 = feature.tags.iter().any(|tag| {
+                let normalized = tag.trim_start_matches('@');
+                normalized == ORGANIZATION_CREATE_BEHAVIOR_ID
+            });
+            let is_web = scenario.tags.iter().any(|tag| {
+                let normalized = tag.trim_start_matches('@');
+                normalized == "web"
+            }) || rule.is_some_and(|r| {
+                r.tags
+                    .iter()
+                    .any(|tag| tag.trim_start_matches('@') == "web")
+            }) || feature
+                .tags
+                .iter()
+                .any(|tag| tag.trim_start_matches('@') == "web");
+
+            !(is_b0066 && is_web)
+        })
         .await;
 }
 

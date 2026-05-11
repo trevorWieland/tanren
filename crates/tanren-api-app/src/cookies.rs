@@ -9,7 +9,7 @@ use std::str::FromStr;
 
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
-use tanren_identity_policy::AccountId;
+use tanren_identity_policy::{AccountId, SessionToken};
 use tower_sessions::cookie::SameSite;
 use tower_sessions::cookie::time::Duration as CookieDuration;
 use tower_sessions::{Expiry, Session, SessionManagerLayer};
@@ -17,22 +17,37 @@ use tower_sessions_sqlx_store::{PostgresStore, SqliteStore};
 
 const SESSION_COOKIE_NAME: &str = "tanren_session";
 const SESSION_MAX_AGE_DAYS: i64 = 30;
+const SESSION_KEY_TOKEN: &str = "session_token";
 const SESSION_KEY_ACCOUNT: &str = "account_id";
 const SESSION_KEY_EXPIRES: &str = "expires_at";
 
-/// `(account_id, expires_at)` projection of a freshly minted session.
+/// `(token, account_id, expires_at)` projection of a freshly minted
+/// session.
 /// All three account-flow handlers pass this into
 /// [`install_cookie_session`].
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 pub(crate) struct SessionWrite {
+    pub(crate) token: SessionToken,
     pub(crate) account_id: AccountId,
     pub(crate) expires_at: DateTime<Utc>,
 }
 
-/// Insert the account id and expiry into the tower-sessions row backing
-/// this request. The cookie carrying the opaque session id is set by
-/// the middleware on response — we just write the data.
+#[derive(Debug, Clone)]
+pub(crate) struct SessionRead {
+    pub(crate) token: SessionToken,
+    pub(crate) account_id: AccountId,
+    pub(crate) expires_at: DateTime<Utc>,
+}
+
+/// Insert the minted session token, account id, and expiry into the
+/// tower-sessions row backing this request. The cookie carrying the
+/// opaque session id is set by the middleware on response — we just
+/// write the data.
 pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWrite) -> Result<()> {
+    session
+        .insert(SESSION_KEY_TOKEN, write.token.clone())
+        .await
+        .context("insert session_token into session")?;
     session
         .insert(SESSION_KEY_ACCOUNT, write.account_id)
         .await
@@ -42,6 +57,91 @@ pub(crate) async fn install_cookie_session(session: &Session, write: &SessionWri
         .await
         .context("insert expires_at into session")?;
     Ok(())
+}
+
+pub(crate) async fn read_cookie_session(session: &Session) -> Result<Option<SessionRead>> {
+    let token: Option<SessionToken> = match session.get(SESSION_KEY_TOKEN).await {
+        Ok(value) => value,
+        Err(err) if is_malformed_session_read(&err) => {
+            session
+                .flush()
+                .await
+                .context("flush malformed session_token from session")?;
+            return Ok(None);
+        }
+        Err(err) => return Err(err).context("read session_token from session"),
+    };
+    let account_id: Option<AccountId> = match session.get(SESSION_KEY_ACCOUNT).await {
+        Ok(value) => value,
+        Err(err) if is_malformed_session_read(&err) => {
+            session
+                .flush()
+                .await
+                .context("flush malformed account_id from session")?;
+            return Ok(None);
+        }
+        Err(err) => return Err(err).context("read account_id from session"),
+    };
+    let expires_at: Option<DateTime<Utc>> = match session.get(SESSION_KEY_EXPIRES).await {
+        Ok(value) => value,
+        Err(err) if is_malformed_session_read(&err) => {
+            session
+                .flush()
+                .await
+                .context("flush malformed expires_at from session")?;
+            return Ok(None);
+        }
+        Err(err) => return Err(err).context("read expires_at from session"),
+    };
+
+    let Some(token) = token else {
+        if account_id.is_some() || expires_at.is_some() {
+            session
+                .flush()
+                .await
+                .context("flush malformed session without session_token")?;
+        }
+        return Ok(None);
+    };
+    let Some(account_id) = account_id else {
+        if expires_at.is_some() {
+            session
+                .flush()
+                .await
+                .context("flush malformed session without account_id")?;
+        }
+        return Ok(None);
+    };
+    let Some(expires_at) = expires_at else {
+        session
+            .flush()
+            .await
+            .context("flush malformed session without expires_at")?;
+        return Ok(None);
+    };
+
+    if expires_at <= Utc::now() {
+        session
+            .flush()
+            .await
+            .context("flush expired cookie session")?;
+        return Ok(None);
+    }
+
+    Ok(Some(SessionRead {
+        token,
+        account_id,
+        expires_at,
+    }))
+}
+
+fn is_malformed_session_read(err: &tower_sessions::session::Error) -> bool {
+    match err {
+        tower_sessions::session::Error::SerdeJson(_) => true,
+        tower_sessions::session::Error::Store(inner) => {
+            matches!(inner, tower_sessions::session_store::Error::Decode(_))
+        }
+    }
 }
 
 /// `tower-sessions` store wrapper. tower-sessions-sqlx-store ships

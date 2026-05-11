@@ -2,6 +2,8 @@
 //!
 //! Looks for `.feature` files under `tests/bdd/features/` (relative to the
 //! repository root) and runs them through the Tanren cucumber `World`.
+//! B-0066 `@web` scenarios are filtered out here and proved by the
+//! Playwright witness path (`apps/web/tests/bdd`).
 //! In F-0001 the directory is empty, so the harness reports zero scenarios
 //! and exits 0 — the assertion is that the pipeline runs without error.
 

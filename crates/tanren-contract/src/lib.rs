@@ -6,11 +6,29 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod organization;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
 };
+pub use organization::{
+    CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionRequest,
+    CheckOrganizationPermissionResponse, CreateOrganizationApiRequest,
+    CreateOrganizationFailureReason, CreateOrganizationRequest, CreateOrganizationResponse,
+    LIST_ORGANIZATIONS_DEFAULT_LIMIT, LIST_ORGANIZATIONS_MAX_LIMIT, ListOrganizationsApiQuery,
+    ListOrganizationsRequest, ListOrganizationsResponse, ORGANIZATION_CREATE_BEHAVIOR_ID,
+    ORGANIZATION_CREATED_EVENT_KIND, ORGANIZATION_EVENT_FAMILY, OrganizationBehaviorId,
+    OrganizationCapabilityView, OrganizationCreatedEvent, OrganizationEventReference,
+    OrganizationFailureBody, OrganizationFailureCode, OrganizationProjectSummary,
+    OrganizationProofLink, OrganizationSourceLink, OrganizationView, ReadModelFreshness,
+    organization_capability_projection, organization_permission_options,
+};
+pub use tanren_identity_policy::{
+    AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
+    SessionToken,
+};
+pub use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 
 use serde::{Deserialize, Serialize};
 use thiserror::Error;

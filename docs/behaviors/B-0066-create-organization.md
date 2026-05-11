@@ -46,3 +46,10 @@ that a governance entity exists to own projects, members, and policy.
 - B-0050
 - B-0065
 - B-0067
+
+## Interface witness note
+
+- The `@web` behavior-proof witness for B-0066 is intentionally harness-owned
+  at `/harness/b-0066/organizations`.
+- The runtime `/organizations` route remains product-facing and does not
+  consume harness-owned browser snapshots.

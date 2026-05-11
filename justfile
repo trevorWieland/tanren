@@ -346,6 +346,8 @@ check:
     run_stage "bdd wire coverage" just check-bdd-wire-coverage
     run_stage "tsconfig" just check-tsconfig
     run_stage "openapi handcraft" just check-openapi-handcraft
+    run_stage "web harness routes" just check-web-harness-routes
+    run_stage "web contract sync" just check-web-contract-sync
     run_stage "enforcement regressions" just check-enforcement-regressions
     run_stage "cargo check" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} check --workspace --all-targets --locked --quiet'
     run_stage "clippy" bash -c 'CARGO_INCREMENTAL=0 {{ cargo }} clippy --workspace --all-targets --locked --quiet -- -D warnings'
@@ -743,6 +745,27 @@ check-orphan-traits:
 check-openapi-handcraft:
     @{{ cargo }} run -q -p tanren-xtask -- check-openapi-handcraft
 
+# Validate harness-owned web behavior routes are declared by canonical
+# BDD feature/interface inventory and the generated projection is
+# reproducible.
+check-web-harness-routes:
+    @{{ cargo }} run -q -p tanren-xtask -- check-web-harness-routes
+
+# Verify the checked-in web API contract remains reproducible from the
+# canonical Rust OpenAPI source.
+check-web-contract-sync:
+    #!/usr/bin/env bash
+    set -euo pipefail
+    target="apps/web/src/lib/generated/api-contract.ts"
+    before="$(sha256sum "${target}" | awk '{print $1}')"
+    just contract-generate
+    after="$(sha256sum "${target}" | awk '{print $1}')"
+    if [[ "${before}" != "${after}" ]]; then
+        echo "FAIL: ${target} is out of sync with canonical Rust OpenAPI."
+        echo "Run: just contract-generate"
+        exit 1
+    fi
+
 # Run the regression-fixture test suite that proves each guard rejects
 # its synthetic regression. Each fixture under
 # `xtask/tests/fixtures/<guard>/` is a synthetic minimal source tree
@@ -803,19 +826,31 @@ ci:
         shift
         local start
         start="$(now_ms)"
-        local output
+        local output_file
+        output_file="$(mktemp -t tanren-ci-stage.XXXXXX)"
+        # Always clean up even if the stage command is interrupted.
+        trap 'rm -f "${output_file}"' RETURN
+        # Cap failure output for noisy stages; override with CI_STAGE_LOG_LINES.
+        local -i max_failure_lines
+        max_failure_lines="${CI_STAGE_LOG_LINES:-400}"
         echo "==> ${name}"
         set +e
-        output="$("$@" 2>&1)"
-        local status="$?"
+        "$@" >"${output_file}" 2>&1
+        local -i status="$?"
         set -e
         local elapsed="$(( $(now_ms) - start ))"
         if [[ "${status}" -eq 0 ]]; then
             echo "<== ${name} ok ($(fmt_duration "${elapsed}"))"
         else
-            echo "${output}"
+            if [[ "${max_failure_lines}" -gt 0 ]]; then
+                tail -n "${max_failure_lines}" "${output_file}"
+            else
+                cat "${output_file}"
+            fi
             echo "<== ${name} failed ($(fmt_duration "${elapsed}"))"
         fi
+        trap - RETURN
+        rm -f "${output_file}"
         return "${status}"
     }
 
@@ -840,6 +875,18 @@ ci:
 # ============================================================================
 # Web frontend (apps/web/)
 # ============================================================================
+
+# Regenerate the TypeScript API contract from the canonical Rust
+# OpenAPI source. This is the interface-owned entrypoint — all
+# first-party clients delegate here rather than owning generation
+# logic independently.
+contract-generate:
+    scripts/contract-generate.sh
+
+# Web projection of contract generation — delegates to the canonical
+# interface-owned entrypoint.
+web-contract-generate:
+    just contract-generate
 
 # Install pnpm workspace dependencies. Lockfile must be up to date.
 web-install:

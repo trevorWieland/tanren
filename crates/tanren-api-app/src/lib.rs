@@ -11,7 +11,8 @@
 //! - `routes` hosts the `#[utoipa::path]`-annotated handlers and the
 //!   `ApiDoc` struct that the `OpenApi` derive walks.
 //! - `cookies` hosts the tower-sessions store dispatch (sqlite vs
-//!   postgres) and the `(account_id, expires_at)` write helper.
+//!   postgres) and the `(session_token, account_id, expires_at)` write
+//!   helper.
 //! - `errors` hosts the shared `{code, summary}` failure body and the
 //!   `AppServiceError` mapping.
 //!
@@ -36,8 +37,10 @@
 //! - **Sign-out.** `POST /sessions/revoke` clears the cookie via
 //!   `Session::flush` and returns 204.
 
+mod auth;
 mod cookies;
 mod errors;
+mod organization_tracing;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition
@@ -60,7 +63,7 @@ use tower_http::cors::CorsLayer;
 #[cfg(any(test, feature = "test-hooks"))]
 use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
-use crate::routes::build_router;
+use crate::routes::{build_router, openapi_document};
 
 pub use crate::errors::AccountFailureBody;
 pub use crate::routes::{
@@ -73,6 +76,13 @@ const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 const CORS_ORIGINS_ENV: &str = "TANREN_API_CORS_ORIGINS";
+
+/// Generate the canonical `OpenAPI` document directly from Rust route
+/// annotations and contract schemas.
+#[must_use]
+pub fn generate_openapi_document() -> utoipa::openapi::OpenApi {
+    openapi_document()
+}
 
 /// Configuration for the tanren-api runtime.
 #[derive(Debug, Clone)]

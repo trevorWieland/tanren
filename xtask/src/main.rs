@@ -10,6 +10,7 @@ mod check_profiles;
 mod check_secrets;
 mod check_test_hooks;
 mod check_tracing_init;
+mod check_web_harness_routes;
 
 use anyhow::{Context, Result, bail};
 use clap::{Args, Parser, Subcommand};
@@ -123,6 +124,11 @@ enum Command {
     /// `profiles/rust-cargo/architecture/openapi-generation.md`.
     #[command(name = "check-openapi-handcraft")]
     OpenapiHandcraft(RootArg),
+    /// Validate that web harness route ownership is declared against
+    /// canonical BDD feature/interface inventory and that the generated
+    /// web projection file is in sync.
+    #[command(name = "check-web-harness-routes")]
+    WebHarnessRoutes(RootArg),
 }
 
 fn main() -> Result<()> {
@@ -140,6 +146,7 @@ fn main() -> Result<()> {
         Command::Profiles(r) => check_profiles::run(&r.resolve()?),
         Command::OrphanTraits(r) => check_orphan_traits::run(&r.resolve()?),
         Command::OpenapiHandcraft(r) => check_openapi_handcraft::run(&r.resolve()?),
+        Command::WebHarnessRoutes(r) => check_web_harness_routes::run(&r.resolve()?),
     }
 }
 

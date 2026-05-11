@@ -18,6 +18,12 @@ ignore = [
   # successor `pastey` exists; remove this ignore when ratatui adopts
   # it. Unmaintained notice, not a vulnerability.
   "RUSTSEC-2024-0436",
+  # RUSTSEC-2017-0008: `serial` is unmaintained. Pulled in transitively
+  # through portable-pty (used by tanren-testkit's TUI harness for
+  # cross-platform pseudo-terminal support). portable-pty does not yet
+  # expose a maintained replacement in the 0.8 line; remove this ignore
+  # when upstream migrates.
+  "RUSTSEC-2017-0008",
 ]
 
 # License policy — permissive licenses only

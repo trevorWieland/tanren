@@ -28,11 +28,13 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
+    OrganizationName, OrganizationPermission, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, SessionRecord, StoreError,
+    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, SessionRecord,
+    StoreError,
 };
 
 /// Context the store passes back to the caller's event-builder so
@@ -149,6 +151,143 @@ pub enum AcceptInvitationError {
     Store(#[from] StoreError),
 }
 
+/// Context passed to create-organization success event builders.
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationEventContext {
+    /// Organization that was created.
+    pub organization: OrganizationRecord,
+    /// Account that created the organization.
+    pub creator_account_id: AccountId,
+    /// Membership row allocated to the creator in the organization.
+    pub creator_membership_id: MembershipId,
+    /// All creator permissions granted during bootstrap.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// Request timestamp threaded through all writes.
+    pub now: DateTime<Utc>,
+}
+
+/// Closure invoked inside the organization-create transaction to build
+/// success-path event envelopes.
+pub type CreateOrganizationEventsBuilder =
+    Box<dyn FnOnce(&CreateOrganizationEventContext) -> Vec<serde_json::Value> + Send>;
+
+/// Input shape for [`AccountStore::create_organization_atomic`].
+pub struct CreateOrganizationAtomicRequest {
+    /// Stable id allocated for the new organization.
+    pub organization_id: OrgId,
+    /// Normalized organization name uniqueness key.
+    pub name: OrganizationName,
+    /// Signed-in account creating the organization.
+    pub creator_account_id: AccountId,
+    /// Membership id to allocate for the creator.
+    pub creator_membership_id: MembershipId,
+    /// Wall-clock time for all row writes and success events.
+    pub now: DateTime<Utc>,
+    /// Stable client idempotency key for replay-safe create semantics.
+    pub idempotency_key: Option<IdempotencyKey>,
+    /// Event payload builder invoked inside the transaction.
+    pub events_builder: CreateOrganizationEventsBuilder,
+}
+
+impl std::fmt::Debug for CreateOrganizationAtomicRequest {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CreateOrganizationAtomicRequest")
+            .field("organization_id", &self.organization_id)
+            .field("name", &self.name)
+            .field("creator_account_id", &self.creator_account_id)
+            .field("creator_membership_id", &self.creator_membership_id)
+            .field("now", &self.now)
+            .field(
+                "idempotency_key",
+                &self
+                    .idempotency_key
+                    .as_ref()
+                    .map_or("<none>", IdempotencyKey::as_str),
+            )
+            .finish_non_exhaustive()
+    }
+}
+
+/// Successful return from [`AccountStore::create_organization_atomic`].
+#[derive(Debug, Clone)]
+pub struct CreateOrganizationAtomicOutput {
+    /// Newly created organization row.
+    pub organization: OrganizationRecord,
+    /// Organization-level permissions granted to the creator.
+    pub granted_permissions: Vec<OrganizationPermission>,
+    /// New organizations own zero projects at creation time.
+    pub initial_project_count: u64,
+    /// Event-log reference for the emitted `organization_created` event.
+    pub source_event: Option<EventReference>,
+}
+
+/// Stable event-log reference captured from a transactional write path.
+#[derive(Debug, Clone)]
+pub struct EventReference {
+    /// Event id in the canonical event log.
+    pub id: String,
+    /// Event append timestamp.
+    pub occurred_at: DateTime<Utc>,
+}
+
+/// Organization row plus account-scoped capability source metadata used
+/// by `list_organizations_for_account`.
+#[derive(Debug, Clone)]
+pub struct ListedOrganizationRecord {
+    /// Organization row visible to the account.
+    pub organization: OrganizationRecord,
+    /// Membership cursor row that exposed this organization.
+    pub membership_id: MembershipId,
+    /// Organization permissions granted to the requesting account.
+    pub granted_permissions: Vec<OrganizationPermission>,
+}
+
+/// Failure taxonomy for [`AccountStore::create_organization_atomic`].
+#[derive(Debug, thiserror::Error)]
+pub enum CreateOrganizationError {
+    /// Organization name already exists (normalized uniqueness key).
+    #[error("duplicate organization name")]
+    DuplicateName,
+    /// The supplied idempotency key was reused with a conflicting
+    /// request fingerprint.
+    #[error("idempotency conflict")]
+    IdempotencyConflict,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
+/// One page of organizations visible to an account.
+#[derive(Debug, Clone)]
+pub struct ListOrganizationsPage {
+    /// Organizations in this page.
+    pub organizations: Vec<ListedOrganizationRecord>,
+    /// Opaque cursor for the next page, if more rows remain.
+    pub next_cursor: Option<MembershipId>,
+    /// Response-generation timestamp from this read path.
+    pub generated_at: DateTime<Utc>,
+    /// Optional projection checkpoint identifier when available.
+    pub checkpoint: Option<String>,
+    /// Optional store-level cursor for this read page.
+    pub cursor: Option<String>,
+}
+
+/// Enforceable guard used by leave/remove-member flows so they cannot
+/// orphan administrative organization permissions.
+#[derive(Debug, thiserror::Error)]
+pub enum LastOrganizationAdminGuardError {
+    /// The account is the final holder of one or more organization
+    /// administrative permissions and cannot be removed yet.
+    #[error("account is last holder of administrative permissions")]
+    LastAdminHolder {
+        /// Permissions that would become orphaned.
+        permissions: Vec<OrganizationPermission>,
+    },
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+
 /// Port the account-flow handlers consume. The SeaORM-backed adapter is
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
@@ -233,6 +372,36 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         request: AcceptInvitationAtomicRequest,
     ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError>;
 
+    /// Run organization creation as one transaction: insert the
+    /// organization row, creator membership, all creator
+    /// organization-admin grants, and success-path events.
+    async fn create_organization_atomic(
+        &self,
+        request: CreateOrganizationAtomicRequest,
+    ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError>;
+
+    /// Check whether an account currently holds the supplied
+    /// organization-level permission.
+    ///
+    /// Implementations are expected to answer with a single
+    /// exists-style query that verifies both active membership and the
+    /// permission grant.
+    async fn has_organization_permission(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+        permission: OrganizationPermission,
+    ) -> Result<bool, StoreError>;
+
+    /// Guard future leave/remove-member flows by rejecting removal of
+    /// the final administrative permission holder for the
+    /// organization.
+    async fn enforce_not_last_organization_admin_holder(
+        &self,
+        account_id: AccountId,
+        org_id: OrgId,
+    ) -> Result<(), LastOrganizationAdminGuardError>;
+
     /// Issue a session for the supplied account.
     async fn insert_session(
         &self,
@@ -241,6 +410,22 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         now: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
+
+    /// Look up a session by opaque token.
+    async fn find_session_by_token(
+        &self,
+        token: &SessionToken,
+    ) -> Result<Option<SessionRecord>, StoreError>;
+
+    /// List organizations currently visible to an account through
+    /// membership rows.
+    async fn list_organizations_for_account(
+        &self,
+        account_id: AccountId,
+        limit: u64,
+        cursor: Option<MembershipId>,
+        now: DateTime<Utc>,
+    ) -> Result<ListOrganizationsPage, StoreError>;
 
     /// Append a payload to the canonical event log at the supplied
     /// instant.
