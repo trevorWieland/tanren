@@ -25,16 +25,34 @@ const FORBIDDEN_ROUTE_IMPORT_PREFIX: &str = "@/routes/";
 
 #[derive(Debug, Clone, Copy)]
 struct HarnessOwnership {
+    /// Property key used in the generated TypeScript `BEHAVIOR_HARNESS_ROUTES` object.
     leaf: &'static str,
+    /// Canonical behavior ID that owns this harness route.
     behavior_id: &'static str,
+    /// Relative path under `apps/web/src/app/harness/[behaviorId]/` where the
+    /// harness `page.tsx` lives. Uses `/` as separator for nested routes.
+    page_path: &'static str,
+    /// URL suffix appended after `/harness/{behavior_segment}/`. May contain
+    /// Next.js dynamic segments like `[orgId]`.
+    route_suffix: &'static str,
 }
 
 // Source of truth for harness route leaves. This table is validated against the
 // canonical feature/interface inventory before projection generation.
-const HARNESS_ROUTE_OWNERSHIP: &[HarnessOwnership] = &[HarnessOwnership {
-    leaf: "organizations",
-    behavior_id: "B-0066",
-}];
+const HARNESS_ROUTE_OWNERSHIP: &[HarnessOwnership] = &[
+    HarnessOwnership {
+        leaf: "organizations",
+        behavior_id: "B-0066",
+        page_path: "organizations",
+        route_suffix: "organizations",
+    },
+    HarnessOwnership {
+        leaf: "organizationMembers",
+        behavior_id: "B-0065",
+        page_path: "organizations/[orgId]/members",
+        route_suffix: "organizations/[orgId]/members",
+    },
+];
 
 #[derive(Debug, Clone)]
 struct BehaviorFeatureInventory {
@@ -61,8 +79,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
     let mut generated_routes: Vec<GeneratedHarnessRoute> = Vec::new();
 
     validate_ownership(
+        root,
         &inventory,
-        &harness_pages,
         &mut violations,
         &mut seen_leaves,
         &mut generated_routes,
@@ -96,8 +114,8 @@ pub(crate) fn run(root: &Path) -> Result<()> {
 }
 
 fn validate_ownership(
+    root: &Path,
     inventory: &BTreeMap<String, BehaviorFeatureInventory>,
-    harness_pages: &BTreeSet<String>,
     violations: &mut Vec<String>,
     seen_leaves: &mut BTreeSet<&str>,
     generated_routes: &mut Vec<GeneratedHarnessRoute>,
@@ -128,7 +146,7 @@ fn validate_ownership(
         }
 
         let behavior_segment = feature.behavior_id.to_ascii_lowercase();
-        let route = format!("/harness/{behavior_segment}/{}", ownership.leaf);
+        let route = format!("/harness/{behavior_segment}/{}", ownership.route_suffix);
         generated_routes.push(GeneratedHarnessRoute {
             leaf: ownership.leaf.to_owned(),
             behavior_id: feature.behavior_id.clone(),
@@ -137,10 +155,14 @@ fn validate_ownership(
             route,
         });
 
-        if !harness_pages.contains(ownership.leaf) {
+        let page_file = root
+            .join(HARNESS_APP_DIR_REL)
+            .join(ownership.page_path)
+            .join("page.tsx");
+        if !page_file.exists() {
             violations.push(format!(
                 "{HARNESS_APP_DIR_REL}/{}: missing page.tsx for declared harness ownership of behavior {}",
-                ownership.leaf, ownership.behavior_id
+                ownership.page_path, ownership.behavior_id
             ));
         }
     }
@@ -201,7 +223,7 @@ fn enforce_dispatch_guard(root: &Path, violations: &mut Vec<String>) {
     for ownership in HARNESS_ROUTE_OWNERSHIP {
         let page_path = root
             .join(HARNESS_APP_DIR_REL)
-            .join(ownership.leaf)
+            .join(ownership.page_path)
             .join("page.tsx");
         let Ok(page_content) = fs::read_to_string(&page_path) else {
             // Missing pages are already flagged by the ownership check above.
@@ -215,7 +237,7 @@ fn enforce_dispatch_guard(root: &Path, violations: &mut Vec<String>) {
         if !has_dispatch_import {
             violations.push(format!(
                 "{HARNESS_APP_DIR_REL}/{leaf}/page.tsx: harness page must import from {DISPATCH_IMPORT_PREFIX} to go through behavior-proof dispatch",
-                leaf = ownership.leaf,
+                leaf = ownership.page_path,
             ));
         }
 
@@ -226,8 +248,8 @@ fn enforce_dispatch_guard(root: &Path, violations: &mut Vec<String>) {
 
         if has_forbidden_route_import {
             violations.push(format!(
-                "{HARNESS_APP_DIR_REL}/{leaf}/page.tsx: harness page bypasses dispatch adapter by importing directly from {FORBIDDEN_ROUTE_IMPORT_PREFIX}",
-                leaf = ownership.leaf,
+                "{HARNESS_APP_DIR_REL}/{page_path}/page.tsx: harness page bypasses dispatch adapter by importing directly from {FORBIDDEN_ROUTE_IMPORT_PREFIX}",
+                page_path = ownership.page_path,
             ));
         }
     }

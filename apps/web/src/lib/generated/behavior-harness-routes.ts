@@ -2,6 +2,12 @@
 // Do not edit manually.
 
 export const BEHAVIOR_HARNESS_ROUTES = {
+  organizationMembers: {
+    behaviorId: "B-0065",
+    behaviorSegment: "b-0065",
+    featurePath: "tests/bdd/features/B-0065-list-organization-members.feature",
+    route: "/harness/b-0065/organizations/[orgId]/members",
+  },
   organizations: {
     behaviorId: "B-0066",
     behaviorSegment: "b-0066",

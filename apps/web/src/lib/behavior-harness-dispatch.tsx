@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import type { BehaviorHarnessRouteLeaf } from "@/lib/generated/behavior-harness-routes";
 import { BEHAVIOR_HARNESS_ROUTES } from "@/lib/generated/behavior-harness-routes";
 import { OrganizationHarnessRoute } from "@/routes/organizations";
+import { OrganizationMembersHarnessRoute } from "@/routes/organization-members";
 
 /**
  * Mapping from generated harness route leaf keys to their web harness
@@ -15,6 +16,7 @@ const BEHAVIOR_HARNESS_COMPONENTS: Record<
   () => ReactNode
 > = {
   organizations: OrganizationHarnessRoute,
+  organizationMembers: OrganizationMembersHarnessRoute,
 };
 
 /**

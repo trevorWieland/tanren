@@ -4,8 +4,12 @@ import type { components, operations } from "@/lib/generated/api-contract";
 import {
   ORGANIZATION_API_ROUTES,
   ORGANIZATION_CREATE_BEHAVIOR_ID,
+  ORGANIZATION_MEMBERS_BEHAVIOR_ID,
   buildListOrganizationsApiRequest,
+  buildListOrganizationMembersApiRequest,
+  buildListOrganizationMembersApiPath,
   isOrganizationAdminPermission,
+  isGrantSource,
 } from "@/lib/organization-routes";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
@@ -35,11 +39,23 @@ export type CreateOrganizationResponse =
 export type ListOrganizationsResponse =
   operations["list_organizations_route"]["responses"][200]["content"]["application/json"];
 export type OrganizationListCursor = components["schemas"]["MembershipId"];
+export type OrganizationMemberView =
+  components["schemas"]["OrganizationMemberView"];
+export type OrganizationMemberPermissionGrant =
+  components["schemas"]["OrganizationMemberPermissionGrant"];
+export type GrantSourceType = components["schemas"]["GrantSource"];
 export type CheckOrganizationPermissionResponse =
   operations["check_organization_permission_route"]["responses"][200]["content"]["application/json"];
+export type ListOrganizationMembersResponse =
+  operations["list_organization_members_route"]["responses"][200]["content"]["application/json"];
 export type ListOrganizationsApiRequest = NonNullable<
   operations["list_organizations_route"]["parameters"]["query"]
 >;
+export type ListOrganizationMembersApiRequest = NonNullable<
+  operations["list_organization_members_route"]["parameters"]["query"]
+>;
+export type ListOrganizationMembersApiPath =
+  operations["list_organization_members_route"]["parameters"]["path"];
 
 type ContractOrganizationFailureCode =
   components["schemas"]["OrganizationFailureCode"];
@@ -150,7 +166,10 @@ export function isOrganizationProofLink(
   if (!hasOnlyStringFields(value, ["behavior_id"]) || !isObjectRecord(value)) {
     return false;
   }
-  return value["behavior_id"] === ORGANIZATION_CREATE_BEHAVIOR_ID;
+  return (
+    value["behavior_id"] === ORGANIZATION_CREATE_BEHAVIOR_ID ||
+    value["behavior_id"] === ORGANIZATION_MEMBERS_BEHAVIOR_ID
+  );
 }
 
 export function isOrganizationSourceLink(
@@ -345,6 +364,72 @@ export function isCheckOrganizationPermissionResponse(
   return typeof value["allowed"] === "boolean";
 }
 
+export function isOrganizationMemberPermissionGrant(
+  value: unknown,
+): value is OrganizationMemberPermissionGrant {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (!isOrganizationAdminPermission(value["permission"])) {
+    return false;
+  }
+  if (!isGrantSource(value["grant_source"])) {
+    return false;
+  }
+  return typeof value["granted_by_account_id"] === "string";
+}
+
+export function isOrganizationMemberView(
+  value: unknown,
+): value is OrganizationMemberView {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  if (typeof value["account_id"] !== "string") {
+    return false;
+  }
+  if (typeof value["identifier"] !== "string") {
+    return false;
+  }
+  if (typeof value["joined_at"] !== "string") {
+    return false;
+  }
+  const grants = value["granted_permissions"];
+  if (!Array.isArray(grants)) {
+    return false;
+  }
+  return grants.every((grant) => isOrganizationMemberPermissionGrant(grant));
+}
+
+export function isListOrganizationMembersResponse(
+  value: unknown,
+): value is ListOrganizationMembersResponse {
+  if (!isObjectRecord(value)) {
+    return false;
+  }
+  const members = value["members"];
+  if (!Array.isArray(members)) {
+    return false;
+  }
+  if (
+    value["next_cursor"] !== null &&
+    value["next_cursor"] !== undefined &&
+    typeof value["next_cursor"] !== "string"
+  ) {
+    return false;
+  }
+  if (!isOrganizationProofLink(value["proof_link"])) {
+    return false;
+  }
+  if (!isOrganizationSourceLink(value["source_link"])) {
+    return false;
+  }
+  if (!isReadModelFreshness(value["freshness"])) {
+    return false;
+  }
+  return members.every((member) => isOrganizationMemberView(member));
+}
+
 export function decodeOrganizationApiResponse<TBody>(
   response: OrganizationDecodedResponse,
   isSuccessBody: (payload: unknown) => payload is TBody,
@@ -505,6 +590,35 @@ export async function listOrganizationsApi(
     response,
     isListOrganizationsResponse,
     "list organizations",
+  );
+}
+
+export async function listOrganizationMembersApi(
+  orgId: string,
+  request: ListOrganizationMembersApiRequest = {},
+): Promise<OrganizationApiResponse<ListOrganizationMembersResponse>> {
+  const normalizedRequest = buildListOrganizationMembersApiRequest(request);
+  const pathParams = buildListOrganizationMembersApiPath(orgId);
+  const path = ORGANIZATION_API_ROUTES.listMembers.replace(
+    "{org_id}",
+    pathParams.org_id,
+  );
+  const params = new URLSearchParams();
+  params.set(
+    "limit",
+    String(normalizedRequest.limit ?? DEFAULT_ORGANIZATION_LIST_LIMIT),
+  );
+  if (normalizedRequest.cursor) {
+    params.set("cursor", normalizedRequest.cursor);
+  }
+  const response = await callOrganizationApi(
+    "GET",
+    `${path}?${params.toString()}`,
+  );
+  return decodeOrganizationApiResponse(
+    response,
+    isListOrganizationMembersResponse,
+    "list organization members",
   );
 }
 
