@@ -6,11 +6,22 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod approval_policy;
 pub mod organization;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use approval_policy::{
+    ApprovalPolicyFailureReason, ApprovalPolicyId, ApprovalPolicyView, ApprovalRequirement,
+    ApprovalRuleView, CreateApprovalPolicyRequest, CreateApprovalPolicyResponse,
+    DeleteApprovalPolicyRequest, DeleteApprovalPolicyResponse, GatedAction,
+    ListApprovalPoliciesRequest, ListApprovalPoliciesResponse,
+    ORGANIZATION_APPROVAL_POLICY_CREATE_BEHAVIOR_ID,
+    ORGANIZATION_APPROVAL_POLICY_DELETE_BEHAVIOR_ID, ORGANIZATION_APPROVAL_POLICY_LIST_BEHAVIOR_ID,
+    ORGANIZATION_APPROVAL_POLICY_UPDATE_BEHAVIOR_ID, UpdateApprovalPolicyRequest,
+    UpdateApprovalPolicyResponse,
 };
 pub use organization::{
     CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionRequest,
