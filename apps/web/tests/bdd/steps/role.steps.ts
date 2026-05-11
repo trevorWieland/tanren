@@ -6,15 +6,20 @@ import type {
   PermissionGrantId,
   PermissionGrantView,
   PermissionScope,
+  PrincipalRef,
   RoleFailureCode,
   RoleScope,
+  ScopedRole,
 } from "../../../src/app/lib/generated/role-contract";
 import {
   asAccountId,
   asOrgId,
+  asRoleId,
   isRoleServerFailureCode,
   parseApplyRoleResponse,
   parsePermissionCheckResponse,
+  parseRoleCapabilitySnapshot,
+  parseRoleReadModelResponse,
 } from "../../../src/app/lib/generated/role-contract";
 
 interface PrincipalAccount {
@@ -528,6 +533,197 @@ Then(
       throw new Error(
         `unexpected role failure code: expected ${code}, got ${actual}`,
       );
+    }
+  },
+);
+
+When(
+  "{int} concurrent applications apply the role template to account principal {word}",
+  async ({ page, world }, count: number, alias: string) => {
+    const scope = roleScope(world);
+    const roleId = requiredActiveRoleId(world);
+    const principal = await ensureScenarioPrincipalAccount(page, world, alias);
+    const grantScope = permissionScopeFromRoleScope(scope);
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const cookies = await page.context().cookies();
+
+    const body = {
+      role: { role_id: asRoleId(roleId), scope } satisfies ScopedRole,
+      principal: {
+        principal: "account",
+        account_id: asAccountId(principal.accountId),
+      } satisfies PrincipalRef,
+      grant_scope: grantScope,
+    };
+
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+
+    const capabilitiesResponse = await fetch(`${apiUrl}/roles/capabilities`, {
+      method: "GET",
+      headers: { cookie: cookieHeader },
+    });
+    if (!capabilitiesResponse.ok) {
+      throw new Error(
+        `capabilities request failed: ${capabilitiesResponse.status} ${await capabilitiesResponse.text()}`,
+      );
+    }
+    const capabilitiesPayload = (await capabilitiesResponse.json()) as unknown;
+    const capabilitiesSnapshot =
+      parseRoleCapabilitySnapshot(capabilitiesPayload);
+    const csrfToken = capabilitiesSnapshot.csrf_token;
+
+    const requests = Array.from({ length: count }, () =>
+      fetch(`${apiUrl}/roles/apply`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          cookie: cookieHeader,
+          "x-csrf-token": csrfToken,
+        },
+        body: JSON.stringify(body),
+      }),
+    );
+
+    const responses = await Promise.all(requests);
+    const outcomes: Array<{ ok: boolean; grants: PermissionGrantView[] }> = [];
+    for (const response of responses) {
+      if (!response.ok) {
+        throw new Error(
+          `concurrent apply-role returned ${response.status}: ${await response.text()}`,
+        );
+      }
+      const payload = (await response.json()) as unknown;
+      const parsed = parseApplyRoleResponse(payload);
+      outcomes.push({ ok: true, grants: parsed.grants });
+    }
+
+    for (let i = 0; i < outcomes.length; i += 1) {
+      if (!outcomes[i]?.ok) {
+        throw new Error(`concurrent apply ${i} failed unexpectedly`);
+      }
+    }
+
+    const readModelGrants = await readDirectGrants(
+      apiUrl,
+      cookieHeader,
+      {
+        principal: "account",
+        account_id: asAccountId(principal.accountId),
+      } satisfies PrincipalRef,
+      grantScope,
+      scope,
+    );
+    const grantIds = grantIdsByPermission(readModelGrants);
+    world.grantIdsByAlias.set(alias, new Map(grantIds));
+    const existingSnapshots = world.applyGrantSnapshots.get(alias);
+    if (existingSnapshots !== undefined) {
+      existingSnapshots.push(new Map(grantIds));
+    } else {
+      world.applyGrantSnapshots.set(alias, [new Map(grantIds)]);
+    }
+    world.lastErrorCode = undefined;
+    world.lastPermissionCheck = undefined;
+  },
+);
+
+Then(
+  "exactly one direct grant per permission exists for account principal {word} with permissions {string}",
+  async ({ page, world }, alias: string, permissions: string) => {
+    const principal = await ensureScenarioPrincipalAccount(page, world, alias);
+    const expected = parsePermissionsCsv(permissions);
+    const scope = roleScope(world);
+    const grantScope = permissionScopeFromRoleScope(scope);
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const cookies = await page.context().cookies();
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+
+    const grants = await readDirectGrants(
+      apiUrl,
+      cookieHeader,
+      {
+        principal: "account",
+        account_id: asAccountId(principal.accountId),
+      } satisfies PrincipalRef,
+      grantScope,
+      scope,
+    );
+
+    if (grants.length !== expected.length) {
+      throw new Error(
+        `concurrent apply must produce exactly one grant per permission, got ${grants.length} grants for ${expected.length} permissions`,
+      );
+    }
+
+    const actualPermissions = new Set(
+      grants.map((g) => normalizePermissions([g.permission])[0] ?? ""),
+    );
+    const expectedPermissions = new Set(expected);
+    if (actualPermissions.size !== expectedPermissions.size) {
+      throw new Error(
+        `grant permission set size mismatch: expected ${expectedPermissions.size}, got ${actualPermissions.size}`,
+      );
+    }
+    for (const permission of expectedPermissions) {
+      if (!actualPermissions.has(permission)) {
+        throw new Error(`missing permission in grants: ${permission}`);
+      }
+    }
+  },
+);
+
+Then(
+  "the direct grant ids for account principal {word} match across {int} repeated observations of permissions {string}",
+  async (
+    { page, world },
+    alias: string,
+    observationCount: number,
+    permissions: string,
+  ) => {
+    const principal = await ensureScenarioPrincipalAccount(page, world, alias);
+    const expected = parsePermissionsCsv(permissions);
+    const expectedSet = new Set(expected);
+    const scope = roleScope(world);
+    const grantScope = permissionScopeFromRoleScope(scope);
+    const apiUrl =
+      process.env["NEXT_PUBLIC_API_URL"] ?? "http://127.0.0.1:8081";
+    const cookies = await page.context().cookies();
+    const cookieHeader = cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+
+    const initial = world.grantIdsByAlias.get(alias);
+    if (initial === undefined) {
+      throw new Error(
+        "initial grant ids must be recorded from concurrent apply",
+      );
+    }
+
+    for (let obs = 1; obs <= observationCount; obs += 1) {
+      const grants = await readDirectGrants(
+        apiUrl,
+        cookieHeader,
+        {
+          principal: "account",
+          account_id: asAccountId(principal.accountId),
+        } satisfies PrincipalRef,
+        grantScope,
+        scope,
+      );
+      const current = grantIdsByPermission(grants);
+      const currentPermissions = new Set(current.keys());
+      if (currentPermissions.size !== expectedSet.size) {
+        throw new Error(
+          `observation ${obs} permission count mismatch: expected ${expectedSet.size}, got ${currentPermissions.size}`,
+        );
+      }
+      for (const permission of expectedSet) {
+        if (!currentPermissions.has(permission)) {
+          throw new Error(
+            `observation ${obs} missing permission '${permission}'`,
+          );
+        }
+      }
+      assertGrantSnapshotEqual(current, initial, `observation ${obs}`);
     }
   },
 );
@@ -1180,6 +1376,40 @@ async function waitForApiResponse(
       return false;
     }
   });
+}
+
+async function readDirectGrants(
+  apiUrl: string,
+  cookieHeader: string,
+  grantPrincipal: PrincipalRef,
+  grantScope: PermissionScope,
+  roleScope: RoleScope,
+): Promise<PermissionGrantView[]> {
+  const request = {
+    role_scope: roleScope,
+    role_cursor: null,
+    role_limit: null,
+    grant_principal: grantPrincipal,
+    grant_scope: grantScope,
+    grant_cursor: null,
+    grant_limit: null,
+  };
+  const response = await fetch(`${apiUrl}/roles/read-model`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      cookie: cookieHeader,
+    },
+    body: JSON.stringify(request),
+  });
+  if (!response.ok) {
+    throw new Error(
+      `read-model request failed: ${response.status} ${await response.text()}`,
+    );
+  }
+  const payload = (await response.json()) as unknown;
+  const parsed = parseRoleReadModelResponse(payload);
+  return parsed.direct_grants;
 }
 
 async function waitForHydration(
