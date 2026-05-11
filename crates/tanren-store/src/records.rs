@@ -9,11 +9,15 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
+    AccountId, DesignatedHost, Identifier, InvitationToken, MembershipId, OrgId, ProjectId,
+    ProviderFamily, RepositoryRef, SessionToken,
 };
 
 use crate::entity;
-use crate::{StoreError, parse_db_identifier, parse_db_invitation_token};
+use crate::{
+    StoreError, parse_db_designated_host, parse_db_identifier, parse_db_invitation_token,
+    parse_db_project_id, parse_db_provider_family, parse_db_repository_ref,
+};
 
 /// Persisted account row, exposed as a typed envelope so other crates
 /// never see `SeaORM` `Model` types directly. R-0001 stores the
@@ -106,6 +110,130 @@ impl From<entity::memberships::Model> for MembershipRecord {
     }
 }
 
+/// Persisted project row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRecord {
+    /// Stable project id.
+    pub id: ProjectId,
+    /// Account that owns the project.
+    pub owning_account_id: AccountId,
+    /// Wall-clock time the project was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the project was selected as active, if active.
+    pub active_selected_at: Option<DateTime<Utc>>,
+}
+
+impl TryFrom<entity::projects::Model> for ProjectRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::projects::Model) -> Result<Self, Self::Error> {
+        let id = parse_db_project_id(model.id, "projects.id")?;
+        Ok(Self {
+            id,
+            owning_account_id: AccountId::new(model.owning_account_id),
+            created_at: model.created_at,
+            active_selected_at: model.active_selected_at,
+        })
+    }
+}
+
+/// Persisted project repository row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectRepositoryRecord {
+    /// Project bound to this repository.
+    pub project_id: ProjectId,
+    /// Account that owns the project/repository binding.
+    pub owning_account_id: AccountId,
+    /// Canonical repository identity (`owner/name`).
+    pub repository_ref: RepositoryRef,
+    /// Source-control provider family for this binding.
+    pub provider_family: ProviderFamily,
+    /// Designated host key used for repository operations.
+    pub designated_host: DesignatedHost,
+    /// Stable provider remote id for this repository identity.
+    pub provider_remote_id: String,
+    /// Stable provider remote URL for this repository identity.
+    pub provider_remote_url: Option<String>,
+    /// Wall-clock time the binding was created.
+    pub created_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::project_repositories::Model> for ProjectRepositoryRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::project_repositories::Model) -> Result<Self, Self::Error> {
+        let repository_ref = parse_db_repository_ref(&model.repository_ref)?;
+        let provider_family = parse_db_provider_family(&model.provider_family)?;
+        let designated_host = parse_db_designated_host(&model.designated_host)?;
+        let project_id = parse_db_project_id(model.project_id, "project_repositories.project_id")?;
+        Ok(Self {
+            project_id,
+            owning_account_id: AccountId::new(model.owning_account_id),
+            repository_ref,
+            provider_family,
+            designated_host,
+            provider_remote_id: model.provider_remote_id,
+            provider_remote_url: model.provider_remote_url,
+            created_at: model.created_at,
+        })
+    }
+}
+
+/// Persisted project-command reservation row.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectCommandReservationRecord {
+    /// Account that owns the command key.
+    pub owning_account_id: AccountId,
+    /// Source-control provider family for this key.
+    pub provider_family: ProviderFamily,
+    /// Canonical repository identity (`owner/name`) for this key.
+    pub repository_ref: RepositoryRef,
+    /// Reservation status (`pending`, `succeeded`, `failed`).
+    pub status: String,
+    /// Active reservation attempt id, when status is `pending`.
+    pub active_reservation_id: Option<ProjectId>,
+    /// Timestamp when the active reservation was acquired.
+    pub reserved_at: Option<DateTime<Utc>>,
+    /// Lease-expiration timestamp for pending reservations.
+    pub lease_expires_at: Option<DateTime<Utc>>,
+    /// Consecutive failed-attempt counter.
+    pub failure_count: i32,
+    /// Optional temporary backoff-until timestamp.
+    pub blocked_until: Option<DateTime<Utc>>,
+    /// Row creation timestamp.
+    pub created_at: DateTime<Utc>,
+    /// Last row update timestamp.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::project_command_reservations::Model> for ProjectCommandReservationRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::project_command_reservations::Model) -> Result<Self, Self::Error> {
+        let provider_family = parse_db_provider_family(&model.provider_family)?;
+        let repository_ref = parse_db_repository_ref(&model.repository_ref)?;
+        let active_reservation_id = model
+            .active_reservation_id
+            .map(|value| {
+                parse_db_project_id(value, "project_command_reservations.active_reservation_id")
+            })
+            .transpose()?;
+        Ok(Self {
+            owning_account_id: AccountId::new(model.owning_account_id),
+            provider_family,
+            repository_ref,
+            status: model.status,
+            active_reservation_id,
+            reserved_at: model.reserved_at,
+            lease_expires_at: model.lease_expires_at,
+            failure_count: model.failure_count,
+            blocked_until: model.blocked_until,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
+}
+
 /// Persisted session row — issued by `tanren-app-services` on
 /// successful sign-up / sign-in / invitation acceptance.
 ///
@@ -164,4 +292,55 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Input shape for [`crate::ProjectStore::insert_project`].
+#[derive(Debug, Clone)]
+pub struct NewProject {
+    /// Stable id allocated by the caller (`UUIDv7`).
+    pub id: ProjectId,
+    /// Account that owns the project.
+    pub owning_account_id: AccountId,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+    /// Active-selection timestamp. `None` means inactive.
+    pub active_selected_at: Option<DateTime<Utc>>,
+}
+
+/// Input shape for [`crate::ProjectStore::insert_project_repository`].
+#[derive(Debug, Clone)]
+pub struct NewProjectRepository {
+    /// Project bound to this repository.
+    pub project_id: ProjectId,
+    /// Account that owns the binding.
+    pub owning_account_id: AccountId,
+    /// Canonical repository identity (`owner/name`).
+    pub repository_ref: RepositoryRef,
+    /// Source-control provider family for this binding.
+    pub provider_family: ProviderFamily,
+    /// Designated host key used for repository operations.
+    pub designated_host: DesignatedHost,
+    /// Stable provider remote id for this repository identity.
+    pub provider_remote_id: String,
+    /// Stable provider remote URL for this repository identity.
+    pub provider_remote_url: Option<String>,
+    /// Wall-clock creation time.
+    pub created_at: DateTime<Utc>,
+}
+
+/// Read model for project setup/listing surfaces.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectSetupRecord {
+    /// Project row data.
+    pub project: ProjectRecord,
+    /// Repository bound to the project.
+    pub repository: ProjectRepositoryRecord,
+    /// Whether the project is currently active for the owning account.
+    pub is_active: bool,
+    /// Count of specs in the project.
+    pub spec_count: u64,
+    /// Count of milestones in the project.
+    pub milestone_count: u64,
+    /// Count of initiatives in the project.
+    pub initiative_count: u64,
 }

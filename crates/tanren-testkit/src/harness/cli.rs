@@ -1,15 +1,14 @@
-//! `@cli` harness — shells out to the `tanren-cli` binary against a
-//! per-scenario `SQLite` file.
-//!
-//! The harness owns the database file, applies migrations once at
-//! construction, and reads recent events directly via its own
-//! `Store` handle. Each sign-up / sign-in / accept-invitation step
-//! spawns a `tanren-cli account ...` subprocess and parses the
-//! `account_id=... session=...` line from stdout.
+//! `@cli` harness using subprocess calls to `tanren-cli`.
+
+mod project;
 
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::{
+    collections::{HashMap, HashSet},
+    iter,
+};
 
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
@@ -17,23 +16,32 @@ use regex::Regex;
 use secrecy::ExposeSecret;
 use tanren_app_services::Store;
 use tanren_contract::{AcceptInvitationRequest, AccountView, SignInRequest, SignUpRequest};
-use tanren_identity_policy::{AccountId, Identifier, OrgId};
+use tanren_identity_policy::{AccountId, DesignatedHost, Identifier, OrgId, RepositoryRef};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 use tokio::process::Command;
 use uuid::Uuid;
 
-use super::api::{code_to_reason, scenario_db_path, sqlite_url};
+use super::api::{code_to_reason, project_code_to_reason, scenario_db_path, sqlite_url};
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
     HarnessSession,
 };
 
-/// `@cli` wire harness.
+const ACCOUNT_PASSWORD_ENV: &str = "TANREN_ACCOUNT_PASSWORD";
+
 pub struct CliHarness {
     store: Arc<Store>,
     db_path: PathBuf,
     db_url: String,
     binary: PathBuf,
+    session_file: PathBuf,
+    provider_reachable: bool,
+    reachable_hosts: HashSet<String>,
+    repository_access: HashSet<(AccountId, RepositoryRef)>,
+    host_create_access: HashSet<(AccountId, String)>,
+    fail_repository_create: bool,
+    created_repositories: HashSet<(String, RepositoryRef)>,
+    session_tokens: HashMap<AccountId, String>,
 }
 
 impl std::fmt::Debug for CliHarness {
@@ -46,14 +54,6 @@ impl std::fmt::Debug for CliHarness {
 }
 
 impl CliHarness {
-    /// Construct a fresh CLI harness. Connects + migrates a per-
-    /// scenario `SQLite` database and locates the `tanren-cli` binary
-    /// alongside the running BDD executable.
-    ///
-    /// # Errors
-    ///
-    /// Returns an error if the database cannot be initialized or the
-    /// binary is missing from the expected target directory.
     pub async fn spawn() -> HarnessResult<Self> {
         let db_path = scenario_db_path("cli");
         let db_url = sqlite_url(&db_path);
@@ -67,19 +67,122 @@ impl CliHarness {
         let store = Arc::new(store);
 
         let binary = locate_workspace_binary("tanren-cli")?;
+        let session_file = db_path.with_extension("session");
 
         Ok(Self {
             store,
             db_path,
             db_url,
             binary,
+            session_file,
+            provider_reachable: true,
+            reachable_hosts: HashSet::new(),
+            repository_access: HashSet::new(),
+            host_create_access: HashSet::new(),
+            fail_repository_create: false,
+            created_repositories: HashSet::new(),
+            session_tokens: HashMap::new(),
         })
+    }
+
+    pub(crate) fn session_token_for(&self, account_id: AccountId) -> Option<&str> {
+        self.session_tokens.get(&account_id).map(String::as_str)
+    }
+
+    pub(crate) fn project_provider_fixture_env_value(&self) -> String {
+        let mut reachable_hosts = self.reachable_hosts.iter().cloned().collect::<Vec<_>>();
+        reachable_hosts.sort_unstable();
+        let mut repo_access = self
+            .repository_access
+            .iter()
+            .map(|(account, repository)| format!("{account}@{}", repository.as_str()))
+            .collect::<Vec<_>>();
+        repo_access.sort_unstable();
+        let mut host_create_access = self
+            .host_create_access
+            .iter()
+            .map(|(account, host)| format!("{account}@{host}"))
+            .collect::<Vec<_>>();
+        host_create_access.sort_unstable();
+        let provider_reachable = if self.provider_reachable { "1" } else { "0" };
+        let fail_repository_create = if self.fail_repository_create {
+            "1"
+        } else {
+            "0"
+        };
+        iter::once("fixture-v1".to_owned())
+            .chain(iter::once(format!(
+                "provider_reachable={provider_reachable}"
+            )))
+            .chain(iter::once(format!(
+                "fail_repository_create={fail_repository_create}"
+            )))
+            .chain(iter::once(format!(
+                "reachable_hosts={}",
+                reachable_hosts.join("|")
+            )))
+            .chain(iter::once(format!("repo_access={}", repo_access.join("|"))))
+            .chain(iter::once(format!(
+                "host_create_access={}",
+                host_create_access.join("|")
+            )))
+            .collect::<Vec<_>>()
+            .join(";")
+    }
+
+    pub(crate) fn configure_repository_access(
+        &mut self,
+        actor_account_id: AccountId,
+        repository: RepositoryRef,
+        allowed: bool,
+    ) {
+        let pair = (actor_account_id, repository);
+        if allowed {
+            self.repository_access.insert(pair);
+        } else {
+            self.repository_access.remove(&pair);
+        }
+    }
+
+    pub(crate) fn configure_designated_host_create_access(
+        &mut self,
+        actor_account_id: AccountId,
+        host: &DesignatedHost,
+        allowed: bool,
+    ) {
+        let normalized_host = host.as_str().to_owned();
+        self.reachable_hosts.insert(normalized_host.clone());
+        let pair = (actor_account_id, normalized_host);
+        if allowed {
+            self.host_create_access.insert(pair);
+        } else {
+            self.host_create_access.remove(&pair);
+        }
+    }
+
+    pub(crate) fn record_created_repository(
+        &mut self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) {
+        self.created_repositories
+            .insert((host.as_str().to_owned(), repository.clone()));
+    }
+
+    pub(crate) fn observed_repository_created_at_host(
+        &self,
+        host: &DesignatedHost,
+        repository: &RepositoryRef,
+    ) -> bool {
+        self.created_repositories
+            .contains(&(host.as_str().to_owned(), repository.clone()))
     }
 }
 
 impl Drop for CliHarness {
     fn drop(&mut self) {
         let _ = std::fs::remove_file(&self.db_path);
+        let _ = std::fs::remove_file(&self.session_file);
     }
 }
 
@@ -91,6 +194,8 @@ impl AccountHarness for CliHarness {
 
     async fn sign_up(&mut self, req: SignUpRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .env(ACCOUNT_PASSWORD_ENV, req.password.expose_secret())
             .args([
                 "account",
                 "create",
@@ -98,8 +203,6 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--identifier",
                 req.email.as_str(),
-                "--password",
-                req.password.expose_secret(),
                 "--display-name",
                 &req.display_name,
             ])
@@ -113,18 +216,25 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), &req.display_name).map(|(account, has_token)| {
-            HarnessSession {
-                account_id: account.id,
-                account,
-                expires_at: Utc::now() + Duration::days(30),
-                has_token,
-            }
-        })
+        parse_session(&stdout, req.email.as_str(), &req.display_name).map(
+            |(account, has_token, token)| {
+                if let Some(token) = token {
+                    self.session_tokens.insert(account.id, token);
+                }
+                HarnessSession {
+                    account_id: account.id,
+                    account,
+                    expires_at: Utc::now() + Duration::days(30),
+                    has_token,
+                }
+            },
+        )
     }
 
     async fn sign_in(&mut self, req: SignInRequest) -> HarnessResult<HarnessSession> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .env(ACCOUNT_PASSWORD_ENV, req.password.expose_secret())
             .args([
                 "account",
                 "sign-in",
@@ -132,8 +242,6 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--identifier",
                 req.email.as_str(),
-                "--password",
-                req.password.expose_secret(),
             ])
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
@@ -145,11 +253,16 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token)| HarnessSession {
-            account_id: account.id,
-            account,
-            expires_at: Utc::now() + Duration::days(30),
-            has_token,
+        parse_session(&stdout, req.email.as_str(), "").map(|(account, has_token, token)| {
+            if let Some(token) = token {
+                self.session_tokens.insert(account.id, token);
+            }
+            HarnessSession {
+                account_id: account.id,
+                account,
+                expires_at: Utc::now() + Duration::days(30),
+                has_token,
+            }
         })
     }
 
@@ -158,6 +271,8 @@ impl AccountHarness for CliHarness {
         req: AcceptInvitationRequest,
     ) -> HarnessResult<HarnessAcceptance> {
         let output = Command::new(&self.binary)
+            .env("TANREN_SESSION_FILE", &self.session_file)
+            .env(ACCOUNT_PASSWORD_ENV, req.password.expose_secret())
             .args([
                 "account",
                 "create",
@@ -165,8 +280,6 @@ impl AccountHarness for CliHarness {
                 &self.db_url,
                 "--identifier",
                 req.email.as_str(),
-                "--password",
-                req.password.expose_secret(),
                 "--display-name",
                 &req.display_name,
                 "--invitation",
@@ -182,12 +295,12 @@ impl AccountHarness for CliHarness {
             return Err(translate_cli_error(&output.stderr));
         }
         let stdout = String::from_utf8_lossy(&output.stdout);
-        let (account, has_token) = parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        let (account, has_token, token) =
+            parse_session(&stdout, req.email.as_str(), &req.display_name)?;
+        if let Some(token) = token {
+            self.session_tokens.insert(account.id, token);
+        }
         let joined_org = parse_joined_org(&stdout)?;
-        // The CLI binary returns the AccountView reconstituted from
-        // the row; re-decorate it with `org = Some(joined_org)` to
-        // mirror the api/in-process surface where the account view
-        // already carries the org id.
         let account = AccountView {
             org: Some(joined_org),
             ..account
@@ -222,9 +335,6 @@ impl AccountHarness for CliHarness {
     }
 }
 
-/// Locate a workspace binary by name. The BDD runner is at
-/// `target/<profile>/tanren-bdd-runner`; sibling binaries live in
-/// the same directory.
 pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if let Ok(explicit) = std::env::var(format!(
         "TANREN_BIN_{}",
@@ -247,8 +357,6 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
     if candidate.exists() {
         return Ok(candidate);
     }
-    // Fallback: walk up to the workspace root and check
-    // `target/{debug,release}/<bin>`.
     let mut cursor = dir;
     while let Some(parent) = cursor.parent() {
         for profile in ["debug", "release"] {
@@ -270,14 +378,15 @@ pub(crate) fn locate_workspace_binary(name: &str) -> HarnessResult<PathBuf> {
 
 fn translate_cli_error(stderr: &[u8]) -> HarnessError {
     let text = String::from_utf8_lossy(stderr);
-    // CLI emits `error: <code> — <summary>` per
-    // crates/tanren-cli-app/src/lib.rs::account_error.
     let re = Regex::new(r"error:\s*([a-z_]+)\s*—\s*(.*)").expect("constant regex");
     if let Some(captures) = re.captures(&text) {
         let code = captures.get(1).map_or("", |m| m.as_str());
         let summary = captures.get(2).map_or("", |m| m.as_str()).trim().to_owned();
         if let Some(reason) = code_to_reason(code) {
             return HarnessError::Account(reason, summary);
+        }
+        if let Some(reason) = project_code_to_reason(code) {
+            return HarnessError::Project(reason, summary);
         }
     }
     HarnessError::Transport(text.into_owned())
@@ -287,17 +396,15 @@ fn parse_session(
     stdout: &str,
     email: &str,
     display_name: &str,
-) -> HarnessResult<(AccountView, bool)> {
+) -> HarnessResult<(AccountView, bool, Option<String>)> {
     let re = Regex::new(r"account_id=([0-9a-fA-F-]+)\s+session=([^\s]+)").expect("constant regex");
     let captures = re
         .captures(stdout)
         .ok_or_else(|| HarnessError::Transport(format!("could not parse cli stdout: {stdout}")))?;
     let id_raw = captures.get(1).map_or("", |m| m.as_str());
     let token = captures.get(2).map_or("", |m| m.as_str());
-    let id = AccountId::from(
-        Uuid::parse_str(id_raw)
-            .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?,
-    );
+    let id = AccountId::parse(id_raw)
+        .map_err(|e| HarnessError::Transport(format!("parse account id: {e}")))?;
     let identifier = Identifier::from_email(
         &tanren_identity_policy::Email::parse(email)
             .map_err(|e| HarnessError::Transport(format!("parse email: {e}")))?,
@@ -312,7 +419,12 @@ fn parse_session(
         },
         org: None,
     };
-    Ok((account, !token.is_empty()))
+    let parsed_token = if token.is_empty() {
+        None
+    } else {
+        Some(token.to_owned())
+    };
+    Ok((account, !token.is_empty(), parsed_token))
 }
 
 fn parse_joined_org(stdout: &str) -> HarnessResult<OrgId> {

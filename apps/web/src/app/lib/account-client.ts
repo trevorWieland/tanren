@@ -1,82 +1,44 @@
-import * as m from "@/i18n/paraglide/messages";
+import * as v from "valibot";
+
+import {
+  signUpRequestSchema,
+  signUpResponseSchema,
+  signInRequestSchema,
+  signInResponseSchema,
+  acceptInvitationRequestSchema,
+  acceptInvitationResponseSchema,
+} from "@/app/lib/api-contract-valibot.gen";
+import {
+  accountApiPaths,
+  accountFailureCodes,
+  type AcceptInvitationInput,
+  type AcceptInvitationResult,
+  type AccountFailure,
+  type SignInInput,
+  type SignInResult,
+  type SignUpInput,
+  type SignUpResult,
+} from "@/app/lib/contracts";
+import {
+  parseFailureResponse,
+  renderFailureEnvelope,
+  unavailableFailure,
+  type FailureEnvelope,
+} from "@/app/lib/failure";
 
 const API_URL = process.env["NEXT_PUBLIC_API_URL"] ?? "http://localhost:8080";
 
-export interface SignUpInput {
-  email: string;
-  password: string;
-  display_name: string;
-}
-
-export interface SignInInput {
-  email: string;
-  password: string;
-}
-
-export interface AcceptInvitationInput {
-  email: string;
-  invitation_token: string;
-  password: string;
-  display_name: string;
-}
-
-export interface AccountView {
-  id: string;
-  identifier: string;
-  display_name: string;
-  org: string | null;
-}
-
-/**
- * Cookie transport: API sets an HTTP-only cookie via tower-sessions on
- * sign-up/sign-in/accept-invitation. The body carries metadata only —
- * the session token itself is never readable from JavaScript.
- */
-export interface SessionView {
-  account_id: string;
-  expires_at: string;
-}
-
-export interface SignUpResult {
-  account: AccountView;
-  session: SessionView;
-}
-
-export interface SignInResult {
-  account: AccountView;
-  session: SessionView;
-}
-
-export interface AcceptInvitationResult {
-  account: AccountView;
-  session: SessionView;
-  joined_org: string;
-}
-
-/**
- * Stable wire codes from `AccountFailureReason` in `tanren-contract`.
- * Kept in lock-step with the Rust enum so BDD web steps can match on the
- * same taxonomy regardless of transport.
- */
-export type AccountFailureCode =
-  | "duplicate_identifier"
-  | "invalid_credential"
-  | "invitation_not_found"
-  | "invitation_already_consumed"
-  | "invitation_expired"
-  | "validation_failed"
-  | "unavailable"
-  | "internal_error";
-
-export interface AccountFailure {
-  code: AccountFailureCode | string;
-  summary: string;
-}
-
-interface FailureBody {
-  code?: unknown;
-  summary?: unknown;
-}
+export type {
+  AcceptInvitationInput,
+  AcceptInvitationResult,
+  AccountFailure,
+  AccountView,
+  SessionView,
+  SignInInput,
+  SignInResult,
+  SignUpInput,
+  SignUpResult,
+} from "@/app/lib/contracts";
 
 /**
  * Map an `AccountFailure` to a localized message via paraglide. Falls back
@@ -84,16 +46,7 @@ interface FailureBody {
  * so unknown failure codes still surface something meaningful.
  */
 export function describeFailure(failure: AccountFailure): string {
-  const key = `failure_${failure.code}`;
-  const lookup = m as unknown as Record<string, (() => string) | undefined>;
-  const fn = lookup[key];
-  if (typeof fn === "function") {
-    return fn();
-  }
-  if (failure.summary !== "") {
-    return failure.summary;
-  }
-  return m.failure_fallback();
+  return renderFailureEnvelope(failure);
 }
 
 export class AccountRequestError extends Error {
@@ -106,7 +59,56 @@ export class AccountRequestError extends Error {
   }
 }
 
-async function postJson<T>(path: string, body: unknown): Promise<T> {
+function isAccountFailureCode(code: string): code is AccountFailure["code"] {
+  return (accountFailureCodes as readonly string[]).includes(code);
+}
+
+function toAccountFailure(failure: FailureEnvelope): AccountFailure {
+  if (isAccountFailureCode(failure.code)) {
+    return {
+      code: failure.code,
+      summary: failure.summary,
+    };
+  }
+  return {
+    code: "internal_error",
+    summary: failure.summary || "Request failed.",
+  };
+}
+
+function parseAccountResponse<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> {
+  const result = v.safeParse(schema, payload);
+  if (result.success) {
+    return result.output;
+  }
+  throw new AccountRequestError({
+    code: "internal_error",
+    summary: "Response body does not match account contract.",
+  });
+}
+
+function parseAccountInput<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(schema: TSchema, payload: unknown): v.InferOutput<TSchema> {
+  const result = v.safeParse(schema, payload);
+  if (result.success) {
+    return result.output;
+  }
+  throw new AccountRequestError({
+    code: "validation_failed",
+    summary: "Request body does not match account contract.",
+  });
+}
+
+async function postJson<
+  TSchema extends v.BaseSchema<unknown, unknown, v.BaseIssue<unknown>>,
+>(
+  path: string,
+  body: unknown,
+  schema: TSchema,
+): Promise<v.InferOutput<TSchema>> {
   let response: Response;
   try {
     response = await fetch(`${API_URL}${path}`, {
@@ -118,49 +120,48 @@ async function postJson<T>(path: string, body: unknown): Promise<T> {
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    throw new AccountRequestError(toAccountFailure(unavailableFailure(cause)));
   }
 
   if (!response.ok) {
-    let parsed: FailureBody = {};
-    try {
-      parsed = (await response.json()) as FailureBody;
-    } catch {
-      parsed = {};
-    }
-    const code =
-      typeof parsed.code === "string" ? parsed.code : "internal_error";
-    const summary =
-      typeof parsed.summary === "string"
-        ? parsed.summary
-        : `HTTP ${response.status}`;
-    throw new AccountRequestError({ code, summary });
+    const failureEnvelope = await parseFailureResponse(response);
+    throw new AccountRequestError(toAccountFailure(failureEnvelope));
   }
 
-  return (await response.json()) as T;
+  let payload: unknown;
+  try {
+    payload = (await response.json()) as unknown;
+  } catch {
+    throw new AccountRequestError({
+      code: "internal_error",
+      summary: `HTTP ${response.status}`,
+    });
+  }
+  return parseAccountResponse(schema, payload);
 }
 
 export function signUp(input: SignUpInput): Promise<SignUpResult> {
-  return postJson<SignUpResult>("/accounts", input);
+  const parsedInput = parseAccountInput(signUpRequestSchema, input);
+  return postJson(accountApiPaths.signUp, parsedInput, signUpResponseSchema);
 }
 
 export function signIn(input: SignInInput): Promise<SignInResult> {
-  return postJson<SignInResult>("/sessions", input);
+  const parsedInput = parseAccountInput(signInRequestSchema, input);
+  return postJson(accountApiPaths.signIn, parsedInput, signInResponseSchema);
 }
 
 export function acceptInvitation(
   token: string,
-  input: Omit<AcceptInvitationInput, "invitation_token">,
+  input: AcceptInvitationInput,
 ): Promise<AcceptInvitationResult> {
-  const path = `/invitations/${encodeURIComponent(token)}/accept`;
-  return postJson<AcceptInvitationResult>(path, {
+  const pathTemplate = accountApiPaths.acceptInvitation;
+  const path = pathTemplate.replace("{token}", encodeURIComponent(token));
+  const parsedInput = parseAccountInput(acceptInvitationRequestSchema, {
     email: input.email,
     password: input.password,
     display_name: input.display_name,
   });
+  return postJson(path, parsedInput, acceptInvitationResponseSchema);
 }
 
 /**
@@ -170,20 +171,15 @@ export function acceptInvitation(
 export async function signOut(): Promise<void> {
   let response: Response;
   try {
-    response = await fetch(`${API_URL}/sessions/revoke`, {
+    response = await fetch(`${API_URL}${accountApiPaths.revokeSession}`, {
       method: "POST",
       credentials: "include",
     });
   } catch (cause: unknown) {
-    throw new AccountRequestError({
-      code: "unavailable",
-      summary: cause instanceof Error ? cause.message : String(cause),
-    });
+    throw new AccountRequestError(toAccountFailure(unavailableFailure(cause)));
   }
   if (!response.ok) {
-    throw new AccountRequestError({
-      code: "internal_error",
-      summary: `HTTP ${response.status}`,
-    });
+    const failureEnvelope = await parseFailureResponse(response);
+    throw new AccountRequestError(toAccountFailure(failureEnvelope));
   }
 }

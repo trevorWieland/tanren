@@ -38,6 +38,7 @@
 
 mod cookies;
 mod errors;
+mod openapi_security;
 mod routes;
 // test_hooks must be visible in any compilation that exposes
 // `build_app_with_store` (i.e. `cargo test -p tanren-api-app` in addition
@@ -54,6 +55,11 @@ use axum::Json;
 use axum::http::{HeaderValue, header};
 use secrecy::SecretString;
 use tanren_app_services::{Handlers, Store};
+use tanren_provider_integrations::SourceControlProvider;
+#[cfg(not(feature = "test-hooks"))]
+use tanren_provider_integrations::production_source_control_provider;
+#[cfg(feature = "test-hooks")]
+use tanren_provider_integrations::{FixtureSourceControlConfig, FixtureSourceControlProvider};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
 
@@ -61,18 +67,28 @@ use tower_http::cors::CorsLayer;
 use crate::cookies::session_layer_with_secure;
 use crate::cookies::{SessionLayerEnum, build_cookie_store, session_layer};
 use crate::routes::build_router;
+use secrecy::ExposeSecret;
 
-pub use crate::errors::AccountFailureBody;
+// Re-export the contract-layer failure body types so that routes, the
+// OpenAPI doc generator, and downstream consumers can reference them
+// through the api-app crate without reaching into `tanren_contract`
+// directly. This preserves the pre-refactor public API surface.
 pub use crate::routes::{
     AcceptInvitationBody, AcceptInvitationResponseCookie, HealthResponse, SignInResponseCookie,
     SignUpResponseCookie,
 };
+pub use tanren_contract::{AccountFailureBody, ProjectFailureBody};
 
 const DEFAULT_BIND_ADDRESS: &str = "0.0.0.0:8080";
 const DEFAULT_DEV_ORIGIN: &str = "http://localhost:3000";
 const BIND_ADDRESS_ENV: &str = "TANREN_API_BIND";
 const DATABASE_URL_ENV: &str = "DATABASE_URL";
 const CORS_ORIGINS_ENV: &str = "TANREN_API_CORS_ORIGINS";
+
+#[must_use]
+pub fn openapi_document() -> utoipa::openapi::OpenApi {
+    <routes::ApiDoc as utoipa::OpenApi>::openapi()
+}
 
 /// Configuration for the tanren-api runtime.
 #[derive(Debug, Clone)]
@@ -106,60 +122,78 @@ impl Config {
         let database_url = env::var(DATABASE_URL_ENV).with_context(|| {
             format!("{DATABASE_URL_ENV} must be set so tanren-api can connect to the event store")
         })?;
-        let cors_allow_origins = parse_cors_origins(env::var(CORS_ORIGINS_ENV).ok().as_deref())?;
+        let cors_allow_origins =
+            Self::parse_cors_origins(env::var(CORS_ORIGINS_ENV).ok().as_deref());
         Ok(Self {
             bind,
             database_url: SecretString::from(database_url),
             cors_allow_origins,
         })
     }
-}
 
-fn parse_cors_origins(raw: Option<&str>) -> Result<Vec<HeaderValue>> {
-    let trimmed = raw.map_or("", str::trim);
-    if trimmed.is_empty() {
-        return Ok(vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)]);
-    }
-    let mut out = Vec::new();
-    for token in trimmed.split(',') {
-        let origin = token.trim();
-        if origin.is_empty() {
-            continue;
+    fn parse_cors_origins(raw: Option<&str>) -> Vec<HeaderValue> {
+        let trimmed = raw.map_or("", str::trim);
+        if trimmed.is_empty() {
+            return vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)];
         }
-        let value = HeaderValue::from_str(origin)
-            .with_context(|| format!("parse CORS origin `{origin}` as HeaderValue"))?;
-        out.push(value);
+        let mut out = Vec::new();
+        for token in trimmed.split(',') {
+            let origin = token.trim();
+            if origin.is_empty() {
+                continue;
+            }
+            match HeaderValue::from_str(origin) {
+                Ok(value) => out.push(value),
+                Err(err) => {
+                    tracing::warn!(
+                        target: "tanren_api",
+                        env_var = CORS_ORIGINS_ENV,
+                        origin,
+                        error = %err,
+                        "Ignoring invalid CORS origin"
+                    );
+                }
+            }
+        }
+        if out.is_empty() {
+            return vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)];
+        }
+        out
     }
-    if out.is_empty() {
-        return Ok(vec![HeaderValue::from_static(DEFAULT_DEV_ORIGIN)]);
-    }
-    Ok(out)
 }
 
-#[derive(Clone)]
+/// Shared application state injected into all route handlers.
+#[derive(Debug, Clone)]
 pub(crate) struct AppState {
     pub(crate) handlers: Handlers,
     pub(crate) store: Arc<Store>,
+    pub(crate) source_control: Arc<dyn SourceControlProvider>,
 }
 
-/// Build the axum router and the `OpenAPI` document. Exposed for the BDD
-/// harness; production callers should use [`serve`].
+/// Build an axum router from the [`Config`].
 ///
 /// # Errors
 ///
-/// Returns an error if the database connection cannot be established
-/// or the tower-sessions migrations fail.
+/// Returns an error if the cookie session-store migrations fail.
 pub async fn build_app(config: &Config) -> Result<axum::Router> {
-    use secrecy::ExposeSecret;
     let database_url = config.database_url.expose_secret();
     let store = Arc::new(
         Store::connect(database_url)
             .await
-            .with_context(|| format!("connect to store at {DATABASE_URL_ENV}"))?,
+            .with_context(|| "connect to store")?,
     );
+
+    #[cfg(feature = "test-hooks")]
+    let fixture_source_control =
+        FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
+    #[cfg(feature = "test-hooks")]
+    let source_control: Arc<dyn SourceControlProvider> = Arc::new(fixture_source_control.clone());
+    #[cfg(not(feature = "test-hooks"))]
+    let source_control = production_source_control_provider();
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
+        source_control,
     };
 
     let cookie_store = build_cookie_store(database_url).await?;
@@ -187,7 +221,10 @@ pub async fn build_app(config: &Config) -> Result<axum::Router> {
 
     let merged = router.merge(openapi_router);
     #[cfg(feature = "test-hooks")]
-    let merged = merged.merge(test_hooks::router(store.clone()));
+    let merged = merged.merge(test_hooks::router_with_source_control(
+        store.clone(),
+        fixture_source_control,
+    ));
     let merged = merged.layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),
@@ -230,16 +267,19 @@ pub async fn serve(config: Config) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if the cookie session-store migrations fail.
-#[cfg(any(test, feature = "test-hooks"))]
+#[cfg(feature = "test-hooks")]
 pub async fn build_app_with_store(
     store: Arc<Store>,
     cookie_database_url: &str,
     cors_allow_origins: Vec<HeaderValue>,
     secure_cookie: bool,
+    source_control: Arc<dyn SourceControlProvider>,
+    fixture_source_control: FixtureSourceControlProvider,
 ) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
         store: store.clone(),
+        source_control,
     };
 
     let cookie_store = build_cookie_store(cookie_database_url).await?;
@@ -267,7 +307,10 @@ pub async fn build_app_with_store(
 
     let merged = router
         .merge(openapi_router)
-        .merge(test_hooks::router(store))
+        .merge(test_hooks::router_with_source_control(
+            store,
+            fixture_source_control,
+        ))
         .layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),

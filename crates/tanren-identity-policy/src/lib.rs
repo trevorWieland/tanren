@@ -8,10 +8,12 @@
 //! [`Argon2idVerifier`] as the canonical local-password implementation.
 
 mod argon2_verifier;
+mod project_identity;
 pub mod secret_serde;
 mod session_token;
 
 pub use argon2_verifier::Argon2idVerifier;
+pub use project_identity::{DesignatedHost, ProjectId, ProviderFamily, RepositoryRef};
 pub use session_token::SessionToken;
 
 use chrono::{DateTime, Utc};
@@ -22,26 +24,37 @@ use thiserror::Error;
 use utoipa::ToSchema;
 use uuid::Uuid;
 
-/// Stable identifier for a Tanren account. `UUIDv7` — sortable + unique.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
+const UUID_V7_VERSION: usize = 7;
+
+/// Stable identifier for a Tanren account (`UUIDv7`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct AccountId(Uuid);
 
 impl AccountId {
-    /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
 
-    /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The underlying UUID.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let parsed = Uuid::parse_str(raw).map_err(|_| ValidationError::AccountIdInvalid)?;
+        Self::try_from_uuid(parsed)
+    }
+
+    pub fn try_from_uuid(value: Uuid) -> Result<Self, ValidationError> {
+        if value.get_version_num() != UUID_V7_VERSION {
+            return Err(ValidationError::AccountIdInvalid);
+        }
+        Ok(Self(value))
+    }
+
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
@@ -66,26 +79,28 @@ impl std::fmt::Display for AccountId {
     }
 }
 
-/// Stable identifier for a Tanren organization.
+impl<'de> Deserialize<'de> for AccountId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let raw = Uuid::deserialize(d)?;
+        Self::try_from_uuid(raw).map_err(serde::de::Error::custom)
+    }
+}
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct OrgId(Uuid);
 
 impl OrgId {
-    /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
 
-    /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The underlying UUID.
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
@@ -109,27 +124,22 @@ impl std::fmt::Display for OrgId {
         self.0.fmt(f)
     }
 }
-
-/// Stable identifier for a membership row (links an account to an org).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct MembershipId(Uuid);
 
 impl MembershipId {
-    /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
 
-    /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
 
-    /// The underlying UUID.
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
@@ -153,28 +163,10 @@ impl std::fmt::Display for MembershipId {
         self.0.fmt(f)
     }
 }
-
-/// Validated email address. Constructed via [`Email::parse`] which:
-/// trims surrounding whitespace, validates against RFC 5322 syntax via
-/// the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
-/// quoted local parts), additionally requires a TLD-style domain (no
-/// dotless or IP-literal domains), and canonicalises to lower-case so
-/// case variants of the same address compare equal.
-///
-/// # Wire-input contract
-///
-/// `Email` does NOT derive `Deserialize` — the custom impl below routes
-/// every wire input through [`parse`](Self::parse). Without this,
-/// `#[serde(transparent)]` would let HTTP/MCP/CLI requests carry
-/// untrimmed/un-lowercased/RFC-invalid addresses, which would persist
-/// verbatim via `Identifier::from_email` and let two case variants of
-/// the same logical email register as separate accounts. Codex P1
-/// review on PR #133.
-///
-/// Validation invariants are exercised end-to-end by the @api / @web
-/// scenarios in `tests/bdd/features/B-0043-create-account.feature` —
-/// case-variant rejection and malformed-email rejection both run
-/// through the live wire surface, not through Rust unit tests.
+/// Validated email address.
+// Constructed via Email::parse which trims whitespace, validates RFC 5322
+// syntax (via email_validator_rfc5322 crate), requires a TLD-style domain,
+// and canonicalises to lower-case.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, format = "email")]
@@ -235,19 +227,7 @@ impl std::fmt::Display for Email {
     }
 }
 
-/// User-facing identifier for an account. R-0001's chosen mechanism is
-/// identifier+password where the identifier is the canonical email; the
-/// type wraps the raw string so future mechanisms can lift constraints
-/// in one place.
-///
-/// `Identifier` does NOT derive `Deserialize` — the custom impl below
-/// routes every wire input through [`parse`](Self::parse) so untrimmed
-/// or differently-cased identifiers cannot bypass canonicalisation.
-/// Validation invariants are exercised end-to-end by the @api / @web
-/// scenarios in `tests/bdd/features/B-0043-create-account.feature`
-/// (case-variant rejection, malformed-input rejection); per the
-/// BDD-only test surface policy there are no Rust unit or doc-tests
-/// for these rules.
+/// User-facing identifier for an account.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
@@ -300,18 +280,7 @@ impl std::fmt::Display for Identifier {
 /// Minimum byte length of a valid invitation token.
 const INVITATION_TOKEN_MIN_LEN: usize = 16;
 
-/// Opaque invitation token. R-0001 treats the token as a flat string —
-/// generation/delivery is R-0005's job; here we just verify and consume.
-///
-/// `InvitationToken` does NOT derive `Deserialize` — the custom impl
-/// below routes every wire input through [`parse`](Self::parse) so
-/// short-on-wire tokens are rejected at the contract boundary instead
-/// of reaching the handler. Validation invariants are exercised
-/// end-to-end by the @api / @web scenarios in
-/// `tests/bdd/features/B-0043-create-account.feature` (expired-token
-/// rejection, missing-token rejection, etc.); per the BDD-only test
-/// surface policy there are no Rust unit or doc-tests for these
-/// rules.
+/// Opaque invitation token.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String)]
@@ -358,8 +327,7 @@ impl std::fmt::Display for InvitationToken {
     }
 }
 
-/// A Tanren account. `org` is `None` for self-signed-up personal accounts;
-/// invitation-based accounts carry the inviting `OrgId`.
+/// A Tanren account.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Account {
     /// Stable id.
@@ -372,9 +340,7 @@ pub struct Account {
     pub org: Option<OrgId>,
 }
 
-/// A pending invitation seeded by R-0005's invite flow (or by
-/// `tanren-testkit` fixtures during R-0001 BDD). Carries the invitee's
-/// destination organization plus expiry / consumption state.
+/// A pending invitation with expiry + consumption state.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Invitation {
     /// The opaque token shared with the invitee out-of-band.
@@ -387,24 +353,18 @@ pub struct Invitation {
     pub consumed_at: Option<DateTime<Utc>>,
 }
 
-/// An identifier+password credential pair as supplied by the caller.
-/// Hashing is the responsibility of the [`CredentialVerifier`] impl.
+/// An identifier+password credential pair.
 #[derive(Debug, Clone)]
 pub struct PasswordCredential {
     /// User-facing identifier (email, ...).
     pub identifier: Identifier,
-    /// Plaintext password — wrapped so accidental `Debug` / `Serialize`
-    /// calls do not leak the credential. Hashed before storage by the
-    /// `CredentialVerifier`.
+    /// Plaintext password wrapped in `SecretString`.
     pub password: SecretString,
 }
 
-/// A bounded session held by an authenticated account or service identity.
 #[derive(Debug, Clone)]
 pub struct Session {
-    /// The account this session represents.
     pub account: AccountId,
-    /// Opaque session token.
     pub token: SessionToken,
 }
 
@@ -473,19 +433,28 @@ pub enum IdentityError {
 #[derive(Debug, Clone, PartialEq, Eq, Error)]
 #[non_exhaustive]
 pub enum ValidationError {
-    /// The supplied email string was empty after trimming.
+    #[error("account id is not a valid uuidv7")]
+    AccountIdInvalid,
+    #[error("project id is not a valid uuidv7")]
+    ProjectIdInvalid,
+    #[error("session token is not a valid base64url-no-pad 32-byte secret")]
+    SessionTokenInvalid,
     #[error("email is empty")]
     EmptyEmail,
-    /// The supplied email string did not parse as an email address.
     #[error("email is not in a valid form")]
     InvalidEmail,
-    /// The supplied identifier was empty after trimming.
     #[error("identifier is empty")]
     EmptyIdentifier,
-    /// The supplied invitation token was empty after trimming.
     #[error("invitation token is empty")]
     InvitationTokenEmpty,
-    /// The supplied invitation token was shorter than the minimum length.
     #[error("invitation token is shorter than the minimum length")]
     InvitationTokenTooShort,
+    #[error("repository identity is empty")]
+    RepositoryRefEmpty,
+    #[error("repository identity is not in canonical owner/name form")]
+    RepositoryRefInvalid,
+    #[error("provider family is not a valid lowercase slug")]
+    ProviderFamilyInvalid,
+    #[error("designated host is not in a valid form")]
+    DesignatedHostInvalid,
 }

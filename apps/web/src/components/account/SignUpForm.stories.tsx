@@ -99,6 +99,7 @@ export const Success: Story = {
           session: {
             account_id: accountId,
             expires_at: new Date(Date.now() + 60_000).toISOString(),
+            transport: "cookie",
           },
         }),
         { status: 201, headers: { "content-type": "application/json" } },

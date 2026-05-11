@@ -6,12 +6,15 @@
 //! redacts, `Display` is intentionally absent, and the only access
 //! point is [`SessionToken::expose_secret`].
 
+use crate::ValidationError;
 use base64::Engine;
 use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use schemars::JsonSchema;
 use secrecy::{ExposeSecret, SecretString};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use utoipa::ToSchema;
+
+const SESSION_TOKEN_BYTES_LEN: usize = 32;
 
 /// Opaque session token — 256 bits of CSPRNG randomness encoded
 /// base64url-no-pad and wrapped in [`SecretString`] so accidental
@@ -48,6 +51,31 @@ impl SessionToken {
         Self(secret)
     }
 
+    /// Parse and validate a bearer token string.
+    ///
+    /// Accepted shape is exactly 32 random bytes encoded as base64url-no-pad.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ValidationError::SessionTokenInvalid`] when the value is empty
+    /// or is not canonical base64url-no-pad with a 32-byte decoded payload.
+    pub fn parse(raw: &str) -> Result<Self, ValidationError> {
+        let trimmed = raw.trim();
+        if trimmed.is_empty() {
+            return Err(ValidationError::SessionTokenInvalid);
+        }
+        let decoded = URL_SAFE_NO_PAD
+            .decode(trimmed.as_bytes())
+            .map_err(|_| ValidationError::SessionTokenInvalid)?;
+        if decoded.len() != SESSION_TOKEN_BYTES_LEN {
+            return Err(ValidationError::SessionTokenInvalid);
+        }
+        if URL_SAFE_NO_PAD.encode(decoded.as_slice()) != trimmed {
+            return Err(ValidationError::SessionTokenInvalid);
+        }
+        Ok(Self(SecretString::from(trimmed.to_owned())))
+    }
+
     /// Expose the inner token string. The only access point — every
     /// other surface (Debug, Display, Serialize) intentionally redacts.
     #[must_use]
@@ -62,22 +90,13 @@ impl std::fmt::Debug for SessionToken {
     }
 }
 
-impl Serialize for SessionToken {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: serde::Serializer,
-    {
-        serializer.serialize_str(self.expose_secret())
-    }
-}
-
 impl<'de> Deserialize<'de> for SessionToken {
     fn deserialize<D>(deserializer: D) -> Result<Self, D::Error>
     where
         D: serde::Deserializer<'de>,
     {
         let raw = String::deserialize(deserializer)?;
-        Ok(Self(SecretString::from(raw)))
+        Self::parse(&raw).map_err(serde::de::Error::custom)
     }
 }
 

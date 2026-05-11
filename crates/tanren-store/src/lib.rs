@@ -8,19 +8,27 @@
 //! across the dependency boundary.
 
 mod accept_invitation;
+mod db_constraints;
 mod entity;
 mod migration;
+mod project_reservations;
+mod project_store;
+mod project_store_helpers;
 mod records;
 mod traits;
 
 pub use migration::Migrator;
 pub use records::{
-    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, SessionRecord,
+    AccountRecord, InvitationRecord, MembershipRecord, NewAccount, NewInvitation, NewProject,
+    NewProjectRepository, ProjectCommandReservationRecord, ProjectRecord, ProjectRepositoryRecord,
+    ProjectSetupRecord, SessionRecord,
 };
 pub use traits::{
     AcceptInvitationAtomicOutput, AcceptInvitationAtomicRequest, AcceptInvitationError,
     AcceptInvitationEventContext, AcceptInvitationEventsBuilder, AccountStore,
-    ConsumeInvitationError, ConsumedInvitation,
+    ConsumeInvitationError, ConsumedInvitation, ProjectCommandReservation,
+    ProjectCommandReservationResult, ProjectListCursor, ProjectListPage, ProjectStore,
+    ProjectStoreError, SetActiveProjectError,
 };
 
 use async_trait::async_trait;
@@ -33,8 +41,8 @@ use sea_orm_migration::MigratorTrait;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, Email, Identifier, InvitationToken, MembershipId, OrgId, SessionToken,
-    ValidationError,
+    AccountId, DesignatedHost, Email, Identifier, InvitationToken, MembershipId, OrgId, ProjectId,
+    ProviderFamily, RepositoryRef, SessionToken, ValidationError,
 };
 use thiserror::Error;
 use uuid::Uuid;
@@ -276,6 +284,18 @@ impl AccountStore for Store {
         })
     }
 
+    async fn find_active_session(
+        &self,
+        token: &SessionToken,
+        now: DateTime<Utc>,
+    ) -> Result<Option<SessionRecord>, StoreError> {
+        let row = entity::account_sessions::Entity::find_by_id(token.expose_secret().to_owned())
+            .filter(entity::account_sessions::Column::ExpiresAt.gt(now))
+            .one(&self.conn)
+            .await?;
+        Ok(row.map(SessionRecord::from))
+    }
+
     async fn append_event(
         &self,
         payload: serde_json::Value,
@@ -355,6 +375,38 @@ pub(crate) fn parse_db_invitation_token(raw: &str) -> Result<InvitationToken, St
         column: "invitation_token",
         cause: err,
     })
+}
+
+/// Convert a DB-stored repository identity into a [`RepositoryRef`].
+pub(crate) fn parse_db_repository_ref(raw: &str) -> Result<RepositoryRef, StoreError> {
+    RepositoryRef::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "repository_ref",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored provider family into a [`ProviderFamily`].
+pub(crate) fn parse_db_provider_family(raw: &str) -> Result<ProviderFamily, StoreError> {
+    ProviderFamily::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "provider_family",
+        cause: err,
+    })
+}
+
+/// Convert a DB-stored designated host into a [`DesignatedHost`].
+pub(crate) fn parse_db_designated_host(raw: &str) -> Result<DesignatedHost, StoreError> {
+    DesignatedHost::parse(raw).map_err(|err| StoreError::DataInvariant {
+        column: "designated_host",
+        cause: err,
+    })
+}
+
+/// Convert a DB UUID into a validated [`ProjectId`].
+pub(crate) fn parse_db_project_id(
+    raw: Uuid,
+    column: &'static str,
+) -> Result<ProjectId, StoreError> {
+    ProjectId::try_from_uuid(raw).map_err(|err| StoreError::DataInvariant { column, cause: err })
 }
 
 /// Wrap a raw string into a [`SecretString`]. Re-exported so callers

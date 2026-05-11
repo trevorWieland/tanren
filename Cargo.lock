@@ -4153,6 +4153,7 @@ name = "tanren-api"
 version = "0.0.0"
 dependencies = [
  "anyhow",
+ "serde_json",
  "tanren-api-app",
  "tanren-observability",
  "tokio",
@@ -4165,13 +4166,14 @@ dependencies = [
  "anyhow",
  "axum",
  "chrono",
+ "sea-orm",
  "secrecy",
  "serde",
- "serde_json",
  "sqlx",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tanren-store",
  "tokio",
  "tower-http",
@@ -4193,6 +4195,7 @@ dependencies = [
  "serde_json",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tanren-store",
  "thiserror 2.0.18",
 ]
@@ -4244,10 +4247,14 @@ dependencies = [
  "anyhow",
  "clap",
  "secrecy",
+ "serde",
+ "serde_json",
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
+ "tracing",
 ]
 
 [[package]]
@@ -4331,12 +4338,15 @@ version = "0.0.0"
 dependencies = [
  "anyhow",
  "axum",
+ "chrono",
  "rmcp",
  "secrecy",
  "serde",
  "serde_json",
  "tanren-app-services",
  "tanren-contract",
+ "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
  "tokio-util",
  "tower",
@@ -4391,8 +4401,9 @@ name = "tanren-provider-integrations"
 version = "0.0.0"
 dependencies = [
  "async-trait",
- "serde",
+ "tanren-identity-policy",
  "thiserror 2.0.18",
+ "uuid",
 ]
 
 [[package]]
@@ -4451,6 +4462,7 @@ dependencies = [
  "regex",
  "reqwest",
  "rmcp",
+ "sea-orm",
  "secrecy",
  "serde",
  "serde_json",
@@ -4459,6 +4471,7 @@ dependencies = [
  "tanren-contract",
  "tanren-identity-policy",
  "tanren-mcp-app",
+ "tanren-provider-integrations",
  "tanren-store",
  "thiserror 2.0.18",
  "tokio",
@@ -4485,7 +4498,9 @@ dependencies = [
  "tanren-app-services",
  "tanren-contract",
  "tanren-identity-policy",
+ "tanren-provider-integrations",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

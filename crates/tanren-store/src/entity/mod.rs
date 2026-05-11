@@ -7,3 +7,6 @@ pub(crate) mod accounts;
 pub(crate) mod events;
 pub(crate) mod invitations;
 pub(crate) mod memberships;
+pub(crate) mod project_command_reservations;
+pub(crate) mod project_repositories;
+pub(crate) mod projects;

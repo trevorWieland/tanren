@@ -8,14 +8,27 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use chrono::Utc;
+use sea_orm::ConnectionTrait;
+use tanren_app_services::project::{
+    ActiveProjectQuery, ConnectExistingRepositoryCommand, CreateNewProjectCommand,
+    ListVisibleProjectsQuery,
+};
 use tanren_app_services::{Clock, Handlers, Store};
-use tanren_contract::{AcceptInvitationRequest, SignInRequest, SignUpRequest};
+use tanren_contract::{
+    AcceptInvitationRequest, ActiveProjectRequest, ActiveProjectView,
+    ConnectProjectRepositoryRequest, ConnectProjectRepositoryResponse, CreateProjectRequest,
+    CreateProjectResponse, ListVisibleProjectsRequest, ProjectCollectionView, SignInRequest,
+    SignUpRequest,
+};
 use tanren_identity_policy::Argon2idVerifier;
+use tanren_provider_integrations::{
+    FixtureSourceControlConfig, FixtureSourceControlProvider, SourceControlProvider,
+};
 use tanren_store::{AccountStore, EventEnvelope, NewInvitation};
 
 use super::{
     AccountHarness, HarnessAcceptance, HarnessError, HarnessInvitation, HarnessKind, HarnessResult,
-    HarnessSession,
+    HarnessSession, ProjectHarness,
 };
 
 /// In-process harness that drives `tanren_app_services::Handlers`
@@ -25,6 +38,8 @@ use super::{
 pub struct InProcessHarness {
     store: Store,
     handlers: Handlers,
+    source_control: Arc<dyn SourceControlProvider>,
+    fixture_source_control: FixtureSourceControlProvider,
     kind: HarnessKind,
 }
 
@@ -59,9 +74,15 @@ impl InProcessHarness {
             .map_err(|e| HarnessError::Transport(format!("ephemeral store: {e}")))?;
         let clock = Clock::from_fn(Utc::now);
         let handlers = Handlers::with_verifier(clock, Arc::new(Argon2idVerifier::fast_for_tests()));
+        let fixture_source_control =
+            FixtureSourceControlProvider::new(FixtureSourceControlConfig::default());
+        let source_control: Arc<dyn SourceControlProvider> =
+            Arc::new(fixture_source_control.clone());
         Ok(Self {
             store,
             handlers,
+            source_control,
+            fixture_source_control,
             kind,
         })
     }
@@ -143,14 +164,174 @@ impl AccountHarness for InProcessHarness {
     }
 }
 
+#[async_trait]
+impl ProjectHarness for InProcessHarness {
+    async fn connect_project_repository(
+        &mut self,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.connect_project_repository_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn connect_project_repository_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: ConnectProjectRepositoryRequest,
+    ) -> HarnessResult<ConnectProjectRepositoryResponse> {
+        self.handlers
+            .connect_project_repository(
+                &self.store,
+                self.source_control.as_ref(),
+                ConnectExistingRepositoryCommand {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn list_visible_projects(
+        &mut self,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.list_visible_projects_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn list_visible_projects_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: ListVisibleProjectsRequest,
+    ) -> HarnessResult<ProjectCollectionView> {
+        self.handlers
+            .list_visible_projects(
+                &self.store,
+                ListVisibleProjectsQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn create_project(
+        &mut self,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.create_project_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn create_project_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: CreateProjectRequest,
+    ) -> HarnessResult<CreateProjectResponse> {
+        self.handlers
+            .create_project(
+                &self.store,
+                self.source_control.as_ref(),
+                CreateNewProjectCommand {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn active_project(
+        &mut self,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.active_project_as_actor(req.owning_account_id, req)
+            .await
+    }
+
+    async fn active_project_as_actor(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        req: ActiveProjectRequest,
+    ) -> HarnessResult<ActiveProjectView> {
+        self.handlers
+            .active_project(
+                &self.store,
+                ActiveProjectQuery {
+                    actor_account_id,
+                    request: req,
+                },
+            )
+            .await
+            .map_err(translate_app_error)
+    }
+
+    async fn set_repository_access(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        repository: tanren_identity_policy::RepositoryRef,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control
+            .set_repository_access(actor_account_id, repository, allowed);
+        Ok(())
+    }
+
+    async fn set_designated_host_create_access(
+        &mut self,
+        actor_account_id: tanren_identity_policy::AccountId,
+        host: tanren_identity_policy::DesignatedHost,
+        allowed: bool,
+    ) -> HarnessResult<()> {
+        self.fixture_source_control.set_host_reachable(&host, true);
+        self.fixture_source_control
+            .set_host_create_access(actor_account_id, &host, allowed);
+        Ok(())
+    }
+
+    async fn repository_created_at_host(
+        &self,
+        host: &tanren_identity_policy::DesignatedHost,
+        repository: &tanren_identity_policy::RepositoryRef,
+    ) -> HarnessResult<bool> {
+        Ok(self
+            .fixture_source_control
+            .repository_created_at_host(host, repository))
+    }
+
+    async fn source_control_call_counters(
+        &mut self,
+    ) -> HarnessResult<tanren_provider_integrations::SourceControlCallCounters> {
+        Ok(self.fixture_source_control.call_counters())
+    }
+
+    async fn break_project_store_for_testing(&mut self) -> HarnessResult<()> {
+        self.store
+            .connection()
+            .execute_unprepared("DROP TABLE IF EXISTS projects")
+            .await
+            .map_err(|e| HarnessError::Transport(format!("drop projects table: {e}")))?;
+        Ok(())
+    }
+}
+
 fn translate_app_error(err: tanren_app_services::AppServiceError) -> HarnessError {
     use tanren_app_services::AppServiceError;
     match err {
-        AppServiceError::Account(reason) => HarnessError::Account(reason, reason.code().to_owned()),
+        AppServiceError::Account(reason) => {
+            HarnessError::Account(reason, reason.summary().to_owned())
+        }
+        AppServiceError::Project(reason) => {
+            HarnessError::Project(reason, reason.summary().to_owned())
+        }
         AppServiceError::InvalidInput(msg) => {
             HarnessError::Transport(format!("invalid_input: {msg}"))
         }
-        AppServiceError::Store(err) => HarnessError::Transport(format!("store: {err}")),
-        _ => HarnessError::Transport("unknown app-service failure".to_owned()),
+        _ => HarnessError::Transport(
+            "internal_error: Tanren encountered an internal error while processing the request."
+                .to_owned(),
+        ),
     }
 }
