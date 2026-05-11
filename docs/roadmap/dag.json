@@ -1607,17 +1607,13 @@
           "kind": "bdd",
           "behavior_id": "B-0134",
           "interfaces": [
-            "web",
-            "api",
-            "mcp",
-            "cli",
-            "tui"
+            "cli"
           ],
           "witnesses": [
             "positive",
             "falsification"
           ],
-          "description": "Positive: in a repo installed with version N, run upgrade to version N+1; preview shows the diff; user confirms; generated assets are updated; user-owned files are unchanged. Positive: compatibility/migration concerns are reported before any destructive change. Falsification: upgrade does not modify user-owned files. Falsification: upgrade does not proceed past the preview without explicit confirmation."
+          "description": "Positive: in a repo installed with version N, run upgrade to version N+1; preview shows the diff; user confirms; generated assets are updated; user-owned files are unchanged. Positive: confirmed apply produces exactly the writes and removals listed in the immediately-preceding preview. Positive: compatibility/migration concerns are reported before any destructive change. Falsification: upgrade does not modify user-owned files. Falsification: upgrade does not proceed past the preview without explicit confirmation."
         }
       ],
       "playbook": [
