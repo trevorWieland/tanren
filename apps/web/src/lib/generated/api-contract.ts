@@ -331,7 +331,7 @@ export interface components {
      * @description Canonical behavior id taxonomy for organization operations.
      * @enum {string}
      */
-    OrganizationBehaviorId: "B-0066";
+    OrganizationBehaviorId: "B-0066" | "B-0047";
     /** @description Capability metadata for one organization permission. */
     OrganizationCapabilityView: {
       /** @description Whether the caller currently holds this capability. */

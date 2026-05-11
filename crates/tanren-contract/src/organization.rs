@@ -29,7 +29,6 @@ pub struct CreateOrganizationRequest {
     /// return the same semantic result. Non-empty, max 128 chars, no controls.
     pub idempotency_key: Option<IdempotencyKey>,
 }
-
 impl CreateOrganizationRequest {
     /// Build a create-organization request from authenticated transport context
     /// plus the validated API body.
@@ -47,7 +46,6 @@ impl CreateOrganizationRequest {
         }
     }
 }
-
 /// Create-organization response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CreateOrganizationResponse {
@@ -70,14 +68,12 @@ pub struct CreateOrganizationResponse {
     /// Concrete source event reference from the canonical event log write.
     pub source_event: Option<OrganizationEventReference>,
 }
-
 /// Summary projection of organization project counts.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct OrganizationProjectSummary {
     /// Total projects currently present in the organization.
     pub total_count: u64,
 }
-
 /// List-organizations request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListOrganizationsRequest {
@@ -90,7 +86,6 @@ pub struct ListOrganizationsRequest {
     /// Opaque page cursor returned by a previous list call.
     pub cursor: Option<MembershipId>,
 }
-
 impl ListOrganizationsRequest {
     /// Build a list-organizations request from authenticated transport context
     /// and query parameters.
@@ -108,7 +103,6 @@ impl ListOrganizationsRequest {
         }
     }
 }
-
 /// List-organizations response.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct ListOrganizationsResponse {
@@ -121,7 +115,6 @@ pub struct ListOrganizationsResponse {
     /// Read-model freshness metadata for this response.
     pub freshness: ReadModelFreshness,
 }
-
 /// Query parameters for `GET /organizations`.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema, IntoParams)]
 pub struct ListOrganizationsApiQuery {
@@ -130,7 +123,6 @@ pub struct ListOrganizationsApiQuery {
     /// Opaque page cursor returned by a previous list call.
     pub cursor: Option<MembershipId>,
 }
-
 /// Check-organization-permission request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
 pub struct CheckOrganizationPermissionRequest {
@@ -413,6 +405,8 @@ pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 pub const ORGANIZATION_CREATED_EVENT_KIND: &str = "organization_created";
 /// Canonical behavior proof id for organization creation.
 pub const ORGANIZATION_CREATE_BEHAVIOR_ID: &str = "B-0066";
+/// Canonical behavior proof id for active-organization switching.
+pub const ORGANIZATION_SWITCH_BEHAVIOR_ID: &str = "B-0047";
 
 /// Canonical behavior id taxonomy for organization operations.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -420,6 +414,9 @@ pub enum OrganizationBehaviorId {
     /// `B-0066` — Create an organization.
     #[serde(rename = "B-0066")]
     B0066CreateOrganization,
+    /// `B-0047` — Switch the active organization within an account.
+    #[serde(rename = "B-0047")]
+    B0047SwitchActiveOrganization,
 }
 
 impl OrganizationBehaviorId {
@@ -428,6 +425,7 @@ impl OrganizationBehaviorId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::B0066CreateOrganization => ORGANIZATION_CREATE_BEHAVIOR_ID,
+            Self::B0047SwitchActiveOrganization => ORGANIZATION_SWITCH_BEHAVIOR_ID,
         }
     }
 }
@@ -444,6 +442,7 @@ impl FromStr for OrganizationBehaviorId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             ORGANIZATION_CREATE_BEHAVIOR_ID => Ok(Self::B0066CreateOrganization),
+            ORGANIZATION_SWITCH_BEHAVIOR_ID => Ok(Self::B0047SwitchActiveOrganization),
             _ => Err("unknown organization behavior id"),
         }
     }

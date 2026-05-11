@@ -6,11 +6,21 @@
 //! shape layer so that wire compatibility is reviewable in isolation.
 
 pub mod account;
+pub mod active_organization;
 pub mod organization;
 
 pub use account::{
     AcceptInvitationRequest, AcceptInvitationResponse, AccountFailureReason, AccountView,
     SessionEnvelope, SessionView, SignInRequest, SignInResponse, SignUpRequest, SignUpResponse,
+};
+pub use active_organization::{
+    ACTIVE_ORGANIZATION_SWITCH_BEHAVIOR_ID, ActiveOrganizationContext,
+    ActiveOrganizationFailureReason, LIST_ORGANIZATION_PROJECTS_DEFAULT_LIMIT,
+    LIST_ORGANIZATION_PROJECTS_MAX_LIMIT, ListOrganizationProjectsApiQuery,
+    ListOrganizationProjectsRequest, ListOrganizationProjectsResponse, OrganizationSwitchOption,
+    ProjectListItem, ReadActiveOrganizationRequest, ReadActiveOrganizationResponse,
+    SwitchActiveOrganizationApiRequest, SwitchActiveOrganizationRequest,
+    SwitchActiveOrganizationResponse,
 };
 pub use organization::{
     CheckOrganizationPermissionApiRequest, CheckOrganizationPermissionRequest,
@@ -26,7 +36,7 @@ pub use organization::{
 };
 pub use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
-    SessionToken,
+    ProjectId, ProjectName, SessionToken,
 };
 pub use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 

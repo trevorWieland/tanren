@@ -9,9 +9,9 @@
 
 mod argon2_verifier;
 mod organization;
+mod project;
 pub mod secret_serde;
 mod session_token;
-
 pub use argon2_verifier::Argon2idVerifier;
 use chrono::{DateTime, Utc};
 pub use organization::{
@@ -19,6 +19,7 @@ pub use organization::{
     OrganizationPermissionDecision, OrganizationPermissionGate, ParseOrganizationPermissionError,
     evaluate_organization_permission_gate, organization_capability,
 };
+pub use project::{ProjectId, ProjectName};
 use schemars::JsonSchema;
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
@@ -32,39 +33,33 @@ use uuid::Uuid;
 #[serde(transparent)]
 #[schema(value_type = String, format = "uuid")]
 pub struct AccountId(Uuid);
-
 impl AccountId {
     /// Wrap a raw UUID.
     #[must_use]
     pub const fn new(value: Uuid) -> Self {
         Self(value)
     }
-
     /// Allocate a fresh time-ordered id.
     #[must_use]
     pub fn fresh() -> Self {
         Self(Uuid::now_v7())
     }
-
     /// The underlying UUID.
     #[must_use]
     pub const fn as_uuid(self) -> Uuid {
         self.0
     }
 }
-
 impl From<Uuid> for AccountId {
     fn from(value: Uuid) -> Self {
         Self(value)
     }
 }
-
 impl AsRef<Uuid> for AccountId {
     fn as_ref(&self) -> &Uuid {
         &self.0
     }
 }
-
 impl std::fmt::Display for AccountId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)
@@ -96,7 +91,6 @@ impl OrgId {
         self.0
     }
 }
-
 impl From<Uuid> for OrgId {
     fn from(value: Uuid) -> Self {
         Self(value)
@@ -497,4 +491,10 @@ pub enum ValidationError {
     /// The supplied organization name did not satisfy naming rules.
     #[error("organization name is malformed")]
     OrganizationNameMalformed,
+    /// The supplied project name was empty after trimming.
+    #[error("project name is empty")]
+    ProjectNameEmpty,
+    /// The supplied project name did not satisfy naming rules.
+    #[error("project name is malformed")]
+    ProjectNameMalformed,
 }
