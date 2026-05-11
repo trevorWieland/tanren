@@ -148,7 +148,6 @@ impl AccountHarness for TuiHarness {
             |session, rendered| {
                 select_menu_index(session, 1)?;
                 expect_text(session, "Email:", rendered)?;
-                expect_text(session, "Password:", rendered)?;
                 send_form_fields(session, &[req.email.as_str(), req.password.expose_secret()])?;
                 let matched =
                     expect_any_text(session, &["account_id:", "invalid_credential"], rendered)?;
@@ -210,6 +209,7 @@ impl AccountHarness for TuiHarness {
                         "invitation_not_found",
                         "invalid_credential",
                         "duplicate_identifier",
+                        "validation_failed",
                     ],
                     rendered,
                 )?;

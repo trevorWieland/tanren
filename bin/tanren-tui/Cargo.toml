@@ -8,6 +8,9 @@ repository.workspace = true
 publish = false
 description = "Tanren terminal UI. F-0001 ships an empty buildable shell that renders a placeholder frame and exits cleanly on `q`."
 
+[features]
+test-hooks = ["tanren-tui-app/test-hooks"]
+
 [lints]
 workspace = true
 

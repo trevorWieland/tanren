@@ -11,6 +11,7 @@ use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
 use tanren_app_services::{AccountErrorProjection, Clock, Handlers, Store};
 use tanren_contract::{ListActiveAccountsRequest, SignedInAccountView, SwitchActiveAccountRequest};
+use tanren_identity_policy::CredentialVerifier;
 use tokio::runtime::Runtime;
 
 use crate::draw;
@@ -85,9 +86,10 @@ impl App {
                 Some(format!("{DATABASE_URL_ENV} is not set; submit will fail.")),
             ),
         };
+        let verifier: Arc<dyn CredentialVerifier> = build_verifier();
         Ok(Self {
             runtime,
-            handlers: Handlers::with_clock(clock.clone()),
+            handlers: Handlers::with_verifier(clock.clone(), verifier),
             clock,
             store,
             store_error,
@@ -393,5 +395,18 @@ impl App {
             } => draw::draw_switch_active(frame, area, accounts, *selected, error.as_deref()),
             Screen::Outcome(view) => draw::draw_outcome(frame, area, view),
         }
+    }
+}
+
+fn build_verifier() -> Arc<dyn CredentialVerifier> {
+    #[cfg(feature = "test-hooks")]
+    {
+        use tanren_identity_policy::Argon2idVerifier;
+        Arc::new(Argon2idVerifier::fast_for_tests())
+    }
+    #[cfg(not(feature = "test-hooks"))]
+    {
+        use tanren_identity_policy::Argon2idVerifier;
+        Arc::new(Argon2idVerifier::production())
     }
 }

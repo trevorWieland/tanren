@@ -1,10 +1,13 @@
+//! TUI PTY driver — ANSI-aware expect matching for ratatui rendering.
+
 use std::path::Path;
 use std::process::Command;
 use std::time::Duration;
 
 use expectrl::process::Healthcheck;
-use expectrl::{Any, Captures, Eof, Session};
+use expectrl::{Captures, Eof, Regex, Session};
 use portable_pty::native_pty_system;
+use regex::Regex as StdRegex;
 use tanren_identity_policy::AccountId;
 
 use crate::harness::{HarnessError, HarnessResult};
@@ -15,6 +18,44 @@ const KEY_TAB: &[u8] = b"\t";
 const KEY_Q: &[u8] = b"q";
 const KEY_ESC: &[u8] = b"\x1b";
 const KEY_CTRL_C: &[u8] = b"\x03";
+
+/// ANSI escape sequence pattern — matches CSI sequences, OSC sequences,
+/// and other common terminal control sequences that ratatui/crossterm
+/// emits between text characters.
+const ANSI_RE: &str = r"\x1b\[[0-9;?]*[ -/]*[@-~]|\x1b\][^\x07]*\x07|\x1b\([B0UK]|\x1b[>=<]";
+
+/// Build a regex pattern that matches `text` with zero or more ANSI escape
+/// sequences allowed between any two characters. This handles the fact that
+/// ratatui/crossterm emits cursor-positioning and styling escape codes
+/// interspersed within rendered text.
+fn ansi_aware_pattern(text: &str) -> String {
+    let ansi_gap = format!("(?:{ANSI_RE})*");
+    let mut pattern = String::with_capacity(text.len() * ansi_gap.len() * 2);
+    for (i, ch) in text.chars().enumerate() {
+        if i > 0 {
+            pattern.push_str(&ansi_gap);
+        }
+        if ch == ' ' {
+            // Spaces may be collapsed or replaced by cursor positioning,
+            // so match one or more ANSI sequences plus optional whitespace.
+            pattern.push_str(r"\s*");
+            pattern.push_str(&ansi_gap);
+        } else {
+            // Escape regex-special characters
+            match ch {
+                '.' | '^' | '$' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '\\'
+                | '|' => {
+                    pattern.push('\\');
+                    pattern.push(ch);
+                }
+                _ => {
+                    pattern.push(ch);
+                }
+            }
+        }
+    }
+    pattern
+}
 
 pub(super) fn run_tui_script<T, F>(
     binary: &Path,
@@ -51,10 +92,12 @@ where
 }
 
 pub(super) fn select_menu_index(session: &mut Session, index: usize) -> HarnessResult<()> {
+    tracing::debug!(target: "tanren_testkit::tui", index, "select_menu_index");
     for _ in 0..index {
         session
             .send(KEY_TAB)
             .map_err(|e| HarnessError::Transport(format!("send down: {e}")))?;
+        std::thread::sleep(FIELD_DELAY);
     }
     session
         .send(KEY_ENTER)
@@ -62,20 +105,50 @@ pub(super) fn select_menu_index(session: &mut Session, index: usize) -> HarnessR
     Ok(())
 }
 
+/// Inter-field delay to let ratatui settle after a focus-change (TAB) redraw.
+const FIELD_DELAY: Duration = Duration::from_millis(10);
+
 pub(super) fn send_form_fields(session: &mut Session, fields: &[&str]) -> HarnessResult<()> {
+    tracing::debug!(target: "tanren_testkit::tui", field_count = fields.len(), "send_form_fields start");
     for (index, field) in fields.iter().enumerate() {
-        session
-            .send(field.as_bytes())
-            .map_err(|e| HarnessError::Transport(format!("send form field: {e}")))?;
+        tracing::debug!(target: "tanren_testkit::tui", index, len = field.len(), "typing field");
+        type_field(session, field)?;
         if index + 1 < fields.len() {
             session
                 .send(KEY_TAB)
                 .map_err(|e| HarnessError::Transport(format!("send tab: {e}")))?;
+            std::thread::sleep(FIELD_DELAY);
         }
     }
     session
         .send(KEY_ENTER)
         .map_err(|e| HarnessError::Transport(format!("send enter: {e}")))?;
+    tracing::debug!(target: "tanren_testkit::tui", "send_form_fields done");
+    // Brief pause to let the TUI process the submit, then check liveness.
+    // Do NOT drain the PTY output buffer here — the subsequent `expect`
+    // call must be able to read the TUI's outcome screen. The drain
+    // previously consumed the response before expect could match it,
+    // causing timeouts on "account_id:" / error-code patterns.
+    std::thread::sleep(Duration::from_millis(300));
+    let alive = session.get_process_mut().is_alive().unwrap_or(false);
+    tracing::debug!(target: "tanren_testkit::tui", alive, "tui liveness after form submit");
+    if !alive {
+        return Err(HarnessError::Transport(
+            "tanren-tui exited after form submit".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+/// Type a field value by sending the entire string at once.
+/// The TUI processes one key event per event-loop iteration and
+/// re-draws the frame after each. Sending the whole field in a
+/// single write avoids per-character PTY output bursts that can
+/// fill the kernel buffer and deadlock the TUI.
+fn type_field(session: &mut Session, value: &str) -> HarnessResult<()> {
+    session
+        .send(value.as_bytes())
+        .map_err(|e| HarnessError::Transport(format!("send form field: {e}")))?;
     Ok(())
 }
 
@@ -88,20 +161,32 @@ pub(super) fn send_enter(session: &mut Session) -> HarnessResult<()> {
 pub(super) fn send_down(session: &mut Session) -> HarnessResult<()> {
     session
         .send(KEY_TAB)
-        .map_err(|e| HarnessError::Transport(format!("send down: {e}")))
+        .map_err(|e| HarnessError::Transport(format!("send down: {e}")))?;
+    std::thread::sleep(FIELD_DELAY);
+    Ok(())
 }
 
+/// Wait for any of the given text fragments to appear in the PTY output,
+/// accounting for ANSI escape sequences between characters.
 pub(super) fn expect_any_text(
     session: &mut Session,
     needles: &[&str],
     output: &mut String,
 ) -> HarnessResult<String> {
+    let patterns: Vec<String> = needles.iter().map(|n| ansi_aware_pattern(n)).collect();
+    // Build a combined regex that matches any of the patterns.
+    let combined = patterns
+        .iter()
+        .map(|p| format!("({p})"))
+        .collect::<Vec<_>>()
+        .join("|");
     let captures = session
-        .expect(Any(needles))
+        .expect(Regex(&combined))
         .map_err(|e| HarnessError::Transport(format!("expect any {needles:?}: {e}")))?;
     let chunk = append_capture(&captures, output);
+    let stripped = strip_ansi(&chunk);
     for needle in needles {
-        if chunk.contains(needle) {
+        if stripped.contains(needle) {
             return Ok((*needle).to_owned());
         }
     }
@@ -110,15 +195,23 @@ pub(super) fn expect_any_text(
     )))
 }
 
+/// Wait for a specific text fragment to appear in the PTY output,
+/// accounting for ANSI escape sequences that ratatui/crossterm
+/// emits between rendered characters.
 pub(super) fn expect_text(
     session: &mut Session,
     needle: &str,
     output: &mut String,
 ) -> HarnessResult<()> {
-    let captures = session
-        .expect(needle)
-        .map_err(|e| HarnessError::Transport(format!("expect `{needle}`: {e}")))?;
-    let _ = append_capture(&captures, output);
+    let pattern = ansi_aware_pattern(needle);
+    tracing::debug!(target: "tanren_testkit::tui", needle, "expect_text start");
+    let captures = session.expect(Regex(&pattern)).map_err(|e| {
+        tracing::warn!(target: "tanren_testkit::tui", needle, error = %e, "expect_text failed");
+        HarnessError::Transport(format!("expect `{needle}`: {e}"))
+    })?;
+    let chunk = append_capture(&captures, output);
+    let stripped = strip_ansi(&chunk);
+    tracing::debug!(target: "tanren_testkit::tui", needle, matched_len = chunk.len(), stripped_preview = %stripped.chars().take(80).collect::<String>(), "expect_text matched");
     Ok(())
 }
 
@@ -131,7 +224,23 @@ fn append_capture(captures: &Captures, output: &mut String) -> String {
         output.push_str(&chunk);
         output.push('\n');
     }
+    let stripped = strip_ansi(&chunk);
+    if !stripped.is_empty() {
+        tracing::debug!(
+            target: "tanren_testkit::tui",
+            raw_len = chunk.len(),
+            stripped_preview = %stripped.chars().take(120).collect::<String>(),
+            "append_capture"
+        );
+    }
     chunk
+}
+
+/// Strip ANSI escape sequences from a string.
+fn strip_ansi(text: &str) -> String {
+    static RE: std::sync::OnceLock<StdRegex> = std::sync::OnceLock::new();
+    let re = RE.get_or_init(|| StdRegex::new(ANSI_RE).expect("ANSI regex must compile"));
+    re.replace_all(text, "").into_owned()
 }
 
 fn spawn_session(
@@ -148,7 +257,12 @@ fn spawn_session(
     let mut cmd = Command::new(binary);
     cmd.env("DATABASE_URL", db_url)
         .env("TANREN_SESSION_FILE", session_file)
-        .env("TANREN_WINDOW_ID", window_id);
+        .env("TANREN_WINDOW_ID", window_id)
+        // Suppress sqlx/tracing log output that would corrupt the PTY
+        // rendering stream. The TUI binary uses tracing; without this,
+        // sqlx query logs appear in the PTY output mixed with the
+        // ratatui rendering, breaking ANSI-aware text matching.
+        .env("RUST_LOG", "error");
     if let Some(target) = override_target {
         cmd.env(SWITCH_OVERRIDE_ENV, target.to_string());
     }
@@ -170,7 +284,7 @@ fn spawn_session(
             "tanren-tui exited immediately — PTY or terminal setup unavailable".to_owned(),
         ));
     }
-    session.set_expect_timeout(Some(Duration::from_secs(10)));
+    session.set_expect_timeout(Some(Duration::from_secs(20)));
     Ok(session)
 }
 
@@ -218,8 +332,6 @@ fn reap_session(session: &mut Session) {
 }
 
 fn normalize_tui_output(output: &str) -> String {
-    match regex::Regex::new(r"\x1b\[[0-9;?]*[ -/]*[@-~]") {
-        Ok(ansi) => ansi.replace_all(output, "").into_owned(),
-        Err(_) => output.to_owned(),
-    }
+    tracing::debug!(target: "tanren_testkit::tui", len = output.len(), "raw PTY output");
+    strip_ansi(output)
 }

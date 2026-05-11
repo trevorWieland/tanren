@@ -8,6 +8,9 @@ repository.workspace = true
 publish = false
 description = "Library crate that hosts the tanren-tui runtime — terminal setup/teardown, the screen router (menu/sign-up/sign-in/accept-invitation/outcome), form state, and ratatui rendering. The bin/tanren-tui/src/main.rs entry point is a thin wiring shell."
 
+[features]
+test-hooks = ["tanren-identity-policy/test-hooks"]
+
 [lints]
 workspace = true
 

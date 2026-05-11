@@ -43,9 +43,15 @@ async fn given_two_signed_in_accounts(world: &mut TanrenWorld, actor: String, su
         }
         Err(err) => {
             ctx.last_outcome = Some(record_failure(err, entry));
-            return;
         }
     }
+    assert!(
+        ctx.actors
+            .get(&actor)
+            .and_then(|e| e.sign_up.as_ref())
+            .is_some(),
+        "first account sign-up failed in two-account setup via {surface}"
+    );
 
     let token_raw = format!("{actor}-{surface}-{suffix}-switch-padpad");
     let invitation_token =
@@ -70,7 +76,7 @@ async fn given_two_signed_in_accounts(world: &mut TanrenWorld, actor: String, su
             display_name: format!("{actor} second"),
         })
         .await;
-    let entry = ctx.actors.entry(actor).or_default();
+    let entry = ctx.actors.entry(actor.clone()).or_default();
     match accept {
         Ok(acceptance) => {
             entry.accept_invitation = Some(acceptance.clone());
@@ -81,6 +87,13 @@ async fn given_two_signed_in_accounts(world: &mut TanrenWorld, actor: String, su
             ctx.last_outcome = Some(record_failure(err, entry));
         }
     }
+    assert!(
+        ctx.actors
+            .get(&actor)
+            .and_then(|e| e.accept_invitation.as_ref())
+            .is_some(),
+        "second account accept-invitation failed in two-account setup via {surface}"
+    );
 }
 
 #[given(expr = "{word} holds one signed-in account via the {word}")]
@@ -106,7 +119,7 @@ async fn given_one_signed_in_account(world: &mut TanrenWorld, actor: String, sur
             display_name: format!("{actor} single"),
         })
         .await;
-    let entry = ctx.actors.entry(actor).or_default();
+    let entry = ctx.actors.entry(actor.clone()).or_default();
     match result {
         Ok(session) => {
             entry.sign_up = Some(session.clone());
@@ -118,6 +131,13 @@ async fn given_one_signed_in_account(world: &mut TanrenWorld, actor: String, sur
             ctx.last_outcome = Some(record_failure(err, entry));
         }
     }
+    assert!(
+        ctx.actors
+            .get(&actor)
+            .and_then(|e| e.sign_up.as_ref())
+            .is_some(),
+        "sign-up failed in one-account setup via {surface}"
+    );
 }
 
 #[when(expr = "{word} switches the active account to the second account via the {word}")]
