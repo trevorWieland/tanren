@@ -31,51 +31,51 @@ impl MigrationTrait for Migration {
 
 impl Migration {
     async fn create_user_config_values(&self, manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-        manager
-            .create_table(
-                Table::create()
-                    .table(UserConfigValues::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(UserConfigValues::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(UserConfigValues::AccountId)
-                            .uuid()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserConfigValues::OwnerScope)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(UserConfigValues::Key).string().not_null())
-                    .col(
-                        ColumnDef::new(UserConfigValues::ValueKind)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserConfigValues::ValueJson)
-                            .json_binary()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserConfigValues::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserConfigValues::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .to_owned(),
+        let mut stmt = Table::create()
+            .table(UserConfigValues::Table)
+            .if_not_exists()
+            .col(
+                ColumnDef::new(UserConfigValues::Id)
+                    .uuid()
+                    .not_null()
+                    .primary_key(),
             )
-            .await?;
+            .col(
+                ColumnDef::new(UserConfigValues::AccountId)
+                    .uuid()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserConfigValues::OwnerScope)
+                    .string()
+                    .not_null(),
+            )
+            .col(ColumnDef::new(UserConfigValues::Key).string().not_null())
+            .col(
+                ColumnDef::new(UserConfigValues::ValueKind)
+                    .string()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserConfigValues::ValueJson)
+                    .json_binary()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserConfigValues::CreatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserConfigValues::UpdatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .to_owned();
+        stmt.check(Expr::col(UserConfigValues::OwnerScope).is_in(["user"]));
+        stmt.check(Expr::col(UserConfigValues::Key).is_in(["theme", "editor"]));
+        stmt.check(Expr::col(UserConfigValues::ValueKind).is_in(["theme", "editor"]));
+        manager.create_table(stmt).await?;
         manager
             .create_index(
                 Index::create()
@@ -101,38 +101,40 @@ impl Migration {
     }
 
     async fn create_user_credentials(&self, manager: &SchemaManager<'_>) -> Result<(), DbErr> {
-        manager
-            .create_table(
-                Table::create()
-                    .table(UserCredentials::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(UserCredentials::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(ColumnDef::new(UserCredentials::AccountId).uuid().not_null())
-                    .col(
-                        ColumnDef::new(UserCredentials::OwnerScope)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(ColumnDef::new(UserCredentials::Kind).string().not_null())
-                    .col(ColumnDef::new(UserCredentials::Status).string().not_null())
-                    .col(
-                        ColumnDef::new(UserCredentials::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentials::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .to_owned(),
+        let mut stmt = Table::create()
+            .table(UserCredentials::Table)
+            .if_not_exists()
+            .col(
+                ColumnDef::new(UserCredentials::Id)
+                    .uuid()
+                    .not_null()
+                    .primary_key(),
             )
-            .await?;
+            .col(ColumnDef::new(UserCredentials::AccountId).uuid().not_null())
+            .col(
+                ColumnDef::new(UserCredentials::OwnerScope)
+                    .string()
+                    .not_null(),
+            )
+            .col(ColumnDef::new(UserCredentials::Kind).string().not_null())
+            .col(ColumnDef::new(UserCredentials::Status).string().not_null())
+            .col(
+                ColumnDef::new(UserCredentials::CreatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentials::UpdatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .to_owned();
+        stmt.check(Expr::col(UserCredentials::OwnerScope).is_in(["user"]));
+        stmt.check(
+            Expr::col(UserCredentials::Kind).is_in(["provider_api_token", "harness_api_token"]),
+        );
+        stmt.check(Expr::col(UserCredentials::Status).is_in(["pending", "active", "invalid"]));
+        manager.create_table(stmt).await?;
         manager
             .create_index(
                 Index::create()
@@ -173,74 +175,73 @@ impl Migration {
         &self,
         manager: &SchemaManager<'_>,
     ) -> Result<(), DbErr> {
-        manager
-            .create_table(
-                Table::create()
-                    .table(UserCredentialValues::Table)
-                    .if_not_exists()
-                    .col(
-                        ColumnDef::new(UserCredentialValues::Id)
-                            .uuid()
-                            .not_null()
-                            .primary_key(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::ItemId)
-                            .uuid()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::AccountId)
-                            .uuid()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::CipherScheme)
-                            .string()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::KdfVersion)
-                            .small_integer()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::KdfSalt)
-                            .binary()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::Nonce)
-                            .binary()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::Ciphertext)
-                            .binary()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::CreatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .col(
-                        ColumnDef::new(UserCredentialValues::UpdatedAt)
-                            .timestamp_with_time_zone()
-                            .not_null(),
-                    )
-                    .foreign_key(
-                        ForeignKey::create()
-                            .name("fk_user_credential_values_item_account")
-                            .from(UserCredentialValues::Table, UserCredentialValues::ItemId)
-                            .from(UserCredentialValues::Table, UserCredentialValues::AccountId)
-                            .to(UserCredentials::Table, UserCredentials::Id)
-                            .to(UserCredentials::Table, UserCredentials::AccountId)
-                            .on_delete(ForeignKeyAction::Cascade),
-                    )
-                    .to_owned(),
+        let mut stmt = Table::create()
+            .table(UserCredentialValues::Table)
+            .if_not_exists()
+            .col(
+                ColumnDef::new(UserCredentialValues::Id)
+                    .uuid()
+                    .not_null()
+                    .primary_key(),
             )
-            .await?;
+            .col(
+                ColumnDef::new(UserCredentialValues::ItemId)
+                    .uuid()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::AccountId)
+                    .uuid()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::CipherScheme)
+                    .string()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::KdfVersion)
+                    .small_integer()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::KdfSalt)
+                    .binary()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::Nonce)
+                    .binary()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::Ciphertext)
+                    .binary()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::CreatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .col(
+                ColumnDef::new(UserCredentialValues::UpdatedAt)
+                    .timestamp_with_time_zone()
+                    .not_null(),
+            )
+            .foreign_key(
+                ForeignKey::create()
+                    .name("fk_user_credential_values_item_account")
+                    .from(UserCredentialValues::Table, UserCredentialValues::ItemId)
+                    .from(UserCredentialValues::Table, UserCredentialValues::AccountId)
+                    .to(UserCredentials::Table, UserCredentials::Id)
+                    .to(UserCredentials::Table, UserCredentials::AccountId)
+                    .on_delete(ForeignKeyAction::Cascade),
+            )
+            .to_owned();
+        stmt.check(Expr::col(UserCredentialValues::CipherScheme).is_in(["chacha20poly1305-v1"]));
+        stmt.check(Expr::col(UserCredentialValues::KdfVersion).is_in([1i16]));
+        manager.create_table(stmt).await?;
         manager
             .create_index(
                 Index::create()
