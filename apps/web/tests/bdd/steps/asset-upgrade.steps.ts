@@ -1,5 +1,10 @@
 // playwright-bdd step definitions for the `@web` slice of B-0134.
 // Shared Gherkin under `tests/bdd/features/` remains the single source of truth.
+//
+// The driver calls the test-hooks upgrade-fixture API directly from Node
+// (not through a browser witness page). The test-hook secret
+// (TANREN_TEST_HOOK_SECRET) is set in the Playwright driver process env
+// by global-setup.ts and never projected into the Next.js client bundle.
 
 import {
   type PlaywrightTestArgs,
@@ -45,73 +50,59 @@ export const test: UpgradeTest = base.extend<{ world: UpgradeWorld }>({
 
 const { Given, When, Then } = createBdd(test);
 
-function driverFor(page: PlaywrightTestArgs["page"]): UpgradeDriver {
-  return new UpgradeDriver(page);
-}
+const driver = new UpgradeDriver();
 
-Given("a clean repository fixture", async ({ page, world }) => {
+Given("a clean repository fixture", async ({ world }) => {
   delete world.lastRun;
-  await driverFor(page).resetFixture();
+  await driver.resetFixture();
 });
 
 Given(
   /^repository file "([^"]+)" contains "([^"]+)"$/,
-  async ({ page }, path: string, content: string) => {
-    await driverFor(page).writeRepositoryFile(path, content);
+  async ({}, path: string, content: string) => {
+    await driver.writeRepositoryFile(path, content);
   },
 );
 
 Given(
   /^repository file "([^"]+)" baseline is recorded$/,
-  async ({ page }, path: string) => {
-    await driverFor(page).recordBaseline(path);
+  async ({}, path: string) => {
+    await driver.recordBaseline(path);
   },
 );
 
 Given(
   /^an installed repository fixture snapshot "([^"]+)" with profile "([^"]+)" and integrations "([^"]+)"$/,
-  async (
-    { page },
-    snapshotLabel: string,
-    profile: string,
-    integrations: string,
-  ) => {
-    await driverFor(page).seedInstalledSnapshot(
-      snapshotLabel,
-      profile,
-      integrations,
-    );
+  async ({}, snapshotLabel: string, profile: string, integrations: string) => {
+    await driver.seedInstalledSnapshot(snapshotLabel, profile, integrations);
   },
 );
 
 Given(
   /^legacy standards path "([^"]+)" is marked as a migration concern$/,
-  async ({ page }, path: string) => {
-    await driverFor(page).markLegacyMigrationConcern(path);
+  async ({}, path: string) => {
+    await driver.markLegacyMigrationConcern(path);
   },
 );
 
 Given(
   /^repository snapshot "([^"]+)" is captured$/,
-  async ({ page }, label: string) => {
-    await driverFor(page).captureSnapshot(label);
+  async ({}, label: string) => {
+    await driver.captureSnapshot(label);
   },
 );
 
-When("tanren-cli upgrade preview runs", async ({ page, world }) => {
-  await driverFor(page).runUpgradePreview(world);
+When("tanren-cli upgrade preview runs", async ({ world }) => {
+  await driver.runUpgradePreview(world);
   if (world.lastRun) {
     world.lastPreviewId =
       extractPreviewIdFromStdout(world.lastRun.stdout) ?? undefined;
   }
 });
 
-When(
-  "tanren-cli upgrade apply runs with confirmation",
-  async ({ page, world }) => {
-    await driverFor(page).runUpgradeApply(world);
-  },
-);
+When("tanren-cli upgrade apply runs with confirmation", async ({ world }) => {
+  await driver.runUpgradeApply(world);
+});
 
 Then("the upgrade preview command succeeds", async ({ world }) => {
   assertUpgradePreviewSuccess(world);
@@ -154,49 +145,46 @@ Then(
   },
 );
 
-Then("no files are written in the repository fixture", async ({ page }) => {
-  await driverFor(page).assertNoWrites();
+Then("no files are written in the repository fixture", async ({}) => {
+  await driver.assertNoWrites();
 });
 
 Then(
   /^the repository matches snapshot "([^"]+)"$/,
-  async ({ page }, label: string) => {
-    await driverFor(page).assertMatchesSnapshot(label);
+  async ({}, label: string) => {
+    await driver.assertMatchesSnapshot(label);
   },
 );
 
 Then(
   /^repository file "([^"]+)" preserves its baseline content$/,
-  async ({ page }, path: string) => {
-    await driverFor(page).assertPreservesBaseline(path);
+  async ({}, path: string) => {
+    await driver.assertPreservesBaseline(path);
   },
 );
 
 Then(
   /^repository file "([^"]+)" is replaced from its baseline content$/,
-  async ({ page }, path: string) => {
-    await driverFor(page).assertReplacedFromBaseline(path);
+  async ({}, path: string) => {
+    await driver.assertReplacedFromBaseline(path);
   },
 );
 
-Then(
-  /^repository file "([^"]+)" does not exist$/,
-  async ({ page }, path: string) => {
-    await driverFor(page).assertFileMissing(path);
-  },
-);
+Then(/^repository file "([^"]+)" does not exist$/, async ({}, path: string) => {
+  await driver.assertFileMissing(path);
+});
 
 Then(
   /^repository file "([^"]+)" includes "([^"]+)"$/,
-  async ({ page }, path: string, content: string) => {
-    await driverFor(page).assertFileContains(path, content);
+  async ({}, path: string, content: string) => {
+    await driver.assertFileContains(path, content);
   },
 );
 
 Then(
   /^repository file "([^"]+)" does not include "([^"]+)"$/,
-  async ({ page }, path: string, content: string) => {
-    await driverFor(page).assertFileNotContains(path, content);
+  async ({}, path: string, content: string) => {
+    await driver.assertFileNotContains(path, content);
   },
 );
 

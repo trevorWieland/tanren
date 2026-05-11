@@ -1,5 +1,3 @@
-export type { UpgradeFixtureAction } from "./upgrade-actions";
-
 export type UpgradeApplyOutcomeLabel =
   | "applied"
   | "no_manifest_noop"

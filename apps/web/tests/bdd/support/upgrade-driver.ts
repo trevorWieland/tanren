@@ -1,37 +1,83 @@
-import { expect, type Page } from "@playwright/test";
+// Upgrade fixture driver — calls the test-hooks API directly from Node
+// instead of navigating to a browser witness page. The test-hook secret
+// (TANREN_TEST_HOOK_SECRET) is injected into the Playwright driver
+// process env by global-setup.ts and never projected into the Next.js
+// client bundle.
 
 import {
   type CommandResult,
   type FixtureActionName,
   type FixtureActionResult,
-  type UpgradeApplyOutcome,
   type UpgradeWorld,
 } from "./asset-fixture";
 
-const WITNESS_PATH = "/bdd-witness/upgrade-witness";
-const ACTION_LOCATOR = '[data-testid="upgrade-witness-action"]';
-const PAYLOAD_LOCATOR = '[data-testid="upgrade-witness-payload"]';
-const RUN_LOCATOR = '[data-testid="upgrade-witness-run"]';
-const OUTPUT_LOCATOR = '[data-testid="upgrade-witness-output"]';
+function apiUrl(): string {
+  const url = process.env["NEXT_PUBLIC_API_URL"];
+  if (!url) {
+    throw new Error("NEXT_PUBLIC_API_URL is not set");
+  }
+  return url;
+}
+
+function testHookHeaders(): Record<string, string> {
+  const secret = process.env["TANREN_TEST_HOOK_SECRET"];
+  const headers: Record<string, string> = {
+    "content-type": "application/json",
+  };
+  if (secret) {
+    headers["x-test-hook-secret"] = secret;
+  }
+  return headers;
+}
+
+async function execute(
+  action: FixtureActionName,
+  payload: unknown,
+): Promise<FixtureActionResult> {
+  const res = await fetch(`${apiUrl()}/test-hooks/upgrade-fixture/${action}`, {
+    method: "POST",
+    headers: testHookHeaders(),
+    body: JSON.stringify(payload),
+  });
+  if (!res.ok) {
+    const text = await res.text();
+    throw new Error(
+      `upgrade fixture action '${action}' failed: ${res.status} ${text}`,
+    );
+  }
+  const result = (await res.json()) as Partial<FixtureActionResult>;
+  if (result.ok !== true) {
+    throw new Error(
+      `upgrade fixture action '${action}' returned error: ${JSON.stringify(result)}`,
+    );
+  }
+  return result as FixtureActionResult;
+}
+
+function parseCommandResult(result: FixtureActionResult): CommandResult {
+  const stdout = expectString(result.stdout, "stdout");
+  const commandResult: CommandResult = {
+    stdout,
+    status: expectNumber(result.status, "status"),
+    success: expectBoolean(result.success, "success"),
+  };
+  if (result.apply_outcome) {
+    return { ...commandResult, applyOutcome: result.apply_outcome };
+  }
+  return commandResult;
+}
 
 export class UpgradeDriver {
-  readonly #page: Page;
-  #opened: boolean = false;
-
-  constructor(page: Page) {
-    this.#page = page;
-  }
-
   async resetFixture(): Promise<void> {
-    await this.execute("reset", {});
+    await execute("reset", {});
   }
 
   async writeRepositoryFile(path: string, content: string): Promise<void> {
-    await this.execute("write-file", { path, content });
+    await execute("write-file", { path, content });
   }
 
   async recordBaseline(path: string): Promise<void> {
-    await this.execute("record-baseline", { path });
+    await execute("record-baseline", { path });
   }
 
   async seedInstalledSnapshot(
@@ -39,7 +85,7 @@ export class UpgradeDriver {
     profile: string,
     integrations: string,
   ): Promise<void> {
-    await this.execute("seed-install", {
+    await execute("seed-install", {
       snapshot_label: snapshotLabel,
       profile,
       integrations,
@@ -47,110 +93,49 @@ export class UpgradeDriver {
   }
 
   async markLegacyMigrationConcern(path: string): Promise<void> {
-    await this.execute("mark-legacy-migration-concern", { path });
+    await execute("mark-legacy-migration-concern", { path });
   }
 
   async captureSnapshot(label: string): Promise<void> {
-    await this.execute("capture-snapshot", { label });
+    await execute("capture-snapshot", { label });
   }
 
   async runUpgradePreview(world: UpgradeWorld): Promise<void> {
-    world.lastRun = await this.executeCommand("run-upgrade-preview", {});
+    const result = await execute("run-upgrade-preview", {});
+    world.lastRun = parseCommandResult(result);
   }
 
   async runUpgradeApply(world: UpgradeWorld): Promise<void> {
-    world.lastRun = await this.executeCommand("run-upgrade-apply", {});
+    const result = await execute("run-upgrade-apply", {});
+    world.lastRun = parseCommandResult(result);
   }
 
   async assertNoWrites(): Promise<void> {
-    await this.execute("assert-no-writes", {});
+    await execute("assert-no-writes", {});
   }
 
   async assertMatchesSnapshot(label: string): Promise<void> {
-    await this.execute("assert-matches-snapshot", { label });
+    await execute("assert-matches-snapshot", { label });
   }
 
   async assertPreservesBaseline(path: string): Promise<void> {
-    await this.execute("assert-preserves-baseline", { path });
+    await execute("assert-preserves-baseline", { path });
   }
 
   async assertReplacedFromBaseline(path: string): Promise<void> {
-    await this.execute("assert-replaced-from-baseline", { path });
+    await execute("assert-replaced-from-baseline", { path });
   }
 
   async assertFileMissing(path: string): Promise<void> {
-    await this.execute("assert-file-missing", { path });
+    await execute("assert-file-missing", { path });
   }
 
   async assertFileContains(path: string, content: string): Promise<void> {
-    await this.execute("assert-file-contains", { path, content });
+    await execute("assert-file-contains", { path, content });
   }
 
   async assertFileNotContains(path: string, content: string): Promise<void> {
-    await this.execute("assert-file-not-contains", { path, content });
-  }
-
-  async openHarness(): Promise<void> {
-    if (this.#opened) return;
-    await this.#page.goto(WITNESS_PATH);
-    await expect(this.#page.locator(ACTION_LOCATOR)).toBeVisible();
-    this.#opened = true;
-  }
-
-  private async executeCommand(
-    action: FixtureActionName,
-    payload: unknown,
-  ): Promise<CommandResult> {
-    const result = await this.execute(action, payload);
-    const stdout = expectString(result.stdout, "stdout");
-    const commandResult: CommandResult = {
-      stdout,
-      status: expectNumber(result.status, "status"),
-      success: expectBoolean(result.success, "success"),
-    };
-    const structuredOutcome = parseStructuredApplyOutcome(result.apply_outcome);
-    if (structuredOutcome) {
-      return { ...commandResult, applyOutcome: structuredOutcome };
-    }
-    return commandResult;
-  }
-
-  private async execute(
-    action: FixtureActionName,
-    payload: unknown,
-  ): Promise<FixtureActionResult> {
-    await this.openHarness();
-
-    await this.#page.locator(ACTION_LOCATOR).selectOption(action);
-    await this.#page.locator(PAYLOAD_LOCATOR).fill(JSON.stringify(payload));
-
-    await this.#page.locator(RUN_LOCATOR).click();
-    await expect(this.#page.locator(RUN_LOCATOR)).toHaveText("run");
-
-    const outputRaw =
-      (await this.#page.locator(OUTPUT_LOCATOR).textContent())?.trim() ?? "";
-    if (outputRaw === "") {
-      throw new Error(
-        `upgrade witness action '${action}' returned empty output`,
-      );
-    }
-    let parsed: unknown;
-    try {
-      parsed = JSON.parse(outputRaw);
-    } catch (reason: unknown) {
-      throw new Error(
-        `upgrade witness action '${action}' returned non-JSON output: ${String(
-          reason,
-        )}\n${outputRaw}`,
-      );
-    }
-    const result = parsed as Partial<FixtureActionResult>;
-    if (result.ok !== true) {
-      throw new Error(
-        `upgrade witness action '${action}' failed: ${JSON.stringify(result)}`,
-      );
-    }
-    return result as FixtureActionResult;
+    await execute("assert-file-not-contains", { path, content });
   }
 }
 
@@ -173,10 +158,4 @@ function expectBoolean(value: unknown, label: string): boolean {
     throw new Error(`expected ${label} to be a boolean`);
   }
   return value;
-}
-
-function parseStructuredApplyOutcome(
-  outcome: UpgradeApplyOutcome | undefined,
-): UpgradeApplyOutcome | undefined {
-  return outcome;
 }

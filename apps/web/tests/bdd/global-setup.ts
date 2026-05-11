@@ -109,9 +109,9 @@ export default async function globalSetup(): Promise<void> {
     : null;
 
   // Generate a per-run secret shared between the API process and the
-  // Playwright driver. Never checked into files — lives in process
-  // memory and a transient `.env.local` entry for the Next.js dev
-  // server (cleaned up by global-teardown).
+  // Playwright driver process. Injected into the API subprocess env
+  // as TANREN_TEST_HOOK_SECRET and exposed to Playwright steps via
+  // process.env — never projected into the Next.js client bundle.
   const testHookSecret = randomBytes(32).toString("base64url");
 
   // If the caller already booted an API (e.g. `cargo run -p tanren-api`
@@ -122,11 +122,10 @@ export default async function globalSetup(): Promise<void> {
         "TANREN_BDD_EXTERNAL_API=true but NEXT_PUBLIC_API_URL is unset",
       );
     }
-    process.env["NEXT_PUBLIC_ENABLE_UPGRADE_WITNESS"] = "true";
-    process.env["NEXT_PUBLIC_TEST_HOOK_SECRET"] = testHookSecret;
+    process.env["TANREN_TEST_HOOK_SECRET"] = testHookSecret;
     writeFileSync(
       envLocalPath,
-      `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\nNEXT_PUBLIC_ENABLE_UPGRADE_WITNESS=true\nNEXT_PUBLIC_TEST_HOOK_SECRET=${testHookSecret}\n`,
+      `NEXT_PUBLIC_API_URL=${process.env["NEXT_PUBLIC_API_URL"]}\n`,
     );
     globalThis.__tanrenBddState = {
       apiProcess: null,
@@ -185,12 +184,8 @@ export default async function globalSetup(): Promise<void> {
   await waitForHealth(`${apiUrl}/health`, 180_000);
 
   process.env["NEXT_PUBLIC_API_URL"] = apiUrl;
-  process.env["NEXT_PUBLIC_ENABLE_UPGRADE_WITNESS"] = "true";
-  process.env["NEXT_PUBLIC_TEST_HOOK_SECRET"] = testHookSecret;
-  writeFileSync(
-    envLocalPath,
-    `NEXT_PUBLIC_API_URL=${apiUrl}\nNEXT_PUBLIC_ENABLE_UPGRADE_WITNESS=true\nNEXT_PUBLIC_TEST_HOOK_SECRET=${testHookSecret}\n`,
-  );
+  process.env["TANREN_TEST_HOOK_SECRET"] = testHookSecret;
+  writeFileSync(envLocalPath, `NEXT_PUBLIC_API_URL=${apiUrl}\n`);
 
   globalThis.__tanrenBddState = {
     apiProcess,
