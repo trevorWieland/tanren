@@ -1,8 +1,8 @@
 //! Organization command/response wire shapes.
 //!
 //! Request/response surface for the api, mcp, cli, tui, and web client
-//! when callers create organizations, list organizations, and check
-//! organization permissions.
+//! when callers create organizations, list organizations, check
+//! organization permissions, and list organization members.
 use chrono::{DateTime, Utc};
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -13,8 +13,19 @@ use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationName, OrganizationPermission,
     SessionToken, organization_capability,
 };
-use tanren_observation::{ClaimValueKind, CompletenessState, FreshnessState, VisibilityState};
 use utoipa::{IntoParams, ToSchema};
+
+pub mod freshness;
+pub mod member;
+
+pub use freshness::ReadModelFreshness;
+pub use member::{
+    GrantSource, LIST_ORGANIZATION_MEMBERS_DEFAULT_LIMIT, LIST_ORGANIZATION_MEMBERS_MAX_LIMIT,
+    ListOrganizationMembersApiPath, ListOrganizationMembersApiQuery,
+    ListOrganizationMembersRequest, ListOrganizationMembersResponse,
+    ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID, OrganizationMemberPermissionGrant,
+    OrganizationMemberView,
+};
 
 /// Create-organization request.
 #[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
@@ -382,31 +393,6 @@ pub struct OrganizationEventReference {
     pub occurred_at: DateTime<Utc>,
 }
 
-/// Freshness and provenance metadata for organization list read models.
-///
-/// Aligned with the Observation Claim Model (see
-/// docs/architecture/subsystems/observation.md).
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema, ToSchema)]
-pub struct ReadModelFreshness {
-    /// Logical projection/read-model name serving this response.
-    pub projection: String,
-    /// Projection checkpoint identifier when available.
-    pub checkpoint: Option<String>,
-    /// Response-generation timestamp from the read path.
-    pub generated_at: DateTime<Utc>,
-    /// Cursor associated with this read model page when available.
-    pub cursor: Option<String>,
-    /// Source subsystem that produced the underlying data.
-    pub source: String,
-    /// How the claim value was derived.
-    pub value_kind: ClaimValueKind,
-    /// Whether source data is complete, partial, or empty.
-    pub completeness: CompletenessState,
-    /// Whether the claim is fresh, stale, or unknown.
-    pub freshness_state: FreshnessState,
-    /// Visibility of this claim for the requesting actor.
-    pub visibility: VisibilityState,
-}
 /// Event family used for organization lifecycle events.
 pub const ORGANIZATION_EVENT_FAMILY: &str = "organization";
 /// Event kind for organization-creation events.
@@ -420,6 +406,9 @@ pub enum OrganizationBehaviorId {
     /// `B-0066` — Create an organization.
     #[serde(rename = "B-0066")]
     B0066CreateOrganization,
+    /// `B-0065` — List organization members.
+    #[serde(rename = "B-0065")]
+    B0065ListOrganizationMembers,
 }
 
 impl OrganizationBehaviorId {
@@ -428,6 +417,7 @@ impl OrganizationBehaviorId {
     pub const fn as_str(self) -> &'static str {
         match self {
             Self::B0066CreateOrganization => ORGANIZATION_CREATE_BEHAVIOR_ID,
+            Self::B0065ListOrganizationMembers => ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID,
         }
     }
 }
@@ -444,6 +434,7 @@ impl FromStr for OrganizationBehaviorId {
     fn from_str(value: &str) -> Result<Self, Self::Err> {
         match value {
             ORGANIZATION_CREATE_BEHAVIOR_ID => Ok(Self::B0066CreateOrganization),
+            ORGANIZATION_MEMBER_LIST_BEHAVIOR_ID => Ok(Self::B0065ListOrganizationMembers),
             _ => Err("unknown organization behavior id"),
         }
     }
