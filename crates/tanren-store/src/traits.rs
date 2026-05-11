@@ -28,19 +28,16 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use tanren_identity_policy::{
-    AccountId, Email, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId,
-    OrganizationName, OrganizationPermission, SessionToken,
+    AccountId, ApprovalPolicyId, ApprovalRule, Email, GatedAction, IdempotencyKey, Identifier,
+    InvitationToken, MembershipId, OrgId, OrganizationName, OrganizationPermission, SessionToken,
 };
 
 use crate::{
-    AccountRecord, EventEnvelope, InvitationRecord, NewAccount, OrganizationRecord, SessionRecord,
-    StoreError,
+    AccountRecord, ApprovalPolicyRecord, EventEnvelope, InvitationRecord, NewAccount,
+    OrganizationRecord, SessionRecord, StoreError,
 };
 
-/// Context the store passes back to the caller's event-builder so
-/// the caller can stamp the inviting org id (only known after the
-/// in-transaction `consume_invitation` step) into the success-path
-/// event payloads it owns.
+/// Event context passed from the store to the caller's event-builder.
 #[derive(Debug, Clone)]
 pub struct AcceptInvitationEventContext {
     /// The id of the freshly inserted account row.
@@ -56,20 +53,11 @@ pub struct AcceptInvitationEventContext {
     /// can carry the same instant as the row writes.
     pub now: DateTime<Utc>,
 }
-
-/// Closure the store invokes inside the transaction to build the
-/// success-path event envelopes. The store crate does not know the
-/// concrete event payload shape — that lives in `tanren-app-services`
-/// — so the caller hands in an event-builder closure and the store
-/// invokes it once it has computed the inviting-org id.
+/// Event-builder closure invoked inside the transaction.
 pub type AcceptInvitationEventsBuilder =
     Box<dyn FnOnce(&AcceptInvitationEventContext) -> Vec<serde_json::Value> + Send>;
 
-/// Input shape for [`AccountStore::accept_invitation_atomic`]. Bundles
-/// every input the atomic flow needs so the trait method runs as a
-/// single unit. The caller pre-derives the password PHC and the
-/// session token because the verifier and the CSPRNG live in the
-/// app-service layer, not in the store.
+/// Input for [`AccountStore::accept_invitation_atomic`].
 pub struct AcceptInvitationAtomicRequest {
     /// The invitation token the caller is trying to consume.
     pub token: InvitationToken,
@@ -95,7 +83,6 @@ pub struct AcceptInvitationAtomicRequest {
     /// [`AcceptInvitationEventsBuilder`].
     pub events_builder: AcceptInvitationEventsBuilder,
 }
-
 impl std::fmt::Debug for AcceptInvitationAtomicRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AcceptInvitationAtomicRequest")
@@ -107,7 +94,6 @@ impl std::fmt::Debug for AcceptInvitationAtomicRequest {
             .finish_non_exhaustive()
     }
 }
-
 /// Successful return from [`AccountStore::accept_invitation_atomic`].
 /// The store layer builds and appends the success-path events itself
 /// (it is the only layer that knows the inviting org id at envelope-
@@ -122,7 +108,6 @@ pub struct AcceptInvitationAtomicOutput {
     /// Organization the new account joined.
     pub joined_org: OrgId,
 }
-
 /// Failure taxonomy for [`AccountStore::accept_invitation_atomic`]. The
 /// app-service layer maps each variant to the matching
 /// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB
@@ -150,7 +135,6 @@ pub enum AcceptInvitationError {
     #[error(transparent)]
     Store(#[from] StoreError),
 }
-
 /// Context passed to create-organization success event builders.
 #[derive(Debug, Clone)]
 pub struct CreateOrganizationEventContext {
@@ -165,7 +149,6 @@ pub struct CreateOrganizationEventContext {
     /// Request timestamp threaded through all writes.
     pub now: DateTime<Utc>,
 }
-
 /// Closure invoked inside the organization-create transaction to build
 /// success-path event envelopes.
 pub type CreateOrganizationEventsBuilder =
@@ -188,7 +171,6 @@ pub struct CreateOrganizationAtomicRequest {
     /// Event payload builder invoked inside the transaction.
     pub events_builder: CreateOrganizationEventsBuilder,
 }
-
 impl std::fmt::Debug for CreateOrganizationAtomicRequest {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("CreateOrganizationAtomicRequest")
@@ -207,7 +189,6 @@ impl std::fmt::Debug for CreateOrganizationAtomicRequest {
             .finish_non_exhaustive()
     }
 }
-
 /// Successful return from [`AccountStore::create_organization_atomic`].
 #[derive(Debug, Clone)]
 pub struct CreateOrganizationAtomicOutput {
@@ -220,7 +201,6 @@ pub struct CreateOrganizationAtomicOutput {
     /// Event-log reference for the emitted `organization_created` event.
     pub source_event: Option<EventReference>,
 }
-
 /// Stable event-log reference captured from a transactional write path.
 #[derive(Debug, Clone)]
 pub struct EventReference {
@@ -229,7 +209,6 @@ pub struct EventReference {
     /// Event append timestamp.
     pub occurred_at: DateTime<Utc>,
 }
-
 /// Organization row plus account-scoped capability source metadata used
 /// by `list_organizations_for_account`.
 #[derive(Debug, Clone)]
@@ -241,7 +220,6 @@ pub struct ListedOrganizationRecord {
     /// Organization permissions granted to the requesting account.
     pub granted_permissions: Vec<OrganizationPermission>,
 }
-
 /// Failure taxonomy for [`AccountStore::create_organization_atomic`].
 #[derive(Debug, thiserror::Error)]
 pub enum CreateOrganizationError {
@@ -256,7 +234,6 @@ pub enum CreateOrganizationError {
     #[error(transparent)]
     Store(#[from] StoreError),
 }
-
 /// One page of organizations visible to an account.
 #[derive(Debug, Clone)]
 pub struct ListOrganizationsPage {
@@ -271,7 +248,6 @@ pub struct ListOrganizationsPage {
     /// Optional store-level cursor for this read page.
     pub cursor: Option<String>,
 }
-
 /// Enforceable guard used by leave/remove-member flows so they cannot
 /// orphan administrative organization permissions.
 #[derive(Debug, thiserror::Error)]
@@ -287,7 +263,6 @@ pub enum LastOrganizationAdminGuardError {
     #[error(transparent)]
     Store(#[from] StoreError),
 }
-
 /// Port the account-flow handlers consume. The SeaORM-backed adapter is
 /// `impl AccountStore for Store` (see `lib.rs`).
 #[async_trait]
@@ -297,7 +272,6 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         identifier: &Identifier,
     ) -> Result<Option<AccountRecord>, StoreError>;
-
     /// Look up an account by an [`Email`]. Equivalent to
     /// `find_account_by_identifier(&Identifier::from_email(email))`;
     /// kept on the trait so the email-driven sign-in path reads
@@ -307,10 +281,8 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         &self,
         email: &Email,
     ) -> Result<Option<AccountRecord>, StoreError>;
-
     /// Insert a new account row.
     async fn insert_account(&self, new: NewAccount) -> Result<AccountRecord, StoreError>;
-
     /// Insert a membership linking an account to an organization at the
     /// supplied instant.
     async fn insert_membership(
@@ -319,13 +291,11 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         org_id: OrgId,
         now: DateTime<Utc>,
     ) -> Result<MembershipId, StoreError>;
-
     /// Look up an invitation by token.
     async fn find_invitation_by_token(
         &self,
         token: &InvitationToken,
     ) -> Result<Option<InvitationRecord>, StoreError>;
-
     /// Atomically consume an invitation. Implementations issue a single
     /// conditional UPDATE filtered on `consumed_at IS NULL AND expires_at
     /// > now` and use a follow-up read to populate the return shape and
@@ -355,53 +325,31 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         token: &InvitationToken,
         now: DateTime<Utc>,
     ) -> Result<ConsumedInvitation, ConsumeInvitationError>;
-
-    /// Run the full invitation-acceptance flow as a single transaction:
-    /// consume the invitation, insert the account, link the membership,
-    /// insert the session, and append the success-path
-    /// `account_created` and `invitation_accepted` events. If any step
-    /// fails the transaction rolls back — the invitation row stays
-    /// pending so the user can retry.
-    ///
-    /// The caller pre-derives the password PHC, the session token, the
-    /// membership id and `now`. The implementation owns the inviting-
-    /// org id (it reads it from the consumed row) and stamps it onto
-    /// the inserted account, the membership, and the emitted events.
+    /// Run the full invitation-acceptance flow as one transaction:
+    /// consume invitation, insert account, link membership, insert
+    /// session, and append events. Rolls back on any failure.
     async fn accept_invitation_atomic(
         &self,
         request: AcceptInvitationAtomicRequest,
     ) -> Result<AcceptInvitationAtomicOutput, AcceptInvitationError>;
-
-    /// Run organization creation as one transaction: insert the
-    /// organization row, creator membership, all creator
-    /// organization-admin grants, and success-path events.
+    /// Run organization creation as one transaction.
     async fn create_organization_atomic(
         &self,
         request: CreateOrganizationAtomicRequest,
     ) -> Result<CreateOrganizationAtomicOutput, CreateOrganizationError>;
-
-    /// Check whether an account currently holds the supplied
-    /// organization-level permission.
-    ///
-    /// Implementations are expected to answer with a single
-    /// exists-style query that verifies both active membership and the
-    /// permission grant.
+    /// Check whether an account holds the given organization permission.
     async fn has_organization_permission(
         &self,
         account_id: AccountId,
         org_id: OrgId,
         permission: OrganizationPermission,
     ) -> Result<bool, StoreError>;
-
-    /// Guard future leave/remove-member flows by rejecting removal of
-    /// the final administrative permission holder for the
-    /// organization.
+    /// Guard against removing the last admin permission holder.
     async fn enforce_not_last_organization_admin_holder(
         &self,
         account_id: AccountId,
         org_id: OrgId,
     ) -> Result<(), LastOrganizationAdminGuardError>;
-
     /// Issue a session for the supplied account.
     async fn insert_session(
         &self,
@@ -410,15 +358,12 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         now: DateTime<Utc>,
         expires_at: DateTime<Utc>,
     ) -> Result<SessionRecord, StoreError>;
-
-    /// Look up a session by opaque token.
+    /// Look up a session by token.
     async fn find_session_by_token(
         &self,
         token: &SessionToken,
     ) -> Result<Option<SessionRecord>, StoreError>;
-
-    /// List organizations currently visible to an account through
-    /// membership rows.
+    /// List organizations visible to an account via memberships.
     async fn list_organizations_for_account(
         &self,
         account_id: AccountId,
@@ -426,19 +371,98 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
         cursor: Option<MembershipId>,
         now: DateTime<Utc>,
     ) -> Result<ListOrganizationsPage, StoreError>;
-
-    /// Append a payload to the canonical event log at the supplied
-    /// instant.
+    /// Append a payload to the canonical event log.
     async fn append_event(
         &self,
         payload: serde_json::Value,
         now: DateTime<Utc>,
     ) -> Result<EventEnvelope, StoreError>;
-
-    /// Read the most recent `limit` events, newest first.
+    /// Read the most recent `limit` events.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+    /// Create an approval policy atomically. Appends a canonical
+    /// `identity_policy.approval_policy_created` event envelope.
+    async fn create_approval_policy_atomic(
+        &self,
+        policy_id: ApprovalPolicyId,
+        org_id: OrgId,
+        gated_action: &GatedAction,
+        required_approvals: u16,
+        permitted_approver_permission: &str,
+        now: DateTime<Utc>,
+    ) -> Result<ApprovalPolicyRecord, ApprovalPolicyError>;
+    /// Update an approval policy with optimistic-concurrency control.
+    /// Appends a canonical `identity_policy.approval_policy_updated` event envelope.
+    async fn update_approval_policy_atomic(
+        &self,
+        policy_id: ApprovalPolicyId,
+        org_id: OrgId,
+        required_approvals: u16,
+        permitted_approver_permission: &str,
+        expected_version: u16,
+        now: DateTime<Utc>,
+    ) -> Result<ApprovalPolicyRecord, ApprovalPolicyError>;
+    /// Delete an approval policy. Appends a canonical
+    /// `identity_policy.approval_policy_deleted` event envelope.
+    async fn delete_approval_policy(
+        &self,
+        policy_id: ApprovalPolicyId,
+        org_id: OrgId,
+        expected_version: u16,
+        now: DateTime<Utc>,
+    ) -> Result<(), ApprovalPolicyError>;
+    /// Look up the approval rule for a gated action. Returns `None`
+    /// when no policy exists. Single keyed read, no full-table scan.
+    async fn find_required_approval_for_action(
+        &self,
+        org_id: OrgId,
+        action: &GatedAction,
+    ) -> Result<Option<ApprovalRule>, StoreError>;
+    /// List approval policies for an org, paginated with limit and cursor.
+    async fn list_approval_policies(
+        &self,
+        request: ListApprovalPoliciesRequest,
+    ) -> Result<ApprovalPolicyPage, StoreError>;
 }
-
+/// Failure taxonomy for approval-policy mutation operations.
+#[derive(Debug, thiserror::Error)]
+pub enum ApprovalPolicyError {
+    /// No approval policy matches the supplied identifier.
+    #[error("approval policy not found")]
+    NotFound,
+    /// The supplied version does not match the stored version
+    /// (optimistic-concurrency conflict).
+    #[error("version conflict: expected {expected}, actual {actual}")]
+    VersionConflict {
+        /// Version the caller expected.
+        expected: u16,
+        /// Version actually stored.
+        actual: u16,
+    },
+    /// A policy already exists for this `(org_id, gated_action)` pair.
+    #[error("approval policy already exists for this action")]
+    IdempotencyConflict,
+    /// Unexpected database failure.
+    #[error(transparent)]
+    Store(#[from] StoreError),
+}
+/// Paginated request for listing approval policies within an org.
+#[derive(Debug, Clone)]
+pub struct ListApprovalPoliciesRequest {
+    /// Organization whose policies to enumerate.
+    pub org_id: OrgId,
+    /// Maximum number of rows to return.
+    pub limit: u64,
+    /// Opaque cursor from a previous page's `next_cursor`.
+    pub cursor: Option<ApprovalPolicyId>,
+}
+/// One page of approval policies.
+#[derive(Debug, Clone)]
+pub struct ApprovalPolicyPage {
+    /// Policies in this page.
+    pub policies: Vec<ApprovalPolicyRecord>,
+    /// Opaque cursor for the next page, if more rows remain.
+    pub next_cursor: Option<ApprovalPolicyId>,
+}
 /// Successful return from [`AccountStore::consume_invitation`].
 #[derive(Debug, Clone)]
 pub struct ConsumedInvitation {
@@ -449,7 +473,6 @@ pub struct ConsumedInvitation {
     /// Wall-clock time the invitation was consumed (the `now` passed in).
     pub consumed_at: DateTime<Utc>,
 }
-
 /// Failure taxonomy for [`AccountStore::consume_invitation`]. The
 /// app-service layer maps each variant to the matching
 /// `AccountFailureReason`; the `Store` variant carries non-taxonomy DB

@@ -70,7 +70,6 @@ impl std::fmt::Display for AccountId {
         self.0.fmt(f)
     }
 }
-
 /// Stable identifier for a Tanren organization.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
@@ -114,7 +113,6 @@ impl std::fmt::Display for OrgId {
         self.0.fmt(f)
     }
 }
-
 /// Stable identifier for a membership row (links an account to an org).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
@@ -158,7 +156,6 @@ impl std::fmt::Display for MembershipId {
         self.0.fmt(f)
     }
 }
-
 /// Validated email address. Constructed via [`Email::parse`] which:
 /// trims surrounding whitespace, validates against RFC 5322 syntax via
 /// the [`email_validator_rfc5322`] crate (RFC 5321 length limits +
@@ -237,7 +234,6 @@ impl std::fmt::Display for Email {
         f.write_str(&self.0)
     }
 }
-
 /// User-facing identifier for an account. R-0001's chosen mechanism is
 /// identifier+password where the identifier is the canonical email; the
 /// type wraps the raw string so future mechanisms can lift constraints
@@ -299,7 +295,6 @@ impl std::fmt::Display for Identifier {
         f.write_str(&self.0)
     }
 }
-
 /// Minimum byte length of a valid invitation token.
 const INVITATION_TOKEN_MIN_LEN: usize = 16;
 
@@ -360,7 +355,6 @@ impl std::fmt::Display for InvitationToken {
         f.write_str(&self.0)
     }
 }
-
 /// A Tanren account. `org` is `None` for self-signed-up personal accounts;
 /// invitation-based accounts carry the inviting `OrgId`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -374,7 +368,6 @@ pub struct Account {
     /// Owning organization — `None` for personal accounts (self-signup).
     pub org: Option<OrgId>,
 }
-
 /// A pending invitation seeded by R-0005's invite flow (or by
 /// `tanren-testkit` fixtures during R-0001 BDD). Carries the invitee's
 /// destination organization plus expiry / consumption state.
@@ -389,7 +382,6 @@ pub struct Invitation {
     /// Set when the invitation has been accepted (or revoked).
     pub consumed_at: Option<DateTime<Utc>>,
 }
-
 /// An identifier+password credential pair as supplied by the caller.
 /// Hashing is the responsibility of the [`CredentialVerifier`] impl.
 #[derive(Debug, Clone)]
@@ -401,7 +393,6 @@ pub struct PasswordCredential {
     /// `CredentialVerifier`.
     pub password: SecretString,
 }
-
 /// A bounded session held by an authenticated account or service identity.
 #[derive(Debug, Clone)]
 pub struct Session {
@@ -410,7 +401,6 @@ pub struct Session {
     /// Opaque session token.
     pub token: SessionToken,
 }
-
 /// Hashes and verifies a plaintext password against a stored PHC string.
 ///
 /// Mechanism (Argon2id today; potentially OIDC introspection or hardware-
@@ -436,7 +426,6 @@ pub trait CredentialVerifier: Send + Sync + std::fmt::Debug {
     /// when the stored hash string is malformed.
     fn verify(&self, password: &SecretString, stored: &str) -> Result<(), IdentityError>;
 }
-
 /// Errors raised by identity-policy operations.
 #[derive(Debug, Error)]
 #[non_exhaustive]
@@ -497,4 +486,11 @@ pub enum ValidationError {
     /// The supplied organization name did not satisfy naming rules.
     #[error("organization name is malformed")]
     OrganizationNameMalformed,
+    /// The supplied gated action was empty or malformed.
+    #[error("gated action is empty")]
+    GatedActionEmpty,
+    #[error("gated action is malformed")]
+    GatedActionMalformed,
 }
+mod approval_policy;
+pub use approval_policy::{ApprovalPolicyId, ApprovalRule, GatedAction};

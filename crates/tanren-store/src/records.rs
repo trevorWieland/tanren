@@ -9,8 +9,8 @@ use chrono::{DateTime, Utc};
 use secrecy::SecretString;
 use serde::{Deserialize, Serialize};
 use tanren_identity_policy::{
-    AccountId, IdempotencyKey, Identifier, InvitationToken, MembershipId, OrgId, OrganizationName,
-    OrganizationPermission, SessionToken,
+    AccountId, ApprovalPolicyId, GatedAction, IdempotencyKey, Identifier, InvitationToken,
+    MembershipId, OrgId, OrganizationName, OrganizationPermission, SessionToken, ValidationError,
 };
 
 use crate::entity;
@@ -259,4 +259,56 @@ pub struct NewInvitation {
     pub inviting_org_id: OrgId,
     /// Expiry instant.
     pub expires_at: DateTime<Utc>,
+}
+
+/// Persisted approval-policy row — gates an organization action behind
+/// required approvals from members holding a specific permission.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ApprovalPolicyRecord {
+    /// Stable policy row id.
+    pub id: ApprovalPolicyId,
+    /// Organization that owns this policy.
+    pub org_id: OrgId,
+    /// The action gated by this policy.
+    pub gated_action: GatedAction,
+    /// Number of distinct approvals required (> 0).
+    pub required_approvals: u16,
+    /// Permission an approver must hold to satisfy this gate.
+    pub permitted_approver_permission: String,
+    /// Optimistic-concurrency version — incremented on each update.
+    pub version: u16,
+    /// Wall-clock time the policy was created.
+    pub created_at: DateTime<Utc>,
+    /// Wall-clock time the policy was last updated.
+    pub updated_at: DateTime<Utc>,
+}
+
+impl TryFrom<entity::approval_policies::Model> for ApprovalPolicyRecord {
+    type Error = StoreError;
+
+    fn try_from(model: entity::approval_policies::Model) -> Result<Self, Self::Error> {
+        let gated_action =
+            GatedAction::parse(&model.gated_action).map_err(|err| StoreError::DataInvariant {
+                column: "gated_action",
+                cause: err,
+            })?;
+        Ok(Self {
+            id: ApprovalPolicyId::new(model.id),
+            org_id: OrgId::new(model.org_id),
+            gated_action,
+            required_approvals: u16::try_from(model.required_approvals).map_err(|_| {
+                StoreError::DataInvariant {
+                    column: "required_approvals",
+                    cause: ValidationError::GatedActionEmpty,
+                }
+            })?,
+            permitted_approver_permission: model.permitted_approver_permission,
+            version: u16::try_from(model.version).map_err(|_| StoreError::DataInvariant {
+                column: "version",
+                cause: ValidationError::GatedActionEmpty,
+            })?,
+            created_at: model.created_at,
+            updated_at: model.updated_at,
+        })
+    }
 }
