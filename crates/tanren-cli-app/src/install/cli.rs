@@ -7,9 +7,7 @@ use clap::Args;
 
 use crate::install::error::{InstallCommandError, InstallDriftCommandError};
 use crate::install::manifest::RepoRelativePath;
-use crate::install::{
-    InstallDriftReport, InstallDriftStatus, InstallReport, apply_install, check_install_drift,
-};
+use crate::install::{InstallDriftReport, InstallReport, apply_install, check_install_drift};
 
 /// `tanren-cli install` arguments.
 #[derive(Debug, Clone, Args)]
@@ -124,17 +122,10 @@ impl DriftCommand {
         // Stream per-detail records in a single pass over entries — no
         // intermediate DriftSummary Vec<RepoRelativePath> allocations.
         for entry in report.entries() {
-            let detail_status = match entry.status() {
-                InstallDriftStatus::ChangedGeneratedAsset => "changed_generated",
-                InstallDriftStatus::MissingGeneratedAsset => "missing_generated",
-                InstallDriftStatus::MissingPreservedStandard => "missing_preserved",
-                InstallDriftStatus::AcceptedPreservedEdit => "accepted_preserved",
-                InstallDriftStatus::Clean => "clean",
-            };
             writeln!(
                 handle,
                 "detail status={} path={}",
-                detail_status,
+                entry.status().to_label(),
                 entry.path().as_str(),
             )
             .map_err(|source| InstallDriftCommandError::StdoutWriteFailure { source })?;

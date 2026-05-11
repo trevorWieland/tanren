@@ -17,8 +17,7 @@ mod writer;
 mod writer_tx;
 
 pub use cli::{DriftCommand, InstallCommand};
-pub use drift::InstallDriftReport;
-pub use drift::InstallDriftStatus;
+pub use drift::{DiskState, DriftAssetState, InstallDriftReport, InstallDriftStatus};
 pub use error::{InstallDriftCommandError, InstallDriftError, InstallError};
 #[cfg(feature = "test-hooks")]
 pub use manifest::RepoRelativePath;
