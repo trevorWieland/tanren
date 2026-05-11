@@ -77,6 +77,7 @@ impl ApiHarness {
             vec![cors_origin],
             false,
             Arc::new(fixture_source_control.clone()),
+            fixture_source_control.clone(),
         )
         .await
         .map_err(|e| HarnessError::Transport(format!("build app: {e}")))?;

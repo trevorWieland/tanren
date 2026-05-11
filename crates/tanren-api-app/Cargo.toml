@@ -28,6 +28,7 @@ chrono = { workspace = true }
 secrecy = { workspace = true }
 serde = { workspace = true }
 sqlx = { workspace = true }
+sea-orm = { workspace = true }
 tanren-app-services = { path = "../tanren-app-services" }
 tanren-contract = { path = "../tanren-contract" }
 tanren-identity-policy = { path = "../tanren-identity-policy" }

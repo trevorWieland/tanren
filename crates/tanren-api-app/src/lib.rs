@@ -267,13 +267,14 @@ pub async fn serve(config: Config) -> Result<()> {
 /// # Errors
 ///
 /// Returns an error if the cookie session-store migrations fail.
-#[cfg(any(test, feature = "test-hooks"))]
+#[cfg(feature = "test-hooks")]
 pub async fn build_app_with_store(
     store: Arc<Store>,
     cookie_database_url: &str,
     cors_allow_origins: Vec<HeaderValue>,
     secure_cookie: bool,
     source_control: Arc<dyn SourceControlProvider>,
+    fixture_source_control: FixtureSourceControlProvider,
 ) -> Result<axum::Router> {
     let state = AppState {
         handlers: Handlers::new(),
@@ -306,7 +307,10 @@ pub async fn build_app_with_store(
 
     let merged = router
         .merge(openapi_router)
-        .merge(test_hooks::router(store))
+        .merge(test_hooks::router_with_source_control(
+            store,
+            fixture_source_control,
+        ))
         .layer(cors);
     let with_sessions: axum::Router = match layer {
         SessionLayerEnum::Sqlite(l) => merged.layer(l),
