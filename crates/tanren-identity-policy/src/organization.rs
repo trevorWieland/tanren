@@ -94,7 +94,7 @@ impl std::fmt::Display for OrganizationName {
 /// The value is preserved except for surrounding whitespace trimming.
 /// Keys are bounded to 128 chars and cannot contain ASCII control
 /// characters.
-#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
+#[derive(Clone, PartialEq, Eq, Hash, Serialize, JsonSchema, ToSchema)]
 #[serde(transparent)]
 #[schema(value_type = String, pattern = "^[^\\x00-\\x1F\\x7F]+$")]
 pub struct IdempotencyKey(String);
@@ -146,6 +146,12 @@ impl<'de> Deserialize<'de> for IdempotencyKey {
 impl std::fmt::Display for IdempotencyKey {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.0)
+    }
+}
+
+impl std::fmt::Debug for IdempotencyKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("IdempotencyKey(<redacted>)")
     }
 }
 

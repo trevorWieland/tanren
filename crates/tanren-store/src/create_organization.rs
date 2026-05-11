@@ -1,10 +1,15 @@
 //! `SeaORM`-backed implementation of atomic organization creation.
 //! Keeps `lib.rs` below the workspace file-size budget.
 
+use chrono::{DateTime, Utc};
+
+use base64::Engine as _;
+use base64::engine::general_purpose::URL_SAFE_NO_PAD;
 use sea_orm::{
     ActiveModelTrait, ColumnTrait, DatabaseConnection, DatabaseTransaction, EntityTrait,
     QueryFilter, QuerySelect, QueryTrait, Set, TransactionTrait,
 };
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use tanren_identity_policy::{
     AccountId, IdempotencyKey, MembershipId, OrgId, OrganizationPermission,
@@ -23,7 +28,7 @@ use crate::{
 };
 
 const ORG_CREATE_IDEMPOTENCY_FINGERPRINT_VERSION: u8 = 1;
-const ORG_CREATE_IDEMPOTENCY_COMMAND: &str = "organization_create";
+const ORG_CREATE_IDEMPOTENCY_COMMAND: &str = "organization_create:v2:sha256";
 
 pub(crate) async fn run(
     conn: &DatabaseConnection,
@@ -200,7 +205,7 @@ async fn insert_organization_in_txn(
     organization_id: OrgId,
     name: &tanren_identity_policy::OrganizationName,
     creator_account_id: AccountId,
-    now: chrono::DateTime<chrono::Utc>,
+    now: DateTime<Utc>,
 ) -> Result<OrganizationRecord, CreateOrganizationError> {
     let model = entity::organizations::ActiveModel {
         id: Set(organization_id.as_uuid()),
@@ -232,7 +237,7 @@ async fn insert_idempotency_claim_in_txn(
     organization_id: OrgId,
     organization_name: &tanren_identity_policy::OrganizationName,
     request_fingerprint: &str,
-    now: chrono::DateTime<chrono::Utc>,
+    now: DateTime<Utc>,
 ) -> Result<(), CreateOrganizationError> {
     let model = entity::organization_create_idempotency::ActiveModel {
         account_id: Set(account_id.as_uuid()),
@@ -260,11 +265,28 @@ fn build_request_fingerprint(
     account_id: AccountId,
     name: &tanren_identity_policy::OrganizationName,
 ) -> String {
-    format!(
-        "v{ORG_CREATE_IDEMPOTENCY_FINGERPRINT_VERSION}|command={ORG_CREATE_IDEMPOTENCY_COMMAND}|account_id={}|name={}",
-        account_id.as_uuid(),
-        name.as_str()
-    )
+    // Length-delimited fields fed into SHA-256 so the digest is
+    // deterministic, fixed-length, and not reversible.
+    let command = ORG_CREATE_IDEMPOTENCY_COMMAND;
+    let account_uuid = account_id.as_uuid();
+    let account_bytes = account_uuid.as_bytes();
+    let name_bytes = name.as_str().as_bytes();
+
+    let mut hasher = Sha256::new();
+    // Version prefix ensures domain separation across schema changes.
+    hasher.update(u32::from(ORG_CREATE_IDEMPOTENCY_FINGERPRINT_VERSION).to_le_bytes());
+    // Length-delimited command tag.
+    hasher.update((command.len() as u64).to_le_bytes());
+    hasher.update(command.as_bytes());
+    // Length-delimited account id.
+    hasher.update((account_bytes.len() as u64).to_le_bytes());
+    hasher.update(account_bytes);
+    // Length-delimited organization name.
+    hasher.update((name_bytes.len() as u64).to_le_bytes());
+    hasher.update(name_bytes);
+
+    let digest = hasher.finalize();
+    URL_SAFE_NO_PAD.encode(digest)
 }
 
 async fn insert_creator_membership_in_txn(
@@ -272,7 +294,7 @@ async fn insert_creator_membership_in_txn(
     membership_id: MembershipId,
     creator_account_id: AccountId,
     organization_id: OrgId,
-    now: chrono::DateTime<chrono::Utc>,
+    now: DateTime<Utc>,
 ) -> Result<(), CreateOrganizationError> {
     let model = entity::memberships::ActiveModel {
         id: Set(membership_id.as_uuid()),
@@ -288,7 +310,7 @@ async fn insert_creator_admin_grants_in_txn(
     txn: &DatabaseTransaction,
     creator_account_id: AccountId,
     organization_id: OrgId,
-    now: chrono::DateTime<chrono::Utc>,
+    now: DateTime<Utc>,
 ) -> Result<Vec<OrganizationPermission>, CreateOrganizationError> {
     let grant_models: Vec<entity::organization_permission_grants::ActiveModel> =
         OrganizationPermission::ALL
@@ -456,4 +478,15 @@ fn map_transaction_error(
         }
         sea_orm::TransactionError::Transaction(inner) => inner,
     }
+}
+
+pub(crate) async fn delete_expired_idempotency_records(
+    conn: &DatabaseConnection,
+    cutoff: DateTime<Utc>,
+) -> Result<u64, StoreError> {
+    let result = entity::organization_create_idempotency::Entity::delete_many()
+        .filter(entity::organization_create_idempotency::Column::CreatedAt.lt(cutoff))
+        .exec(conn)
+        .await?;
+    Ok(result.rows_affected)
 }

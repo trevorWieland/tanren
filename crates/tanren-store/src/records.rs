@@ -137,7 +137,7 @@ impl TryFrom<entity::organizations::Model> for OrganizationRecord {
 }
 
 /// Persisted organization-create idempotency record.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationCreateIdempotencyRecord {
     /// Account that issued the create request.
     pub account_id: AccountId,
@@ -172,6 +172,18 @@ impl TryFrom<entity::organization_create_idempotency::Model>
     }
 }
 
+impl std::fmt::Debug for OrganizationCreateIdempotencyRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("OrganizationCreateIdempotencyRecord")
+            .field("account_id", &self.account_id)
+            .field("key", &self.key)
+            .field("organization_id", &self.organization_id)
+            .field("organization_name", &self.organization_name)
+            .field("request_fingerprint", &"<redacted>")
+            .field("created_at", &self.created_at)
+            .finish()
+    }
+}
 /// Persisted organization-level permission grant row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct OrganizationPermissionGrantRecord {

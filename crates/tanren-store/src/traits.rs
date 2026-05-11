@@ -202,7 +202,7 @@ impl std::fmt::Debug for CreateOrganizationAtomicRequest {
                 &self
                     .idempotency_key
                     .as_ref()
-                    .map_or("<none>", IdempotencyKey::as_str),
+                    .map_or("<none>", |_| "<redacted>"),
             )
             .finish_non_exhaustive()
     }
@@ -437,6 +437,17 @@ pub trait AccountStore: Send + Sync + std::fmt::Debug {
 
     /// Read the most recent `limit` events, newest first.
     async fn recent_events(&self, limit: u64) -> Result<Vec<EventEnvelope>, StoreError>;
+
+    /// Remove organization-create idempotency records whose
+    /// `created_at` is older than `cutoff`. Uses the
+    /// `idx_org_create_idempotency_created_at` index so the scan
+    /// stays bounded.
+    ///
+    /// Returns the number of rows deleted.
+    async fn delete_expired_organization_create_idempotency(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> Result<u64, StoreError>;
 }
 
 /// Successful return from [`AccountStore::consume_invitation`].

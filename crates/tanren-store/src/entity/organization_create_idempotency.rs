@@ -2,7 +2,7 @@
 
 use sea_orm::entity::prelude::*;
 
-#[derive(Clone, Debug, PartialEq, Eq, DeriveEntityModel)]
+#[derive(Clone, PartialEq, Eq, DeriveEntityModel)]
 #[sea_orm(table_name = "organization_create_idempotency")]
 pub struct Model {
     #[sea_orm(primary_key, auto_increment = false)]
@@ -13,6 +13,19 @@ pub struct Model {
     pub organization_name: String,
     pub request_fingerprint: String,
     pub created_at: DateTimeUtc,
+}
+
+impl std::fmt::Debug for Model {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("organization_create_idempotency::Model")
+            .field("account_id", &self.account_id)
+            .field("key", &"<redacted>")
+            .field("organization_id", &self.organization_id)
+            .field("organization_name", &self.organization_name)
+            .field("request_fingerprint", &"<redacted>")
+            .field("created_at", &self.created_at)
+            .finish()
+    }
 }
 
 #[derive(Copy, Clone, Debug, EnumIter, DeriveRelation)]

@@ -361,6 +361,13 @@ impl AccountStore for Store {
             .await?;
         Ok(rows.into_iter().map(EventEnvelope::from).collect())
     }
+
+    async fn delete_expired_organization_create_idempotency(
+        &self,
+        cutoff: DateTime<Utc>,
+    ) -> Result<u64, StoreError> {
+        create_organization::delete_expired_idempotency_records(&self.conn, cutoff).await
+    }
 }
 
 /// Test-only fixture seeders. Gated behind the `test-hooks` Cargo feature
